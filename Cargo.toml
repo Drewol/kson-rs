@@ -1,0 +1,11 @@
+[package]
+name="usc-editor"
+version="0.1.0"
+
+[dependencies]
+ggez = "0.5.1"
+imgui = "0.2.1"
+imgui-gfx-renderer = "0.2.0"
+nfd = "0.0.4"
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
