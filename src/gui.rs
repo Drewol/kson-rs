@@ -184,4 +184,12 @@ impl ImGuiWrapper {
     pub fn open_popup(&mut self) {
         self.show_popup = true;
     }
+
+    pub fn captures_mouse(&self) -> bool {
+        self.imgui.io().want_capture_mouse
+    }
+
+    pub fn captures_key(&self) -> bool {
+        self.imgui.io().want_capture_keyboard
+    }
 }

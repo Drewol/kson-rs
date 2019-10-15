@@ -25,6 +25,8 @@ struct MainState {
     track_width: f64,
     imgui_wrapper: ImGuiWrapper,
     save_path: Option<String>,
+    top_margin: f32,
+    bottom_margin: f32,
 }
 
 impl MainState {
@@ -38,16 +40,23 @@ impl MainState {
             track_width: 72.0,
             imgui_wrapper: ImGuiWrapper::new(ctx),
             save_path: None,
+            top_margin: 50.0,
+            bottom_margin: 10.0,
         };
         Ok(s)
     }
 
     fn tick_to_pos(&self, in_y: u32) -> (f64, f64) {
+        let h = self.chart_draw_height();
         let tick = in_y as f64;
-        let x = round::floor((tick * self.tick_height) / self.h as f64, 0) * self.track_width * 2.0;
-        let y = ((tick * self.tick_height) as f64) % self.h as f64;
-        let y = self.h as f64 - y;
+        let x = round::floor((tick * self.tick_height) / h as f64, 0) * self.track_width * 2.0;
+        let y = ((tick * self.tick_height) as f64) % h as f64;
+        let y = h as f64 - y + self.top_margin as f64;
         (x, y)
+    }
+
+    fn chart_draw_height(&self) -> f32 {
+        self.h - (self.bottom_margin + self.top_margin)
     }
 }
 
@@ -69,6 +78,7 @@ impl event::EventHandler for MainState {
                             Some(new_path) => self.save_path = Some(new_path),
                             None => (),
                         },
+                        GuiEvent::Exit => _ctx.continuing = false,
                         _ => (),
                     },
                     None => break,
@@ -86,16 +96,16 @@ impl event::EventHandler for MainState {
         //draw chart
         {
             graphics::clear(ctx, graphics::BLACK);
-
+            let chart_draw_height = self.chart_draw_height();
             //draw track
             let track = graphics::Mesh::new_rectangle(
                 ctx,
                 graphics::DrawMode::fill(),
                 graphics::Rect {
                     x: 0.0,
-                    y: 0.0,
+                    y: self.top_margin,
                     w: self.track_width as f32,
-                    h: self.h,
+                    h: chart_draw_height,
                 },
                 [0.2, 0.2, 0.2, 1.0].into(),
             )?;
@@ -122,17 +132,6 @@ impl event::EventHandler for MainState {
             }
             if any_bt {
                 let note_builder = &mut graphics::MeshBuilder::new();
-                let note = graphics::Mesh::new_rectangle(
-                    ctx,
-                    graphics::DrawMode::fill(),
-                    graphics::Rect {
-                        x: self.track_width as f32 / 2.0,
-                        y: 0.0,
-                        w: self.track_width as f32 / 6.0 - 2.0,
-                        h: -2.0,
-                    },
-                    graphics::WHITE,
-                )?;
                 for i in 0..4 {
                     for n in &self.chart.note.bt[i] {
                         if n.l == 0 {
@@ -166,21 +165,22 @@ impl event::EventHandler for MainState {
             self.imgui_wrapper.render(ctx, 1.0);
         }
         graphics::present(ctx)?;
-        println!("{}fps", ggez::timer::fps(ctx));
         self.redraw = false;
         Ok(())
     }
     fn mouse_button_down_event(&mut self, ctx: &mut Context, button: MouseButton, x: f32, y: f32) {
-        self.redraw = true;
-        let data = serde_json::to_string(&self.chart).unwrap();
-        println!("Serialized = {}", data);
-
         //update imgui
         self.imgui_wrapper.update_mouse_down((
             button == MouseButton::Left,
             button == MouseButton::Right,
             button == MouseButton::Middle,
         ));
+
+        if !self.imgui_wrapper.captures_mouse() {
+            self.redraw = true;
+            let data = serde_json::to_string(&self.chart).unwrap();
+            println!("Serialized = {}", data);
+        }
     }
 
     fn mouse_button_up_event(
@@ -206,7 +206,8 @@ impl event::EventHandler for MainState {
         );
         self.w = w;
         self.h = h;
-        self.tick_height = h as f64 / (self.chart.beat.resolution as f64 * 16.0);
+        self.tick_height =
+            self.chart_draw_height() as f64 / (self.chart.beat.resolution as f64 * 16.0);
     }
 
     fn key_down_event(
