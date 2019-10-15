@@ -13,7 +13,6 @@ use ggez::{Context, GameResult};
 use math::round;
 use nfd::Response;
 mod chart;
-use std::cmp::{max, min};
 use std::fs::File;
 use std::io::prelude::*;
 
@@ -29,6 +28,8 @@ struct MainState {
     top_margin: f32,
     bottom_margin: f32,
     beats_per_col: u32,
+    mouse_x: f32,
+    mouse_y: f32,
 }
 
 impl MainState {
@@ -45,6 +46,8 @@ impl MainState {
             top_margin: 60.0,
             bottom_margin: 10.0,
             beats_per_col: 16,
+            mouse_x: 0.0,
+            mouse_y: 0.0,
         };
         Ok(s)
     }
@@ -70,6 +73,30 @@ impl MainState {
             (y as f64 + x) * self.beats_per_col as f64 * self.chart.beat.resolution as f64,
             0,
         ) as u32
+    }
+
+    fn pos_to_lane(&self, in_x: f32) -> u32 {
+        let mut x = in_x % (self.track_width as f32 * 2.0);
+        x = ((x - self.track_width as f32 / 2.0).max(0.0) / self.track_width as f32).min(1.0);
+        (x * 6.0).min(5.0) as u32
+    }
+
+    fn place_bt(&mut self, x: f32, y: f32) {
+        let lane = (self.pos_to_lane(x).min(4).max(1) - 1) as usize;
+        let mut tick = self.pos_to_tick(x, y);
+        tick = tick - (tick % (self.chart.beat.resolution / 2));
+        let mut index: usize = 0;
+
+        for (i, note) in self.chart.note.bt[lane].iter().enumerate() {
+            if note.y == tick {
+                return;
+            }
+            if tick < note.y {
+                break;
+            }
+            index = i;
+        }
+        self.chart.note.bt[lane].insert(index, chart::Interval { y: tick, l: 0 });
     }
 }
 
@@ -152,6 +179,7 @@ impl event::EventHandler for MainState {
                             if x > self.w as f64 + self.track_width * 2.0 {
                                 break;
                             }
+
                             let x = (x + (i + 1) as f64 * self.track_width / 6.0) as f32 - 1.0
                                 + self.track_width as f32 / 2.0;
                             let y = y as f32;
@@ -167,9 +195,30 @@ impl event::EventHandler for MainState {
                         }
                     }
                 }
-
                 let note_mesh = note_builder.build(ctx).unwrap();
                 graphics::draw(ctx, &note_mesh, (na::Point2::new(0.0, 0.0),))?;
+            }
+
+            if self.imgui_wrapper.selected_tool == gui::ChartTool::BT
+                && !self.imgui_wrapper.captures_mouse()
+            {
+                let mut tick = self.pos_to_tick(self.mouse_x, self.mouse_y);
+                tick = tick - (tick % (self.chart.beat.resolution / 2));
+                let (x, y) = self.tick_to_pos(tick);
+                let lane = self.pos_to_lane(self.mouse_x).min(4).max(1);
+                let x = (x + lane as f64 * self.track_width / 6.0) as f32 - 1.0
+                    + self.track_width as f32 / 2.0;
+                let y = y as f32;
+                let w = self.track_width as f32 / 6.0 - 2.0;
+                let h = -2.0;
+                let bt_cursor = graphics::Mesh::new_rectangle(
+                    ctx,
+                    graphics::DrawMode::fill(),
+                    [x, y, w, h].into(),
+                    [1.0, 1.0, 1.0, 0.5].into(),
+                )
+                .unwrap();
+                graphics::draw(ctx, &bt_cursor, (na::Point2::new(0.0, 0.0),))?;
             }
         }
 
@@ -190,7 +239,10 @@ impl event::EventHandler for MainState {
         ));
 
         if !self.imgui_wrapper.captures_mouse() {
-            println!("{}", self.pos_to_tick(x, y));
+            match self.imgui_wrapper.selected_tool {
+                gui::ChartTool::BT => self.place_bt(x, y),
+                _ => (),
+            }
         }
     }
 
@@ -238,12 +290,14 @@ impl event::EventHandler for MainState {
 
     fn mouse_motion_event(&mut self, _ctx: &mut Context, x: f32, y: f32, _dx: f32, _dy: f32) {
         self.imgui_wrapper.update_mouse_pos(x, y);
+        self.mouse_x = x;
+        self.mouse_y = y;
     }
 }
 
 fn open_chart() -> Option<(chart::Chart, String)> {
-    let mut chart = chart::Chart::new();
-    let mut path = String::new();
+    let chart: chart::Chart;
+    let path: String;
     let dialog_result = nfd::dialog().filter("ksh").open().unwrap_or_else(|e| {
         println!("{}", e);
         panic!(e);
@@ -267,7 +321,7 @@ fn open_chart() -> Option<(chart::Chart, String)> {
 }
 
 fn save_chart_as(chart: &chart::Chart) -> Option<String> {
-    let mut path = String::new();
+    let path: String;
     let dialog_result = nfd::open_save_dialog(Some("kson"), None).unwrap_or_else(|e| {
         println!("{}", e);
         panic!(e);
