@@ -13,6 +13,7 @@ use ggez::{Context, GameResult};
 use math::round;
 use nfd::Response;
 mod chart;
+use std::cmp::{max, min};
 use std::fs::File;
 use std::io::prelude::*;
 
@@ -27,6 +28,7 @@ struct MainState {
     save_path: Option<String>,
     top_margin: f32,
     bottom_margin: f32,
+    beats_per_col: u32,
 }
 
 impl MainState {
@@ -40,8 +42,9 @@ impl MainState {
             track_width: 72.0,
             imgui_wrapper: ImGuiWrapper::new(ctx),
             save_path: None,
-            top_margin: 50.0,
+            top_margin: 60.0,
             bottom_margin: 10.0,
+            beats_per_col: 16,
         };
         Ok(s)
     }
@@ -57,6 +60,16 @@ impl MainState {
 
     fn chart_draw_height(&self) -> f32 {
         self.h - (self.bottom_margin + self.top_margin)
+    }
+
+    fn pos_to_tick(&self, in_x: f32, in_y: f32) -> u32 {
+        let h = self.chart_draw_height();
+        let y = 1.0 - ((in_y - self.top_margin).max(0.0) / h).min(1.0);
+        let x = math::round::floor(in_x as f64 / (self.track_width * 2.0), 0);
+        math::round::floor(
+            (y as f64 + x) * self.beats_per_col as f64 * self.chart.beat.resolution as f64,
+            0,
+        ) as u32
     }
 }
 
@@ -177,9 +190,7 @@ impl event::EventHandler for MainState {
         ));
 
         if !self.imgui_wrapper.captures_mouse() {
-            self.redraw = true;
-            let data = serde_json::to_string(&self.chart).unwrap();
-            println!("Serialized = {}", data);
+            println!("{}", self.pos_to_tick(x, y));
         }
     }
 
@@ -206,8 +217,8 @@ impl event::EventHandler for MainState {
         );
         self.w = w;
         self.h = h;
-        self.tick_height =
-            self.chart_draw_height() as f64 / (self.chart.beat.resolution as f64 * 16.0);
+        self.tick_height = self.chart_draw_height() as f64
+            / (self.chart.beat.resolution as f64 * self.beats_per_col as f64);
     }
 
     fn key_down_event(

@@ -42,6 +42,14 @@ pub enum GuiEvent {
     Exit,
 }
 
+#[derive(PartialEq, Copy, Clone)]
+pub enum ChartTool {
+    BT,
+    FX,
+    RLaser,
+    LLaser,
+}
+
 #[derive(Copy, Clone, PartialEq, Debug, Default)]
 struct MouseState {
     pos: (i32, i32),
@@ -56,6 +64,8 @@ pub struct ImGuiWrapper {
     mouse_state: MouseState,
     show_popup: bool,
     pub event_queue: VecDeque<GuiEvent>,
+    tools: [(String, ChartTool); 4],
+    pub selected_tool: ChartTool,
 }
 
 impl ImGuiWrapper {
@@ -93,6 +103,13 @@ impl ImGuiWrapper {
             mouse_state: MouseState::default(),
             show_popup: false,
             event_queue: VecDeque::new(),
+            tools: [
+                (String::from("BT"), ChartTool::BT),
+                (String::from("FX"), ChartTool::FX),
+                (String::from("LL"), ChartTool::LLaser),
+                (String::from("RL"), ChartTool::RLaser),
+            ],
+            selected_tool: ChartTool::BT,
         }
     }
 
@@ -138,6 +155,33 @@ impl ImGuiWrapper {
             ui.main_menu_bar(|| {
                 ui.menu(im_str!("File")).build(file_menu);
             });
+
+            // Toolbar
+            let tools = &self.tools;
+            let mut selected_tool = self.selected_tool;
+            ui.window(im_str!("Toolbar"))
+                .size([draw_width, 0.0], Condition::Always)
+                .position([0.0, 20.0], Condition::Always)
+                .movable(false)
+                .resizable(false)
+                .title_bar(false)
+                .scroll_bar(false)
+                .build(|| {
+                    let mut i = 1.25;
+                    for (name, value) in tools {
+                        if ui.selectable(
+                            ImString::new(name).as_ref(),
+                            selected_tool == *value,
+                            ImGuiSelectableFlags::empty(),
+                            [20.0, 20.0],
+                        ) {
+                            selected_tool = *value; //seems unsafe(?)
+                        }
+                        ui.same_line(i * 40.0);
+                        i = i + 1.0;
+                    }
+                });
+            self.selected_tool = selected_tool; //will selected tool always be updated before here (?)
         }
 
         // Render
