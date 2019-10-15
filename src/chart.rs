@@ -137,7 +137,7 @@ impl Chart {
         }
     }
 
-    pub fn from_ksh(path: String) -> Result<Chart, String> {
+    pub fn from_ksh(path: &String) -> Result<Chart, String> {
         let mut new_chart = Chart::new();
         let data = fs::read_to_string(path);
         if data.is_err() {
