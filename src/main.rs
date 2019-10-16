@@ -56,12 +56,14 @@ impl MainState {
         self.track_width / 6.0
     }
 
+    fn ticks_per_col(&self) -> u32 {
+        self.beats_per_col * self.chart.beat.resolution
+    }
+
     fn tick_to_pos(&self, in_y: u32) -> (f32, f32) {
         let h = self.chart_draw_height();
-        let tick = in_y as f32;
-        let x =
-            round::floor(((tick * self.tick_height) / h) as f64, 0) as f32 * self.track_width * 2.0;
-        let y = (tick * self.tick_height) % h;
+        let x = (in_y / self.ticks_per_col()) as f32 * self.track_width * 2.0;
+        let y = (in_y % self.ticks_per_col()) as f32 * self.tick_height;
         let y = h - y + self.top_margin;
         (x, y)
     }
@@ -289,14 +291,14 @@ impl event::EventHandler for MainState {
                     Ok(mesh) => graphics::draw(ctx, &mesh, (na::Point2::new(0.0, 0.0),))?,
                     _ => (),
                 }
-                //bt
-                let note_mesh = bt_builder.build(ctx);
+                //fx
+                let note_mesh = fx_builder.build(ctx);
                 match note_mesh {
                     Ok(mesh) => graphics::draw(ctx, &mesh, (na::Point2::new(0.0, 0.0),))?,
                     _ => (),
                 }
-                //fx
-                let note_mesh = fx_builder.build(ctx);
+                //bt
+                let note_mesh = bt_builder.build(ctx);
                 match note_mesh {
                     Ok(mesh) => graphics::draw(ctx, &mesh, (na::Point2::new(0.0, 0.0),))?,
                     _ => (),
