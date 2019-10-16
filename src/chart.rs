@@ -214,6 +214,26 @@ impl Chart {
                         last_char[i] = chars[i];
                     }
 
+                    for i in 0..2 {
+                        if chars[i + 5] == '2' {
+                            new_chart.note.fx[i].push(Interval { y: y, l: 0 })
+                        } else if chars[i + 5] == '0'
+                            && last_char[i + 4] != '0'
+                            && last_char[i + 4] != '2'
+                        {
+                            new_chart.note.fx[i].push(Interval {
+                                y: long_y[i + 4],
+                                l: y - long_y[i + 4],
+                            })
+                        } else if (chars[i + 5] != '0' && chars[i + 5] != '2')
+                            && (last_char[i + 4] == '0' || last_char[i + 4] == '2')
+                        {
+                            long_y[i + 4] = y;
+                        }
+
+                        last_char[i + 4] = chars[i + 5];
+                    }
+
                     y = y + ticks_per_line;
                 }
             }

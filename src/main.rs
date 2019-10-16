@@ -52,6 +52,10 @@ impl MainState {
         Ok(s)
     }
 
+    fn lane_width(&self) -> f32 {
+        self.track_width / 6.0
+    }
+
     fn tick_to_pos(&self, in_y: u32) -> (f32, f32) {
         let h = self.chart_draw_height();
         let tick = in_y as f32;
@@ -189,51 +193,114 @@ impl event::EventHandler for MainState {
             }
 
             //draw notes
-            let mut any_bt = false;
-            for bt_lane in self.chart.note.bt.iter() {
-                any_bt = !bt_lane.is_empty();
-                if any_bt {
-                    break;
-                }
-            }
-            if any_bt {
-                let note_builder = &mut graphics::MeshBuilder::new();
-                for i in 0..4 {
-                    for n in &self.chart.note.bt[i] {
-                        if n.l == 0 {
-                            let (x, y) = self.tick_to_pos(n.y);
-                            if x > self.w + self.track_width * 2.0 {
-                                break;
-                            }
+            let bt_builder = &mut graphics::MeshBuilder::new();
+            let long_bt_builder = &mut graphics::MeshBuilder::new();
+            let fx_builder = &mut graphics::MeshBuilder::new();
+            let long_fx_builder = &mut graphics::MeshBuilder::new();
+            for i in 0..4 {
+                for n in &self.chart.note.bt[i] {
+                    if n.l == 0 {
+                        let (x, y) = self.tick_to_pos(n.y);
+                        if x > self.w + self.track_width * 2.0 {
+                            break;
+                        }
 
-                            let x = (x + (i + 1) as f32 * self.track_width / 6.0) as f32 - 1.0
-                                + self.track_width as f32 / 2.0;
-                            let y = y as f32;
+                        let x = x
+                            + i as f32 * self.lane_width()
+                            + 1.0 * i as f32
+                            + self.lane_width()
+                            + self.track_width / 2.0;
+                        let y = y as f32;
+                        let w = self.track_width as f32 / 6.0 - 2.0;
+                        let h = -2.0;
+
+                        bt_builder.rectangle(
+                            graphics::DrawMode::fill(),
+                            [x, y, w, h].into(),
+                            graphics::WHITE,
+                        );
+                    } else {
+                        for (x, y, h) in self.interval_to_ranges(n) {
+                            let x = x
+                                + i as f32 * self.lane_width()
+                                + 1.0 * i as f32
+                                + self.lane_width()
+                                + self.track_width / 2.0;
                             let w = self.track_width as f32 / 6.0 - 2.0;
-                            let h = -2.0;
 
-                            note_builder.rectangle(
+                            long_bt_builder.rectangle(
                                 graphics::DrawMode::fill(),
                                 [x, y, w, h].into(),
                                 graphics::WHITE,
                             );
-                        } else {
-                            for (x, y, h) in self.interval_to_ranges(n) {
-                                let x = (x + (i + 1) as f32 * self.track_width / 6.0) as f32 - 1.0
-                                    + self.track_width as f32 / 2.0;
-                                let w = self.track_width as f32 / 6.0 - 2.0;
-
-                                note_builder.rectangle(
-                                    graphics::DrawMode::fill(),
-                                    [x, y, w, h].into(),
-                                    graphics::WHITE,
-                                );
-                            }
                         }
                     }
                 }
-                let note_mesh = note_builder.build(ctx).unwrap();
-                graphics::draw(ctx, &note_mesh, (na::Point2::new(0.0, 0.0),))?;
+            }
+
+            for i in 0..2 {
+                for n in &self.chart.note.fx[i] {
+                    if n.l == 0 {
+                        let (x, y) = self.tick_to_pos(n.y);
+
+                        let x = x
+                            + (i as f32 * self.lane_width() * 2.0)
+                            + self.track_width / 2.0
+                            + 2.0 * i as f32
+                            + self.lane_width();
+                        let w = self.lane_width() * 2.0 - 1.0;
+                        let h = -2.0;
+
+                        fx_builder.rectangle(
+                            graphics::DrawMode::fill(),
+                            [x, y, w, h].into(),
+                            [1.0, 0.3, 0.0, 1.0].into(),
+                        );
+                    } else {
+                        for (x, y, h) in self.interval_to_ranges(n) {
+                            let x = x
+                                + (i as f32 * self.lane_width() * 2.0)
+                                + self.track_width / 2.0
+                                + 2.0 * i as f32
+                                + self.lane_width();
+                            let w = self.lane_width() * 2.0 - 1.0;
+
+                            long_fx_builder.rectangle(
+                                graphics::DrawMode::fill(),
+                                [x, y, w, h].into(),
+                                [1.0, 0.3, 0.0, 0.7].into(),
+                            );
+                        }
+                    }
+                }
+            }
+
+            {
+                //draw built meshes
+                //long fx
+                let note_mesh = long_fx_builder.build(ctx);
+                match note_mesh {
+                    Ok(mesh) => graphics::draw(ctx, &mesh, (na::Point2::new(0.0, 0.0),))?,
+                    _ => (),
+                }
+                //long bt
+                let note_mesh = long_bt_builder.build(ctx);
+                match note_mesh {
+                    Ok(mesh) => graphics::draw(ctx, &mesh, (na::Point2::new(0.0, 0.0),))?,
+                    _ => (),
+                }
+                //bt
+                let note_mesh = bt_builder.build(ctx);
+                match note_mesh {
+                    Ok(mesh) => graphics::draw(ctx, &mesh, (na::Point2::new(0.0, 0.0),))?,
+                    _ => (),
+                }
+                //fx
+                let note_mesh = fx_builder.build(ctx);
+                match note_mesh {
+                    Ok(mesh) => graphics::draw(ctx, &mesh, (na::Point2::new(0.0, 0.0),))?,
+                    _ => (),
+                }
             }
 
             if self.imgui_wrapper.selected_tool == gui::ChartTool::BT
