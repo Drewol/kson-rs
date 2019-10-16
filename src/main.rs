@@ -21,8 +21,8 @@ struct MainState {
     chart: chart::Chart,
     w: f32,
     h: f32,
-    tick_height: f64,
-    track_width: f64,
+    tick_height: f32,
+    track_width: f32,
     imgui_wrapper: ImGuiWrapper,
     save_path: Option<String>,
     top_margin: f32,
@@ -52,12 +52,13 @@ impl MainState {
         Ok(s)
     }
 
-    fn tick_to_pos(&self, in_y: u32) -> (f64, f64) {
+    fn tick_to_pos(&self, in_y: u32) -> (f32, f32) {
         let h = self.chart_draw_height();
-        let tick = in_y as f64;
-        let x = round::floor((tick * self.tick_height) / h as f64, 0) * self.track_width * 2.0;
-        let y = ((tick * self.tick_height) as f64) % h as f64;
-        let y = h as f64 - y + self.top_margin as f64;
+        let tick = in_y as f32;
+        let x =
+            round::floor(((tick * self.tick_height) / h) as f64, 0) as f32 * self.track_width * 2.0;
+        let y = (tick * self.tick_height) % h;
+        let y = h - y + self.top_margin;
         (x, y)
     }
 
@@ -68,7 +69,7 @@ impl MainState {
     fn pos_to_tick(&self, in_x: f32, in_y: f32) -> u32 {
         let h = self.chart_draw_height();
         let y = 1.0 - ((in_y - self.top_margin).max(0.0) / h).min(1.0);
-        let x = math::round::floor(in_x as f64 / (self.track_width * 2.0), 0);
+        let x = math::round::floor(in_x as f64 / (self.track_width * 2.0) as f64, 0);
         math::round::floor(
             (y as f64 + x) * self.beats_per_col as f64 * self.chart.beat.resolution as f64,
             0,
@@ -97,6 +98,31 @@ impl MainState {
             index = i;
         }
         self.chart.note.bt[lane].insert(index, chart::Interval { y: tick, l: 0 });
+    }
+
+    fn interval_to_ranges(&self, in_interval: &chart::Interval) -> Vec<(f32, f32, f32)> // (x,y,h)
+    {
+        let mut res: Vec<(f32, f32, f32)> = Vec::new();
+        let mut ranges: Vec<(u32, u32)> = Vec::new();
+        let ticks_per_col = self.beats_per_col * self.chart.beat.resolution;
+        let mut start = in_interval.y;
+        let end = start + in_interval.l;
+        while start / ticks_per_col < end / ticks_per_col {
+            ranges.push((start, ticks_per_col * (1 + start / ticks_per_col)));
+            start = ticks_per_col * (1 + start / ticks_per_col);
+        }
+        ranges.push((start, end));
+
+        for (s, e) in ranges {
+            let start_pos = self.tick_to_pos(s);
+            let end_pos = self.tick_to_pos(e);
+            if start_pos.0 != end_pos.0 {
+                res.push((start_pos.0, start_pos.1, self.top_margin - start_pos.1));
+            } else {
+                res.push((start_pos.0, start_pos.1, end_pos.1 - start_pos.1))
+            }
+        }
+        res
     }
 }
 
@@ -156,7 +182,7 @@ impl event::EventHandler for MainState {
                     ctx,
                     &track,
                     (na::Point2::new(
-                        (self.track_width / 2.0 + i as f64 * self.track_width * 2.0) as f32,
+                        (self.track_width / 2.0 + i as f32 * self.track_width * 2.0) as f32,
                         0.0,
                     ),),
                 )?;
@@ -176,11 +202,11 @@ impl event::EventHandler for MainState {
                     for n in &self.chart.note.bt[i] {
                         if n.l == 0 {
                             let (x, y) = self.tick_to_pos(n.y);
-                            if x > self.w as f64 + self.track_width * 2.0 {
+                            if x > self.w + self.track_width * 2.0 {
                                 break;
                             }
 
-                            let x = (x + (i + 1) as f64 * self.track_width / 6.0) as f32 - 1.0
+                            let x = (x + (i + 1) as f32 * self.track_width / 6.0) as f32 - 1.0
                                 + self.track_width as f32 / 2.0;
                             let y = y as f32;
                             let w = self.track_width as f32 / 6.0 - 2.0;
@@ -192,6 +218,17 @@ impl event::EventHandler for MainState {
                                 graphics::WHITE,
                             );
                         } else {
+                            for (x, y, h) in self.interval_to_ranges(n) {
+                                let x = (x + (i + 1) as f32 * self.track_width / 6.0) as f32 - 1.0
+                                    + self.track_width as f32 / 2.0;
+                                let w = self.track_width as f32 / 6.0 - 2.0;
+
+                                note_builder.rectangle(
+                                    graphics::DrawMode::fill(),
+                                    [x, y, w, h].into(),
+                                    graphics::WHITE,
+                                );
+                            }
                         }
                     }
                 }
@@ -206,7 +243,7 @@ impl event::EventHandler for MainState {
                 tick = tick - (tick % (self.chart.beat.resolution / 2));
                 let (x, y) = self.tick_to_pos(tick);
                 let lane = self.pos_to_lane(self.mouse_x).min(4).max(1);
-                let x = (x + lane as f64 * self.track_width / 6.0) as f32 - 1.0
+                let x = (x + lane as f32 * self.track_width / 6.0) as f32 - 1.0
                     + self.track_width as f32 / 2.0;
                 let y = y as f32;
                 let w = self.track_width as f32 / 6.0 - 2.0;
@@ -269,8 +306,8 @@ impl event::EventHandler for MainState {
         );
         self.w = w;
         self.h = h;
-        self.tick_height = self.chart_draw_height() as f64
-            / (self.chart.beat.resolution as f64 * self.beats_per_col as f64);
+        self.tick_height =
+            self.chart_draw_height() / (self.chart.beat.resolution * self.beats_per_col) as f32;
     }
 
     fn key_down_event(
