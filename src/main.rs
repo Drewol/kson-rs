@@ -106,9 +106,12 @@ impl MainState {
         self.chart.note.bt[lane].insert(index, chart::Interval { y: tick, l: 0 });
     }
 
-    fn interval_to_ranges(&self, in_interval: &chart::Interval) -> Vec<(f32, f32, f32)> // (x,y,h)
+    fn interval_to_ranges(
+        &self,
+        in_interval: &chart::Interval,
+    ) -> Vec<(f32, f32, f32, (f32, f32))> // (x,y,h, (start,end))
     {
-        let mut res: Vec<(f32, f32, f32)> = Vec::new();
+        let mut res: Vec<(f32, f32, f32, (f32, f32))> = Vec::new();
         let mut ranges: Vec<(u32, u32)> = Vec::new();
         let ticks_per_col = self.beats_per_col * self.chart.beat.resolution;
         let mut start = in_interval.y;
@@ -120,12 +123,24 @@ impl MainState {
         ranges.push((start, end));
 
         for (s, e) in ranges {
+            let prog_s = (s - in_interval.y) as f32 / in_interval.l as f32;
+            let prog_e = (e - in_interval.y) as f32 / in_interval.l as f32;
             let start_pos = self.tick_to_pos(s);
             let end_pos = self.tick_to_pos(e);
             if start_pos.0 != end_pos.0 {
-                res.push((start_pos.0, start_pos.1, self.top_margin - start_pos.1));
+                res.push((
+                    start_pos.0,
+                    start_pos.1,
+                    self.top_margin - start_pos.1,
+                    (prog_s, prog_e),
+                ));
             } else {
-                res.push((start_pos.0, start_pos.1, end_pos.1 - start_pos.1))
+                res.push((
+                    start_pos.0,
+                    start_pos.1,
+                    end_pos.1 - start_pos.1,
+                    (prog_s, prog_e),
+                ))
             }
         }
         res
@@ -195,6 +210,13 @@ impl event::EventHandler for MainState {
             let long_bt_builder = &mut graphics::MeshBuilder::new();
             let fx_builder = &mut graphics::MeshBuilder::new();
             let long_fx_builder = &mut graphics::MeshBuilder::new();
+            let ll_builder = &mut graphics::MeshBuilder::new();
+            let rl_builder = &mut graphics::MeshBuilder::new();
+            let laser_builder = &mut graphics::MeshBuilder::new();
+            let laser_color: [graphics::Color; 2] = [
+                graphics::Color::new(0.0, 0.0, 1.0, 0.4),
+                graphics::Color::new(1.0, 0.0, 0.0, 0.4),
+            ];
             for i in 0..4 {
                 for n in &self.chart.note.bt[i] {
                     if n.l == 0 {
@@ -218,7 +240,7 @@ impl event::EventHandler for MainState {
                             graphics::WHITE,
                         );
                     } else {
-                        for (x, y, h) in self.interval_to_ranges(n) {
+                        for (x, y, h, _) in self.interval_to_ranges(n) {
                             let x = x
                                 + i as f32 * self.lane_width()
                                 + 1.0 * i as f32
@@ -236,6 +258,7 @@ impl event::EventHandler for MainState {
                 }
             }
 
+            //fx
             for i in 0..2 {
                 for n in &self.chart.note.fx[i] {
                     if n.l == 0 {
@@ -255,7 +278,7 @@ impl event::EventHandler for MainState {
                             [1.0, 0.3, 0.0, 1.0].into(),
                         );
                     } else {
-                        for (x, y, h) in self.interval_to_ranges(n) {
+                        for (x, y, h, _) in self.interval_to_ranges(n) {
                             let x = x
                                 + (i as f32 * self.lane_width() * 2.0)
                                 + self.track_width / 2.0
@@ -273,7 +296,61 @@ impl event::EventHandler for MainState {
                 }
             }
 
+            //laser
+            for i in 0..2 {
+                for section in &self.chart.note.laser[i] {
+                    let y_base = section.y;
+                    for se in section.v.windows(2) {
+                        let s = &se[0];
+                        let e = &se[1];
+                        let interval = chart::Interval {
+                            y: s.ry + y_base,
+                            l: e.ry - s.ry,
+                        };
+                        let value_width = (e.v - s.v) as f32;
+                        for (x, y, h, (sv, ev)) in self.interval_to_ranges(&interval) {
+                            let sx = x
+                                + (s.v as f32 + (sv * value_width))
+                                    * (self.track_width - self.lane_width())
+                                + (self.track_width / 2.0)
+                                + self.lane_width() / 2.0;
+                            let ex = x
+                                + (s.v as f32 + (ev * value_width))
+                                    * (self.track_width - self.lane_width())
+                                + (self.track_width / 2.0)
+                                + self.lane_width() / 2.0;
+
+                            let sy = y;
+                            let ey = y + h;
+
+                            let xoff = self.lane_width() / 2.0;
+                            let points = [
+                                na::Point2 {
+                                    coords: [sx - xoff, sy].into(),
+                                },
+                                na::Point2 {
+                                    coords: [sx + xoff, sy].into(),
+                                },
+                                na::Point2 {
+                                    coords: [ex + xoff, ey].into(),
+                                },
+                                na::Point2 {
+                                    coords: [ex - xoff, ey].into(),
+                                },
+                            ];
+
+                            laser_builder.polygon(
+                                graphics::DrawMode::fill(),
+                                &points,
+                                laser_color[i],
+                            )?;
+                        }
+                    }
+                }
+            }
+
             {
+                graphics::set_blend_mode(ctx, graphics::BlendMode::Alpha)?;
                 //draw built meshes
                 //long fx
                 let note_mesh = long_fx_builder.build(ctx);
@@ -295,6 +372,13 @@ impl event::EventHandler for MainState {
                 }
                 //bt
                 let note_mesh = bt_builder.build(ctx);
+                match note_mesh {
+                    Ok(mesh) => graphics::draw(ctx, &mesh, (na::Point2::new(0.0, 0.0),))?,
+                    _ => (),
+                }
+                //laser
+                graphics::set_blend_mode(ctx, graphics::BlendMode::Add)?;
+                let note_mesh = laser_builder.build(ctx);
                 match note_mesh {
                     Ok(mesh) => graphics::draw(ctx, &mesh, (na::Point2::new(0.0, 0.0),))?,
                     _ => (),
