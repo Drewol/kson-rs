@@ -161,10 +161,6 @@ impl event::EventHandler for MainState {
     }
 
     fn draw(&mut self, ctx: &mut Context) -> GameResult {
-        if !self.redraw {
-            ggez::timer::sleep(std::time::Duration::from_millis(10));
-        }
-
         //draw chart
         {
             graphics::clear(ctx, graphics::BLACK);

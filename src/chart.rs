@@ -12,9 +12,21 @@ use std::str::Lines;
 pub struct GraphSectionPoint {
     pub ry: u32,
     pub v: f64,
-    pub vf: f64,
+    pub vf: Option<f64>,
     pub a: f64,
     pub b: f64,
+}
+
+impl GraphSectionPoint {
+    fn new(_ry: u32, _v: f64) -> Self {
+        GraphSectionPoint {
+            ry: _ry,
+            v: _v,
+            vf: None,
+            a: 0.0,
+            b: 0.0,
+        }
+    }
 }
 
 #[derive(Serialize, Deserialize)]
@@ -27,6 +39,7 @@ pub struct Interval {
 pub struct LaserSection {
     pub y: u32,
     pub v: Vec<GraphSectionPoint>,
+    pub wide: u8,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -128,6 +141,28 @@ pub struct Chart {
     pub beat: BeatInfo,
 }
 
+fn laser_char_to_value(value: u8) -> Result<f64, String> {
+    let chars = [
+        (b'0'..=b'9').collect::<Vec<u8>>(),
+        (b'A'..=b'Z').collect::<Vec<u8>>(),
+        (b'a'..=b'o').collect::<Vec<u8>>(),
+    ]; //TODO: check for cleaner ways to do this
+
+    let mut i = 0;
+    for cr in chars.iter() {
+        for c in cr {
+            if *c == value {
+                return Ok(i as f64 / 50.0);
+            }
+            i = i + 1;
+        }
+    }
+    Err(String::from(format!(
+        "Invalid laser char: '{}'",
+        value as char
+    )))
+}
+
 impl Chart {
     pub fn new() -> Self {
         Chart {
@@ -186,6 +221,18 @@ impl Chart {
         last_char[7] = '-';
 
         let mut long_y: [u32; 8] = [0; 8];
+        let mut laser_builder: [LaserSection; 2] = [
+            LaserSection {
+                y: 0,
+                v: Vec::new(),
+                wide: 1,
+            },
+            LaserSection {
+                y: 0,
+                v: Vec::new(),
+                wide: 1,
+            },
+        ];
 
         for measure in parts {
             let measure_lines = measure.lines();
@@ -214,6 +261,7 @@ impl Chart {
                         last_char[i] = chars[i];
                     }
 
+                    //read fx
                     for i in 0..2 {
                         if chars[i + 5] == '2' {
                             new_chart.note.fx[i].push(Interval { y: y, l: 0 })
@@ -234,10 +282,47 @@ impl Chart {
                         last_char[i + 4] = chars[i + 5];
                     }
 
+                    //read laser
+                    for i in 0..2 {
+                        if chars[i + 8] == '-' && last_char[i + 6] != '-' {
+                            // end laser
+                            let v = std::mem::replace(
+                                &mut laser_builder[i],
+                                LaserSection {
+                                    y: 0,
+                                    v: Vec::new(),
+                                    wide: 1,
+                                },
+                            );
+                            new_chart.note.laser[i].push(v);
+                        }
+                        if chars[i + 8] != '-' && chars[i + 8] != ':' && last_char[i + 6] == '-' {
+                            // new laser
+                            laser_builder[i] = LaserSection {
+                                y: y,
+                                v: Vec::new(),
+                                wide: 1,
+                            };
+                            laser_builder[i].v.push(GraphSectionPoint::new(
+                                0,
+                                laser_char_to_value(chars[i + 8] as u8).unwrap(),
+                            ));
+                        } else if chars[i + 8] != ':' && last_char[i + 6] == ':' {
+                            // new point
+                            laser_builder[i].v.push(GraphSectionPoint::new(
+                                y - laser_builder[i].y,
+                                laser_char_to_value(chars[i + 8] as u8).unwrap(),
+                            ));
+                        }
+
+                        last_char[i + 6] = chars[i + 8];
+                    }
+
                     y = y + ticks_per_line;
                 }
             }
         }
+
         return Ok(new_chart);
     }
 }

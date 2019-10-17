@@ -156,6 +156,14 @@ impl ImGuiWrapper {
                 ui.menu(im_str!("File")).build(file_menu);
             });
 
+            ui.window(im_str!("Hello world"))
+                .size([300.0, 600.0], imgui::Condition::FirstUseEver)
+                .position([100.0, 100.0], imgui::Condition::FirstUseEver)
+                .build(|| {
+                    let fps = ggez::timer::fps(ctx);
+                    ui.text(im_str!("FPS: {:.1}", fps));
+                });
+
             // Toolbar
             let tools = &self.tools;
             let mut selected_tool = self.selected_tool;
