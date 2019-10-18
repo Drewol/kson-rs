@@ -214,9 +214,10 @@ impl event::EventHandler for MainState {
             let rl_builder = &mut graphics::MeshBuilder::new();
             let laser_builder = &mut graphics::MeshBuilder::new();
             let laser_color: [graphics::Color; 2] = [
-                graphics::Color::new(0.0, 0.0, 1.0, 0.4),
-                graphics::Color::new(1.0, 0.0, 0.0, 0.4),
+                graphics::Color::from_rgba(0, 115, 144, 255),
+                graphics::Color::from_rgba(194, 6, 140, 255),
             ];
+            let slam_height = 6.0 as f32;
             for i in 0..4 {
                 for n in &self.chart.note.bt[i] {
                     if n.l == 0 {
@@ -307,15 +308,52 @@ impl event::EventHandler for MainState {
                             y: s.ry + y_base,
                             l: e.ry - s.ry,
                         };
-                        let value_width = (e.v - s.v) as f32;
+                        let mut start_value = s.v as f32;
+                        let mut syoff = 0.0 as f32;
+
+                        match s.vf {
+                            Some(value) => {
+                                start_value = value as f32;
+                                syoff = slam_height;
+
+                                //draw slam
+                                let (x, y) = self.tick_to_pos(interval.y);
+                                let sx = x
+                                    + s.v as f32 * (self.track_width - self.lane_width())
+                                    + (self.track_width / 2.0)
+                                    + self.lane_width() / 2.0;
+                                let ex = x
+                                    + start_value * (self.track_width - self.lane_width())
+                                    + (self.track_width / 2.0)
+                                    + self.lane_width() / 2.0;
+
+                                let mut w: f32 = 0.0;
+                                let mut x: f32 = 0.0;
+                                if sx > ex {
+                                    x = sx + self.lane_width() / 2.0;
+                                    w = (ex - self.lane_width() / 2.0) - x;
+                                } else {
+                                    x = sx - self.lane_width() / 2.0;
+                                    w = (ex + self.lane_width() / 2.0) - x;
+                                }
+                                laser_builder.rectangle(
+                                    graphics::DrawMode::fill(),
+                                    [x, y, w, -slam_height].into(),
+                                    laser_color[i],
+                                );
+                            }
+                            _ => (),
+                        };
+                        let value_width = (e.v as f32 - start_value) as f32;
+
                         for (x, y, h, (sv, ev)) in self.interval_to_ranges(&interval) {
                             let sx = x
-                                + (s.v as f32 + (sv * value_width))
+                                + (start_value + (sv * value_width))
                                     * (self.track_width - self.lane_width())
                                 + (self.track_width / 2.0)
                                 + self.lane_width() / 2.0;
                             let ex = x
-                                + (s.v as f32 + (ev * value_width))
+                                + (start_value + (ev * value_width))
                                     * (self.track_width - self.lane_width())
                                 + (self.track_width / 2.0)
                                 + self.lane_width() / 2.0;
@@ -326,10 +364,10 @@ impl event::EventHandler for MainState {
                             let xoff = self.lane_width() / 2.0;
                             let points = [
                                 na::Point2 {
-                                    coords: [sx - xoff, sy].into(),
+                                    coords: [sx - xoff, sy - syoff].into(),
                                 },
                                 na::Point2 {
-                                    coords: [sx + xoff, sy].into(),
+                                    coords: [sx + xoff, sy - syoff].into(),
                                 },
                                 na::Point2 {
                                     coords: [ex + xoff, ey].into(),
@@ -346,6 +384,43 @@ impl event::EventHandler for MainState {
                             )?;
                         }
                     }
+
+                    let last = section.v.last();
+                    match last {
+                        Some(l) => {
+                            match l.vf {
+                                Some(vf) => {
+                                    //draw slam
+                                    let (x, y) = self.tick_to_pos(l.ry + y_base);
+                                    let sx = x
+                                        + l.v as f32 * (self.track_width - self.lane_width())
+                                        + (self.track_width / 2.0)
+                                        + self.lane_width() / 2.0;
+                                    let ex = x
+                                        + vf as f32 * (self.track_width - self.lane_width())
+                                        + (self.track_width / 2.0)
+                                        + self.lane_width() / 2.0;
+
+                                    let mut w: f32 = 0.0;
+                                    let mut x: f32 = 0.0;
+                                    if sx > ex {
+                                        x = sx + self.lane_width() / 2.0;
+                                        w = (ex - self.lane_width() / 2.0) - x;
+                                    } else {
+                                        x = sx - self.lane_width() / 2.0;
+                                        w = (ex + self.lane_width() / 2.0) - x;
+                                    }
+                                    laser_builder.rectangle(
+                                        graphics::DrawMode::fill(),
+                                        [x, y, w, -slam_height].into(),
+                                        laser_color[i],
+                                    );
+                                }
+                                None => (),
+                            }
+                        }
+                        None => (),
+                    };
                 }
             }
 
@@ -528,7 +603,7 @@ fn save_chart_as(chart: &chart::Chart) -> Option<String> {
 pub fn main() -> GameResult {
     let win_setup = ggez::conf::WindowSetup {
         title: "USC Editor".to_owned(),
-        samples: ggez::conf::NumSamples::Zero,
+        samples: ggez::conf::NumSamples::Four,
         vsync: true,
         icon: "".to_owned(),
         srgb: true,

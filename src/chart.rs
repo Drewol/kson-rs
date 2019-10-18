@@ -3,6 +3,7 @@ extern crate serde;
 extern crate serde_json;
 
 use self::serde::{Deserialize, Serialize};
+use std::collections::HashSet;
 use std::fs;
 use std::fs::File;
 use std::io::{BufRead, BufReader, Read};
@@ -319,6 +320,31 @@ impl Chart {
                     }
 
                     y = y + ticks_per_line;
+                }
+
+                //set slams
+                for i in 0..2 {
+                    for section in &mut new_chart.note.laser[i] {
+                        let mut iter = section.v.iter_mut();
+                        let mut for_removal: HashSet<u32> = HashSet::new();
+                        let mut prev = iter.next().unwrap();
+                        loop {
+                            let n = iter.next();
+                            match n {
+                                None => break,
+                                _ => (),
+                            }
+                            let next = n.unwrap();
+
+                            if next.ry - prev.ry <= new_chart.beat.resolution / 8 {
+                                prev.vf = Some(next.v);
+                                for_removal.insert(next.ry);
+                            }
+
+                            prev = next;
+                        }
+                        section.v.retain(|p| !for_removal.contains(&p.ry));
+                    }
                 }
             }
         }
