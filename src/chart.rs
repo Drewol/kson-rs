@@ -371,7 +371,7 @@ impl Chart {
                             }
                         }
                         "t" => new_chart.beat.bpm.push(ByPulse {
-                            y: 0,
+                            y: y,
                             v: line_value.parse().unwrap_or_else(|e| {
                                 println!("{}", e);
                                 panic!(e)

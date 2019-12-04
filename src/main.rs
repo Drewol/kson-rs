@@ -30,6 +30,8 @@ struct MainState {
     beats_per_col: u32,
     mouse_x: f32,
     mouse_y: f32,
+    x_offset: f32,
+    x_offset_target: f32,
 }
 
 impl MainState {
@@ -48,6 +50,8 @@ impl MainState {
             beats_per_col: 16,
             mouse_x: 0.0,
             mouse_y: 0.0,
+            x_offset: 0.0,
+            x_offset_target: 0.0,
         };
         Ok(s)
     }
@@ -65,7 +69,7 @@ impl MainState {
         let x = (in_y / self.ticks_per_col()) as f32 * self.track_width * 2.0;
         let y = (in_y % self.ticks_per_col()) as f32 * self.tick_height;
         let y = h - y + self.top_margin;
-        (x, y)
+        (x - self.x_offset, y)
     }
 
     fn chart_draw_height(&self) -> f32 {
@@ -75,7 +79,8 @@ impl MainState {
     fn pos_to_tick(&self, in_x: f32, in_y: f32) -> u32 {
         let h = self.chart_draw_height();
         let y = 1.0 - ((in_y - self.top_margin).max(0.0) / h).min(1.0);
-        let x = math::round::floor(in_x as f64 / (self.track_width * 2.0) as f64, 0);
+        let x = in_x + self.x_offset;
+        let x = math::round::floor(x as f64 / (self.track_width * 2.0) as f64, 0);
         math::round::floor(
             (y as f64 + x) * self.beats_per_col as f64 * self.chart.beat.resolution as f64,
             0,
@@ -83,7 +88,7 @@ impl MainState {
     }
 
     fn pos_to_lane(&self, in_x: f32) -> u32 {
-        let mut x = in_x % (self.track_width as f32 * 2.0);
+        let mut x = (in_x + self.x_offset) % (self.track_width as f32 * 2.0);
         x = ((x - self.track_width as f32 / 2.0).max(0.0) / self.track_width as f32).min(1.0);
         (x * 6.0).min(5.0) as u32
     }
@@ -172,6 +177,10 @@ impl event::EventHandler for MainState {
                 }
             }
         }
+
+        let deltaTime = (10.0 * ggez::timer::delta(_ctx).as_secs_f32()).min(1.0);
+        self.x_offset = self.x_offset + (self.x_offset_target - self.x_offset) * deltaTime;
+
         Ok(())
     }
 
@@ -193,13 +202,14 @@ impl event::EventHandler for MainState {
                 [0.2, 0.2, 0.2, 1.0].into(),
             )?;
 
-            let track_count = 1 + (0.5 * self.w / self.track_width as f32) as u32;
+            let track_count = 2 + (0.5 * self.w / self.track_width as f32) as u32;
             for i in 0..track_count {
                 graphics::draw(
                     ctx,
                     &track,
                     (na::Point2::new(
-                        (self.track_width / 2.0 + i as f32 * self.track_width * 2.0) as f32,
+                        (self.track_width / 2.0 + i as f32 * self.track_width * 2.0) as f32
+                            - (self.x_offset % (self.track_width * 2.0)),
                         0.0,
                     ),),
                 )?;
@@ -571,6 +581,11 @@ impl event::EventHandler for MainState {
         self.imgui_wrapper.update_mouse_pos(x, y);
         self.mouse_x = x;
         self.mouse_y = y;
+    }
+
+    fn mouse_wheel_event(&mut self, _ctx: &mut Context, x: f32, y: f32) {
+        self.x_offset_target = self.x_offset_target + y * 100.0;
+        self.x_offset_target = self.x_offset_target.max(0.0);
     }
 }
 
