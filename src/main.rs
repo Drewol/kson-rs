@@ -573,6 +573,61 @@ impl event::EventHandler for MainState {
             KeyCode::P => {
                 self.imgui_wrapper.open_popup();
             }
+            KeyCode::Home => self.x_offset_target = 0.0,
+            KeyCode::PageUp => {
+                self.x_offset_target =
+                    self.x_offset_target + (self.w - (self.w % (self.track_width * 2.0)))
+            }
+            KeyCode::PageDown => {
+                self.x_offset_target =
+                    (self.x_offset_target - (self.w - (self.w % (self.track_width * 2.0)))).max(0.0)
+            }
+            KeyCode::End => {
+                let mut target: f32 = 0.0;
+
+                //check pos of last bt
+                for i in 0..4 {
+                    let last = self.chart.note.bt[i].last();
+                    match last {
+                        Some(note) => {
+                            target = target.max(self.tick_to_pos(note.y + note.l).0 + self.x_offset)
+                        }
+                        None => (),
+                    }
+                }
+
+                //check pos of last fx
+                for i in 0..2 {
+                    let last = self.chart.note.fx[i].last();
+                    match last {
+                        Some(note) => {
+                            target = target.max(self.tick_to_pos(note.y + note.l).0 + self.x_offset)
+                        }
+                        None => (),
+                    }
+                }
+
+                //check pos of last lasers
+                for i in 0..2 {
+                    let last_section = self.chart.note.laser[i].last();
+                    match last_section {
+                        Some(section) => {
+                            let last_segment = section.v.last();
+                            match last_segment {
+                                Some(segment) => {
+                                    target = target.max(
+                                        self.tick_to_pos(segment.ry + section.y).0 + self.x_offset,
+                                    )
+                                }
+                                None => (),
+                            }
+                        }
+                        None => (),
+                    }
+                }
+
+                self.x_offset_target = target - (target % (self.track_width * 2.0))
+            }
             _ => (),
         }
     }
@@ -584,7 +639,7 @@ impl event::EventHandler for MainState {
     }
 
     fn mouse_wheel_event(&mut self, _ctx: &mut Context, x: f32, y: f32) {
-        self.x_offset_target = self.x_offset_target + y * 100.0;
+        self.x_offset_target = self.x_offset_target + y * self.track_width;
         self.x_offset_target = self.x_offset_target.max(0.0);
     }
 }
