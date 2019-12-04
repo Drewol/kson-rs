@@ -121,8 +121,32 @@ pub struct DoubleEvent {
 }
 
 #[derive(Serialize, Deserialize)]
+pub struct TimeSignature {
+    pub n: u32,
+    pub d: u32,
+}
+
+impl TimeSignature {
+    //Parse from "n/d" string
+    fn from_str(s: &str) -> Self {
+        let mut data = s.split("/");
+        let n: u32 = data.next().unwrap().parse().unwrap();
+        let d: u32 = data.next().unwrap().parse().unwrap();
+
+        TimeSignature { n: n, d: d }
+    }
+}
+
+#[derive(Serialize, Deserialize)]
+pub struct ByMeasureIndex<T> {
+    pub idx: u32,
+    pub v: T,
+}
+
+#[derive(Serialize, Deserialize)]
 pub struct BeatInfo {
     pub bpm: Vec<DoubleEvent>,
+    pub time_sig: Vec<ByMeasureIndex<TimeSignature>>,
     pub resolution: u32,
 }
 
@@ -130,6 +154,7 @@ impl BeatInfo {
     fn new() -> Self {
         BeatInfo {
             bpm: Vec::new(),
+            time_sig: Vec::new(),
             resolution: 240,
         }
     }
@@ -182,7 +207,8 @@ impl Chart {
                 None => return Err(String::from("Unknown error.")),
             }
         }
-
+        let mut num = 4;
+        let mut den = 4;
         let data = data.unwrap();
         let data = &data[3..]; //Something about BOM(?)
         let mut parts: Vec<&str> = data.split("\n--").collect();
@@ -216,7 +242,7 @@ impl Chart {
 
         parts.remove(0);
         let mut y: u32 = 0;
-
+        let mut measure_index = 0;
         let mut last_char: [char; 8] = ['0'; 8];
         last_char[6] = '-';
         last_char[7] = '-';
@@ -242,10 +268,12 @@ impl Chart {
             if line_count == 0 {
                 continue;
             }
-            let ticks_per_line = (new_chart.beat.resolution * 4) / line_count; //TODO: use time signature
+            let mut ticks_per_line = (new_chart.beat.resolution * 4 * num / den) / line_count;
+            let mut has_read_notes = false;
             for line in measure_lines {
                 if note_regex.is_match(line) {
                     //read bt
+                    has_read_notes = true;
                     let chars: Vec<char> = line.chars().collect();
                     for i in 0..4 {
                         if chars[i] == '1' {
@@ -320,32 +348,60 @@ impl Chart {
                     }
 
                     y = y + ticks_per_line;
-                }
+                } else if line.contains("=") {
+                    let mut line_data = line.split("=");
 
-                //set slams
-                for i in 0..2 {
-                    for section in &mut new_chart.note.laser[i] {
-                        let mut iter = section.v.iter_mut();
-                        let mut for_removal: HashSet<u32> = HashSet::new();
-                        let mut prev = iter.next().unwrap();
-                        loop {
-                            let n = iter.next();
-                            match n {
-                                None => break,
-                                _ => (),
+                    let line_prop = String::from(line_data.next().unwrap());
+                    let line_value = String::from(line_data.next().unwrap());
+
+                    match line_prop.as_ref() {
+                        "beat" => {
+                            let new_sig = TimeSignature::from_str(line_value.as_ref());
+                            num = new_sig.n;
+                            den = new_sig.d;
+                            if !has_read_notes {
+                                ticks_per_line =
+                                    (new_chart.beat.resolution * 4 * num / den) / line_count;
+                                new_chart.beat.time_sig.push(ByMeasureIndex {
+                                    idx: measure_index,
+                                    v: new_sig,
+                                });
+                            } else {
+                                new_chart.beat.time_sig.push(ByMeasureIndex {
+                                    idx: measure_index + 1,
+                                    v: new_sig,
+                                });
                             }
-                            let next = n.unwrap();
-
-                            if next.ry - prev.ry <= new_chart.beat.resolution / 8 {
-                                prev.vf = Some(next.v);
-                                for_removal.insert(next.ry);
-                            }
-
-                            prev = next;
                         }
-                        section.v.retain(|p| !for_removal.contains(&p.ry));
+                        "t" => {}
+                        _ => (),
                     }
                 }
+            }
+            measure_index = measure_index + 1;
+        }
+        //set slams
+        for i in 0..2 {
+            for section in &mut new_chart.note.laser[i] {
+                let mut iter = section.v.iter_mut();
+                let mut for_removal: HashSet<u32> = HashSet::new();
+                let mut prev = iter.next().unwrap();
+                loop {
+                    let n = iter.next();
+                    match n {
+                        None => break,
+                        _ => (),
+                    }
+                    let next = n.unwrap();
+
+                    if (next.ry - prev.ry) <= (new_chart.beat.resolution / 8) {
+                        prev.vf = Some(next.v);
+                        for_removal.insert(next.ry);
+                    }
+
+                    prev = next;
+                }
+                section.v.retain(|p| !for_removal.contains(&p.ry));
             }
         }
 
