@@ -115,9 +115,9 @@ impl MetaInfo {
 }
 
 #[derive(Serialize, Deserialize)]
-pub struct DoubleEvent {
+pub struct ByPulse<T> {
     pub y: u32,
-    pub v: f64,
+    pub v: T,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -145,7 +145,7 @@ pub struct ByMeasureIndex<T> {
 
 #[derive(Serialize, Deserialize)]
 pub struct BeatInfo {
-    pub bpm: Vec<DoubleEvent>,
+    pub bpm: Vec<ByPulse<f64>>,
     pub time_sig: Vec<ByMeasureIndex<TimeSignature>>,
     pub resolution: u32,
 }
@@ -227,7 +227,7 @@ impl Chart {
                 "illustrator" => new_chart.meta.jacket_author = value,
                 "t" => {
                     if !value.contains("-") {
-                        new_chart.beat.bpm.push(DoubleEvent {
+                        new_chart.beat.bpm.push(ByPulse {
                             y: 0,
                             v: value.parse().unwrap_or_else(|e| {
                                 println!("{}", e);
@@ -236,6 +236,7 @@ impl Chart {
                         })
                     }
                 }
+                "beat" => {}
                 _ => (),
             }
         }
@@ -327,11 +328,7 @@ impl Chart {
                         }
                         if chars[i + 8] != '-' && chars[i + 8] != ':' && last_char[i + 6] == '-' {
                             // new laser
-                            laser_builder[i] = LaserSection {
-                                y: y,
-                                v: Vec::new(),
-                                wide: 1,
-                            };
+                            laser_builder[i].y = y;
                             laser_builder[i].v.push(GraphSectionPoint::new(
                                 0,
                                 laser_char_to_value(chars[i + 8] as u8).unwrap(),
@@ -352,7 +349,7 @@ impl Chart {
                     let mut line_data = line.split("=");
 
                     let line_prop = String::from(line_data.next().unwrap());
-                    let line_value = String::from(line_data.next().unwrap());
+                    let mut line_value = String::from(line_data.next().unwrap());
 
                     match line_prop.as_ref() {
                         "beat" => {
@@ -373,7 +370,21 @@ impl Chart {
                                 });
                             }
                         }
-                        "t" => {}
+                        "t" => new_chart.beat.bpm.push(ByPulse {
+                            y: 0,
+                            v: line_value.parse().unwrap_or_else(|e| {
+                                println!("{}", e);
+                                panic!(e)
+                            }),
+                        }),
+                        "laserrange_l" => {
+                            line_value.truncate(1);
+                            laser_builder[0].wide = line_value.parse().unwrap();
+                        }
+                        "laserrange_r" => {
+                            line_value.truncate(1);
+                            laser_builder[1].wide = line_value.parse().unwrap();
+                        }
                         _ => (),
                     }
                 }

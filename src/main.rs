@@ -301,6 +301,7 @@ impl event::EventHandler for MainState {
             for i in 0..2 {
                 for section in &self.chart.note.laser[i] {
                     let y_base = section.y;
+                    let wide = section.wide == 2;
                     for se in section.v.windows(2) {
                         let s = &se[0];
                         let e = &se[1];
@@ -315,15 +316,21 @@ impl event::EventHandler for MainState {
                             Some(value) => {
                                 start_value = value as f32;
                                 syoff = slam_height;
+                                let mut sv: f32 = s.v as f32;
+                                let mut ev: f32 = value as f32;
+                                if wide {
+                                    ev = ev * 2.0 - 0.5;
+                                    sv = sv * 2.0 - 0.5;
+                                }
 
                                 //draw slam
                                 let (x, y) = self.tick_to_pos(interval.y);
                                 let sx = x
-                                    + s.v as f32 * (self.track_width - self.lane_width())
+                                    + sv * (self.track_width - self.lane_width())
                                     + (self.track_width / 2.0)
                                     + self.lane_width() / 2.0;
                                 let ex = x
-                                    + start_value * (self.track_width - self.lane_width())
+                                    + ev * (self.track_width - self.lane_width())
                                     + (self.track_width / 2.0)
                                     + self.lane_width() / 2.0;
 
@@ -344,7 +351,11 @@ impl event::EventHandler for MainState {
                             }
                             _ => (),
                         };
-                        let value_width = (e.v as f32 - start_value) as f32;
+                        let mut value_width = (e.v as f32 - start_value) as f32;
+                        if wide {
+                            value_width = value_width * 2.0;
+                            start_value = start_value * 2.0 - 0.5;
+                        }
 
                         for (x, y, h, (sv, ev)) in self.interval_to_ranges(&interval) {
                             let sx = x
@@ -391,13 +402,20 @@ impl event::EventHandler for MainState {
                             match l.vf {
                                 Some(vf) => {
                                     //draw slam
+                                    let mut sv: f32 = l.v as f32;
+                                    let mut ev: f32 = vf as f32;
+                                    if wide {
+                                        sv = sv * 2.0 - 0.5;
+                                        ev = ev * 2.0 - 0.5;
+                                    }
+
                                     let (x, y) = self.tick_to_pos(l.ry + y_base);
                                     let sx = x
-                                        + l.v as f32 * (self.track_width - self.lane_width())
+                                        + sv * (self.track_width - self.lane_width())
                                         + (self.track_width / 2.0)
                                         + self.lane_width() / 2.0;
                                     let ex = x
-                                        + vf as f32 * (self.track_width - self.lane_width())
+                                        + ev as f32 * (self.track_width - self.lane_width())
                                         + (self.track_width / 2.0)
                                         + self.lane_width() / 2.0;
 
