@@ -333,7 +333,7 @@ impl Chart {
                                 0,
                                 laser_char_to_value(chars[i + 8] as u8).unwrap(),
                             ));
-                        } else if chars[i + 8] != ':' && last_char[i + 6] == ':' {
+                        } else if chars[i + 8] != ':' && chars[i + 8] != '-' {
                             // new point
                             laser_builder[i].v.push(GraphSectionPoint::new(
                                 y - laser_builder[i].y,
@@ -408,6 +408,9 @@ impl Chart {
                     if (next.ry - prev.ry) <= (new_chart.beat.resolution / 8) {
                         prev.vf = Some(next.v);
                         for_removal.insert(next.ry);
+                        if for_removal.contains(&prev.ry) {
+                            for_removal.remove(&prev.ry);
+                        }
                     }
 
                     prev = next;

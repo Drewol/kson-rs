@@ -84,7 +84,8 @@ impl MainState {
         math::round::floor(
             (y as f64 + x) * self.beats_per_col as f64 * self.chart.beat.resolution as f64,
             0,
-        ) as u32
+        )
+        .max(0.0) as u32
     }
 
     fn pos_to_lane(&self, in_x: f32) -> u32 {
@@ -228,13 +229,19 @@ impl event::EventHandler for MainState {
                 graphics::Color::from_rgba(194, 6, 140, 255),
             ];
             let slam_height = 6.0 as f32;
+            let min_tick_render = self.pos_to_tick(-100.0, self.h);
+            let max_tick_render = self.pos_to_tick(self.w + 50.0, 0.0);
             for i in 0..4 {
                 for n in &self.chart.note.bt[i] {
+                    if n.y + n.l < min_tick_render {
+                        continue;
+                    }
+                    if n.y > max_tick_render {
+                        break;
+                    }
+
                     if n.l == 0 {
                         let (x, y) = self.tick_to_pos(n.y);
-                        if x > self.w + self.track_width * 2.0 {
-                            break;
-                        }
 
                         let x = x
                             + i as f32 * self.lane_width()
@@ -272,6 +279,13 @@ impl event::EventHandler for MainState {
             //fx
             for i in 0..2 {
                 for n in &self.chart.note.fx[i] {
+                    if n.y + n.l < min_tick_render {
+                        continue;
+                    }
+                    if n.y > max_tick_render {
+                        break;
+                    }
+
                     if n.l == 0 {
                         let (x, y) = self.tick_to_pos(n.y);
 
@@ -311,6 +325,13 @@ impl event::EventHandler for MainState {
             for i in 0..2 {
                 for section in &self.chart.note.laser[i] {
                     let y_base = section.y;
+                    if section.v.last().unwrap().ry + y_base < min_tick_render {
+                        continue;
+                    }
+                    if y_base > max_tick_render {
+                        break;
+                    }
+
                     let wide = section.wide == 2;
                     for se in section.v.windows(2) {
                         let s = &se[0];
