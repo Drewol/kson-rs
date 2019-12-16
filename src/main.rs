@@ -27,31 +27,32 @@ trait CursorObject {
 }
 
 //structs for cursor objects
-struct FXInterval {
-    interval: chart::Interval,
-    lane: usize,
-}
-
-struct BTInterval {
+struct ButtonInterval {
     pressed: bool,
+    fx: bool,
     interval: chart::Interval,
     lane: usize,
 }
 
-impl BTInterval {
-    fn new() -> Self {
-        BTInterval {
+impl ButtonInterval {
+    fn new(fx: bool) -> Self {
+        ButtonInterval {
             pressed: false,
+            fx: fx,
             interval: chart::Interval { y: 0, l: 0 },
             lane: 0,
         }
     }
 }
 
-impl CursorObject for BTInterval {
+impl CursorObject for ButtonInterval {
     fn mouse_down(&mut self, tick: u32, lane: f32, chart: &mut chart::Chart) {
         self.pressed = true;
-        self.lane = (lane as usize).max(1).min(4) - 1;
+        if self.fx {
+            self.lane = if lane < 3.0 { 0 } else { 1 };
+        } else {
+            self.lane = (lane as usize).max(1).min(4) - 1;
+        }
         self.interval.y = tick;
     }
 
@@ -62,7 +63,13 @@ impl CursorObject for BTInterval {
             self.interval.l = (tick - self.interval.y);
         }
         let v = std::mem::replace(&mut self.interval, chart::Interval { y: 0, l: 0 });
-        chart.note.bt[self.lane].push(v);
+        if self.fx {
+            chart.note.fx[self.lane].push(v);
+            chart.note.fx[self.lane].sort_by(|a, b| a.y.partial_cmp(&b.y).unwrap());
+        } else {
+            chart.note.bt[self.lane].push(v);
+            chart.note.bt[self.lane].sort_by(|a, b| a.y.partial_cmp(&b.y).unwrap());
+        }
         self.pressed = false;
         self.lane = 0;
     }
@@ -70,7 +77,11 @@ impl CursorObject for BTInterval {
     fn update(&mut self, tick: u32, lane: f32) {
         if !self.pressed {
             self.interval.y = tick;
-            self.lane = (lane as usize).max(1).min(4) - 1;
+            if self.fx {
+                self.lane = if lane < 3.0 { 0 } else { 1 };
+            } else {
+                self.lane = (lane as usize).max(1).min(4) - 1;
+            }
         }
         if self.interval.y > tick {
             self.interval.l = 0;
@@ -81,22 +92,42 @@ impl CursorObject for BTInterval {
 
     fn draw(&self, state: &MainState, ctx: &mut Context) {
         graphics::set_blend_mode(ctx, graphics::BlendMode::Alpha);
-        let color = graphics::Color {
-            r: 1.0,
-            g: 1.0,
-            b: 1.0,
-            a: 0.5,
+        let color = if self.fx {
+            graphics::Color {
+                r: 1.0,
+                g: 0.3,
+                b: 0.0,
+                a: 0.5,
+            }
+        } else {
+            graphics::Color {
+                r: 1.0,
+                g: 1.0,
+                b: 1.0,
+                a: 0.5,
+            }
         };
         if self.interval.l == 0 {
             let (x, y) = state.tick_to_pos(self.interval.y);
 
-            let x = x
-                + self.lane as f32 * state.lane_width()
-                + 1.0 * self.lane as f32
-                + state.lane_width()
-                + state.track_width / 2.0;
+            let x = if self.fx {
+                x + self.lane as f32 * state.lane_width() * 2.0
+                    + 2.0 * self.lane as f32
+                    + state.lane_width()
+                    + state.track_width / 2.0
+            } else {
+                x + self.lane as f32 * state.lane_width()
+                    + 1.0 * self.lane as f32
+                    + state.lane_width()
+                    + state.track_width / 2.0
+            };
             let y = y as f32;
-            let w = state.track_width as f32 / 6.0 - 2.0;
+
+            let w = if self.fx {
+                state.track_width as f32 / 3.0 - 1.0
+            } else {
+                state.track_width as f32 / 6.0 - 2.0
+            };
             let h = -2.0;
 
             let m = graphics::Mesh::new_rectangle(
@@ -110,12 +141,23 @@ impl CursorObject for BTInterval {
         } else {
             let mut long_bt_builder = graphics::MeshBuilder::new();
             for (x, y, h, _) in state.interval_to_ranges(&self.interval) {
-                let x = x
-                    + self.lane as f32 * state.lane_width()
-                    + 1.0 * self.lane as f32
-                    + state.lane_width()
-                    + state.track_width / 2.0;
-                let w = state.track_width as f32 / 6.0 - 2.0;
+                let x = if self.fx {
+                    x + self.lane as f32 * state.lane_width() * 2.0
+                        + 2.0 * self.lane as f32
+                        + state.lane_width()
+                        + state.track_width / 2.0
+                } else {
+                    x + self.lane as f32 * state.lane_width()
+                        + 1.0 * self.lane as f32
+                        + state.lane_width()
+                        + state.track_width / 2.0
+                };
+
+                let w = if self.fx {
+                    state.track_width as f32 / 3.0 - 1.0
+                } else {
+                    state.track_width as f32 / 6.0 - 2.0
+                };
 
                 long_bt_builder.rectangle(graphics::DrawMode::fill(), [x, y, w, h].into(), color);
             }
@@ -266,7 +308,12 @@ impl event::EventHandler for MainState {
                         },
                         GuiEvent::Exit => _ctx.continuing = false,
                         GuiEvent::ToolChanged(new_tool) => match new_tool {
-                            ChartTool::BT => self.cursor_object = Some(Box::new(BTInterval::new())),
+                            ChartTool::BT => {
+                                self.cursor_object = Some(Box::new(ButtonInterval::new(false)))
+                            }
+                            ChartTool::FX => {
+                                self.cursor_object = Some(Box::new(ButtonInterval::new(true)))
+                            }
                             _ => self.cursor_object = None,
                         },
                         _ => (),
@@ -631,7 +678,7 @@ impl event::EventHandler for MainState {
         if button == MouseButton::Left {
             let lane = self.pos_to_lane(x);
             let tick = self.pos_to_tick(x, y);
-
+            let tick = tick - (tick % (self.chart.beat.resolution / 2));
             match self.cursor_object {
                 Some(ref mut cursor) => cursor.mouse_down(tick, lane, &mut self.chart),
                 None => (),
@@ -645,7 +692,7 @@ impl event::EventHandler for MainState {
         if button == MouseButton::Left {
             let lane = self.pos_to_lane(x);
             let tick = self.pos_to_tick(x, y);
-
+            let tick = tick - (tick % (self.chart.beat.resolution / 2));
             match self.cursor_object {
                 Some(ref mut cursor) => cursor.mouse_up(tick, lane, &mut self.chart),
                 None => (),
@@ -747,7 +794,7 @@ impl event::EventHandler for MainState {
 
         let lane = self.pos_to_lane(x);
         let tick = self.pos_to_tick(x, y);
-
+        let tick = tick - (tick % (self.chart.beat.resolution / 2));
         match self.cursor_object {
             Some(ref mut cursor) => cursor.update(tick, lane),
             None => (),
