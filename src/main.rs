@@ -231,9 +231,9 @@ impl CursorObject for LaserTool {
             self.active = true;
         } else if let Some(last) = self.get_second_to_last() {
             finalize = if let Some(vf) = (*last).vf {
-                vf == v
+                ry == last.ry
             } else {
-                (*last).v == v
+                ry == last.ry && v == last.v
             }
         }
 
@@ -284,11 +284,13 @@ impl CursorObject for LaserTool {
         }
     }
     fn draw(&self, state: &MainState, ctx: &mut Context) -> GameResult {
+        let b = 0.8;
         let color: graphics::Color = if self.right {
-            [1.0, 0.0, 0.0, 1.0].into()
+            [0.76 * b, 0.024 * b, 0.55 * b, 1.0].into()
         } else {
-            [0.0, 0.0, 1.0, 1.0].into()
+            [0.0, 0.45 * b, 0.565 * b, 1.0].into()
         };
+
         let mut mb = graphics::MeshBuilder::new();
         if self.active {
             state.draw_laser_section(&self.section, &mut mb, color)?;
