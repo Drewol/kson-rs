@@ -15,6 +15,7 @@ use ggez::{Context, GameResult};
 use math::round;
 use nfd::Response;
 mod chart;
+use chart::{GraphSectionPoint, LaserSection};
 use std::fs::File;
 use std::io::prelude::*;
 use std::{thread, time};
@@ -23,7 +24,7 @@ trait CursorObject {
     fn mouse_down(&mut self, tick: u32, lane: f32, chart: &mut chart::Chart);
     fn mouse_up(&mut self, tick: u32, lane: f32, chart: &mut chart::Chart);
     fn update(&mut self, tick: u32, lane: f32);
-    fn draw(&self, state: &MainState, ctx: &mut Context);
+    fn draw(&self, state: &MainState, ctx: &mut Context) -> GameResult;
 }
 
 //structs for cursor objects
@@ -41,6 +42,57 @@ impl ButtonInterval {
             fx: fx,
             interval: chart::Interval { y: 0, l: 0 },
             lane: 0,
+        }
+    }
+}
+
+struct LaserTool {
+    active: bool,
+    right: bool,
+    section: chart::LaserSection,
+}
+
+impl LaserTool {
+    fn new(right: bool) -> Self {
+        LaserTool {
+            active: false,
+            right: right,
+            section: chart::LaserSection {
+                y: 0,
+                wide: 0,
+                v: Vec::new(),
+            },
+        }
+    }
+
+    fn lane_to_pos(lane: f32) -> f64 {
+        math::round::floor(lane as f64 * 2.0, 0) / 10.0
+    }
+
+    fn get_second_to_last(&self) -> Option<&GraphSectionPoint> {
+        let len = self.section.v.len();
+        let idx = len.checked_sub(2);
+        idx.and_then(|i| self.section.v.get(i))
+    }
+
+    fn get_second_to_last_mut(&mut self) -> Option<&mut GraphSectionPoint> {
+        let len = self.section.v.len();
+        let idx = len.checked_sub(2);
+        let idx = idx.unwrap();
+        self.section.v.get_mut(idx)
+    }
+
+    fn calc_ry(&self, tick: u32) -> u32 {
+        let ry = if tick <= self.section.y {
+            0
+        } else {
+            tick - self.section.y
+        };
+
+        if let Some(secont_last) = self.get_second_to_last() {
+            (*secont_last).ry.max(ry)
+        } else {
+            ry
         }
     }
 }
@@ -90,7 +142,7 @@ impl CursorObject for ButtonInterval {
         }
     }
 
-    fn draw(&self, state: &MainState, ctx: &mut Context) {
+    fn draw(&self, state: &MainState, ctx: &mut Context) -> GameResult {
         graphics::set_blend_mode(ctx, graphics::BlendMode::Alpha);
         let color = if self.fx {
             graphics::Color {
@@ -135,9 +187,8 @@ impl CursorObject for ButtonInterval {
                 graphics::DrawMode::fill(),
                 [x, y, w, h].into(),
                 color,
-            )
-            .unwrap();
-            graphics::draw(ctx, &m, (na::Point2::new(0.0, 0.0),));
+            )?;
+            graphics::draw(ctx, &m, (na::Point2::new(0.0, 0.0),))
         } else {
             let mut long_bt_builder = graphics::MeshBuilder::new();
             for (x, y, h, _) in state.interval_to_ranges(&self.interval) {
@@ -161,9 +212,91 @@ impl CursorObject for ButtonInterval {
 
                 long_bt_builder.rectangle(graphics::DrawMode::fill(), [x, y, w, h].into(), color);
             }
-            let m = long_bt_builder.build(ctx).unwrap();
-            graphics::draw(ctx, &m, (na::Point2::new(0.0, 0.0),));
+            let m = long_bt_builder.build(ctx)?;
+            graphics::draw(ctx, &m, (na::Point2::new(0.0, 0.0),))
         }
+    }
+}
+
+impl CursorObject for LaserTool {
+    fn mouse_down(&mut self, tick: u32, lane: f32, chart: &mut chart::Chart) {
+        let v = LaserTool::lane_to_pos(lane);
+        let ry = self.calc_ry(tick);
+        let mut finalize = false;
+
+        if !self.active {
+            self.section.y = tick;
+            self.section.v.push(GraphSectionPoint::new(0, v));
+            self.section.wide = 1;
+            self.active = true;
+        } else if let Some(last) = self.get_second_to_last() {
+            finalize = if let Some(vf) = (*last).vf {
+                vf == v
+            } else {
+                (*last).v == v
+            }
+        }
+
+        if finalize {
+            self.active = false;
+            self.section.v.pop();
+            let v = std::mem::replace(
+                &mut self.section,
+                LaserSection {
+                    y: 0,
+                    v: Vec::new(),
+                    wide: 1,
+                },
+            );
+            let i = if self.right { 1 } else { 0 };
+            chart.note.laser[i].push(v);
+            return;
+        }
+
+        self.section
+            .v
+            .push(GraphSectionPoint::new(ry, LaserTool::lane_to_pos(lane)));
+    }
+    fn mouse_up(&mut self, tick: u32, lane: f32, chart: &mut chart::Chart) {}
+    fn update(&mut self, tick: u32, lane: f32) {
+        if self.active {
+            let ry = self.calc_ry(tick);
+            let v = LaserTool::lane_to_pos(lane);
+            let second_last: Option<GraphSectionPoint> = if let Some(sl) = self.get_second_to_last()
+            {
+                Some(*sl)
+            } else {
+                None
+            };
+            if let Some(last) = self.section.v.last_mut() {
+                (*last).ry = ry;
+                (*last).v = v;
+
+                if let Some(second_last) = second_last {
+                    if second_last.ry == ry {
+                        (*last).v = second_last.v;
+                        (*last).vf = Some(v);
+                    } else {
+                        (*last).vf = None;
+                    }
+                }
+            }
+        }
+    }
+    fn draw(&self, state: &MainState, ctx: &mut Context) -> GameResult {
+        let color: graphics::Color = if self.right {
+            [1.0, 0.0, 0.0, 1.0].into()
+        } else {
+            [0.0, 0.0, 1.0, 1.0].into()
+        };
+        let mut mb = graphics::MeshBuilder::new();
+        if self.active {
+            state.draw_laser_section(&self.section, &mut mb, color)?;
+        }
+        graphics::set_blend_mode(ctx, graphics::BlendMode::Add)?;
+        let m = mb.build(ctx)?;
+        graphics::draw(ctx, &m, (na::Point2::new(0.0, 0.0),))?;
+        Ok(())
     }
 }
 
@@ -207,6 +340,153 @@ impl MainState {
             cursor_object: None,
         };
         Ok(s)
+    }
+
+    fn draw_laser_section(
+        &self,
+        section: &chart::LaserSection,
+        mb: &mut graphics::MeshBuilder,
+        color: graphics::Color,
+    ) -> GameResult {
+        let y_base = section.y;
+        let wide = section.wide == 2;
+        let slam_height = 6.0 as f32;
+
+        for se in section.v.windows(2) {
+            let s = &se[0];
+            let e = &se[1];
+            let interval = chart::Interval {
+                y: s.ry + y_base,
+                l: e.ry - s.ry,
+            };
+            let mut start_value = s.v as f32;
+            let mut syoff = 0.0 as f32;
+
+            match s.vf {
+                Some(value) => {
+                    start_value = value as f32;
+                    syoff = slam_height;
+                    let mut sv: f32 = s.v as f32;
+                    let mut ev: f32 = value as f32;
+                    if wide {
+                        ev = ev * 2.0 - 0.5;
+                        sv = sv * 2.0 - 0.5;
+                    }
+
+                    //draw slam
+                    let (x, y) = self.tick_to_pos(interval.y);
+                    let sx = x
+                        + sv * (self.track_width - self.lane_width())
+                        + (self.track_width / 2.0)
+                        + self.lane_width() / 2.0;
+                    let ex = x
+                        + ev * (self.track_width - self.lane_width())
+                        + (self.track_width / 2.0)
+                        + self.lane_width() / 2.0;
+
+                    let mut w: f32 = 0.0;
+                    let mut x: f32 = 0.0;
+                    if sx > ex {
+                        x = sx + self.lane_width() / 2.0;
+                        w = (ex - self.lane_width() / 2.0) - x;
+                    } else {
+                        x = sx - self.lane_width() / 2.0;
+                        w = (ex + self.lane_width() / 2.0) - x;
+                    }
+                    mb.rectangle(
+                        graphics::DrawMode::fill(),
+                        [x, y, w, -slam_height].into(),
+                        color,
+                    );
+                }
+                _ => (),
+            };
+            let mut value_width = (e.v as f32 - start_value) as f32;
+            if wide {
+                value_width = value_width * 2.0;
+                start_value = start_value * 2.0 - 0.5;
+            }
+            if interval.l == 0 {
+                continue;
+            }
+
+            for (x, y, h, (sv, ev)) in self.interval_to_ranges(&interval) {
+                let sx = x
+                    + (start_value + (sv * value_width)) * (self.track_width - self.lane_width())
+                    + (self.track_width / 2.0)
+                    + self.lane_width() / 2.0;
+                let ex = x
+                    + (start_value + (ev * value_width)) * (self.track_width - self.lane_width())
+                    + (self.track_width / 2.0)
+                    + self.lane_width() / 2.0;
+
+                let sy = y;
+                let ey = y + h;
+
+                let xoff = self.lane_width() / 2.0;
+                let points = [
+                    na::Point2 {
+                        coords: [sx - xoff, sy - syoff].into(),
+                    },
+                    na::Point2 {
+                        coords: [sx + xoff, sy - syoff].into(),
+                    },
+                    na::Point2 {
+                        coords: [ex + xoff, ey].into(),
+                    },
+                    na::Point2 {
+                        coords: [ex - xoff, ey].into(),
+                    },
+                ];
+
+                mb.polygon(graphics::DrawMode::fill(), &points, color)?;
+            }
+        }
+
+        let last = section.v.last();
+        match last {
+            Some(l) => {
+                match l.vf {
+                    Some(vf) => {
+                        //draw slam
+                        let mut sv: f32 = l.v as f32;
+                        let mut ev: f32 = vf as f32;
+                        if wide {
+                            sv = sv * 2.0 - 0.5;
+                            ev = ev * 2.0 - 0.5;
+                        }
+
+                        let (x, y) = self.tick_to_pos(l.ry + y_base);
+                        let sx = x
+                            + sv * (self.track_width - self.lane_width())
+                            + (self.track_width / 2.0)
+                            + self.lane_width() / 2.0;
+                        let ex = x
+                            + ev as f32 * (self.track_width - self.lane_width())
+                            + (self.track_width / 2.0)
+                            + self.lane_width() / 2.0;
+
+                        let mut w: f32 = 0.0;
+                        let mut x: f32 = 0.0;
+                        if sx > ex {
+                            x = sx + self.lane_width() / 2.0;
+                            w = (ex - self.lane_width() / 2.0) - x;
+                        } else {
+                            x = sx - self.lane_width() / 2.0;
+                            w = (ex + self.lane_width() / 2.0) - x;
+                        }
+                        mb.rectangle(
+                            graphics::DrawMode::fill(),
+                            [x, y, w, -slam_height].into(),
+                            color,
+                        );
+                    }
+                    None => (),
+                }
+            }
+            None => (),
+        };
+        Ok(())
     }
 
     fn lane_width(&self) -> f32 {
@@ -314,6 +594,12 @@ impl event::EventHandler for MainState {
                             ChartTool::FX => {
                                 self.cursor_object = Some(Box::new(ButtonInterval::new(true)))
                             }
+                            ChartTool::LLaser => {
+                                self.cursor_object = Some(Box::new(LaserTool::new(false)))
+                            }
+                            ChartTool::RLaser => {
+                                self.cursor_object = Some(Box::new(LaserTool::new(true)))
+                            }
                             _ => self.cursor_object = None,
                         },
                         _ => (),
@@ -371,7 +657,6 @@ impl event::EventHandler for MainState {
                 graphics::Color::from_rgba(0, 115, 144, 255),
                 graphics::Color::from_rgba(194, 6, 140, 255),
             ];
-            let slam_height = 6.0 as f32;
             let min_tick_render = self.pos_to_tick(-100.0, self.h);
             let max_tick_render = self.pos_to_tick(self.w + 50.0, 0.0);
             for i in 0..4 {
@@ -475,144 +760,7 @@ impl event::EventHandler for MainState {
                         break;
                     }
 
-                    let wide = section.wide == 2;
-                    for se in section.v.windows(2) {
-                        let s = &se[0];
-                        let e = &se[1];
-                        let interval = chart::Interval {
-                            y: s.ry + y_base,
-                            l: e.ry - s.ry,
-                        };
-                        let mut start_value = s.v as f32;
-                        let mut syoff = 0.0 as f32;
-
-                        match s.vf {
-                            Some(value) => {
-                                start_value = value as f32;
-                                syoff = slam_height;
-                                let mut sv: f32 = s.v as f32;
-                                let mut ev: f32 = value as f32;
-                                if wide {
-                                    ev = ev * 2.0 - 0.5;
-                                    sv = sv * 2.0 - 0.5;
-                                }
-
-                                //draw slam
-                                let (x, y) = self.tick_to_pos(interval.y);
-                                let sx = x
-                                    + sv * (self.track_width - self.lane_width())
-                                    + (self.track_width / 2.0)
-                                    + self.lane_width() / 2.0;
-                                let ex = x
-                                    + ev * (self.track_width - self.lane_width())
-                                    + (self.track_width / 2.0)
-                                    + self.lane_width() / 2.0;
-
-                                let mut w: f32 = 0.0;
-                                let mut x: f32 = 0.0;
-                                if sx > ex {
-                                    x = sx + self.lane_width() / 2.0;
-                                    w = (ex - self.lane_width() / 2.0) - x;
-                                } else {
-                                    x = sx - self.lane_width() / 2.0;
-                                    w = (ex + self.lane_width() / 2.0) - x;
-                                }
-                                laser_builder.rectangle(
-                                    graphics::DrawMode::fill(),
-                                    [x, y, w, -slam_height].into(),
-                                    laser_color[i],
-                                );
-                            }
-                            _ => (),
-                        };
-                        let mut value_width = (e.v as f32 - start_value) as f32;
-                        if wide {
-                            value_width = value_width * 2.0;
-                            start_value = start_value * 2.0 - 0.5;
-                        }
-
-                        for (x, y, h, (sv, ev)) in self.interval_to_ranges(&interval) {
-                            let sx = x
-                                + (start_value + (sv * value_width))
-                                    * (self.track_width - self.lane_width())
-                                + (self.track_width / 2.0)
-                                + self.lane_width() / 2.0;
-                            let ex = x
-                                + (start_value + (ev * value_width))
-                                    * (self.track_width - self.lane_width())
-                                + (self.track_width / 2.0)
-                                + self.lane_width() / 2.0;
-
-                            let sy = y;
-                            let ey = y + h;
-
-                            let xoff = self.lane_width() / 2.0;
-                            let points = [
-                                na::Point2 {
-                                    coords: [sx - xoff, sy - syoff].into(),
-                                },
-                                na::Point2 {
-                                    coords: [sx + xoff, sy - syoff].into(),
-                                },
-                                na::Point2 {
-                                    coords: [ex + xoff, ey].into(),
-                                },
-                                na::Point2 {
-                                    coords: [ex - xoff, ey].into(),
-                                },
-                            ];
-
-                            laser_builder.polygon(
-                                graphics::DrawMode::fill(),
-                                &points,
-                                laser_color[i],
-                            )?;
-                        }
-                    }
-
-                    let last = section.v.last();
-                    match last {
-                        Some(l) => {
-                            match l.vf {
-                                Some(vf) => {
-                                    //draw slam
-                                    let mut sv: f32 = l.v as f32;
-                                    let mut ev: f32 = vf as f32;
-                                    if wide {
-                                        sv = sv * 2.0 - 0.5;
-                                        ev = ev * 2.0 - 0.5;
-                                    }
-
-                                    let (x, y) = self.tick_to_pos(l.ry + y_base);
-                                    let sx = x
-                                        + sv * (self.track_width - self.lane_width())
-                                        + (self.track_width / 2.0)
-                                        + self.lane_width() / 2.0;
-                                    let ex = x
-                                        + ev as f32 * (self.track_width - self.lane_width())
-                                        + (self.track_width / 2.0)
-                                        + self.lane_width() / 2.0;
-
-                                    let mut w: f32 = 0.0;
-                                    let mut x: f32 = 0.0;
-                                    if sx > ex {
-                                        x = sx + self.lane_width() / 2.0;
-                                        w = (ex - self.lane_width() / 2.0) - x;
-                                    } else {
-                                        x = sx - self.lane_width() / 2.0;
-                                        w = (ex + self.lane_width() / 2.0) - x;
-                                    }
-                                    laser_builder.rectangle(
-                                        graphics::DrawMode::fill(),
-                                        [x, y, w, -slam_height].into(),
-                                        laser_color[i],
-                                    );
-                                }
-                                None => (),
-                            }
-                        }
-                        None => (),
-                    };
+                    self.draw_laser_section(section, laser_builder, laser_color[i]);
                 }
             }
 
@@ -653,7 +801,7 @@ impl event::EventHandler for MainState {
             }
 
             match self.cursor_object {
-                Some(ref cursor) => cursor.draw(self, ctx),
+                Some(ref cursor) => cursor.draw(self, ctx).unwrap_or_else(|e| {}),
                 None => (),
             }
         }
@@ -675,13 +823,15 @@ impl event::EventHandler for MainState {
             button == MouseButton::Middle,
         ));
 
-        if button == MouseButton::Left {
-            let lane = self.pos_to_lane(x);
-            let tick = self.pos_to_tick(x, y);
-            let tick = tick - (tick % (self.chart.beat.resolution / 2));
-            match self.cursor_object {
-                Some(ref mut cursor) => cursor.mouse_down(tick, lane, &mut self.chart),
-                None => (),
+        if !self.imgui_wrapper.captures_mouse() {
+            if button == MouseButton::Left {
+                let lane = self.pos_to_lane(x);
+                let tick = self.pos_to_tick(x, y);
+                let tick = tick - (tick % (self.chart.beat.resolution / 2));
+                match self.cursor_object {
+                    Some(ref mut cursor) => cursor.mouse_down(tick, lane, &mut self.chart),
+                    None => (),
+                }
             }
         }
     }
@@ -689,13 +839,15 @@ impl event::EventHandler for MainState {
     fn mouse_button_up_event(&mut self, ctx: &mut Context, button: MouseButton, x: f32, y: f32) {
         self.imgui_wrapper.update_mouse_down((false, false, false));
 
-        if button == MouseButton::Left {
-            let lane = self.pos_to_lane(x);
-            let tick = self.pos_to_tick(x, y);
-            let tick = tick - (tick % (self.chart.beat.resolution / 2));
-            match self.cursor_object {
-                Some(ref mut cursor) => cursor.mouse_up(tick, lane, &mut self.chart),
-                None => (),
+        if !self.imgui_wrapper.captures_mouse() {
+            if button == MouseButton::Left {
+                let lane = self.pos_to_lane(x);
+                let tick = self.pos_to_tick(x, y);
+                let tick = tick - (tick % (self.chart.beat.resolution / 2));
+                match self.cursor_object {
+                    Some(ref mut cursor) => cursor.mouse_up(tick, lane, &mut self.chart),
+                    None => (),
+                }
             }
         }
     }

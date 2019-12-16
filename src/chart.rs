@@ -9,7 +9,7 @@ use std::fs::File;
 use std::io::{BufRead, BufReader, Read};
 use std::str::Lines;
 
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize, Deserialize, Copy, Clone)]
 pub struct GraphSectionPoint {
     pub ry: u32,
     pub v: f64,
@@ -19,7 +19,7 @@ pub struct GraphSectionPoint {
 }
 
 impl GraphSectionPoint {
-    fn new(_ry: u32, _v: f64) -> Self {
+    pub fn new(_ry: u32, _v: f64) -> Self {
         GraphSectionPoint {
             ry: _ry,
             v: _v,
