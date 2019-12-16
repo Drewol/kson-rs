@@ -1,3 +1,5 @@
+#![windows_subsystem = "windows"]
+
 extern crate ggez;
 extern crate imgui;
 extern crate math;
@@ -5,7 +7,7 @@ extern crate nfd;
 extern crate serde_json;
 
 mod gui;
-use crate::gui::{GuiEvent, ImGuiWrapper};
+use crate::gui::{ChartTool, GuiEvent, ImGuiWrapper};
 use ggez::event::{self, EventHandler, KeyCode, KeyMods, MouseButton};
 use ggez::graphics;
 use ggez::nalgebra as na;
@@ -15,6 +17,113 @@ use nfd::Response;
 mod chart;
 use std::fs::File;
 use std::io::prelude::*;
+use std::{thread, time};
+
+trait CursorObject {
+    fn mouse_down(&mut self, tick: u32, lane: f32, chart: &mut chart::Chart);
+    fn mouse_up(&mut self, tick: u32, lane: f32, chart: &mut chart::Chart);
+    fn update(&mut self, tick: u32, lane: f32);
+    fn draw(&self, state: &MainState, ctx: &mut Context);
+}
+
+//structs for cursor objects
+struct FXInterval {
+    interval: chart::Interval,
+    lane: usize,
+}
+
+struct BTInterval {
+    pressed: bool,
+    interval: chart::Interval,
+    lane: usize,
+}
+
+impl BTInterval {
+    fn new() -> Self {
+        BTInterval {
+            pressed: false,
+            interval: chart::Interval { y: 0, l: 0 },
+            lane: 0,
+        }
+    }
+}
+
+impl CursorObject for BTInterval {
+    fn mouse_down(&mut self, tick: u32, lane: f32, chart: &mut chart::Chart) {
+        self.pressed = true;
+        self.lane = (lane as usize).max(1).min(4) - 1;
+        self.interval.y = tick;
+    }
+
+    fn mouse_up(&mut self, tick: u32, lane: f32, chart: &mut chart::Chart) {
+        if self.interval.y > tick {
+            self.interval.l = 0;
+        } else {
+            self.interval.l = (tick - self.interval.y);
+        }
+        let v = std::mem::replace(&mut self.interval, chart::Interval { y: 0, l: 0 });
+        chart.note.bt[self.lane].push(v);
+        self.pressed = false;
+        self.lane = 0;
+    }
+
+    fn update(&mut self, tick: u32, lane: f32) {
+        if !self.pressed {
+            self.interval.y = tick;
+            self.lane = (lane as usize).max(1).min(4) - 1;
+        }
+        if self.interval.y > tick {
+            self.interval.l = 0;
+        } else {
+            self.interval.l = (tick - self.interval.y);
+        }
+    }
+
+    fn draw(&self, state: &MainState, ctx: &mut Context) {
+        graphics::set_blend_mode(ctx, graphics::BlendMode::Alpha);
+        let color = graphics::Color {
+            r: 1.0,
+            g: 1.0,
+            b: 1.0,
+            a: 0.5,
+        };
+        if self.interval.l == 0 {
+            let (x, y) = state.tick_to_pos(self.interval.y);
+
+            let x = x
+                + self.lane as f32 * state.lane_width()
+                + 1.0 * self.lane as f32
+                + state.lane_width()
+                + state.track_width / 2.0;
+            let y = y as f32;
+            let w = state.track_width as f32 / 6.0 - 2.0;
+            let h = -2.0;
+
+            let m = graphics::Mesh::new_rectangle(
+                ctx,
+                graphics::DrawMode::fill(),
+                [x, y, w, h].into(),
+                color,
+            )
+            .unwrap();
+            graphics::draw(ctx, &m, (na::Point2::new(0.0, 0.0),));
+        } else {
+            let mut long_bt_builder = graphics::MeshBuilder::new();
+            for (x, y, h, _) in state.interval_to_ranges(&self.interval) {
+                let x = x
+                    + self.lane as f32 * state.lane_width()
+                    + 1.0 * self.lane as f32
+                    + state.lane_width()
+                    + state.track_width / 2.0;
+                let w = state.track_width as f32 / 6.0 - 2.0;
+
+                long_bt_builder.rectangle(graphics::DrawMode::fill(), [x, y, w, h].into(), color);
+            }
+            let m = long_bt_builder.build(ctx).unwrap();
+            graphics::draw(ctx, &m, (na::Point2::new(0.0, 0.0),));
+        }
+    }
+}
 
 struct MainState {
     redraw: bool,
@@ -32,6 +141,7 @@ struct MainState {
     mouse_y: f32,
     x_offset: f32,
     x_offset_target: f32,
+    cursor_object: Option<Box<dyn CursorObject>>,
 }
 
 impl MainState {
@@ -52,6 +162,7 @@ impl MainState {
             mouse_y: 0.0,
             x_offset: 0.0,
             x_offset_target: 0.0,
+            cursor_object: None,
         };
         Ok(s)
     }
@@ -88,28 +199,10 @@ impl MainState {
         .max(0.0) as u32
     }
 
-    fn pos_to_lane(&self, in_x: f32) -> u32 {
+    fn pos_to_lane(&self, in_x: f32) -> f32 {
         let mut x = (in_x + self.x_offset) % (self.track_width as f32 * 2.0);
         x = ((x - self.track_width as f32 / 2.0).max(0.0) / self.track_width as f32).min(1.0);
-        (x * 6.0).min(5.0) as u32
-    }
-
-    fn place_bt(&mut self, x: f32, y: f32) {
-        let lane = (self.pos_to_lane(x).min(4).max(1) - 1) as usize;
-        let mut tick = self.pos_to_tick(x, y);
-        tick = tick - (tick % (self.chart.beat.resolution / 2));
-        let mut index: usize = 0;
-
-        for (i, note) in self.chart.note.bt[lane].iter().enumerate() {
-            if note.y == tick {
-                return;
-            }
-            if tick < note.y {
-                break;
-            }
-            index = i;
-        }
-        self.chart.note.bt[lane].insert(index, chart::Interval { y: tick, l: 0 });
+        (x * 6.0).min(5.0) as f32
     }
 
     fn interval_to_ranges(
@@ -172,6 +265,10 @@ impl event::EventHandler for MainState {
                             None => (),
                         },
                         GuiEvent::Exit => _ctx.continuing = false,
+                        GuiEvent::ToolChanged(new_tool) => match new_tool {
+                            ChartTool::BT => self.cursor_object = Some(Box::new(BTInterval::new())),
+                            _ => self.cursor_object = None,
+                        },
                         _ => (),
                     },
                     None => break,
@@ -181,7 +278,6 @@ impl event::EventHandler for MainState {
 
         let deltaTime = (10.0 * ggez::timer::delta(_ctx).as_secs_f32()).min(1.0);
         self.x_offset = self.x_offset + (self.x_offset_target - self.x_offset) * deltaTime;
-
         Ok(())
     }
 
@@ -509,26 +605,9 @@ impl event::EventHandler for MainState {
                 }
             }
 
-            if self.imgui_wrapper.selected_tool == gui::ChartTool::BT
-                && !self.imgui_wrapper.captures_mouse()
-            {
-                let mut tick = self.pos_to_tick(self.mouse_x, self.mouse_y);
-                tick = tick - (tick % (self.chart.beat.resolution / 2));
-                let (x, y) = self.tick_to_pos(tick);
-                let lane = self.pos_to_lane(self.mouse_x).min(4).max(1);
-                let x = (x + lane as f32 * self.track_width / 6.0) as f32 - 1.0
-                    + self.track_width as f32 / 2.0;
-                let y = y as f32;
-                let w = self.track_width as f32 / 6.0 - 2.0;
-                let h = -2.0;
-                let bt_cursor = graphics::Mesh::new_rectangle(
-                    ctx,
-                    graphics::DrawMode::fill(),
-                    [x, y, w, h].into(),
-                    [1.0, 1.0, 1.0, 0.5].into(),
-                )
-                .unwrap();
-                graphics::draw(ctx, &bt_cursor, (na::Point2::new(0.0, 0.0),))?;
+            match self.cursor_object {
+                Some(ref cursor) => cursor.draw(self, ctx),
+                None => (),
             }
         }
 
@@ -538,6 +617,7 @@ impl event::EventHandler for MainState {
         }
         graphics::present(ctx)?;
         self.redraw = false;
+        ggez::timer::yield_now();
         Ok(())
     }
     fn mouse_button_down_event(&mut self, ctx: &mut Context, button: MouseButton, x: f32, y: f32) {
@@ -548,22 +628,29 @@ impl event::EventHandler for MainState {
             button == MouseButton::Middle,
         ));
 
-        if !self.imgui_wrapper.captures_mouse() {
-            match self.imgui_wrapper.selected_tool {
-                gui::ChartTool::BT => self.place_bt(x, y),
-                _ => (),
+        if button == MouseButton::Left {
+            let lane = self.pos_to_lane(x);
+            let tick = self.pos_to_tick(x, y);
+
+            match self.cursor_object {
+                Some(ref mut cursor) => cursor.mouse_down(tick, lane, &mut self.chart),
+                None => (),
             }
         }
     }
 
-    fn mouse_button_up_event(
-        &mut self,
-        _ctx: &mut Context,
-        _button: MouseButton,
-        _x: f32,
-        _y: f32,
-    ) {
+    fn mouse_button_up_event(&mut self, ctx: &mut Context, button: MouseButton, x: f32, y: f32) {
         self.imgui_wrapper.update_mouse_down((false, false, false));
+
+        if button == MouseButton::Left {
+            let lane = self.pos_to_lane(x);
+            let tick = self.pos_to_tick(x, y);
+
+            match self.cursor_object {
+                Some(ref mut cursor) => cursor.mouse_up(tick, lane, &mut self.chart),
+                None => (),
+            }
+        }
     }
 
     fn resize_event(&mut self, ctx: &mut Context, w: f32, h: f32) {
@@ -657,6 +744,14 @@ impl event::EventHandler for MainState {
         self.imgui_wrapper.update_mouse_pos(x, y);
         self.mouse_x = x;
         self.mouse_y = y;
+
+        let lane = self.pos_to_lane(x);
+        let tick = self.pos_to_tick(x, y);
+
+        match self.cursor_object {
+            Some(ref mut cursor) => cursor.update(tick, lane),
+            None => (),
+        }
     }
 
     fn mouse_wheel_event(&mut self, _ctx: &mut Context, x: f32, y: f32) {
@@ -731,9 +826,15 @@ pub fn main() -> GameResult {
         resizable: true,
     };
 
+    let modules = ggez::conf::ModuleConf {
+        gamepad: false,
+        audio: false,
+    };
+
     let cb = ggez::ContextBuilder::new("usc-editor", "Drewol")
         .window_setup(win_setup)
-        .window_mode(mode);
+        .window_mode(mode)
+        .modules(modules);
 
     let (ctx, event_loop) = &mut cb.build()?;
 

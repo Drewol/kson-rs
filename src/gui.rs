@@ -35,19 +35,20 @@ use std::collections::VecDeque;
 
 use std::time::Instant;
 
-pub enum GuiEvent {
-    Open,
-    Save,
-    SaveAs,
-    Exit,
-}
-
 #[derive(PartialEq, Copy, Clone)]
 pub enum ChartTool {
     BT,
     FX,
     RLaser,
     LLaser,
+}
+
+pub enum GuiEvent {
+    Open,
+    Save,
+    ToolChanged(ChartTool),
+    SaveAs,
+    Exit,
 }
 
 #[derive(Copy, Clone, PartialEq, Debug, Default)]
@@ -189,7 +190,11 @@ impl ImGuiWrapper {
                         i = i + 1.0;
                     }
                 });
-            self.selected_tool = selected_tool; //will selected tool always be updated before here (?)
+            if selected_tool != self.selected_tool {
+                self.event_queue
+                    .push_back(GuiEvent::ToolChanged(selected_tool));
+                self.selected_tool = selected_tool; //will selected tool always be updated before here (?)
+            }
         }
 
         // Render
