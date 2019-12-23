@@ -5,6 +5,7 @@ extern crate imgui;
 extern crate math;
 extern crate nfd;
 extern crate serde_json;
+extern crate thread_profiler;
 
 mod gui;
 use crate::gui::{ChartTool, GuiEvent, ImGuiWrapper};
@@ -16,9 +17,14 @@ use math::round;
 use nfd::Response;
 mod chart;
 use chart::{GraphSectionPoint, LaserSection};
+use std::error::Error;
+use std::ffi::OsStr;
 use std::fs::File;
 use std::io::prelude::*;
+use std::io::BufReader;
+use std::path::Path;
 use std::{thread, time};
+use thread_profiler::ProfileScope;
 
 trait CursorObject {
     fn mouse_down(&mut self, tick: u32, lane: f32, chart: &mut chart::Chart);
@@ -250,6 +256,7 @@ impl CursorObject for LaserTool {
             );
             let i = if self.right { 1 } else { 0 };
             chart.note.laser[i].push(v);
+            chart.note.laser[i].sort_by(|a, b| a.y.partial_cmp(&b.y).unwrap());
             return;
         }
 
@@ -577,7 +584,7 @@ impl event::EventHandler for MainState {
             {
                 match event {
                     Some(e) => match e {
-                        GuiEvent::Open => match open_chart() {
+                        GuiEvent::Open => match open_chart().unwrap() {
                             Some((new_chart, path)) => {
                                 self.chart = new_chart;
                                 self.save_path = Some(path);
@@ -619,6 +626,7 @@ impl event::EventHandler for MainState {
     fn draw(&mut self, ctx: &mut Context) -> GameResult {
         //draw chart
         {
+            let scope = ProfileScope::new(String::from("Draw"));
             graphics::clear(ctx, graphics::BLACK);
             let chart_draw_height = self.chart_draw_height();
             //draw track
@@ -961,29 +969,38 @@ impl event::EventHandler for MainState {
     }
 }
 
-fn open_chart() -> Option<(chart::Chart, String)> {
-    let chart: chart::Chart;
+fn get_extension_from_filename(filename: &str) -> Option<&str> {
+    Path::new(filename).extension().and_then(OsStr::to_str)
+}
+
+fn open_chart() -> Result<Option<(chart::Chart, String)>, Box<Error>> {
     let path: String;
-    let dialog_result = nfd::dialog().filter("ksh").open().unwrap_or_else(|e| {
+    let dialog_result = nfd::dialog().filter("ksh,kson").open().unwrap_or_else(|e| {
         println!("{}", e);
         panic!(e);
     });
 
     match dialog_result {
         nfd::Response::Okay(file_path) => {
-            path = file_path;
-            let result = chart::Chart::from_ksh(&path);
-            if result.is_err() {
-                return None;
+            path = String::from(&file_path);
+            match get_extension_from_filename(&file_path).unwrap().to_lowercase().as_ref() {
+                "ksh" => {
+                    return Ok(Some((chart::Chart::from_ksh(&path)?, path)));
+                }
+                "kson" => {
+                    let file = File::open(&path)?;
+                    let reader = BufReader::new(file);
+                    let scope = ProfileScope::new(String::from("kson parse"));
+                    return Ok(Some((serde_json::from_reader(reader)?, path)));
+                }
+
+                _ => (),
             }
-            chart = result.unwrap_or_else(|e| {
-                panic!(e);
-            })
         }
-        _ => return None,
+        _ => return Ok(None),
     }
 
-    Some((chart, path))
+    Ok(None)
 }
 
 fn save_chart_as(chart: &chart::Chart) -> Option<String> {
@@ -997,6 +1014,7 @@ fn save_chart_as(chart: &chart::Chart) -> Option<String> {
         nfd::Response::Okay(file_path) => {
             path = file_path;
             let mut file = File::create(&path).unwrap();
+            let scope = ProfileScope::new(String::from("Write kson"));
             file.write_all(serde_json::to_string(&chart).unwrap().as_bytes());
         }
         _ => return None,
@@ -1006,6 +1024,7 @@ fn save_chart_as(chart: &chart::Chart) -> Option<String> {
 }
 
 pub fn main() -> GameResult {
+    thread_profiler::register_thread_with_profiler();
     let win_setup = ggez::conf::WindowSetup {
         title: "USC Editor".to_owned(),
         samples: ggez::conf::NumSamples::Four,
@@ -1041,5 +1060,7 @@ pub fn main() -> GameResult {
 
     let state = &mut MainState::new(ctx)?;
 
-    event::run(ctx, event_loop, state)
+    let res = event::run(ctx, event_loop, state);
+    thread_profiler::write_profile("profiling.json");
+    res
 }

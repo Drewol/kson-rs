@@ -1,6 +1,7 @@
 extern crate regex;
 extern crate serde;
 extern crate serde_json;
+extern crate thread_profiler;
 
 use self::serde::{Deserialize, Serialize};
 use std::collections::HashSet;
@@ -8,6 +9,7 @@ use std::fs;
 use std::fs::File;
 use std::io::{BufRead, BufReader, Read};
 use std::str::Lines;
+use thread_profiler::ProfileScope;
 
 #[derive(Serialize, Deserialize, Copy, Clone)]
 pub struct GraphSectionPoint {
@@ -78,7 +80,7 @@ pub struct MetaInfo {
     pub difficulty: DifficultyInfo,
     pub level: u8,
     pub disp_bpm: String,
-    pub std_bpm: f64,
+    pub std_bpm: Option<f64>,
     pub jacket_filename: String,
     pub jacket_author: String,
     pub information: String,
@@ -106,7 +108,7 @@ impl MetaInfo {
             difficulty: DifficultyInfo::new(),
             level: 1,
             disp_bpm: String::new(),
-            std_bpm: std::f64::NAN,
+            std_bpm: None,
             jacket_filename: String::new(),
             jacket_author: String::new(),
             information: String::new(),
@@ -199,6 +201,7 @@ impl Chart {
     }
 
     pub fn from_ksh(path: &String) -> Result<Chart, String> {
+        let scope = ProfileScope::new(String::from("KSH Parse"));
         let mut new_chart = Chart::new();
         let data = fs::read_to_string(path);
         if data.is_err() {
