@@ -6,9 +6,7 @@ extern crate thread_profiler;
 use self::serde::{Deserialize, Serialize};
 use std::collections::HashSet;
 use std::fs;
-use std::fs::File;
-use std::io::{BufRead, BufReader, Read};
-use std::str::Lines;
+use std::str;
 use thread_profiler::ProfileScope;
 
 #[derive(Serialize, Deserialize, Copy, Clone)]
@@ -16,8 +14,8 @@ pub struct GraphSectionPoint {
     pub ry: u32,
     pub v: f64,
     pub vf: Option<f64>,
-    pub a: f64,
-    pub b: f64,
+    pub a: Option<f64>,
+    pub b: Option<f64>,
 }
 
 impl GraphSectionPoint {
@@ -26,8 +24,8 @@ impl GraphSectionPoint {
             ry: _ry,
             v: _v,
             vf: None,
-            a: 0.0,
-            b: 0.0,
+            a: None,
+            b: None,
         }
     }
 }
@@ -35,7 +33,7 @@ impl GraphSectionPoint {
 #[derive(Serialize, Deserialize)]
 pub struct Interval {
     pub y: u32,
-    pub l: u32,
+    pub l: Option<u32>,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -72,10 +70,10 @@ pub struct DifficultyInfo {
 #[derive(Serialize, Deserialize)]
 pub struct MetaInfo {
     pub title: String,
-    pub title_translit: String,
-    pub subtitle: String,
+    pub title_translit: Option<String>,
+    pub subtitle: Option<String>,
     pub artist: String,
-    pub artist_translit: String,
+    pub artist_translit: Option<String>,
     pub chart_author: String,
     pub difficulty: DifficultyInfo,
     pub level: u8,
@@ -83,7 +81,7 @@ pub struct MetaInfo {
     pub std_bpm: Option<f64>,
     pub jacket_filename: String,
     pub jacket_author: String,
-    pub information: String,
+    pub information: Option<String>,
 }
 
 impl DifficultyInfo {
@@ -100,10 +98,10 @@ impl MetaInfo {
     fn new() -> MetaInfo {
         MetaInfo {
             title: String::new(),
-            title_translit: String::new(),
-            subtitle: String::new(),
+            title_translit: None,
+            subtitle: None,
             artist: String::new(),
-            artist_translit: String::new(),
+            artist_translit: None,
             chart_author: String::new(),
             difficulty: DifficultyInfo::new(),
             level: 1,
@@ -111,7 +109,7 @@ impl MetaInfo {
             std_bpm: None,
             jacket_filename: String::new(),
             jacket_author: String::new(),
-            information: String::new(),
+            information: None,
         }
     }
 }
@@ -281,13 +279,14 @@ impl Chart {
                     let chars: Vec<char> = line.chars().collect();
                     for i in 0..4 {
                         if chars[i] == '1' {
-                            new_chart.note.bt[i].push(Interval { y: y, l: 0 });
+                            new_chart.note.bt[i].push(Interval { y: y, l: None });
                         } else if chars[i] == '2' && last_char[i] != '2' {
                             long_y[i] = y;
                         } else if chars[i] != '2' && last_char[i] == '2' {
+                            let l = y - long_y[i];
                             new_chart.note.bt[i].push(Interval {
                                 y: long_y[i],
-                                l: y - long_y[i],
+                                l: if l > 0 { Some(l) } else { None },
                             });
                         }
 
@@ -297,14 +296,15 @@ impl Chart {
                     //read fx
                     for i in 0..2 {
                         if chars[i + 5] == '2' {
-                            new_chart.note.fx[i].push(Interval { y: y, l: 0 })
+                            new_chart.note.fx[i].push(Interval { y: y, l: None })
                         } else if chars[i + 5] == '0'
                             && last_char[i + 4] != '0'
                             && last_char[i + 4] != '2'
                         {
+                            let l = y - long_y[i];
                             new_chart.note.fx[i].push(Interval {
                                 y: long_y[i + 4],
-                                l: y - long_y[i + 4],
+                                l: if l > 0 { Some(l) } else { None },
                             })
                         } else if (chars[i + 5] != '0' && chars[i + 5] != '2')
                             && (last_char[i + 4] == '0' || last_char[i + 4] == '2')

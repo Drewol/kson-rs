@@ -46,7 +46,7 @@ impl ButtonInterval {
         ButtonInterval {
             pressed: false,
             fx: fx,
-            interval: chart::Interval { y: 0, l: 0 },
+            interval: chart::Interval { y: 0, l: None },
             lane: 0,
         }
     }
@@ -115,12 +115,12 @@ impl CursorObject for ButtonInterval {
     }
 
     fn mouse_up(&mut self, tick: u32, lane: f32, chart: &mut chart::Chart) {
-        if self.interval.y > tick {
-            self.interval.l = 0;
+        if self.interval.y >= tick {
+            self.interval.l = None;
         } else {
-            self.interval.l = (tick - self.interval.y);
+            self.interval.l = Some(tick - self.interval.y);
         }
-        let v = std::mem::replace(&mut self.interval, chart::Interval { y: 0, l: 0 });
+        let v = std::mem::replace(&mut self.interval, chart::Interval { y: 0, l: None });
         if self.fx {
             chart.note.fx[self.lane].push(v);
             chart.note.fx[self.lane].sort_by(|a, b| a.y.partial_cmp(&b.y).unwrap());
@@ -141,10 +141,10 @@ impl CursorObject for ButtonInterval {
                 self.lane = (lane as usize).max(1).min(4) - 1;
             }
         }
-        if self.interval.y > tick {
-            self.interval.l = 0;
+        if self.interval.y >= tick {
+            self.interval.l = None;
         } else {
-            self.interval.l = (tick - self.interval.y);
+            self.interval.l = Some(tick - self.interval.y);
         }
     }
 
@@ -165,39 +165,10 @@ impl CursorObject for ButtonInterval {
                 a: 0.5,
             }
         };
-        if self.interval.l == 0 {
-            let (x, y) = state.tick_to_pos(self.interval.y);
+        match self.interval.l {
+            None => {
+                let (x, y) = state.tick_to_pos(self.interval.y);
 
-            let x = if self.fx {
-                x + self.lane as f32 * state.lane_width() * 2.0
-                    + 2.0 * self.lane as f32
-                    + state.lane_width()
-                    + state.track_width / 2.0
-            } else {
-                x + self.lane as f32 * state.lane_width()
-                    + 1.0 * self.lane as f32
-                    + state.lane_width()
-                    + state.track_width / 2.0
-            };
-            let y = y as f32;
-
-            let w = if self.fx {
-                state.track_width as f32 / 3.0 - 1.0
-            } else {
-                state.track_width as f32 / 6.0 - 2.0
-            };
-            let h = -2.0;
-
-            let m = graphics::Mesh::new_rectangle(
-                ctx,
-                graphics::DrawMode::fill(),
-                [x, y, w, h].into(),
-                color,
-            )?;
-            graphics::draw(ctx, &m, (na::Point2::new(0.0, 0.0),))
-        } else {
-            let mut long_bt_builder = graphics::MeshBuilder::new();
-            for (x, y, h, _) in state.interval_to_ranges(&self.interval) {
                 let x = if self.fx {
                     x + self.lane as f32 * state.lane_width() * 2.0
                         + 2.0 * self.lane as f32
@@ -209,17 +180,53 @@ impl CursorObject for ButtonInterval {
                         + state.lane_width()
                         + state.track_width / 2.0
                 };
+                let y = y as f32;
 
                 let w = if self.fx {
                     state.track_width as f32 / 3.0 - 1.0
                 } else {
                     state.track_width as f32 / 6.0 - 2.0
                 };
+                let h = -2.0;
 
-                long_bt_builder.rectangle(graphics::DrawMode::fill(), [x, y, w, h].into(), color);
+                let m = graphics::Mesh::new_rectangle(
+                    ctx,
+                    graphics::DrawMode::fill(),
+                    [x, y, w, h].into(),
+                    color,
+                )?;
+                graphics::draw(ctx, &m, (na::Point2::new(0.0, 0.0),))
             }
-            let m = long_bt_builder.build(ctx)?;
-            graphics::draw(ctx, &m, (na::Point2::new(0.0, 0.0),))
+            Some(l) => {
+                let mut long_bt_builder = graphics::MeshBuilder::new();
+                for (x, y, h, _) in state.interval_to_ranges(&self.interval) {
+                    let x = if self.fx {
+                        x + self.lane as f32 * state.lane_width() * 2.0
+                            + 2.0 * self.lane as f32
+                            + state.lane_width()
+                            + state.track_width / 2.0
+                    } else {
+                        x + self.lane as f32 * state.lane_width()
+                            + 1.0 * self.lane as f32
+                            + state.lane_width()
+                            + state.track_width / 2.0
+                    };
+
+                    let w = if self.fx {
+                        state.track_width as f32 / 3.0 - 1.0
+                    } else {
+                        state.track_width as f32 / 6.0 - 2.0
+                    };
+
+                    long_bt_builder.rectangle(
+                        graphics::DrawMode::fill(),
+                        [x, y, w, h].into(),
+                        color,
+                    );
+                }
+                let m = long_bt_builder.build(ctx)?;
+                graphics::draw(ctx, &m, (na::Point2::new(0.0, 0.0),))
+            }
         }
     }
 }
@@ -366,7 +373,7 @@ impl MainState {
             let e = &se[1];
             let interval = chart::Interval {
                 y: s.ry + y_base,
-                l: e.ry - s.ry,
+                l: Some(e.ry - s.ry),
             };
             let mut start_value = s.v as f32;
             let mut syoff = 0.0 as f32;
@@ -415,7 +422,7 @@ impl MainState {
                 value_width = value_width * 2.0;
                 start_value = start_value * 2.0 - 0.5;
             }
-            if interval.l == 0 {
+            if interval.l == None {
                 continue;
             }
 
@@ -545,7 +552,11 @@ impl MainState {
         let mut ranges: Vec<(u32, u32)> = Vec::new();
         let ticks_per_col = self.beats_per_col * self.chart.beat.resolution;
         let mut start = in_interval.y;
-        let end = start + in_interval.l;
+        let end = start
+            + match in_interval.l {
+                Some(l) => l,
+                None => 0,
+            };
         while start / ticks_per_col < end / ticks_per_col {
             ranges.push((start, ticks_per_col * (1 + start / ticks_per_col)));
             start = ticks_per_col * (1 + start / ticks_per_col);
@@ -553,8 +564,12 @@ impl MainState {
         ranges.push((start, end));
 
         for (s, e) in ranges {
-            let prog_s = (s - in_interval.y) as f32 / in_interval.l as f32;
-            let prog_e = (e - in_interval.y) as f32 / in_interval.l as f32;
+            let in_l = match in_interval.l {
+                Some(l) => l,
+                None => 0,
+            };
+            let prog_s = (s - in_interval.y) as f32 / in_l as f32;
+            let prog_e = (e - in_interval.y) as f32 / in_l as f32;
             let start_pos = self.tick_to_pos(s);
             let end_pos = self.tick_to_pos(e);
             if start_pos.0 != end_pos.0 {
@@ -671,14 +686,18 @@ impl event::EventHandler for MainState {
             let max_tick_render = self.pos_to_tick(self.w + 50.0, 0.0);
             for i in 0..4 {
                 for n in &self.chart.note.bt[i] {
-                    if n.y + n.l < min_tick_render {
+                    let nl = match n.l {
+                        Some(l) => l,
+                        None => 0,
+                    };
+                    if n.y + nl < min_tick_render {
                         continue;
                     }
                     if n.y > max_tick_render {
                         break;
                     }
 
-                    if n.l == 0 {
+                    if nl == 0 {
                         let (x, y) = self.tick_to_pos(n.y);
 
                         let x = x
@@ -717,14 +736,18 @@ impl event::EventHandler for MainState {
             //fx
             for i in 0..2 {
                 for n in &self.chart.note.fx[i] {
-                    if n.y + n.l < min_tick_render {
+                    let nl = match n.l {
+                        Some(l) => l,
+                        None => 0,
+                    };
+                    if n.y + nl < min_tick_render {
                         continue;
                     }
                     if n.y > max_tick_render {
                         break;
                     }
 
-                    if n.l == 0 {
+                    if nl == 0 {
                         let (x, y) = self.tick_to_pos(n.y);
 
                         let x = x
@@ -907,7 +930,11 @@ impl event::EventHandler for MainState {
                     let last = self.chart.note.bt[i].last();
                     match last {
                         Some(note) => {
-                            target = target.max(self.tick_to_pos(note.y + note.l).0 + self.x_offset)
+                            let notel = match note.l {
+                                Some(l) => l,
+                                None => 0,
+                            };
+                            target = target.max(self.tick_to_pos(note.y + notel).0 + self.x_offset)
                         }
                         None => (),
                     }
@@ -918,7 +945,11 @@ impl event::EventHandler for MainState {
                     let last = self.chart.note.fx[i].last();
                     match last {
                         Some(note) => {
-                            target = target.max(self.tick_to_pos(note.y + note.l).0 + self.x_offset)
+                            let notel = match note.l {
+                                Some(l) => l,
+                                None => 0,
+                            };
+                            target = target.max(self.tick_to_pos(note.y + notel).0 + self.x_offset)
                         }
                         None => (),
                     }
@@ -983,7 +1014,11 @@ fn open_chart() -> Result<Option<(chart::Chart, String)>, Box<Error>> {
     match dialog_result {
         nfd::Response::Okay(file_path) => {
             path = String::from(&file_path);
-            match get_extension_from_filename(&file_path).unwrap().to_lowercase().as_ref() {
+            match get_extension_from_filename(&file_path)
+                .unwrap()
+                .to_lowercase()
+                .as_ref()
+            {
                 "ksh" => {
                     return Ok(Some((chart::Chart::from_ksh(&path)?, path)));
                 }

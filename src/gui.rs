@@ -130,11 +130,11 @@ impl ImGuiWrapper {
         self.imgui.io_mut().delta_time = delta_s;
 
         let ui = self.imgui.frame();
-        let mut event_queue = &mut self.event_queue;
+        let event_queue = &mut self.event_queue;
 
         // Various ui things
         {
-            let mut file_menu = || {
+            let file_menu = || {
                 if ui.menu_item(im_str!("Open")).build() {
                     event_queue.push_back(GuiEvent::Open);
                 }
