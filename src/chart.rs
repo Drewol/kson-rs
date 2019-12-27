@@ -199,7 +199,7 @@ impl Chart {
     }
 
     pub fn from_ksh(path: &String) -> Result<Chart, String> {
-        let scope = ProfileScope::new(String::from("KSH Parse"));
+        let _scope = ProfileScope::new(String::from("KSH Parse"));
         let mut new_chart = Chart::new();
         let data = fs::read_to_string(path);
         if data.is_err() {
