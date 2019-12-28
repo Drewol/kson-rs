@@ -21,7 +21,13 @@ use std::fs::File;
 use std::io::prelude::*;
 use std::io::BufReader;
 use std::path::Path;
-use thread_profiler::ProfileScope;
+
+macro_rules! profile_scope {
+    ($string:expr) => {
+        //let _profile_scope =
+        //    thread_profiler::ProfileScope::new(format!("{}: {}", module_path!(), $string));
+    };
+}
 
 trait CursorObject {
     fn mouse_down(&mut self, tick: u32, lane: f32, chart: &mut chart::Chart);
@@ -43,7 +49,7 @@ impl ButtonInterval {
         ButtonInterval {
             pressed: false,
             fx: fx,
-            interval: chart::Interval { y: 0, l: None },
+            interval: chart::Interval { y: 0, l: 0 },
             lane: 0,
         }
     }
@@ -115,11 +121,11 @@ impl CursorObject for ButtonInterval {
 
     fn mouse_up(&mut self, tick: u32, _lane: f32, chart: &mut chart::Chart) {
         if self.interval.y >= tick {
-            self.interval.l = None;
+            self.interval.l = 0;
         } else {
-            self.interval.l = Some(tick - self.interval.y);
+            self.interval.l = tick - self.interval.y;
         }
-        let v = std::mem::replace(&mut self.interval, chart::Interval { y: 0, l: None });
+        let v = std::mem::replace(&mut self.interval, chart::Interval { y: 0, l: 0 });
         if self.fx {
             chart.note.fx[self.lane].push(v);
             chart.note.fx[self.lane].sort_by(|a, b| a.y.partial_cmp(&b.y).unwrap());
@@ -141,9 +147,9 @@ impl CursorObject for ButtonInterval {
             }
         }
         if self.interval.y >= tick {
-            self.interval.l = None;
+            self.interval.l = 0;
         } else {
-            self.interval.l = Some(tick - self.interval.y);
+            self.interval.l = tick - self.interval.y;
         }
     }
 
@@ -164,10 +170,39 @@ impl CursorObject for ButtonInterval {
                 a: 0.5,
             }
         };
-        match self.interval.l {
-            None => {
-                let (x, y) = state.tick_to_pos(self.interval.y);
+        if self.interval.l == 0 {
+            let (x, y) = state.tick_to_pos(self.interval.y);
 
+            let x = if self.fx {
+                x + self.lane as f32 * state.lane_width() * 2.0
+                    + 2.0 * self.lane as f32
+                    + state.lane_width()
+                    + state.track_width / 2.0
+            } else {
+                x + self.lane as f32 * state.lane_width()
+                    + 1.0 * self.lane as f32
+                    + state.lane_width()
+                    + state.track_width / 2.0
+            };
+            let y = y as f32;
+
+            let w = if self.fx {
+                state.track_width as f32 / 3.0 - 1.0
+            } else {
+                state.track_width as f32 / 6.0 - 2.0
+            };
+            let h = -2.0;
+
+            let m = graphics::Mesh::new_rectangle(
+                ctx,
+                graphics::DrawMode::fill(),
+                [x, y, w, h].into(),
+                color,
+            )?;
+            graphics::draw(ctx, &m, (na::Point2::new(0.0, 0.0),))
+        } else {
+            let mut long_bt_builder = graphics::MeshBuilder::new();
+            for (x, y, h, _) in state.interval_to_ranges(&self.interval) {
                 let x = if self.fx {
                     x + self.lane as f32 * state.lane_width() * 2.0
                         + 2.0 * self.lane as f32
@@ -179,53 +214,17 @@ impl CursorObject for ButtonInterval {
                         + state.lane_width()
                         + state.track_width / 2.0
                 };
-                let y = y as f32;
 
                 let w = if self.fx {
                     state.track_width as f32 / 3.0 - 1.0
                 } else {
                     state.track_width as f32 / 6.0 - 2.0
                 };
-                let h = -2.0;
 
-                let m = graphics::Mesh::new_rectangle(
-                    ctx,
-                    graphics::DrawMode::fill(),
-                    [x, y, w, h].into(),
-                    color,
-                )?;
-                graphics::draw(ctx, &m, (na::Point2::new(0.0, 0.0),))
+                long_bt_builder.rectangle(graphics::DrawMode::fill(), [x, y, w, h].into(), color);
             }
-            Some(_l) => {
-                let mut long_bt_builder = graphics::MeshBuilder::new();
-                for (x, y, h, _) in state.interval_to_ranges(&self.interval) {
-                    let x = if self.fx {
-                        x + self.lane as f32 * state.lane_width() * 2.0
-                            + 2.0 * self.lane as f32
-                            + state.lane_width()
-                            + state.track_width / 2.0
-                    } else {
-                        x + self.lane as f32 * state.lane_width()
-                            + 1.0 * self.lane as f32
-                            + state.lane_width()
-                            + state.track_width / 2.0
-                    };
-
-                    let w = if self.fx {
-                        state.track_width as f32 / 3.0 - 1.0
-                    } else {
-                        state.track_width as f32 / 6.0 - 2.0
-                    };
-
-                    long_bt_builder.rectangle(
-                        graphics::DrawMode::fill(),
-                        [x, y, w, h].into(),
-                        color,
-                    );
-                }
-                let m = long_bt_builder.build(ctx)?;
-                graphics::draw(ctx, &m, (na::Point2::new(0.0, 0.0),))
-            }
+            let m = long_bt_builder.build(ctx)?;
+            graphics::draw(ctx, &m, (na::Point2::new(0.0, 0.0),))
         }
     }
 }
@@ -294,6 +293,9 @@ impl CursorObject for LaserTool {
         }
     }
     fn draw(&self, state: &MainState, ctx: &mut Context) -> GameResult {
+        if !self.active {
+            return Ok(());
+        }
         let b = 0.8;
         let color: graphics::Color = if self.right {
             [0.76 * b, 0.024 * b, 0.55 * b, 1.0].into()
@@ -302,9 +304,7 @@ impl CursorObject for LaserTool {
         };
 
         let mut mb = graphics::MeshBuilder::new();
-        if self.active {
-            state.draw_laser_section(&self.section, &mut mb, color)?;
-        }
+        state.draw_laser_section(&self.section, &mut mb, color)?;
         graphics::set_blend_mode(ctx, graphics::BlendMode::Add)?;
         let m = mb.build(ctx)?;
         graphics::draw(ctx, &m, (na::Point2::new(0.0, 0.0),))?;
@@ -360,7 +360,7 @@ impl MainState {
         mb: &mut graphics::MeshBuilder,
         color: graphics::Color,
     ) -> GameResult {
-        let _section_scope = ProfileScope::new(String::from("Section"));
+        profile_scope!("Section");
         let y_base = section.y;
         let wide = section.wide == 2;
         let slam_height = 6.0 as f32;
@@ -369,16 +369,16 @@ impl MainState {
         let track_lane_diff = self.track_width - self.lane_width();
 
         for se in section.v.windows(2) {
-            let _window_scope = ProfileScope::new(String::from("Window"));
+            profile_scope!("Window");
             let s = &se[0];
             let e = &se[1];
             let l = e.ry - s.ry;
             let interval = chart::Interval {
                 y: s.ry + y_base,
-                l: if l <= 0 { None } else { Some(l) },
+                l: l,
             };
 
-            if interval.l == None {
+            if interval.l == 0 {
                 continue;
             }
 
@@ -387,7 +387,7 @@ impl MainState {
 
             match s.vf {
                 Some(value) => {
-                    let _slam_scope = ProfileScope::new(String::from("Slam"));
+                    profile_scope!("Slam");
                     start_value = value as f32;
                     syoff = slam_height;
                     let mut sv: f32 = s.v as f32;
@@ -422,7 +422,7 @@ impl MainState {
             }
 
             for (x, y, h, (sv, ev)) in self.interval_to_ranges(&interval) {
-                let _range_scope = ProfileScope::new(String::from("Range"));
+                profile_scope!("Range");
                 let sx = x
                     + (start_value + (sv * value_width)) * track_lane_diff
                     + half_track
@@ -436,26 +436,18 @@ impl MainState {
                 let ey = y + h;
 
                 let xoff = half_lane;
-                let points = [
-                    na::Point2 {
-                        coords: [sx - xoff, sy - syoff].into(),
-                    },
-                    na::Point2 {
-                        coords: [sx + xoff, sy - syoff].into(),
-                    },
-                    na::Point2 {
-                        coords: [ex + xoff, ey].into(),
-                    },
-                    na::Point2 {
-                        coords: [ex - xoff, ey].into(),
-                    },
-                    na::Point2 {
-                        coords: [ex + xoff, ey].into(),
-                    },
-                    na::Point2 {
-                        coords: [sx - xoff, sy - syoff].into(),
-                    },
-                ];
+                let (tr, tl, br, bl): (
+                    na::Point2<f32>,
+                    na::Point2<f32>,
+                    na::Point2<f32>,
+                    na::Point2<f32>,
+                ) = (
+                    [ex - xoff, ey].into(),
+                    [ex + xoff, ey].into(),
+                    [sx - xoff, sy - syoff].into(),
+                    [sx + xoff, sy - syoff].into(),
+                );
+                let points = [tl, tr, br, br, bl, tl];
                 mb.triangles(&points, color)?;
             }
         }
@@ -465,7 +457,7 @@ impl MainState {
             Some(l) => {
                 match l.vf {
                     Some(vf) => {
-                        let _end_slam_scope = ProfileScope::new(String::from("End Slam"));
+                        profile_scope!("End Slam");
                         //draw slam
                         let mut sv: f32 = l.v as f32;
                         let mut ev: f32 = vf as f32;
@@ -506,9 +498,13 @@ impl MainState {
         self.beats_per_col * self.chart.beat.resolution
     }
 
+    fn track_spacing(&self) -> f32 {
+        self.track_width * 2.0
+    }
+
     fn tick_to_pos(&self, in_y: u32) -> (f32, f32) {
         let h = self.chart_draw_height();
-        let x = (in_y / self.ticks_per_col()) as f32 * self.track_width * 2.0;
+        let x = (in_y / self.ticks_per_col()) as f32 * self.track_spacing();
         let y = (in_y % self.ticks_per_col()) as f32 * self.tick_height;
         let y = h - y + self.top_margin;
         (x - self.x_offset, y)
@@ -522,7 +518,7 @@ impl MainState {
         let h = self.chart_draw_height();
         let y = 1.0 - ((in_y - self.top_margin).max(0.0) / h).min(1.0);
         let x = in_x + self.x_offset;
-        let x = math::round::floor(x as f64 / (self.track_width * 2.0) as f64, 0);
+        let x = math::round::floor(x as f64 / self.track_spacing() as f64, 0);
         math::round::floor(
             (y as f64 + x) * self.beats_per_col as f64 * self.chart.beat.resolution as f64,
             0,
@@ -531,7 +527,7 @@ impl MainState {
     }
 
     fn pos_to_lane(&self, in_x: f32) -> f32 {
-        let mut x = (in_x + self.x_offset) % (self.track_width as f32 * 2.0);
+        let mut x = (in_x + self.x_offset) % self.track_spacing();
         x = ((x - self.track_width as f32 / 2.0).max(0.0) / self.track_width as f32).min(1.0);
         (x * 6.0).min(5.0) as f32
     }
@@ -545,11 +541,7 @@ impl MainState {
         let mut ranges: Vec<(u32, u32)> = Vec::new();
         let ticks_per_col = self.beats_per_col * self.chart.beat.resolution;
         let mut start = in_interval.y;
-        let end = start
-            + match in_interval.l {
-                Some(l) => l,
-                None => 0,
-            };
+        let end = start + in_interval.l;
         while start / ticks_per_col < end / ticks_per_col {
             ranges.push((start, ticks_per_col * (1 + start / ticks_per_col)));
             start = ticks_per_col * (1 + start / ticks_per_col);
@@ -557,10 +549,7 @@ impl MainState {
         ranges.push((start, end));
 
         for (s, e) in ranges {
-            let in_l = match in_interval.l {
-                Some(l) => l,
-                None => 0,
-            };
+            let in_l = in_interval.l;
             let prog_s = (s - in_interval.y) as f32 / in_l as f32;
             let prog_e = (e - in_interval.y) as f32 / in_l as f32;
             let start_pos = self.tick_to_pos(s);
@@ -635,41 +624,11 @@ impl EventHandler for MainState {
     }
 
     fn draw(&mut self, ctx: &mut Context) -> GameResult {
+        profile_scope!("Draw");
         //draw chart
         {
-            let _scope = ProfileScope::new(String::from("Draw"));
-            graphics::clear(ctx, graphics::BLACK);
-            let chart_draw_height = self.chart_draw_height();
-            //draw track
-            {
-                let _track_scope = ProfileScope::new(String::from("Draw Track"));
-                let track = graphics::Mesh::new_rectangle(
-                    ctx,
-                    graphics::DrawMode::fill(),
-                    graphics::Rect {
-                        x: 0.0,
-                        y: self.top_margin,
-                        w: self.track_width as f32,
-                        h: chart_draw_height,
-                    },
-                    [0.2, 0.2, 0.2, 1.0].into(),
-                )?;
-
-                let track_count = 2 + (0.5 * self.w / self.track_width as f32) as u32;
-                for i in 0..track_count {
-                    graphics::draw(
-                        ctx,
-                        &track,
-                        (na::Point2::new(
-                            (self.track_width / 2.0 + i as f32 * self.track_width * 2.0) as f32
-                                - (self.x_offset % (self.track_width * 2.0)),
-                            0.0,
-                        ),),
-                    )?;
-                }
-            }
-
             //draw notes
+            let track_builder = &mut graphics::MeshBuilder::new();
             let bt_builder = &mut graphics::MeshBuilder::new();
             let long_bt_builder = &mut graphics::MeshBuilder::new();
             let fx_builder = &mut graphics::MeshBuilder::new();
@@ -681,22 +640,41 @@ impl EventHandler for MainState {
             ];
             let min_tick_render = self.pos_to_tick(-100.0, self.h);
             let max_tick_render = self.pos_to_tick(self.w + 50.0, 0.0);
+            profile_scope!("Chart");
+            graphics::clear(ctx, graphics::BLACK);
+            let chart_draw_height = self.chart_draw_height();
+            let lane_width = self.lane_width();
+            let track_spacing = self.track_spacing();
+            //draw track
             {
-                let _bt_scope = ProfileScope::new(String::from("Drawing BT"));
+                profile_scope!("Track");
+                let track_count = 2 + (self.w / self.track_spacing()) as u32;
+                let x = self.track_width / 2.0 - (self.x_offset % track_spacing) + lane_width;
+                for i in 0..track_count {
+                    let x = x + i as f32 * track_spacing;
+                    for j in 0..5 {
+                        let x = x + j as f32 * lane_width;
+                        track_builder.rectangle(
+                            graphics::DrawMode::fill(),
+                            [x, self.top_margin, 0.5, chart_draw_height].into(),
+                            graphics::WHITE,
+                        );
+                    }
+                }
+            }
+
+            {
+                profile_scope!("BT");
                 for i in 0..4 {
                     for n in &self.chart.note.bt[i] {
-                        let nl = match n.l {
-                            Some(l) => l,
-                            None => 0,
-                        };
-                        if n.y + nl < min_tick_render {
+                        if n.y + n.l < min_tick_render {
                             continue;
                         }
                         if n.y > max_tick_render {
                             break;
                         }
 
-                        if nl == 0 {
+                        if n.l == 0 {
                             let (x, y) = self.tick_to_pos(n.y);
 
                             let x = x
@@ -734,49 +712,48 @@ impl EventHandler for MainState {
             }
 
             //fx
-            for i in 0..2 {
-                for n in &self.chart.note.fx[i] {
-                    let nl = match n.l {
-                        Some(l) => l,
-                        None => 0,
-                    };
-                    if n.y + nl < min_tick_render {
-                        continue;
-                    }
-                    if n.y > max_tick_render {
-                        break;
-                    }
+            {
+                profile_scope!("FX");
+                for i in 0..2 {
+                    for n in &self.chart.note.fx[i] {
+                        if n.y + n.l < min_tick_render {
+                            continue;
+                        }
+                        if n.y > max_tick_render {
+                            break;
+                        }
 
-                    if nl == 0 {
-                        let (x, y) = self.tick_to_pos(n.y);
+                        if n.l == 0 {
+                            let (x, y) = self.tick_to_pos(n.y);
 
-                        let x = x
-                            + (i as f32 * self.lane_width() * 2.0)
-                            + self.track_width / 2.0
-                            + 2.0 * i as f32
-                            + self.lane_width();
-                        let w = self.lane_width() * 2.0 - 1.0;
-                        let h = -2.0;
-
-                        fx_builder.rectangle(
-                            graphics::DrawMode::fill(),
-                            [x, y, w, h].into(),
-                            [1.0, 0.3, 0.0, 1.0].into(),
-                        );
-                    } else {
-                        for (x, y, h, _) in self.interval_to_ranges(n) {
                             let x = x
                                 + (i as f32 * self.lane_width() * 2.0)
                                 + self.track_width / 2.0
                                 + 2.0 * i as f32
                                 + self.lane_width();
                             let w = self.lane_width() * 2.0 - 1.0;
+                            let h = -2.0;
 
-                            long_fx_builder.rectangle(
+                            fx_builder.rectangle(
                                 graphics::DrawMode::fill(),
                                 [x, y, w, h].into(),
-                                [1.0, 0.3, 0.0, 0.7].into(),
+                                [1.0, 0.3, 0.0, 1.0].into(),
                             );
+                        } else {
+                            for (x, y, h, _) in self.interval_to_ranges(n) {
+                                let x = x
+                                    + (i as f32 * self.lane_width() * 2.0)
+                                    + self.track_width / 2.0
+                                    + 2.0 * i as f32
+                                    + self.lane_width();
+                                let w = self.lane_width() * 2.0 - 1.0;
+
+                                long_fx_builder.rectangle(
+                                    graphics::DrawMode::fill(),
+                                    [x, y, w, h].into(),
+                                    [1.0, 0.3, 0.0, 0.7].into(),
+                                );
+                            }
                         }
                     }
                 }
@@ -784,7 +761,7 @@ impl EventHandler for MainState {
 
             //laser
             {
-                let _laser_scope = ProfileScope::new(String::from("Drawing lasers"));
+                profile_scope!("Lasers");
                 for i in 0..2 {
                     for section in &self.chart.note.laser[i] {
                         let y_base = section.y;
@@ -801,8 +778,13 @@ impl EventHandler for MainState {
             }
 
             {
+                profile_scope!("Build Meshes");
                 graphics::set_blend_mode(ctx, graphics::BlendMode::Alpha)?;
                 //draw built meshes
+                //track
+                let track_mesh = track_builder.build(ctx)?;
+                graphics::draw(ctx, &track_mesh, (na::Point2::new(0.0, 0.0),))?;
+
                 //long fx
                 let note_mesh = long_fx_builder.build(ctx);
                 match note_mesh {
@@ -844,11 +826,15 @@ impl EventHandler for MainState {
 
         // Draw ui
         {
+            profile_scope!("UI");
             self.imgui_wrapper.render(ctx, 1.0);
         }
-        graphics::present(ctx)?;
-        self.redraw = false;
-        ggez::timer::yield_now();
+        {
+            profile_scope!("Present");
+            graphics::present(ctx)?;
+            self.redraw = false;
+            ggez::timer::yield_now();
+        }
         Ok(())
     }
     fn mouse_button_down_event(&mut self, _ctx: &mut Context, button: MouseButton, x: f32, y: f32) {
@@ -923,11 +909,11 @@ impl EventHandler for MainState {
             KeyCode::Home => self.x_offset_target = 0.0,
             KeyCode::PageUp => {
                 self.x_offset_target =
-                    self.x_offset_target + (self.w - (self.w % (self.track_width * 2.0)))
+                    self.x_offset_target + (self.w - (self.w % self.track_spacing()))
             }
             KeyCode::PageDown => {
                 self.x_offset_target =
-                    (self.x_offset_target - (self.w - (self.w % (self.track_width * 2.0)))).max(0.0)
+                    (self.x_offset_target - (self.w - (self.w % self.track_spacing()))).max(0.0)
             }
             KeyCode::End => {
                 let mut target: f32 = 0.0;
@@ -937,11 +923,7 @@ impl EventHandler for MainState {
                     let last = self.chart.note.bt[i].last();
                     match last {
                         Some(note) => {
-                            let notel = match note.l {
-                                Some(l) => l,
-                                None => 0,
-                            };
-                            target = target.max(self.tick_to_pos(note.y + notel).0 + self.x_offset)
+                            target = target.max(self.tick_to_pos(note.y + note.l).0 + self.x_offset)
                         }
                         None => (),
                     }
@@ -952,11 +934,7 @@ impl EventHandler for MainState {
                     let last = self.chart.note.fx[i].last();
                     match last {
                         Some(note) => {
-                            let notel = match note.l {
-                                Some(l) => l,
-                                None => 0,
-                            };
-                            target = target.max(self.tick_to_pos(note.y + notel).0 + self.x_offset)
+                            target = target.max(self.tick_to_pos(note.y + note.l).0 + self.x_offset)
                         }
                         None => (),
                     }
@@ -981,7 +959,7 @@ impl EventHandler for MainState {
                     }
                 }
 
-                self.x_offset_target = target - (target % (self.track_width * 2.0))
+                self.x_offset_target = target - (target % self.track_spacing())
             }
             _ => (),
         }
@@ -1032,7 +1010,7 @@ fn open_chart() -> Result<Option<(chart::Chart, String)>, Box<dyn Error>> {
                 "kson" => {
                     let file = File::open(&path)?;
                     let reader = BufReader::new(file);
-                    let _scope = ProfileScope::new(String::from("kson parse"));
+                    profile_scope!("kson parse");
                     return Ok(Some((serde_json::from_reader(reader)?, path)));
                 }
 
@@ -1056,7 +1034,7 @@ fn save_chart_as(chart: &chart::Chart) -> Option<String> {
         nfd::Response::Okay(file_path) => {
             path = file_path;
             let mut file = File::create(&path).unwrap();
-            let _scope = ProfileScope::new(String::from("Write kson"));
+            profile_scope!("Write kson");
             file.write_all(serde_json::to_string(&chart).unwrap().as_bytes())
                 .unwrap_or_else(|e| println!("{}", e));
         }
@@ -1071,7 +1049,7 @@ pub fn main() -> GameResult {
     let win_setup = ggez::conf::WindowSetup {
         title: "USC Editor".to_owned(),
         samples: ggez::conf::NumSamples::Four,
-        vsync: true,
+        vsync: false,
         icon: "".to_owned(),
         srgb: true,
     };

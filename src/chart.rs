@@ -33,7 +33,13 @@ impl GraphSectionPoint {
 #[derive(Serialize, Deserialize)]
 pub struct Interval {
     pub y: u32,
-    pub l: Option<u32>,
+
+    #[serde(default = "default_interval_l")]
+    pub l: u32,
+}
+
+fn default_interval_l() -> u32 {
+    0
 }
 
 #[derive(Serialize, Deserialize)]
@@ -279,15 +285,12 @@ impl Chart {
                     let chars: Vec<char> = line.chars().collect();
                     for i in 0..4 {
                         if chars[i] == '1' {
-                            new_chart.note.bt[i].push(Interval { y: y, l: None });
+                            new_chart.note.bt[i].push(Interval { y: y, l: 0 });
                         } else if chars[i] == '2' && last_char[i] != '2' {
                             long_y[i] = y;
                         } else if chars[i] != '2' && last_char[i] == '2' {
                             let l = y - long_y[i];
-                            new_chart.note.bt[i].push(Interval {
-                                y: long_y[i],
-                                l: if l > 0 { Some(l) } else { None },
-                            });
+                            new_chart.note.bt[i].push(Interval { y: long_y[i], l: l });
                         }
 
                         last_char[i] = chars[i];
@@ -296,7 +299,7 @@ impl Chart {
                     //read fx
                     for i in 0..2 {
                         if chars[i + 5] == '2' {
-                            new_chart.note.fx[i].push(Interval { y: y, l: None })
+                            new_chart.note.fx[i].push(Interval { y: y, l: 0 })
                         } else if chars[i + 5] == '0'
                             && last_char[i + 4] != '0'
                             && last_char[i + 4] != '2'
@@ -304,7 +307,7 @@ impl Chart {
                             let l = y - long_y[i];
                             new_chart.note.fx[i].push(Interval {
                                 y: long_y[i + 4],
-                                l: if l > 0 { Some(l) } else { None },
+                                l: l,
                             })
                         } else if (chars[i + 5] != '0' && chars[i + 5] != '2')
                             && (last_char[i + 4] == '0' || last_char[i + 4] == '2')

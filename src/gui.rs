@@ -157,7 +157,7 @@ impl ImGuiWrapper {
                 ui.menu(im_str!("File")).build(file_menu);
             });
 
-            ui.window(im_str!("Hello world"))
+            ui.window(im_str!("Stats"))
                 .size([300.0, 600.0], imgui::Condition::FirstUseEver)
                 .position([100.0, 100.0], imgui::Condition::FirstUseEver)
                 .build(|| {
