@@ -120,7 +120,7 @@ impl MetaInfo {
     }
 }
 
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize, Deserialize, Copy, Clone)]
 pub struct ByPulse<T> {
     pub y: u32,
     pub v: T,

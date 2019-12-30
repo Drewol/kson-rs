@@ -37,6 +37,7 @@ use std::time::Instant;
 
 #[derive(PartialEq, Copy, Clone)]
 pub enum ChartTool {
+    None,
     BT,
     FX,
     RLaser,
@@ -67,6 +68,7 @@ pub struct ImGuiWrapper {
     pub event_queue: VecDeque<GuiEvent>,
     tools: [(String, ChartTool); 4],
     pub selected_tool: ChartTool,
+    pub cursor_ms: f32,
 }
 
 impl ImGuiWrapper {
@@ -110,7 +112,8 @@ impl ImGuiWrapper {
                 (String::from("LL"), ChartTool::LLaser),
                 (String::from("RL"), ChartTool::RLaser),
             ],
-            selected_tool: ChartTool::BT,
+            selected_tool: ChartTool::None,
+            cursor_ms: 0.0,
         }
     }
 
@@ -157,12 +160,14 @@ impl ImGuiWrapper {
                 ui.menu(im_str!("File")).build(file_menu);
             });
 
+            let cursor_ms = self.cursor_ms;
             ui.window(im_str!("Stats"))
                 .size([300.0, 600.0], imgui::Condition::FirstUseEver)
                 .position([100.0, 100.0], imgui::Condition::FirstUseEver)
                 .build(|| {
                     let fps = ggez::timer::fps(ctx);
                     ui.text(im_str!("FPS: {:.1}", fps));
+                    ui.text(im_str!("Cursor: {:.1}ms", cursor_ms))
                 });
 
             // Toolbar

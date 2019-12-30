@@ -4,8 +4,10 @@ extern crate ggez;
 extern crate imgui;
 extern crate math;
 extern crate nfd;
+extern crate rfmod;
 extern crate serde_json;
 extern crate thread_profiler;
+extern crate time_calc;
 
 mod gui;
 use crate::gui::{ChartTool, GuiEvent, ImGuiWrapper};
@@ -21,6 +23,7 @@ use std::fs::File;
 use std::io::prelude::*;
 use std::io::BufReader;
 use std::path::Path;
+use time_calc::{ms_from_ticks, ticks_from_ms};
 
 macro_rules! profile_scope {
     ($string:expr) => {
@@ -532,6 +535,48 @@ impl MainState {
         (x * 6.0).min(5.0) as f32
     }
 
+    fn ms_to_tick(&self, ms: f64) -> u32 {
+        let mut remaining = ms;
+        let mut ret: u32 = 0;
+        let mut it = self.chart.beat.bpm.iter();
+        let mut prev = self
+            .chart
+            .beat
+            .bpm
+            .first()
+            .unwrap_or(&chart::ByPulse { y: 0, v: 120.0 });
+        while let Some(b) = it.next() {
+            let new_ms = self.tick_to_ms(b.y);
+            if new_ms > ms {
+                break;
+            }
+            ret = b.y;
+            remaining = ms - new_ms;
+            prev = b;
+        }
+        ret + ticks_from_ms(remaining, prev.v, self.chart.beat.resolution) as u32
+    }
+
+    fn tick_to_ms(&self, tick: u32) -> f64 {
+        let mut ret: f64 = 0.0;
+        let mut prev = self
+            .chart
+            .beat
+            .bpm
+            .first()
+            .unwrap_or(&chart::ByPulse { y: 0, v: 120.0 });
+
+        let mut it = self.chart.beat.bpm.iter();
+        while let Some(b) = it.next() {
+            if b.y > tick {
+                break;
+            }
+            ret = ret + ms_from_ticks((b.y - prev.y) as i64, prev.v, self.chart.beat.resolution);
+            prev = b;
+        }
+        ret + ms_from_ticks((tick - prev.y) as i64, prev.v, self.chart.beat.resolution)
+    }
+
     fn interval_to_ranges(
         &self,
         in_interval: &chart::Interval,
@@ -575,50 +620,43 @@ impl MainState {
 }
 
 impl EventHandler for MainState {
-    fn update(&mut self, _ctx: &mut Context) -> GameResult {
-        loop {
-            let event = self.imgui_wrapper.event_queue.pop_front();
-            {
-                match event {
-                    Some(e) => match e {
-                        GuiEvent::Open => match open_chart().unwrap_or_else(|e| {
-                            println!("Failed to open chart:");
-                            println!("\t{}", e);
-                            None
-                        }) {
-                            Some((new_chart, path)) => {
-                                self.chart = new_chart;
-                                self.save_path = Some(path);
-                            }
-                            None => (),
-                        },
-                        GuiEvent::SaveAs => match save_chart_as(&self.chart) {
-                            Some(new_path) => self.save_path = Some(new_path),
-                            None => (),
-                        },
-                        GuiEvent::Exit => _ctx.continuing = false,
-                        GuiEvent::ToolChanged(new_tool) => match new_tool {
-                            ChartTool::BT => {
-                                self.cursor_object = Some(Box::new(ButtonInterval::new(false)))
-                            }
-                            ChartTool::FX => {
-                                self.cursor_object = Some(Box::new(ButtonInterval::new(true)))
-                            }
-                            ChartTool::LLaser => {
-                                self.cursor_object = Some(Box::new(LaserTool::new(false)))
-                            }
-                            ChartTool::RLaser => {
-                                self.cursor_object = Some(Box::new(LaserTool::new(true)))
-                            }
-                        },
-                        _ => (),
-                    },
-                    None => break,
-                }
+    fn update(&mut self, ctx: &mut Context) -> GameResult {
+        while let Some(e) = self.imgui_wrapper.event_queue.pop_front() {
+            match e {
+                GuiEvent::Open => match open_chart().unwrap_or_else(|e| {
+                    println!("Failed to open chart:");
+                    println!("\t{}", e);
+                    None
+                }) {
+                    Some((new_chart, path)) => {
+                        self.chart = new_chart;
+                        self.save_path = Some(path);
+                    }
+                    None => (),
+                },
+                GuiEvent::SaveAs => match save_chart_as(&self.chart) {
+                    Some(new_path) => self.save_path = Some(new_path),
+                    None => (),
+                },
+                GuiEvent::Exit => ctx.continuing = false,
+                GuiEvent::ToolChanged(new_tool) => match new_tool {
+                    ChartTool::BT => {
+                        self.cursor_object = Some(Box::new(ButtonInterval::new(false)))
+                    }
+                    ChartTool::FX => self.cursor_object = Some(Box::new(ButtonInterval::new(true))),
+                    ChartTool::LLaser => self.cursor_object = Some(Box::new(LaserTool::new(false))),
+                    ChartTool::RLaser => self.cursor_object = Some(Box::new(LaserTool::new(true))),
+                    _ => self.cursor_object = None,
+                },
+                _ => (),
             }
         }
 
-        let delta_time = (10.0 * ggez::timer::delta(_ctx).as_secs_f32()).min(1.0);
+        let tick = self.pos_to_tick(self.mouse_x, self.mouse_y);
+        let tick = tick - (tick % (self.chart.beat.resolution / 2));
+        self.imgui_wrapper.cursor_ms = self.tick_to_ms(tick) as f32;
+
+        let delta_time = (10.0 * ggez::timer::delta(ctx).as_secs_f32()).min(1.0);
         self.x_offset = self.x_offset + (self.x_offset_target - self.x_offset) * delta_time;
         Ok(())
     }
@@ -627,6 +665,7 @@ impl EventHandler for MainState {
         profile_scope!("Draw");
         //draw chart
         {
+            profile_scope!("Chart");
             //draw notes
             let track_builder = &mut graphics::MeshBuilder::new();
             let bt_builder = &mut graphics::MeshBuilder::new();
@@ -640,7 +679,6 @@ impl EventHandler for MainState {
             ];
             let min_tick_render = self.pos_to_tick(-100.0, self.h);
             let max_tick_render = self.pos_to_tick(self.w + 50.0, 0.0);
-            profile_scope!("Chart");
             graphics::clear(ctx, graphics::BLACK);
             let chart_draw_height = self.chart_draw_height();
             let lane_width = self.lane_width();
@@ -920,42 +958,25 @@ impl EventHandler for MainState {
 
                 //check pos of last bt
                 for i in 0..4 {
-                    let last = self.chart.note.bt[i].last();
-                    match last {
-                        Some(note) => {
-                            target = target.max(self.tick_to_pos(note.y + note.l).0 + self.x_offset)
-                        }
-                        None => (),
+                    if let Some(note) = self.chart.note.bt[i].last() {
+                        target = target.max(self.tick_to_pos(note.y + note.l).0 + self.x_offset)
                     }
                 }
 
                 //check pos of last fx
                 for i in 0..2 {
-                    let last = self.chart.note.fx[i].last();
-                    match last {
-                        Some(note) => {
-                            target = target.max(self.tick_to_pos(note.y + note.l).0 + self.x_offset)
-                        }
-                        None => (),
+                    if let Some(note) = self.chart.note.fx[i].last() {
+                        target = target.max(self.tick_to_pos(note.y + note.l).0 + self.x_offset)
                     }
                 }
 
                 //check pos of last lasers
                 for i in 0..2 {
-                    let last_section = self.chart.note.laser[i].last();
-                    match last_section {
-                        Some(section) => {
-                            let last_segment = section.v.last();
-                            match last_segment {
-                                Some(segment) => {
-                                    target = target.max(
-                                        self.tick_to_pos(segment.ry + section.y).0 + self.x_offset,
-                                    )
-                                }
-                                None => (),
-                            }
+                    if let Some(section) = self.chart.note.laser[i].last() {
+                        if let Some(segment) = section.v.last() {
+                            target = target
+                                .max(self.tick_to_pos(segment.ry + section.y).0 + self.x_offset)
                         }
-                        None => (),
                     }
                 }
 
@@ -1044,8 +1065,9 @@ fn save_chart_as(chart: &chart::Chart) -> Option<String> {
     Some(path)
 }
 
-pub fn main() -> GameResult {
+pub fn main() {
     thread_profiler::register_thread_with_profiler();
+
     let win_setup = ggez::conf::WindowSetup {
         title: "USC Editor".to_owned(),
         samples: ggez::conf::NumSamples::Four,
@@ -1077,11 +1099,19 @@ pub fn main() -> GameResult {
         .window_mode(mode)
         .modules(modules);
 
-    let (ctx, event_loop) = &mut cb.build()?;
+    let (ctx, event_loop) = &mut cb.build().unwrap_or_else(|e| {
+        println!("{}", e);
+        panic!(e);
+    });
 
-    let state = &mut MainState::new(ctx)?;
+    let state = &mut MainState::new(ctx).unwrap_or_else(|e| {
+        println!("{}", e);
+        panic!(e);
+    });
+    match event::run(ctx, event_loop, state) {
+        Ok(_) => (),
+        Err(e) => println!("Program exited with error: {}", e),
+    }
 
-    let res = event::run(ctx, event_loop, state);
     thread_profiler::write_profile("profiling.json");
-    res
 }
