@@ -4,7 +4,6 @@ extern crate ggez;
 extern crate imgui;
 extern crate math;
 extern crate nfd;
-extern crate rfmod;
 extern crate serde_json;
 extern crate thread_profiler;
 extern crate time_calc;
@@ -12,6 +11,7 @@ extern crate time_calc;
 mod chart;
 mod custom_loop;
 mod gui;
+mod playback;
 mod tools;
 
 use crate::gui::{ChartTool, GuiEvent, ImGuiWrapper};
@@ -51,10 +51,9 @@ pub struct MainState {
     mouse_y: f32,
     x_offset: f32,
     x_offset_target: f32,
+    cursor_line: u32,
     cursor_object: Option<Box<dyn CursorObject>>,
-    fmod_sys: rfmod::Sys,
-    fmod_sound: Option<rfmod::Sound>,
-    fmod_channel: Option<rfmod::Channel>,
+    pub audio_playback: playback::AudioPlayback,
     pub gui_event_queue: VecDeque<GuiEvent>,
 }
 
@@ -76,10 +75,9 @@ impl MainState {
             x_offset: 0.0,
             x_offset_target: 0.0,
             cursor_object: None,
-            fmod_sys: rfmod::Sys::new().unwrap(),
-            fmod_sound: None,
-            fmod_channel: None,
+            audio_playback: playback::AudioPlayback::new(),
             gui_event_queue: VecDeque::new(),
+            cursor_line: 0,
         };
         Ok(s)
     }
@@ -378,6 +376,8 @@ impl EventHandler for MainState {
 
         let delta_time = (10.0 * ggez::timer::delta(ctx).as_secs_f32()).min(1.0);
         self.x_offset = self.x_offset + (self.x_offset_target - self.x_offset) * delta_time;
+        let tick = self.audio_playback.get_tick(self);
+        self.audio_playback.update(&self.chart, tick);
         Ok(())
     }
 
@@ -580,6 +580,26 @@ impl EventHandler for MainState {
                 Some(ref cursor) => cursor.draw(self, ctx).unwrap_or_else(|e| println!("{}", e)),
                 None => (),
             }
+
+            {
+                //cursor line
+                graphics::set_blend_mode(ctx, graphics::BlendMode::Alpha)?;
+                let (x, y) = if self.audio_playback.is_playing() {
+                    let tick = self.audio_playback.get_tick(self);
+
+                    //let delta = ms - self.tick_to_ms(tick);
+                    self.tick_to_pos(tick as u32)
+                } else {
+                    self.tick_to_pos(self.cursor_line)
+                };
+
+                let x = x + self.track_width / 2.0;
+                let p1: na::Point2<f32> = [x, y].into();
+                let p2: na::Point2<f32> = [x + self.track_width, y].into();
+                let m =
+                    graphics::Mesh::new_line(ctx, &[p1, p2], 1.5, (255u8, 0u8, 0u8, 255u8).into())?;
+                graphics::draw(ctx, &m, (na::Point2::new(0.0, 0.0),))?;
+            }
         }
 
         self.redraw = false;
@@ -592,7 +612,7 @@ impl EventHandler for MainState {
             let tick = tick - (tick % (self.chart.beat.resolution / 2));
             match self.cursor_object {
                 Some(ref mut cursor) => cursor.mouse_down(tick, lane, &mut self.chart),
-                None => (),
+                None => self.cursor_line = tick,
             }
         }
     }
@@ -674,13 +694,22 @@ impl EventHandler for MainState {
                 self.x_offset_target = target - (target % self.track_spacing())
             }
             KeyCode::Space => {
-                if let Some(path) = &self.save_path {
+                if self.audio_playback.is_playing() {
+                    self.audio_playback.stop()
+                } else if let Some(path) = &self.save_path {
                     let path = Path::new(path).parent().unwrap();
                     if let Some(bgm) = &self.chart.audio.bgm {
                         if let Some(filename) = &bgm.filename {
                             let filename = &filename.split(";").next().unwrap();
                             let path = path.join(Path::new(filename));
                             println!("Playing file: {}", path.display());
+                            let path = path.to_str().unwrap();
+                            if self.audio_playback.open(path) {
+                                let ms = self.tick_to_ms(self.cursor_line) + bgm.offset as f64;
+                                let ms = ms.max(0.0);
+                                self.audio_playback.play();
+                                self.audio_playback.set_poistion(ms as usize);
+                            }
                         }
                     }
                 }
@@ -811,13 +840,6 @@ pub fn main() {
         panic!(e);
     });
 
-    match state.fmod_sys.init() {
-        rfmod::Status::Ok => {}
-        e => {
-            panic!("FmodSys.init failed : {:?}", e);
-        }
-    };
-
     let imgui_wrapper = &mut ImGuiWrapper::new(ctx);
 
     match custom_loop::run(ctx, event_loop, state, imgui_wrapper) {
@@ -825,5 +847,6 @@ pub fn main() {
         Err(e) => println!("Program exited with error: {}", e),
     }
 
+    state.audio_playback.release();
     thread_profiler::write_profile("profiling.json");
 }

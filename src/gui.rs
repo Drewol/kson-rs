@@ -131,25 +131,23 @@ impl ImGuiWrapper {
         self.imgui.io_mut().delta_time = delta_s;
 
         let ui = self.imgui.frame();
-        let event_queue = &mut state.gui_event_queue;
-
         // Various ui things
         {
             let mut file_menu_items = || {
                 if MenuItem::new(im_str!("Open")).build(&ui) {
-                    event_queue.push_back(GuiEvent::Open);
+                    state.gui_event_queue.push_back(GuiEvent::Open);
                 }
 
                 if MenuItem::new(im_str!("Save")).build(&ui) {
-                    event_queue.push_back(GuiEvent::Save);
+                    state.gui_event_queue.push_back(GuiEvent::Save);
                 }
 
                 if MenuItem::new(im_str!("Save as")).build(&ui) {
-                    event_queue.push_back(GuiEvent::SaveAs);
+                    state.gui_event_queue.push_back(GuiEvent::SaveAs);
                 }
 
                 if MenuItem::new(im_str!("Exit")).build(&ui) {
-                    event_queue.push_back(GuiEvent::Exit);
+                    state.gui_event_queue.push_back(GuiEvent::Exit);
                 }
             };
 
@@ -195,7 +193,8 @@ impl ImGuiWrapper {
 
             // Toolbar
             let tools = &self.tools;
-            let mut selected_tool = self.selected_tool;
+            let current_tool = self.selected_tool;
+            let mut new_tool = ChartTool::None;
             Window::new(im_str!("Toolbar"))
                 .size([draw_width, 0.0], Condition::Always)
                 .position([0.0, 20.0], Condition::Always)
@@ -207,21 +206,27 @@ impl ImGuiWrapper {
                     let mut i = 1.25;
                     for (name, value) in tools {
                         if Selectable::new(ImString::new(name).as_ref())
-                            .selected(selected_tool == *value)
+                            .selected(current_tool == *value)
                             .flags(SelectableFlags::empty())
                             .size([20.0, 20.0])
                             .build(&ui)
                         {
-                            selected_tool = *value; //seems unsafe(?)
+                            new_tool = *value; //seems unsafe(?)
                         }
                         ui.same_line(i * 40.0);
                         i = i + 1.0;
                     }
                 });
-            if selected_tool != self.selected_tool {
-                self.event_queue
-                    .push_back(GuiEvent::ToolChanged(selected_tool));
-                self.selected_tool = selected_tool; //will selected tool always be updated before here (?)
+            if new_tool != ChartTool::None && new_tool != self.selected_tool {
+                state
+                    .gui_event_queue
+                    .push_back(GuiEvent::ToolChanged(new_tool));
+                self.selected_tool = new_tool;
+            } else if self.selected_tool != ChartTool::None && new_tool == self.selected_tool {
+                state
+                    .gui_event_queue
+                    .push_back(GuiEvent::ToolChanged(ChartTool::None));
+                self.selected_tool = ChartTool::None;
             }
         }
 

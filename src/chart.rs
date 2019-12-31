@@ -166,7 +166,7 @@ impl BeatInfo {
     }
 }
 
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize, Deserialize, Clone)]
 pub struct BgmInfo {
     pub filename: Option<String>,
     pub vol: f64,
