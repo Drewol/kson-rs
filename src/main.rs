@@ -9,14 +9,17 @@ extern crate serde_json;
 extern crate thread_profiler;
 extern crate time_calc;
 
+mod chart;
+mod custom_loop;
 mod gui;
+mod tools;
+
 use crate::gui::{ChartTool, GuiEvent, ImGuiWrapper};
-use ggez::event::{self, EventHandler, KeyCode, KeyMods, MouseButton};
+use ggez::event::{EventHandler, KeyCode, KeyMods, MouseButton};
 use ggez::graphics;
 use ggez::nalgebra as na;
 use ggez::{Context, GameResult};
-mod chart;
-use chart::{GraphSectionPoint, LaserSection};
+use std::collections::VecDeque;
 use std::error::Error;
 use std::ffi::OsStr;
 use std::fs::File;
@@ -24,6 +27,7 @@ use std::io::prelude::*;
 use std::io::BufReader;
 use std::path::Path;
 use time_calc::{ms_from_ticks, ticks_from_ms};
+use tools::{ButtonInterval, CursorObject, LaserTool};
 
 macro_rules! profile_scope {
     ($string:expr) => {
@@ -32,297 +36,13 @@ macro_rules! profile_scope {
     };
 }
 
-trait CursorObject {
-    fn mouse_down(&mut self, tick: u32, lane: f32, chart: &mut chart::Chart);
-    fn mouse_up(&mut self, tick: u32, lane: f32, chart: &mut chart::Chart);
-    fn update(&mut self, tick: u32, lane: f32);
-    fn draw(&self, state: &MainState, ctx: &mut Context) -> GameResult;
-}
-
-//structs for cursor objects
-struct ButtonInterval {
-    pressed: bool,
-    fx: bool,
-    interval: chart::Interval,
-    lane: usize,
-}
-
-impl ButtonInterval {
-    fn new(fx: bool) -> Self {
-        ButtonInterval {
-            pressed: false,
-            fx: fx,
-            interval: chart::Interval { y: 0, l: 0 },
-            lane: 0,
-        }
-    }
-}
-
-struct LaserTool {
-    active: bool,
-    right: bool,
-    section: chart::LaserSection,
-}
-
-impl LaserTool {
-    fn new(right: bool) -> Self {
-        LaserTool {
-            active: false,
-            right: right,
-            section: chart::LaserSection {
-                y: 0,
-                wide: 0,
-                v: Vec::new(),
-            },
-        }
-    }
-
-    fn lane_to_pos(lane: f32) -> f64 {
-        math::round::floor(lane as f64 * 2.0, 0) / 10.0
-    }
-
-    fn get_second_to_last(&self) -> Option<&GraphSectionPoint> {
-        let len = self.section.v.len();
-        let idx = len.checked_sub(2);
-        idx.and_then(|i| self.section.v.get(i))
-    }
-
-    /*
-    fn get_second_to_last_mut(&mut self) -> Option<&mut GraphSectionPoint> {
-        let len = self.section.v.len();
-        let idx = len.checked_sub(2);
-        let idx = idx.unwrap();
-        self.section.v.get_mut(idx)
-    }
-    */
-
-    fn calc_ry(&self, tick: u32) -> u32 {
-        let ry = if tick <= self.section.y {
-            0
-        } else {
-            tick - self.section.y
-        };
-
-        if let Some(secont_last) = self.get_second_to_last() {
-            (*secont_last).ry.max(ry)
-        } else {
-            ry
-        }
-    }
-}
-
-impl CursorObject for ButtonInterval {
-    fn mouse_down(&mut self, tick: u32, lane: f32, _chart: &mut chart::Chart) {
-        self.pressed = true;
-        if self.fx {
-            self.lane = if lane < 3.0 { 0 } else { 1 };
-        } else {
-            self.lane = (lane as usize).max(1).min(4) - 1;
-        }
-        self.interval.y = tick;
-    }
-
-    fn mouse_up(&mut self, tick: u32, _lane: f32, chart: &mut chart::Chart) {
-        if self.interval.y >= tick {
-            self.interval.l = 0;
-        } else {
-            self.interval.l = tick - self.interval.y;
-        }
-        let v = std::mem::replace(&mut self.interval, chart::Interval { y: 0, l: 0 });
-        if self.fx {
-            chart.note.fx[self.lane].push(v);
-            chart.note.fx[self.lane].sort_by(|a, b| a.y.partial_cmp(&b.y).unwrap());
-        } else {
-            chart.note.bt[self.lane].push(v);
-            chart.note.bt[self.lane].sort_by(|a, b| a.y.partial_cmp(&b.y).unwrap());
-        }
-        self.pressed = false;
-        self.lane = 0;
-    }
-
-    fn update(&mut self, tick: u32, lane: f32) {
-        if !self.pressed {
-            self.interval.y = tick;
-            if self.fx {
-                self.lane = if lane < 3.0 { 0 } else { 1 };
-            } else {
-                self.lane = (lane as usize).max(1).min(4) - 1;
-            }
-        }
-        if self.interval.y >= tick {
-            self.interval.l = 0;
-        } else {
-            self.interval.l = tick - self.interval.y;
-        }
-    }
-
-    fn draw(&self, state: &MainState, ctx: &mut Context) -> GameResult {
-        graphics::set_blend_mode(ctx, graphics::BlendMode::Alpha)?;
-        let color = if self.fx {
-            graphics::Color {
-                r: 1.0,
-                g: 0.3,
-                b: 0.0,
-                a: 0.5,
-            }
-        } else {
-            graphics::Color {
-                r: 1.0,
-                g: 1.0,
-                b: 1.0,
-                a: 0.5,
-            }
-        };
-        if self.interval.l == 0 {
-            let (x, y) = state.tick_to_pos(self.interval.y);
-
-            let x = if self.fx {
-                x + self.lane as f32 * state.lane_width() * 2.0
-                    + 2.0 * self.lane as f32
-                    + state.lane_width()
-                    + state.track_width / 2.0
-            } else {
-                x + self.lane as f32 * state.lane_width()
-                    + 1.0 * self.lane as f32
-                    + state.lane_width()
-                    + state.track_width / 2.0
-            };
-            let y = y as f32;
-
-            let w = if self.fx {
-                state.track_width as f32 / 3.0 - 1.0
-            } else {
-                state.track_width as f32 / 6.0 - 2.0
-            };
-            let h = -2.0;
-
-            let m = graphics::Mesh::new_rectangle(
-                ctx,
-                graphics::DrawMode::fill(),
-                [x, y, w, h].into(),
-                color,
-            )?;
-            graphics::draw(ctx, &m, (na::Point2::new(0.0, 0.0),))
-        } else {
-            let mut long_bt_builder = graphics::MeshBuilder::new();
-            for (x, y, h, _) in state.interval_to_ranges(&self.interval) {
-                let x = if self.fx {
-                    x + self.lane as f32 * state.lane_width() * 2.0
-                        + 2.0 * self.lane as f32
-                        + state.lane_width()
-                        + state.track_width / 2.0
-                } else {
-                    x + self.lane as f32 * state.lane_width()
-                        + 1.0 * self.lane as f32
-                        + state.lane_width()
-                        + state.track_width / 2.0
-                };
-
-                let w = if self.fx {
-                    state.track_width as f32 / 3.0 - 1.0
-                } else {
-                    state.track_width as f32 / 6.0 - 2.0
-                };
-
-                long_bt_builder.rectangle(graphics::DrawMode::fill(), [x, y, w, h].into(), color);
-            }
-            let m = long_bt_builder.build(ctx)?;
-            graphics::draw(ctx, &m, (na::Point2::new(0.0, 0.0),))
-        }
-    }
-}
-
-impl CursorObject for LaserTool {
-    fn mouse_down(&mut self, tick: u32, lane: f32, chart: &mut chart::Chart) {
-        let v = LaserTool::lane_to_pos(lane);
-        let ry = self.calc_ry(tick);
-        let mut finalize = false;
-
-        if !self.active {
-            self.section.y = tick;
-            self.section.v.push(GraphSectionPoint::new(0, v));
-            self.section.wide = 1;
-            self.active = true;
-        } else if let Some(last) = self.get_second_to_last() {
-            finalize = match (*last).vf {
-                Some(_) => ry == last.ry,
-                None => ry == last.ry && v == last.v,
-            };
-        }
-
-        if finalize {
-            self.active = false;
-            self.section.v.pop();
-            let v = std::mem::replace(
-                &mut self.section,
-                LaserSection {
-                    y: 0,
-                    v: Vec::new(),
-                    wide: 1,
-                },
-            );
-            let i = if self.right { 1 } else { 0 };
-            chart.note.laser[i].push(v);
-            chart.note.laser[i].sort_by(|a, b| a.y.partial_cmp(&b.y).unwrap());
-            return;
-        }
-
-        self.section
-            .v
-            .push(GraphSectionPoint::new(ry, LaserTool::lane_to_pos(lane)));
-    }
-    fn mouse_up(&mut self, _tick: u32, _lane: f32, _chart: &mut chart::Chart) {}
-    fn update(&mut self, tick: u32, lane: f32) {
-        if self.active {
-            let ry = self.calc_ry(tick);
-            let v = LaserTool::lane_to_pos(lane);
-            let second_last: Option<GraphSectionPoint> = match self.get_second_to_last() {
-                Some(sl) => Some(*sl),
-                None => None,
-            };
-            if let Some(last) = self.section.v.last_mut() {
-                (*last).ry = ry;
-                (*last).v = v;
-
-                if let Some(second_last) = second_last {
-                    if second_last.ry == ry {
-                        (*last).v = second_last.v;
-                        (*last).vf = Some(v);
-                    } else {
-                        (*last).vf = None;
-                    }
-                }
-            }
-        }
-    }
-    fn draw(&self, state: &MainState, ctx: &mut Context) -> GameResult {
-        if !self.active {
-            return Ok(());
-        }
-        let b = 0.8;
-        let color: graphics::Color = if self.right {
-            [0.76 * b, 0.024 * b, 0.55 * b, 1.0].into()
-        } else {
-            [0.0, 0.45 * b, 0.565 * b, 1.0].into()
-        };
-
-        let mut mb = graphics::MeshBuilder::new();
-        state.draw_laser_section(&self.section, &mut mb, color)?;
-        graphics::set_blend_mode(ctx, graphics::BlendMode::Add)?;
-        let m = mb.build(ctx)?;
-        graphics::draw(ctx, &m, (na::Point2::new(0.0, 0.0),))?;
-        Ok(())
-    }
-}
-
-struct MainState {
+pub struct MainState {
     redraw: bool,
     chart: chart::Chart,
     w: f32,
     h: f32,
     tick_height: f32,
     track_width: f32,
-    imgui_wrapper: ImGuiWrapper,
     save_path: Option<String>,
     top_margin: f32,
     bottom_margin: f32,
@@ -332,10 +52,14 @@ struct MainState {
     x_offset: f32,
     x_offset_target: f32,
     cursor_object: Option<Box<dyn CursorObject>>,
+    fmod_sys: rfmod::Sys,
+    fmod_sound: Option<rfmod::Sound>,
+    fmod_channel: Option<rfmod::Channel>,
+    pub gui_event_queue: VecDeque<GuiEvent>,
 }
 
 impl MainState {
-    fn new(ctx: &mut Context) -> GameResult<MainState> {
+    fn new() -> GameResult<MainState> {
         let s = MainState {
             w: 800.0,
             h: 600.0,
@@ -343,7 +67,6 @@ impl MainState {
             chart: chart::Chart::new(),
             tick_height: 1.0,
             track_width: 72.0,
-            imgui_wrapper: ImGuiWrapper::new(ctx),
             save_path: None,
             top_margin: 60.0,
             bottom_margin: 10.0,
@@ -353,8 +76,18 @@ impl MainState {
             x_offset: 0.0,
             x_offset_target: 0.0,
             cursor_object: None,
+            fmod_sys: rfmod::Sys::new().unwrap(),
+            fmod_sound: None,
+            fmod_channel: None,
+            gui_event_queue: VecDeque::new(),
         };
         Ok(s)
+    }
+
+    pub fn get_cursor_ms(&self) -> f64 {
+        let tick = self.pos_to_tick(self.mouse_x, self.mouse_y);
+        let tick = tick - (tick % (self.chart.beat.resolution / 2));
+        self.tick_to_ms(tick)
     }
 
     fn draw_laser_section(
@@ -388,36 +121,34 @@ impl MainState {
             let mut start_value = s.v as f32;
             let mut syoff = 0.0 as f32;
 
-            match s.vf {
-                Some(value) => {
-                    profile_scope!("Slam");
-                    start_value = value as f32;
-                    syoff = slam_height;
-                    let mut sv: f32 = s.v as f32;
-                    let mut ev: f32 = value as f32;
-                    if wide {
-                        ev = ev * 2.0 - 0.5;
-                        sv = sv * 2.0 - 0.5;
-                    }
-
-                    //draw slam
-                    let (x, y) = self.tick_to_pos(interval.y);
-                    let sx = x + sv * track_lane_diff + half_track + half_lane;
-                    let ex = x + ev * track_lane_diff + half_track + half_lane;
-
-                    let (x, w): (f32, f32) = if sx > ex {
-                        (sx + half_lane, (ex - half_lane) - (sx + half_lane))
-                    } else {
-                        (sx - half_lane, (ex + half_lane) - (sx - half_lane))
-                    };
-                    mb.rectangle(
-                        graphics::DrawMode::fill(),
-                        [x, y, w, -slam_height].into(),
-                        color,
-                    );
+            if let Some(value) = s.vf {
+                profile_scope!("Slam");
+                start_value = value as f32;
+                syoff = slam_height;
+                let mut sv: f32 = s.v as f32;
+                let mut ev: f32 = value as f32;
+                if wide {
+                    ev = ev * 2.0 - 0.5;
+                    sv = sv * 2.0 - 0.5;
                 }
-                _ => (),
-            };
+
+                //draw slam
+                let (x, y) = self.tick_to_pos(interval.y);
+                let sx = x + sv * track_lane_diff + half_track + half_lane;
+                let ex = x + ev * track_lane_diff + half_track + half_lane;
+
+                let (x, w): (f32, f32) = if sx > ex {
+                    (sx + half_lane, (ex - half_lane) - (sx + half_lane))
+                } else {
+                    (sx - half_lane, (ex + half_lane) - (sx - half_lane))
+                };
+                mb.rectangle(
+                    graphics::DrawMode::fill(),
+                    [x, y, w, -slam_height].into(),
+                    color,
+                );
+            }
+
             let mut value_width = (e.v as f32 - start_value) as f32;
             if wide {
                 value_width = value_width * 2.0;
@@ -450,46 +181,40 @@ impl MainState {
                     [sx - xoff, sy - syoff].into(),
                     [sx + xoff, sy - syoff].into(),
                 );
+                syoff = 0.0; //only first section after slam needs this
                 let points = [tl, tr, br, br, bl, tl];
                 mb.triangles(&points, color)?;
             }
         }
 
-        let last = section.v.last();
-        match last {
-            Some(l) => {
-                match l.vf {
-                    Some(vf) => {
-                        profile_scope!("End Slam");
-                        //draw slam
-                        let mut sv: f32 = l.v as f32;
-                        let mut ev: f32 = vf as f32;
-                        if wide {
-                            sv = sv * 2.0 - 0.5;
-                            ev = ev * 2.0 - 0.5;
-                        }
-
-                        let (x, y) = self.tick_to_pos(l.ry + y_base);
-                        let sx = x + sv * track_lane_diff + half_track + half_lane;
-                        let ex = x + ev as f32 * track_lane_diff + half_track + half_lane;
-
-                        let (x, w): (f32, f32) = if sx > ex {
-                            (sx + half_lane, (ex - half_lane) - (sx + half_lane))
-                        } else {
-                            (sx - half_lane, (ex + half_lane) - (sx - half_lane))
-                        };
-
-                        mb.rectangle(
-                            graphics::DrawMode::fill(),
-                            [x, y, w, -slam_height].into(),
-                            color,
-                        );
-                    }
-                    None => (),
+        if let Some(l) = section.v.last() {
+            if let Some(vf) = l.vf {
+                profile_scope!("End Slam");
+                //draw slam
+                let mut sv: f32 = l.v as f32;
+                let mut ev: f32 = vf as f32;
+                if wide {
+                    sv = sv * 2.0 - 0.5;
+                    ev = ev * 2.0 - 0.5;
                 }
+
+                let (x, y) = self.tick_to_pos(l.ry + y_base);
+                let sx = x + sv * track_lane_diff + half_track + half_lane;
+                let ex = x + ev as f32 * track_lane_diff + half_track + half_lane;
+
+                let (x, w): (f32, f32) = if sx > ex {
+                    (sx + half_lane, (ex - half_lane) - (sx + half_lane))
+                } else {
+                    (sx - half_lane, (ex + half_lane) - (sx - half_lane))
+                };
+
+                mb.rectangle(
+                    graphics::DrawMode::fill(),
+                    [x, y, w, -slam_height].into(),
+                    color,
+                );
             }
-            None => (),
-        };
+        }
         Ok(())
     }
 
@@ -538,14 +263,14 @@ impl MainState {
     fn ms_to_tick(&self, ms: f64) -> u32 {
         let mut remaining = ms;
         let mut ret: u32 = 0;
-        let mut it = self.chart.beat.bpm.iter();
         let mut prev = self
             .chart
             .beat
             .bpm
             .first()
             .unwrap_or(&chart::ByPulse { y: 0, v: 120.0 });
-        while let Some(b) = it.next() {
+
+        for b in &self.chart.beat.bpm {
             let new_ms = self.tick_to_ms(b.y);
             if new_ms > ms {
                 break;
@@ -566,8 +291,7 @@ impl MainState {
             .first()
             .unwrap_or(&chart::ByPulse { y: 0, v: 120.0 });
 
-        let mut it = self.chart.beat.bpm.iter();
-        while let Some(b) = it.next() {
+        for b in &self.chart.beat.bpm {
             if b.y > tick {
                 break;
             }
@@ -621,7 +345,7 @@ impl MainState {
 
 impl EventHandler for MainState {
     fn update(&mut self, ctx: &mut Context) -> GameResult {
-        while let Some(e) = self.imgui_wrapper.event_queue.pop_front() {
+        while let Some(e) = self.gui_event_queue.pop_front() {
             match e {
                 GuiEvent::Open => match open_chart().unwrap_or_else(|e| {
                     println!("Failed to open chart:");
@@ -651,10 +375,6 @@ impl EventHandler for MainState {
                 _ => (),
             }
         }
-
-        let tick = self.pos_to_tick(self.mouse_x, self.mouse_y);
-        let tick = tick - (tick % (self.chart.beat.resolution / 2));
-        self.imgui_wrapper.cursor_ms = self.tick_to_ms(tick) as f32;
 
         let delta_time = (10.0 * ggez::timer::delta(ctx).as_secs_f32()).min(1.0);
         self.x_offset = self.x_offset + (self.x_offset_target - self.x_offset) * delta_time;
@@ -862,52 +582,29 @@ impl EventHandler for MainState {
             }
         }
 
-        // Draw ui
-        {
-            profile_scope!("UI");
-            self.imgui_wrapper.render(ctx, 1.0);
-        }
-        {
-            profile_scope!("Present");
-            graphics::present(ctx)?;
-            self.redraw = false;
-            ggez::timer::yield_now();
-        }
+        self.redraw = false;
         Ok(())
     }
     fn mouse_button_down_event(&mut self, _ctx: &mut Context, button: MouseButton, x: f32, y: f32) {
-        //update imgui
-        self.imgui_wrapper.update_mouse_down((
-            button == MouseButton::Left,
-            button == MouseButton::Right,
-            button == MouseButton::Middle,
-        ));
-
-        if !self.imgui_wrapper.captures_mouse() {
-            if button == MouseButton::Left {
-                let lane = self.pos_to_lane(x);
-                let tick = self.pos_to_tick(x, y);
-                let tick = tick - (tick % (self.chart.beat.resolution / 2));
-                match self.cursor_object {
-                    Some(ref mut cursor) => cursor.mouse_down(tick, lane, &mut self.chart),
-                    None => (),
-                }
+        if button == MouseButton::Left {
+            let lane = self.pos_to_lane(x);
+            let tick = self.pos_to_tick(x, y);
+            let tick = tick - (tick % (self.chart.beat.resolution / 2));
+            match self.cursor_object {
+                Some(ref mut cursor) => cursor.mouse_down(tick, lane, &mut self.chart),
+                None => (),
             }
         }
     }
 
     fn mouse_button_up_event(&mut self, _ctx: &mut Context, button: MouseButton, x: f32, y: f32) {
-        self.imgui_wrapper.update_mouse_down((false, false, false));
-
-        if !self.imgui_wrapper.captures_mouse() {
-            if button == MouseButton::Left {
-                let lane = self.pos_to_lane(x);
-                let tick = self.pos_to_tick(x, y);
-                let tick = tick - (tick % (self.chart.beat.resolution / 2));
-                match self.cursor_object {
-                    Some(ref mut cursor) => cursor.mouse_up(tick, lane, &mut self.chart),
-                    None => (),
-                }
+        if button == MouseButton::Left {
+            let lane = self.pos_to_lane(x);
+            let tick = self.pos_to_tick(x, y);
+            let tick = tick - (tick % (self.chart.beat.resolution / 2));
+            match self.cursor_object {
+                Some(ref mut cursor) => cursor.mouse_up(tick, lane, &mut self.chart),
+                None => (),
             }
         }
     }
@@ -937,13 +634,7 @@ impl EventHandler for MainState {
         _keymods: KeyMods,
         _repeat: bool,
     ) {
-        if self.imgui_wrapper.captures_key() {
-            return;
-        }
         match keycode {
-            KeyCode::P => {
-                self.imgui_wrapper.open_popup();
-            }
             KeyCode::Home => self.x_offset_target = 0.0,
             KeyCode::PageUp => {
                 self.x_offset_target =
@@ -982,12 +673,23 @@ impl EventHandler for MainState {
 
                 self.x_offset_target = target - (target % self.track_spacing())
             }
+            KeyCode::Space => {
+                if let Some(path) = &self.save_path {
+                    let path = Path::new(path).parent().unwrap();
+                    if let Some(bgm) = &self.chart.audio.bgm {
+                        if let Some(filename) = &bgm.filename {
+                            let filename = &filename.split(";").next().unwrap();
+                            let path = path.join(Path::new(filename));
+                            println!("Playing file: {}", path.display());
+                        }
+                    }
+                }
+            }
             _ => (),
         }
     }
 
     fn mouse_motion_event(&mut self, _ctx: &mut Context, x: f32, y: f32, _dx: f32, _dy: f32) {
-        self.imgui_wrapper.update_mouse_pos(x, y);
         self.mouse_x = x;
         self.mouse_y = y;
 
@@ -1104,11 +806,21 @@ pub fn main() {
         panic!(e);
     });
 
-    let state = &mut MainState::new(ctx).unwrap_or_else(|e| {
+    let state = &mut MainState::new().unwrap_or_else(|e| {
         println!("{}", e);
         panic!(e);
     });
-    match event::run(ctx, event_loop, state) {
+
+    match state.fmod_sys.init() {
+        rfmod::Status::Ok => {}
+        e => {
+            panic!("FmodSys.init failed : {:?}", e);
+        }
+    };
+
+    let imgui_wrapper = &mut ImGuiWrapper::new(ctx);
+
+    match custom_loop::run(ctx, event_loop, state, imgui_wrapper) {
         Ok(_) => (),
         Err(e) => println!("Program exited with error: {}", e),
     }

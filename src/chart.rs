@@ -167,10 +167,61 @@ impl BeatInfo {
 }
 
 #[derive(Serialize, Deserialize)]
+pub struct BgmInfo {
+    pub filename: Option<String>,
+    pub vol: f64,
+    pub offset: i32,
+
+    pub preview_filename: Option<String>,
+    pub preview_offset: u32,
+    pub preview_duration: u32,
+}
+
+impl BgmInfo {
+    fn new() -> Self {
+        BgmInfo {
+            filename: None,
+            vol: 1.0,
+            offset: 0,
+
+            preview_filename: None,
+            preview_offset: 0,
+            preview_duration: 15000,
+        }
+    }
+}
+
+#[derive(Serialize, Deserialize)]
+pub struct KeySoundInfo;
+
+#[derive(Serialize, Deserialize)]
+pub struct AudioEffectInfo;
+
+#[derive(Serialize, Deserialize)]
+pub struct AudioInfo {
+    pub bgm: Option<BgmInfo>,
+    #[serde(skip_deserializing)]
+    pub key_sound: Option<KeySoundInfo>,
+    #[serde(skip_deserializing)]
+    pub audio_effect: Option<AudioEffectInfo>,
+}
+
+impl AudioInfo {
+    fn new() -> Self {
+        AudioInfo {
+            key_sound: None,
+            audio_effect: None,
+            bgm: None,
+        }
+    }
+}
+
+#[derive(Serialize, Deserialize)]
 pub struct Chart {
     pub meta: MetaInfo,
     pub note: NoteInfo,
     pub beat: BeatInfo,
+    pub audio: AudioInfo,
 }
 
 fn laser_char_to_value(value: u8) -> Result<f64, String> {
@@ -201,6 +252,7 @@ impl Chart {
             meta: MetaInfo::new(),
             note: NoteInfo::new(),
             beat: BeatInfo::new(),
+            audio: AudioInfo::new(),
         }
     }
 
@@ -220,6 +272,7 @@ impl Chart {
         let data = &data[3..]; //Something about BOM(?)
         let mut parts: Vec<&str> = data.split("\n--").collect();
         let meta = (parts.first().unwrap()).lines();
+        let mut bgm = BgmInfo::new();
         for line in meta {
             let line_data: Vec<&str> = line.split("=").collect();
             if line_data.len() < 2 {
@@ -244,10 +297,12 @@ impl Chart {
                     }
                 }
                 "beat" => {}
+                "o" => bgm.offset = value.parse().unwrap(),
+                "m" => bgm.filename = Some(value),
                 _ => (),
             }
         }
-
+        new_chart.audio.bgm = Some(bgm);
         parts.remove(0);
         let mut y: u32 = 0;
         let mut measure_index = 0;
@@ -304,10 +359,9 @@ impl Chart {
                             && last_char[i + 4] != '0'
                             && last_char[i + 4] != '2'
                         {
-                            let l = y - long_y[i];
                             new_chart.note.fx[i].push(Interval {
                                 y: long_y[i + 4],
-                                l: l,
+                                l: y - long_y[i + 4],
                             })
                         } else if (chars[i + 5] != '0' && chars[i + 5] != '2')
                             && (last_char[i + 4] == '0' || last_char[i + 4] == '2')

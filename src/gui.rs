@@ -32,6 +32,7 @@ use ggez::graphics;
 use ggez::Context;
 use imgui::*;
 use std::collections::VecDeque;
+use MainState;
 
 use std::time::Instant;
 
@@ -63,12 +64,9 @@ pub struct ImGuiWrapper {
     pub imgui: imgui::Context,
     pub renderer: Renderer<gfx_core::format::Rgba8, gfx_device_gl::Resources>,
     last_frame: Instant,
-    mouse_state: MouseState,
-    show_popup: bool,
     pub event_queue: VecDeque<GuiEvent>,
     tools: [(String, ChartTool); 4],
     pub selected_tool: ChartTool,
-    pub cursor_ms: f32,
 }
 
 impl ImGuiWrapper {
@@ -76,7 +74,6 @@ impl ImGuiWrapper {
         // Create the imgui object
         let mut imgui = imgui::Context::create();
         let (factory, gfx_device, _, _, _) = graphics::gfx_objects(ctx);
-
         // Shaders
         let shaders = {
             let version = gfx_device.get_info().shading_language;
@@ -103,8 +100,6 @@ impl ImGuiWrapper {
             imgui,
             renderer,
             last_frame: Instant::now(),
-            mouse_state: MouseState::default(),
-            show_popup: false,
             event_queue: VecDeque::new(),
             tools: [
                 (String::from("BT"), ChartTool::BT),
@@ -113,14 +108,17 @@ impl ImGuiWrapper {
                 (String::from("RL"), ChartTool::RLaser),
             ],
             selected_tool: ChartTool::None,
-            cursor_ms: 0.0,
         }
     }
 
-    pub fn render(&mut self, ctx: &mut Context, hidpi_factor: f32) {
-        // Update mouse
-        self.update_mouse();
+    fn labeled_text_input(ui: &Ui, target: &mut String, label: &ImStr) {
+        let mut imstring = ImString::from(target.clone());
+        imstring.reserve(512);
+        ui.input_text(label, &mut imstring).build();
+        *target = String::from(imstring.to_str());
+    }
 
+    pub fn render(&mut self, ctx: &mut Context, state: &mut MainState, hidpi_factor: f32) {
         // Create new frame
         let now = Instant::now();
         let delta = now - self.last_frame;
@@ -133,62 +131,87 @@ impl ImGuiWrapper {
         self.imgui.io_mut().delta_time = delta_s;
 
         let ui = self.imgui.frame();
-        let event_queue = &mut self.event_queue;
+        let event_queue = &mut state.gui_event_queue;
 
         // Various ui things
         {
-            let file_menu = || {
-                if ui.menu_item(im_str!("Open")).build() {
+            let mut file_menu_items = || {
+                if MenuItem::new(im_str!("Open")).build(&ui) {
                     event_queue.push_back(GuiEvent::Open);
                 }
 
-                if ui.menu_item(im_str!("Save")).build() {
+                if MenuItem::new(im_str!("Save")).build(&ui) {
                     event_queue.push_back(GuiEvent::Save);
                 }
 
-                if ui.menu_item(im_str!("Save as")).build() {
+                if MenuItem::new(im_str!("Save as")).build(&ui) {
                     event_queue.push_back(GuiEvent::SaveAs);
                 }
 
-                if ui.menu_item(im_str!("Exit")).build() {
+                if MenuItem::new(im_str!("Exit")).build(&ui) {
                     event_queue.push_back(GuiEvent::Exit);
                 }
             };
 
             // Menu bar
-            ui.main_menu_bar(|| {
-                ui.menu(im_str!("File")).build(file_menu);
-            });
+            let main_menu = ui.begin_main_menu_bar();
+            if let Some(main_menu) = main_menu {
+                let file_menu = ui.begin_menu(im_str!("File"), true);
+                if let Some(file_menu) = file_menu {
+                    file_menu_items();
+                    file_menu.end(&ui);
+                }
+                main_menu.end(&ui);
+            }
 
-            let cursor_ms = self.cursor_ms;
-            ui.window(im_str!("Stats"))
+            let cursor_ms = state.get_cursor_ms();
+            Window::new(im_str!("Stats"))
                 .size([300.0, 600.0], imgui::Condition::FirstUseEver)
                 .position([100.0, 100.0], imgui::Condition::FirstUseEver)
-                .build(|| {
+                .build(&ui, || {
                     let fps = ggez::timer::fps(ctx);
                     ui.text(im_str!("FPS: {:.1}", fps));
                     ui.text(im_str!("Cursor: {:.1}ms", cursor_ms))
                 });
 
+            // Meta info
+
+            Window::new(im_str!("Meta"))
+                .size([300.0, 600.0], imgui::Condition::FirstUseEver)
+                .position([100.0, 100.0], imgui::Condition::FirstUseEver)
+                .build(&ui, || {
+                    ImGuiWrapper::labeled_text_input(
+                        &ui,
+                        &mut state.chart.meta.title,
+                        im_str!("Title"),
+                    );
+
+                    ImGuiWrapper::labeled_text_input(
+                        &ui,
+                        &mut state.chart.meta.artist,
+                        im_str!("Artist"),
+                    );
+                });
+
             // Toolbar
             let tools = &self.tools;
             let mut selected_tool = self.selected_tool;
-            ui.window(im_str!("Toolbar"))
+            Window::new(im_str!("Toolbar"))
                 .size([draw_width, 0.0], Condition::Always)
                 .position([0.0, 20.0], Condition::Always)
                 .movable(false)
                 .resizable(false)
                 .title_bar(false)
                 .scroll_bar(false)
-                .build(|| {
+                .build(&ui, || {
                     let mut i = 1.25;
                     for (name, value) in tools {
-                        if ui.selectable(
-                            ImString::new(name).as_ref(),
-                            selected_tool == *value,
-                            ImGuiSelectableFlags::empty(),
-                            [20.0, 20.0],
-                        ) {
+                        if Selectable::new(ImString::new(name).as_ref())
+                            .selected(selected_tool == *value)
+                            .flags(SelectableFlags::empty())
+                            .size([20.0, 20.0])
+                            .build(&ui)
+                        {
                             selected_tool = *value; //seems unsafe(?)
                         }
                         ui.same_line(i * 40.0);
@@ -213,38 +236,6 @@ impl ImGuiWrapper {
                 draw_data,
             )
             .unwrap();
-    }
-
-    fn update_mouse(&mut self) {
-        self.imgui.io_mut().mouse_pos =
-            [self.mouse_state.pos.0 as f32, self.mouse_state.pos.1 as f32];
-
-        self.imgui.io_mut().mouse_down = [
-            self.mouse_state.pressed.0,
-            self.mouse_state.pressed.1,
-            self.mouse_state.pressed.2,
-            false,
-            false,
-        ];
-
-        self.imgui.io_mut().mouse_wheel = self.mouse_state.wheel;
-        self.mouse_state.wheel = 0.0;
-    }
-
-    pub fn update_mouse_pos(&mut self, x: f32, y: f32) {
-        self.mouse_state.pos = (x as i32, y as i32);
-    }
-
-    pub fn update_mouse_down(&mut self, pressed: (bool, bool, bool)) {
-        self.mouse_state.pressed = pressed;
-
-        if pressed.0 {
-            self.show_popup = false;
-        }
-    }
-
-    pub fn open_popup(&mut self) {
-        self.show_popup = true;
     }
 
     pub fn captures_mouse(&self) -> bool {
