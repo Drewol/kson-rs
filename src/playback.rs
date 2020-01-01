@@ -3,13 +3,16 @@ extern crate rfmod;
 use chart::{Chart, GraphSectionPoint};
 use time_calc::tick_in_ms;
 
+// DSP Notes:
+// Possibly seek and channel::get_wave_data for retrigger
+
 pub struct AudioPlayback {
     channel: Option<rfmod::Channel>,
     sound: Option<rfmod::Sound>,
     sys: rfmod::Sys,
     last_file: String,
     laser_funcs: [Vec<(u32, u32, Box<dyn Fn(f32) -> f32>)>; 2],
-    laser_values: (f32, f32),
+    laser_values: (Option<f32>, Option<f32>),
 }
 
 impl AudioPlayback {
@@ -28,7 +31,7 @@ impl AudioPlayback {
             channel: None,
             last_file: String::new(),
             laser_funcs: [Vec::new(), Vec::new()],
-            laser_values: (0.0, 0.0),
+            laser_values: (None, None),
         }
     }
 
@@ -103,21 +106,26 @@ impl AudioPlayback {
         }
     }
 
-    fn get_laser_value_at(&self, side: usize, tick: f32) -> f32 {
+    fn get_laser_value_at(&self, side: usize, tick: f32) -> Option<f32> {
         let utick = tick as u32;
         for (s, e, f) in &self.laser_funcs[side] {
             if utick < *s {
-                return side as f32;
+                return None;
             }
             if utick > *e {
                 continue;
             }
             if utick <= *e && utick >= *s {
-                return f(tick);
+                let v = f(tick);
+                if side == 1 {
+                    return Some(1.0 - v);
+                } else {
+                    return Some(v);
+                }
             }
         }
 
-        side as f32
+        None
     }
 
     pub fn update(&mut self, chart: &Chart, tick: u32) {
@@ -137,11 +145,11 @@ impl AudioPlayback {
 
         self.laser_values = (
             self.get_laser_value_at(0, tick),
-            1.0 - self.get_laser_value_at(1, tick),
+            self.get_laser_value_at(1, tick),
         );
     }
 
-    pub fn get_laser_values(&self) -> (f32, f32) {
+    pub fn get_laser_values(&self) -> (Option<f32>, Option<f32>) {
         self.laser_values
     }
 

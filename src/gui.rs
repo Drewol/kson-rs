@@ -171,7 +171,7 @@ impl ImGuiWrapper {
                     let fps = ggez::timer::fps(ctx);
                     ui.text(im_str!("FPS: {:.1}", fps));
                     ui.text(im_str!("Cursor: {:.1}ms", cursor_ms));
-                    ui.text(im_str!("Lasers: ({:.2},{:.2})", lval, rval))
+                    ui.text(im_str!("Lasers: ({:.2?},{:.2?})", lval, rval))
                 });
 
             // Meta info
