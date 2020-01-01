@@ -26,7 +26,6 @@ use std::fs::File;
 use std::io::prelude::*;
 use std::io::BufReader;
 use std::path::Path;
-use time_calc::{ms_from_ticks, ticks_from_ms};
 use tools::{ButtonInterval, CursorObject, LaserTool};
 
 macro_rules! profile_scope {
@@ -85,7 +84,7 @@ impl MainState {
     pub fn get_cursor_ms(&self) -> f64 {
         let tick = self.pos_to_tick(self.mouse_x, self.mouse_y);
         let tick = tick - (tick % (self.chart.beat.resolution / 2));
-        self.tick_to_ms(tick)
+        self.chart.tick_to_ms(tick)
     }
 
     fn draw_laser_section(
@@ -258,47 +257,6 @@ impl MainState {
         (x * 6.0).min(5.0) as f32
     }
 
-    fn ms_to_tick(&self, ms: f64) -> u32 {
-        let mut remaining = ms;
-        let mut ret: u32 = 0;
-        let mut prev = self
-            .chart
-            .beat
-            .bpm
-            .first()
-            .unwrap_or(&chart::ByPulse { y: 0, v: 120.0 });
-
-        for b in &self.chart.beat.bpm {
-            let new_ms = self.tick_to_ms(b.y);
-            if new_ms > ms {
-                break;
-            }
-            ret = b.y;
-            remaining = ms - new_ms;
-            prev = b;
-        }
-        ret + ticks_from_ms(remaining, prev.v, self.chart.beat.resolution) as u32
-    }
-
-    fn tick_to_ms(&self, tick: u32) -> f64 {
-        let mut ret: f64 = 0.0;
-        let mut prev = self
-            .chart
-            .beat
-            .bpm
-            .first()
-            .unwrap_or(&chart::ByPulse { y: 0, v: 120.0 });
-
-        for b in &self.chart.beat.bpm {
-            if b.y > tick {
-                break;
-            }
-            ret = ret + ms_from_ticks((b.y - prev.y) as i64, prev.v, self.chart.beat.resolution);
-            prev = b;
-        }
-        ret + ms_from_ticks((tick - prev.y) as i64, prev.v, self.chart.beat.resolution)
-    }
-
     fn interval_to_ranges(
         &self,
         in_interval: &chart::Interval,
@@ -376,7 +334,7 @@ impl EventHandler for MainState {
 
         let delta_time = (10.0 * ggez::timer::delta(ctx).as_secs_f32()).min(1.0);
         self.x_offset = self.x_offset + (self.x_offset_target - self.x_offset) * delta_time;
-        let tick = self.audio_playback.get_tick(self);
+        let tick = self.audio_playback.get_tick(&self.chart);
         self.audio_playback.update(&self.chart, tick);
         Ok(())
     }
@@ -585,7 +543,7 @@ impl EventHandler for MainState {
                 //cursor line
                 graphics::set_blend_mode(ctx, graphics::BlendMode::Alpha)?;
                 let (x, y) = if self.audio_playback.is_playing() {
-                    let tick = self.audio_playback.get_tick(self);
+                    let tick = self.audio_playback.get_tick(&self.chart);
 
                     //let delta = ms - self.tick_to_ms(tick);
                     self.tick_to_pos(tick as u32)
@@ -705,8 +663,10 @@ impl EventHandler for MainState {
                             println!("Playing file: {}", path.display());
                             let path = path.to_str().unwrap();
                             if self.audio_playback.open(path) {
-                                let ms = self.tick_to_ms(self.cursor_line) + bgm.offset as f64;
+                                let ms =
+                                    self.chart.tick_to_ms(self.cursor_line) + bgm.offset as f64;
                                 let ms = ms.max(0.0);
+                                self.audio_playback.build_effects(&self.chart);
                                 self.audio_playback.play();
                                 self.audio_playback.set_poistion(ms as usize);
                             }

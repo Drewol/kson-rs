@@ -8,6 +8,7 @@ use std::collections::HashSet;
 use std::fs;
 use std::str;
 use thread_profiler::ProfileScope;
+use time_calc::{ms_from_ticks, ticks_from_ms};
 
 #[derive(Serialize, Deserialize, Copy, Clone)]
 pub struct GraphSectionPoint {
@@ -480,5 +481,48 @@ impl Chart {
         }
 
         return Ok(new_chart);
+    }
+
+    pub fn ms_to_tick(&self, ms: f64) -> u32 {
+        let mut remaining = ms;
+        let mut ret: u32 = 0;
+        let mut prev = self.beat.bpm.first().unwrap_or(&ByPulse { y: 0, v: 120.0 });
+
+        for b in &self.beat.bpm {
+            let new_ms = self.tick_to_ms(b.y);
+            if new_ms > ms {
+                break;
+            }
+            ret = b.y;
+            remaining = ms - new_ms;
+            prev = b;
+        }
+        ret + ticks_from_ms(remaining, prev.v, self.beat.resolution) as u32
+    }
+
+    pub fn tick_to_ms(&self, tick: u32) -> f64 {
+        let mut ret: f64 = 0.0;
+        let mut prev = self.beat.bpm.first().unwrap_or(&ByPulse { y: 0, v: 120.0 });
+
+        for b in &self.beat.bpm {
+            if b.y > tick {
+                break;
+            }
+            ret = ret + ms_from_ticks((b.y - prev.y) as i64, prev.v, self.beat.resolution);
+            prev = b;
+        }
+        ret + ms_from_ticks((tick - prev.y) as i64, prev.v, self.beat.resolution)
+    }
+
+    pub fn bpm_at_tick(&self, tick: u32) -> f64 {
+        let mut prev = self.beat.bpm.first().unwrap_or(&ByPulse { y: 0, v: 120.0 });
+
+        for b in &self.beat.bpm {
+            if b.y > tick {
+                break;
+            }
+            prev = b;
+        }
+        prev.v
     }
 }
