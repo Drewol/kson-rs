@@ -1,34 +1,109 @@
-extern crate rfmod;
-
 use chart::{Chart, GraphSectionPoint};
+use ggez::GameResult;
+use rodio::*;
+use std::fs::File;
+use std::io::BufReader;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{Arc, Mutex};
 use time_calc::tick_in_ms;
 
-// DSP Notes:
-// Possibly seek and channel::get_wave_data for retrigger
+#[derive(Clone)]
+pub struct AudioFile {
+    samples: Arc<Mutex<Vec<f32>>>,
+    sample_rate: u32,
+    channels: u16,
+    size: usize,
+    pos: Arc<Mutex<usize>>,
+    stopped: Arc<AtomicBool>,
+}
+
+impl Iterator for AudioFile {
+    type Item = f32;
+
+    fn next(&mut self) -> Option<f32> {
+        {
+            if self.stopped.load(Ordering::SeqCst) {
+                return None;
+            }
+        }
+        {
+            let mut pos = self.pos.lock().unwrap();
+            let samples = self.samples.lock().unwrap();
+
+            if *pos >= self.size {
+                None
+            } else {
+                let v = *(*samples).get(*pos).unwrap();
+                *pos = *pos + 1;
+                Some(v)
+            }
+        }
+    }
+
+    #[inline]
+    fn size_hint(&self) -> (usize, Option<usize>) {
+        (0, Some(self.size - 1))
+    }
+}
+
+impl source::Source for AudioFile {
+    fn current_frame_len(&self) -> Option<usize> {
+        let pos = self.pos.lock().unwrap();
+        if *pos == self.size {
+            Some(0)
+        } else {
+            Some(32.min(self.size - *pos))
+        }
+    }
+
+    #[inline]
+    fn channels(&self) -> u16 {
+        self.channels
+    }
+
+    #[inline]
+    fn sample_rate(&self) -> u32 {
+        self.sample_rate
+    }
+
+    #[inline]
+    fn total_duration(&self) -> Option<std::time::Duration> {
+        Some(std::time::Duration::from_secs_f64(
+            (self.size / self.channels as usize) as f64 / self.sample_rate as f64,
+        ))
+    }
+}
+
+impl AudioFile {
+    fn get_ms(&self) -> f64 {
+        let pos = self.pos.lock().unwrap();
+        (*pos / self.channels as usize) as f64 / (self.sample_rate as f64 / 1000.0)
+    }
+
+    fn set_ms(&mut self, ms: f64) {
+        let mut pos = self.pos.lock().unwrap();
+        *pos = ((ms / 1000.0) * (self.sample_rate * self.channels as u32) as f64) as usize;
+        *pos = *pos - (*pos % self.channels as usize);
+    }
+
+    fn set_stopped(&mut self, val: bool) {
+        self.stopped.store(val, Ordering::SeqCst);
+    }
+}
 
 pub struct AudioPlayback {
-    channel: Option<rfmod::Channel>,
-    sound: Option<rfmod::Sound>,
-    sys: rfmod::Sys,
+    sink: Sink,
+    file: Option<AudioFile>,
     last_file: String,
     laser_funcs: [Vec<(u32, u32, Box<dyn Fn(f32) -> f32>)>; 2],
     laser_values: (Option<f32>, Option<f32>),
 }
 
 impl AudioPlayback {
-    pub fn new() -> Self {
-        let fmod_sys = rfmod::Sys::new().unwrap();
-        match fmod_sys.init() {
-            rfmod::Status::Ok => {}
-            e => {
-                panic!("FmodSys.init failed : {:?}", e);
-            }
-        };
-
+    pub fn new(ctx: &ggez::Context) -> Self {
         AudioPlayback {
-            sys: fmod_sys,
-            sound: None,
-            channel: None,
+            sink: Sink::new(ctx.audio_context.device()),
+            file: None,
             last_file: String::new(),
             laser_funcs: [Vec::new(), Vec::new()],
             laser_values: (None, None),
@@ -75,18 +150,16 @@ impl AudioPlayback {
     }
 
     pub fn get_ms(&self) -> f64 {
-        if let Some(channel) = &self.channel {
-            let ms = channel.get_position(rfmod::TIMEUNIT_PCM).unwrap() as f64;
-            (ms / channel.get_frequency().unwrap() as f64) * 1000.0
+        if let Some(file) = &self.file {
+            file.get_ms()
         } else {
             0.0
         }
     }
 
     pub fn get_tick(&self, chart: &Chart) -> u32 {
-        if let Some(channel) = &self.channel {
-            let ms = channel.get_position(rfmod::TIMEUNIT_PCM).unwrap() as f64;
-            let ms = (ms / channel.get_frequency().unwrap() as f64) * 1000.0;
+        if self.is_playing() {
+            let ms = self.get_ms();
             let offset = match &chart.audio.bgm {
                 Some(bgm) => bgm.offset,
                 None => 0,
@@ -99,11 +172,7 @@ impl AudioPlayback {
     }
 
     pub fn is_playing(&self) -> bool {
-        if let Some(channel) = &self.channel {
-            channel.is_playing().unwrap()
-        } else {
-            false
-        }
+        !self.sink.empty()
     }
 
     fn get_laser_value_at(&self, side: usize, tick: f32) -> Option<f32> {
@@ -157,64 +226,74 @@ impl AudioPlayback {
         if self.is_playing() {
             true
         } else {
-            if let Some(sound) = &self.sound {
-                self.channel = match sound.play() {
-                    Ok(c) => Some(c),
-                    Err(e) => {
-                        println!("Failed to play sound: {:?}", e);
-                        None
-                    }
-                };
+            if let Some(file) = &mut self.file {
+                file.set_stopped(false);
+                self.sink.append(file.clone());
+                return true;
             }
 
-            self.channel.is_some()
+            false
         }
     }
 
-    pub fn open(&mut self, path: &str) -> bool {
+    pub fn open(&mut self, path: &str) -> GameResult {
         let new_file = String::from(path);
-        if let Some(_) = &self.sound {
+        if let Some(_) = &self.file {
             if self.last_file.eq(&new_file) {
                 //don't reopen already opened file
-                return true;
+                return Ok(());
             }
         }
 
         self.close();
-        self.sound = match self.sys.create_sound(path, None, None) {
-            Ok(s) => Some(s),
-            Err(e) => {
-                println!("Failed to open sound file: {:?}", e);
-                None
+        let file = File::open(path)?;
+        let source = match rodio::Decoder::new(BufReader::new(file)) {
+            Ok(s) => s,
+            Err(_) => {
+                return Err(ggez::GameError::AudioError(
+                    "Failed to create decoder.".to_owned(),
+                ))
             }
         };
-        self.sound.is_some()
+        let rate = source.sample_rate();
+        let channels = source.channels();
+        let dataref: Arc<Mutex<Vec<f32>>> =
+            Arc::new(Mutex::new(source.convert_samples().collect()));
+        let data = dataref.lock().unwrap();
+
+        self.file = Some(AudioFile {
+            size: (*data).len(),
+            samples: dataref.clone(),
+            sample_rate: rate,
+            channels: channels,
+            pos: Arc::new(Mutex::new(0)),
+            stopped: Arc::new(AtomicBool::new(false)),
+        });
+        self.last_file = new_file;
+        Ok(())
     }
 
     pub fn stop(&mut self) {
-        if let Some(channel) = &mut self.channel {
-            channel.stop();
-            channel.release();
-            self.channel = None;
+        if let Some(file) = &mut self.file {
+            file.set_stopped(true);
         }
     }
 
+    //release trhe currently loaded file
     pub fn close(&mut self) {
         self.stop();
-        if let Some(sound) = &mut self.sound {
-            sound.release();
-            self.sound = None;
+        if let Some(_) = &self.file {
+            self.file = None;
         }
     }
 
     pub fn release(&mut self) {
         self.close();
-        self.sys.release();
     }
 
-    pub fn set_poistion(&mut self, ms: usize) {
-        if let Some(channel) = &self.channel {
-            channel.set_position(ms, rfmod::TIMEUNIT_MS);
+    pub fn set_poistion(&mut self, ms: f64) {
+        if let Some(file) = &mut self.file {
+            file.set_ms(ms);
         }
     }
 }

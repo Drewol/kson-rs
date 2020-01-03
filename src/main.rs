@@ -4,6 +4,7 @@ extern crate ggez;
 extern crate imgui;
 extern crate math;
 extern crate nfd;
+extern crate rodio;
 extern crate serde_json;
 extern crate thread_profiler;
 extern crate time_calc;
@@ -57,7 +58,7 @@ pub struct MainState {
 }
 
 impl MainState {
-    fn new() -> GameResult<MainState> {
+    fn new(ctx: &ggez::Context) -> GameResult<MainState> {
         let s = MainState {
             w: 800.0,
             h: 600.0,
@@ -74,7 +75,7 @@ impl MainState {
             x_offset: 0.0,
             x_offset_target: 0.0,
             cursor_object: None,
-            audio_playback: playback::AudioPlayback::new(),
+            audio_playback: playback::AudioPlayback::new(ctx),
             gui_event_queue: VecDeque::new(),
             cursor_line: 0,
         };
@@ -662,13 +663,13 @@ impl EventHandler for MainState {
                             let path = path.join(Path::new(filename));
                             println!("Playing file: {}", path.display());
                             let path = path.to_str().unwrap();
-                            if self.audio_playback.open(path) {
+                            if self.audio_playback.open(path).is_ok() {
                                 let ms =
                                     self.chart.tick_to_ms(self.cursor_line) + bgm.offset as f64;
                                 let ms = ms.max(0.0);
                                 self.audio_playback.build_effects(&self.chart);
+                                self.audio_playback.set_poistion(ms);
                                 self.audio_playback.play();
-                                self.audio_playback.set_poistion(ms as usize);
                             }
                         }
                     }
@@ -782,7 +783,7 @@ pub fn main() {
 
     let modules = ggez::conf::ModuleConf {
         gamepad: false,
-        audio: false,
+        audio: true,
     };
 
     let cb = ggez::ContextBuilder::new("usc-editor", "Drewol")
@@ -795,7 +796,7 @@ pub fn main() {
         panic!(e);
     });
 
-    let state = &mut MainState::new().unwrap_or_else(|e| {
+    let state = &mut MainState::new(&ctx).unwrap_or_else(|e| {
         println!("{}", e);
         panic!(e);
     });
@@ -806,7 +807,6 @@ pub fn main() {
         Ok(_) => (),
         Err(e) => println!("Program exited with error: {}", e),
     }
-
     state.audio_playback.release();
     thread_profiler::write_profile("profiling.json");
 }
