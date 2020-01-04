@@ -225,6 +225,33 @@ pub struct Chart {
     pub audio: AudioInfo,
 }
 
+pub struct MeasureBeatLines {
+    tick: u32,
+    funcs: Vec<(u32, Box<dyn Fn(u32) -> (u32, bool)>)>,
+    func_index: usize,
+}
+
+impl Iterator for MeasureBeatLines {
+    type Item = (u32, bool);
+
+    fn next(&mut self) -> Option<(u32, bool)> {
+        if let Some(func) = self.funcs.get(self.func_index) {
+            let (new_tick, is_measure) = func.1(self.tick);
+            let old_tick = self.tick;
+            self.tick = new_tick;
+            if let Some(next_func) = self.funcs.get(self.func_index + 1) {
+                if self.tick >= next_func.0 {
+                    self.func_index = self.func_index + 1;
+                }
+            }
+
+            return Some((old_tick, is_measure));
+        }
+
+        None
+    }
+}
+
 fn laser_char_to_value(value: u8) -> Result<f64, String> {
     let chars = [
         (b'0'..=b'9').collect::<Vec<u8>>(),
@@ -524,5 +551,42 @@ impl Chart {
             prev = b;
         }
         prev.v
+    }
+
+    pub fn beat_line_iter(&self) -> MeasureBeatLines {
+        let mut funcs: Vec<(u32, Box<dyn Fn(u32) -> (u32, bool)>)> = Vec::new();
+        let mut prev_start = 0;
+        let mut prev_sig = match self.beat.time_sig.get(0) {
+            Some(v) => v,
+            None => &ByMeasureIndex {
+                idx: 0,
+                v: TimeSignature { n: 4, d: 4 },
+            },
+        };
+
+        for time_sig in &self.beat.time_sig {
+            let ticks_per_beat = self.beat.resolution * 4 / time_sig.v.d;
+            let ticks_per_measure = self.beat.resolution * 4 * time_sig.v.n / time_sig.v.d;
+            let prev_ticks_per_measure = self.beat.resolution * 4 * prev_sig.v.n / prev_sig.v.d;
+
+            let new_start = prev_start + (time_sig.idx - prev_sig.idx) * prev_ticks_per_measure;
+
+            funcs.push((
+                new_start,
+                Box::new(move |y| {
+                    let adjusted = y - new_start;
+                    (y + ticks_per_beat, (adjusted % ticks_per_measure) == 0)
+                }),
+            ));
+
+            prev_start = new_start;
+            prev_sig = time_sig;
+        }
+
+        MeasureBeatLines {
+            tick: 0,
+            funcs: funcs,
+            func_index: 0,
+        }
     }
 }

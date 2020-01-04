@@ -378,6 +378,40 @@ impl EventHandler for MainState {
                         );
                     }
                 }
+
+                //measure & beat lines
+                let x = self.track_width / 2.0 + self.lane_width();
+                let w = self.lane_width() * 4.0;
+                for (tick, is_measure) in self.chart.beat_line_iter() {
+                    if tick < min_tick_render {
+                        continue;
+                    } else if tick > max_tick_render {
+                        break;
+                    }
+
+                    let (tx, y) = self.tick_to_pos(tick);
+                    let x = tx + x;
+                    let color = if is_measure {
+                        ggez::graphics::Color {
+                            r: 1.0,
+                            g: 1.0,
+                            b: 0.0,
+                            a: 1.0,
+                        }
+                    } else {
+                        ggez::graphics::Color {
+                            r: 0.5,
+                            g: 0.5,
+                            b: 0.5,
+                            a: 1.0,
+                        }
+                    };
+                    track_builder.rectangle(
+                        graphics::DrawMode::fill(),
+                        [x, y, w, -0.5].into(),
+                        color,
+                    );
+                }
             }
 
             {
