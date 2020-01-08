@@ -504,6 +504,9 @@ impl Chart {
                     prev = next;
                 }
                 section.v.retain(|p| !for_removal.contains(&p.ry));
+                section
+                    .v
+                    .retain(|p| if let Some(vf) = p.vf { vf != p.v } else { true });
             }
         }
 

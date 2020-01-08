@@ -1,3 +1,4 @@
+use crate::DSP;
 use chart::{Chart, GraphSectionPoint};
 use ggez::GameResult;
 use rodio::*;
@@ -15,6 +16,7 @@ pub struct AudioFile {
     size: usize,
     pos: Arc<Mutex<usize>>,
     stopped: Arc<AtomicBool>,
+    laser_dsp: Arc<Mutex<dyn DSP::LaserEffect>>,
 }
 
 impl Iterator for AudioFile {
@@ -33,8 +35,17 @@ impl Iterator for AudioFile {
             if *pos >= self.size {
                 None
             } else {
-                let v = *(*samples).get(*pos).unwrap();
+                let mut v = *(*samples).get(*pos).unwrap();
                 *pos = *pos + 1;
+
+                //apply DSPs
+
+                //apply Laser DSP
+                {
+                    let mut laser = self.laser_dsp.lock().unwrap();
+                    (*laser).process(&mut v, *pos % self.channels as usize);
+                }
+
                 Some(v)
             }
         }
@@ -216,6 +227,26 @@ impl AudioPlayback {
             self.get_laser_value_at(0, tick),
             self.get_laser_value_at(1, tick),
         );
+
+        let dsp_value = match self.laser_values {
+            (Some(v1), Some(v2)) => Some(v1.max(v2)),
+            (Some(v), None) => Some(v),
+            (None, Some(v)) => Some(v),
+            (None, None) => None,
+        };
+
+        if self.is_playing() {
+            if let Some(file) = &mut self.file {
+                if let Some(dsp_value) = dsp_value {
+                    let mut laser = file.laser_dsp.lock().unwrap();
+                    laser.set_mix(1.0);
+                    laser.set_laser_value(dsp_value);
+                } else {
+                    let mut laser = file.laser_dsp.lock().unwrap();
+                    laser.set_mix(0.0);
+                }
+            }
+        }
     }
 
     pub fn get_laser_values(&self) -> (Option<f32>, Option<f32>) {
@@ -268,6 +299,14 @@ impl AudioPlayback {
             channels: channels,
             pos: Arc::new(Mutex::new(0)),
             stopped: Arc::new(AtomicBool::new(false)),
+            laser_dsp: Arc::new(Mutex::new(DSP::BiQuad::new(
+                DSP::BiQuadType::Peaking(10.0),
+                rate,
+                200.0,
+                16000.0,
+                1.0,
+                channels as usize,
+            ))),
         });
         self.last_file = new_file;
         Ok(())

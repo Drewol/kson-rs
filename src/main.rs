@@ -9,6 +9,7 @@ extern crate serde_json;
 extern crate thread_profiler;
 extern crate time_calc;
 
+mod DSP;
 mod chart;
 mod custom_loop;
 mod gui;
