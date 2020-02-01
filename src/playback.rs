@@ -6,7 +6,6 @@ use std::fs::File;
 use std::io::BufReader;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
-use time_calc::tick_in_ms;
 
 #[derive(Clone)]
 pub struct AudioFile {
@@ -169,7 +168,7 @@ impl AudioPlayback {
         }
     }
 
-    pub fn get_tick(&self, chart: &Chart) -> u32 {
+    pub fn get_tick(&self, chart: &Chart) -> f64 {
         if self.is_playing() {
             let ms = self.get_ms();
             let offset = match &chart.audio.bgm {
@@ -177,9 +176,9 @@ impl AudioPlayback {
                 None => 0,
             };
             let ms = ms - offset as f64;
-            chart.ms_to_tick(ms)
+            chart.ms_to_tickf(ms)
         } else {
-            0
+            0.0
         }
     }
 
@@ -187,7 +186,7 @@ impl AudioPlayback {
         !self.sink.empty()
     }
 
-    fn get_laser_value_at(&self, side: usize, tick: f32) -> Option<f32> {
+    fn get_laser_value_at(&self, side: usize, tick: f64) -> Option<f32> {
         let utick = tick as u32;
         for (s, e, f) in &self.laser_funcs[side] {
             if utick < *s {
@@ -197,7 +196,7 @@ impl AudioPlayback {
                 continue;
             }
             if utick <= *e && utick >= *s {
-                let v = f(tick);
+                let v = f(tick as f32);
                 if side == 1 {
                     return Some(1.0 - v);
                 } else {
@@ -209,20 +208,10 @@ impl AudioPlayback {
         None
     }
 
-    pub fn update(&mut self, chart: &Chart, tick: u32) {
+    pub fn update(&mut self, tick: f64) {
         if !self.is_playing() {
             return;
         }
-
-        let offset = match &chart.audio.bgm {
-            Some(bgm) => bgm.offset,
-            None => 0,
-        };
-        let bpm = chart.bpm_at_tick(tick);
-        let tick_length = tick_in_ms(bpm, chart.beat.resolution);
-        let ms = self.get_ms() - offset as f64;
-        let ms = ms - chart.tick_to_ms(tick);
-        let tick = tick as f32 + (ms / tick_length) as f32;
 
         self.laser_values = (
             self.get_laser_value_at(0, tick),

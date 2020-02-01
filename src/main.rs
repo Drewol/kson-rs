@@ -327,7 +327,7 @@ impl EventHandler for MainState {
         let delta_time = (10.0 * ggez::timer::delta(ctx).as_secs_f32()).min(1.0);
         self.x_offset = self.x_offset + (self.x_offset_target - self.x_offset) * delta_time;
         let tick = self.audio_playback.get_tick(&self.chart);
-        self.audio_playback.update(&self.chart, tick);
+        self.audio_playback.update(tick);
         Ok(())
     }
 
@@ -743,7 +743,9 @@ fn open_chart() -> Result<Option<(chart::Chart, String)>, Box<dyn Error>> {
                 .as_ref()
             {
                 "ksh" => {
-                    return Ok(Some((chart::Chart::from_ksh(&path)?, path)));
+                    let mut data = String::from("");
+                    File::open(&path).unwrap().read_to_string(&mut data)?;
+                    return Ok(Some((chart::Chart::from_ksh(&data)?, path)));
                 }
                 "kson" => {
                     let file = File::open(&path)?;

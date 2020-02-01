@@ -1,14 +1,28 @@
-extern crate regex;
-extern crate serde;
-extern crate serde_json;
-extern crate thread_profiler;
-
-use self::serde::{Deserialize, Serialize};
+use regex;
+use serde;
+use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
-use std::fs;
 use std::str;
-use thread_profiler::ProfileScope;
-use time_calc::{ms_from_ticks, ticks_from_ms};
+
+#[inline]
+pub fn beat_in_ms(bpm: f64) -> f64 {
+    60_000.0 / bpm
+}
+
+#[inline]
+pub fn tick_in_ms(bpm: f64, ppqn: u32) -> f64 {
+    beat_in_ms(bpm) / ppqn as f64
+}
+
+#[inline]
+pub fn ticks_from_ms(ms: f64, bpm: f64, tpqn: u32) -> f64 {
+    (ms / tick_in_ms(bpm, tpqn))
+}
+
+#[inline]
+pub fn ms_from_ticks(ticks: i64, bpm: f64, tpqn: u32) -> f64 {
+    tick_in_ms(bpm, tpqn) * ticks as f64
+}
 
 #[derive(Serialize, Deserialize, Copy, Clone)]
 pub struct GraphSectionPoint {
@@ -284,19 +298,13 @@ impl Chart {
         }
     }
 
-    pub fn from_ksh(path: &String) -> Result<Chart, String> {
-        let _scope = ProfileScope::new(String::from("KSH Parse"));
+    pub fn from_ksh(data: &String) -> Result<Chart, String> {
         let mut new_chart = Chart::new();
-        let data = fs::read_to_string(path);
-        if data.is_err() {
-            match data.err() {
-                Some(error) => return Err(format!("{}", error)),
-                None => return Err(String::from("Unknown error.")),
-            }
-        }
         let mut num = 4;
         let mut den = 4;
-        let data = data.unwrap();
+        if data.len() < 4 {
+            return Err("Not a ksh file".to_string());
+        }
         let data = &data[3..]; //Something about BOM(?)
         let mut parts: Vec<&str> = data.split("\n--").collect();
         let meta = (parts.first().unwrap()).lines();
@@ -327,11 +335,17 @@ impl Chart {
                 "beat" => {}
                 "o" => bgm.offset = value.parse().unwrap(),
                 "m" => bgm.filename = Some(value),
+                "level" => {
+                    new_chart.meta.level = value.parse::<u8>().unwrap_or(0);
+                }
                 _ => (),
             }
         }
         new_chart.audio.bgm = Some(bgm);
         parts.remove(0);
+        if parts.len() == 0 {
+            return Err("No chart data found".to_string());
+        }
         let mut y: u32 = 0;
         let mut measure_index = 0;
         let mut last_char: [char; 8] = ['0'; 8];
@@ -530,6 +544,23 @@ impl Chart {
         ret + ticks_from_ms(remaining, prev.v, self.beat.resolution) as u32
     }
 
+    pub fn ms_to_tickf(&self, ms: f64) -> f64 {
+        let mut remaining = ms;
+        let mut ret: u32 = 0;
+        let mut prev = self.beat.bpm.first().unwrap_or(&ByPulse { y: 0, v: 120.0 });
+
+        for b in &self.beat.bpm {
+            let new_ms = self.tick_to_ms(b.y);
+            if new_ms > ms {
+                break;
+            }
+            ret = b.y;
+            remaining = ms - new_ms;
+            prev = b;
+        }
+        ret as f64 + ticks_from_ms(remaining, prev.v, self.beat.resolution)
+    }
+
     pub fn tick_to_ms(&self, tick: u32) -> f64 {
         let mut ret: f64 = 0.0;
         let mut prev = self.beat.bpm.first().unwrap_or(&ByPulse { y: 0, v: 120.0 });
@@ -542,6 +573,11 @@ impl Chart {
             prev = b;
         }
         ret + ms_from_ticks((tick - prev.y) as i64, prev.v, self.beat.resolution)
+    }
+
+    pub fn tick_in_ms_at(&self, tick: u32) -> f64 {
+        let bpm = self.bpm_at_tick(tick);
+        tick_in_ms(bpm, self.beat.resolution)
     }
 
     pub fn bpm_at_tick(&self, tick: u32) -> f64 {
@@ -591,5 +627,34 @@ impl Chart {
             funcs: funcs,
             func_index: 0,
         }
+    }
+
+    pub fn get_last_tick(&self) -> u32 {
+        let mut last_tick = 0;
+
+        //bt
+        for i in 0..4 {
+            if let Some(last) = &self.note.bt[i].last() {
+                last_tick = last_tick.max(last.y + last.l);
+            }
+        }
+
+        //fx
+        for i in 0..2 {
+            if let Some(last) = &self.note.fx[i].last() {
+                last_tick = last_tick.max(last.y + last.l);
+            }
+        }
+
+        //laser
+        for i in 0..2 {
+            for section in &self.note.laser[i] {
+                let base_y = section.y;
+                if let Some(last) = &section.v.last() {
+                    last_tick = last_tick.max(last.ry + base_y);
+                }
+            }
+        }
+        last_tick
     }
 }
