@@ -1,9 +1,9 @@
-use chart;
+use crate::chart;
+use crate::MainState;
 use chart::{Chart, GraphSectionPoint, LaserSection};
 use ggez::graphics;
 use ggez::nalgebra as na;
 use ggez::{Context, GameResult};
-use MainState;
 
 pub trait CursorObject {
     fn mouse_down(&mut self, tick: u32, lane: f32, chart: &mut Chart);
@@ -31,10 +31,16 @@ impl ButtonInterval {
     }
 }
 
+enum LaserEditMode {
+    New,
+    Edit,
+}
+
 pub struct LaserTool {
     active: bool,
     right: bool,
     section: chart::LaserSection,
+    mode: LaserEditMode,
 }
 
 impl LaserTool {
@@ -42,6 +48,7 @@ impl LaserTool {
         LaserTool {
             active: false,
             right: right,
+            mode: LaserEditMode::New,
             section: chart::LaserSection {
                 y: 0,
                 wide: 0,

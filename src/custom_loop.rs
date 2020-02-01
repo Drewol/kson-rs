@@ -1,12 +1,9 @@
-extern crate imgui_winit_support;
-extern crate winit;
-
 use self::winit_event::*;
 use ggez::event::*;
 use ggez::*;
 
-use gui::ImGuiWrapper;
-use MainState;
+use crate::gui::ImGuiWrapper;
+use crate::MainState;
 /// Modified ggez event loop to forward events to imgui as well
 
 /// Runs the game's main loop, calling event callbacks on the given state

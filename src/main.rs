@@ -1,17 +1,7 @@
 #![windows_subsystem = "windows"]
-
-extern crate ggez;
-extern crate imgui;
-extern crate math;
-extern crate nfd;
-extern crate rodio;
-extern crate serde_json;
-extern crate thread_profiler;
-extern crate time_calc;
-
-mod DSP;
 mod chart;
 mod custom_loop;
+mod dsp;
 mod gui;
 mod playback;
 mod tools;

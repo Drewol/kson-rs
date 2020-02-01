@@ -28,11 +28,11 @@ extern crate imgui_gfx_renderer;
 
 use self::gfx_core::{handle::RenderTargetView, memory::Typed};
 use self::imgui_gfx_renderer::*;
+use crate::MainState;
 use ggez::graphics;
 use ggez::Context;
 use imgui::*;
 use std::collections::VecDeque;
-use MainState;
 
 use std::time::Instant;
 

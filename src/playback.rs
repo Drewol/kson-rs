@@ -1,5 +1,5 @@
-use crate::DSP;
-use chart::{Chart, GraphSectionPoint};
+use crate::chart::{Chart, GraphSectionPoint};
+use crate::dsp;
 use ggez::GameResult;
 use rodio::*;
 use std::fs::File;
@@ -16,7 +16,7 @@ pub struct AudioFile {
     size: usize,
     pos: Arc<Mutex<usize>>,
     stopped: Arc<AtomicBool>,
-    laser_dsp: Arc<Mutex<dyn DSP::LaserEffect>>,
+    laser_dsp: Arc<Mutex<dyn dsp::LaserEffect>>,
 }
 
 impl Iterator for AudioFile {
@@ -36,6 +36,7 @@ impl Iterator for AudioFile {
                 None
             } else {
                 let mut v = *(*samples).get(*pos).unwrap();
+                v = v * 0.6;
                 *pos = *pos + 1;
 
                 //apply DSPs
@@ -299,8 +300,8 @@ impl AudioPlayback {
             channels: channels,
             pos: Arc::new(Mutex::new(0)),
             stopped: Arc::new(AtomicBool::new(false)),
-            laser_dsp: Arc::new(Mutex::new(DSP::BiQuad::new(
-                DSP::BiQuadType::Peaking(10.0),
+            laser_dsp: Arc::new(Mutex::new(dsp::BiQuad::new(
+                dsp::BiQuadType::Peaking(10.0),
                 rate,
                 200.0,
                 16000.0,
