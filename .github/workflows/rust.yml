@@ -7,9 +7,27 @@ on:
     branches: [ master ]
 
 jobs:
-  build:
+  build_windows:
 
-    runs-on: [windows-latest, ubuntu-latest]
+    runs-on: windows-latest
+
+    steps:
+    - uses: actions/checkout@v2
+    - name: Build
+      run: cargo build --release
+      
+  build_linux:
+
+    runs-on: ubuntu-latest
+
+    steps:
+    - uses: actions/checkout@v2
+    - name: Build
+      run: cargo build --release
+
+  build_macos:
+
+    runs-on: macos-latest
 
     steps:
     - uses: actions/checkout@v2
