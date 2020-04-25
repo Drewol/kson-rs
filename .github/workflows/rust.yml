@@ -15,6 +15,11 @@ jobs:
     - uses: actions/checkout@v2
     - name: Build
       run: cargo build --release
+    - name: Upload artifact
+      uses: actions/upload-artifact@master
+      with:
+        name: editor_windows
+        path: target/release/usc-editor.exe
       
   build_linux:
 
@@ -22,8 +27,15 @@ jobs:
 
     steps:
     - uses: actions/checkout@v2
+    - name: install packages
+      run: apt install libudev-dev libgtk-3-dev
     - name: Build
       run: cargo build --release
+    - name: Upload artifact
+      uses: actions/upload-artifact@master
+      with:
+        name: editor_linux_x86_64
+        path: target/release/usc-editor
 
   build_macos:
 
@@ -33,3 +45,8 @@ jobs:
     - uses: actions/checkout@v2
     - name: Build
       run: cargo build --release
+    - name: Upload artifact
+      uses: actions/upload-artifact@master
+      with:
+        name: editor_macos
+        path: target/release/usc-editor
