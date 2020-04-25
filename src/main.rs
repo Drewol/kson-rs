@@ -1,8 +1,8 @@
 #![windows_subsystem = "windows"]
 mod chart;
 mod custom_loop;
-mod dsp;
 mod gui;
+mod dsp;
 mod playback;
 mod tools;
 
