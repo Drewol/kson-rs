@@ -28,7 +28,7 @@ jobs:
     steps:
     - uses: actions/checkout@v2
     - name: install packages
-      run: sudo apt install -y libudev-dev libgtk-3-dev
+      run: sudo apt install -y libudev-dev libgtk-3-dev libasound2-dev
     - name: Build
       run: cargo build --release
     - name: Upload artifact
