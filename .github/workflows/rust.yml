@@ -19,7 +19,7 @@ jobs:
       uses: actions/upload-artifact@master
       with:
         name: editor_windows
-        path: target/release/usc-editor.exe
+        path: target/release/kson-editor.exe
       
   build_linux:
 
@@ -37,7 +37,7 @@ jobs:
       uses: actions/upload-artifact@master
       with:
         name: editor_linux_x86_64
-        path: target/release/usc-editor
+        path: target/release/kson-editor
 
   build_macos:
 
@@ -51,4 +51,4 @@ jobs:
       uses: actions/upload-artifact@master
       with:
         name: editor_macos
-        path: target/release/usc-editor
+        path: target/release/kson-editor
