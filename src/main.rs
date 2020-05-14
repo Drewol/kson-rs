@@ -1,7 +1,7 @@
 #![windows_subsystem = "windows"]
 mod custom_loop;
-mod dsp;
 mod gui;
+mod dsp;
 mod playback;
 mod tools;
 
