@@ -2,6 +2,7 @@ use regex;
 use serde;
 use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
+use std::error;
 use std::str;
 
 #[inline]
@@ -156,8 +157,8 @@ impl TimeSignature {
     //Parse from "n/d" string
     fn from_str(s: &str) -> Self {
         let mut data = s.split("/");
-        let n: u32 = data.next().unwrap().parse().unwrap();
-        let d: u32 = data.next().unwrap().parse().unwrap();
+        let n: u32 = data.next().unwrap_or("4").parse().unwrap_or(4);
+        let d: u32 = data.next().unwrap_or("4").parse().unwrap_or(4);
 
         TimeSignature { n: n, d: d }
     }
@@ -307,16 +308,13 @@ impl Chart {
         }
     }
 
-    pub fn from_ksh(data: &String) -> Result<Chart, String> {
+    pub fn from_ksh(data: &String) -> Result<Chart, Box<dyn error::Error>> {
         let mut new_chart = Chart::new();
         let mut num = 4;
         let mut den = 4;
-        if data.len() < 4 {
-            return Err("Not a ksh file".to_string());
-        }
         let data = &data[3..]; //Something about BOM(?)
         let mut parts: Vec<&str> = data.split("\n--").collect();
-        let meta = (parts.first().unwrap()).lines();
+        let meta = parts.first().unwrap_or(&"").lines();
         let mut bgm = BgmInfo::new();
         for line in meta {
             let line_data: Vec<&str> = line.split("=").collect();
@@ -334,15 +332,12 @@ impl Chart {
                     if !value.contains("-") {
                         new_chart.beat.bpm.push(ByPulse {
                             y: 0,
-                            v: value.parse().unwrap_or_else(|e| {
-                                println!("{}", e);
-                                panic!(e)
-                            }),
+                            v: value.parse()?,
                         })
                     }
                 }
                 "beat" => {}
-                "o" => bgm.offset = value.parse().unwrap(),
+                "o" => bgm.offset = value.parse()?,
                 "m" => bgm.filename = Some(value),
                 "level" => {
                     new_chart.meta.level = value.parse::<u8>().unwrap_or(0);
@@ -352,9 +347,6 @@ impl Chart {
         }
         new_chart.audio.bgm = Some(bgm);
         parts.remove(0);
-        if parts.len() == 0 {
-            return Err("No chart data found".to_string());
-        }
         let mut y: u32 = 0;
         let mut measure_index = 0;
         let mut last_char: [char; 8] = ['0'; 8];
@@ -377,7 +369,7 @@ impl Chart {
 
         for measure in parts {
             let measure_lines = measure.lines();
-            let note_regex = regex::Regex::new("[0-2]{4}\\|").unwrap();
+            let note_regex = regex::Regex::new("[0-2]{4}\\|")?;
             let line_count = measure.lines().filter(|x| note_regex.is_match(x)).count() as u32;
             if line_count == 0 {
                 continue;
@@ -442,13 +434,13 @@ impl Chart {
                             laser_builder[i].y = y;
                             laser_builder[i].v.push(GraphSectionPoint::new(
                                 0,
-                                laser_char_to_value(chars[i + 8] as u8).unwrap(),
+                                laser_char_to_value(chars[i + 8] as u8)?,
                             ));
                         } else if chars[i + 8] != ':' && chars[i + 8] != '-' {
                             // new point
                             laser_builder[i].v.push(GraphSectionPoint::new(
                                 y - laser_builder[i].y,
-                                laser_char_to_value(chars[i + 8] as u8).unwrap(),
+                                laser_char_to_value(chars[i + 8] as u8)?,
                             ));
                         }
 
@@ -459,8 +451,8 @@ impl Chart {
                 } else if line.contains("=") {
                     let mut line_data = line.split("=");
 
-                    let line_prop = String::from(line_data.next().unwrap());
-                    let mut line_value = String::from(line_data.next().unwrap());
+                    let line_prop = String::from(line_data.next().unwrap_or(""));
+                    let mut line_value = String::from(line_data.next().unwrap_or(""));
 
                     match line_prop.as_ref() {
                         "beat" => {
@@ -483,18 +475,15 @@ impl Chart {
                         }
                         "t" => new_chart.beat.bpm.push(ByPulse {
                             y: y,
-                            v: line_value.parse().unwrap_or_else(|e| {
-                                println!("{}", e);
-                                panic!(e)
-                            }),
+                            v: line_value.parse()?,
                         }),
                         "laserrange_l" => {
                             line_value.truncate(1);
-                            laser_builder[0].wide = line_value.parse().unwrap();
+                            laser_builder[0].wide = line_value.parse()?;
                         }
                         "laserrange_r" => {
                             line_value.truncate(1);
-                            laser_builder[1].wide = line_value.parse().unwrap();
+                            laser_builder[1].wide = line_value.parse()?;
                         }
                         _ => (),
                     }
@@ -508,14 +497,7 @@ impl Chart {
                 let mut iter = section.v.iter_mut();
                 let mut for_removal: HashSet<u32> = HashSet::new();
                 let mut prev = iter.next().unwrap();
-                loop {
-                    let n = iter.next();
-                    match n {
-                        None => break,
-                        _ => (),
-                    }
-                    let next = n.unwrap();
-
+                while let Some(next) = iter.next() {
                     if (next.ry - prev.ry) <= (new_chart.beat.resolution / 8) {
                         prev.vf = Some(next.v);
                         for_removal.insert(next.ry);
