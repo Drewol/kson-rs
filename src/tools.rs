@@ -1,9 +1,9 @@
-use crate::chart;
 use crate::MainState;
-use chart::{Chart, GraphSectionPoint, LaserSection};
+
 use ggez::graphics;
 use ggez::nalgebra as na;
 use ggez::{Context, GameResult};
+use kson::{Chart, GraphSectionPoint, Interval, LaserSection};
 
 pub trait CursorObject {
     fn mouse_down(&mut self, tick: u32, lane: f32, chart: &mut Chart);
@@ -16,7 +16,7 @@ pub trait CursorObject {
 pub struct ButtonInterval {
     pressed: bool,
     fx: bool,
-    interval: chart::Interval,
+    interval: Interval,
     lane: usize,
 }
 
@@ -25,7 +25,7 @@ impl ButtonInterval {
         ButtonInterval {
             pressed: false,
             fx: fx,
-            interval: chart::Interval { y: 0, l: 0 },
+            interval: Interval { y: 0, l: 0 },
             lane: 0,
         }
     }
@@ -39,7 +39,7 @@ enum LaserEditMode {
 pub struct LaserTool {
     active: bool,
     right: bool,
-    section: chart::LaserSection,
+    section: LaserSection,
     mode: LaserEditMode,
 }
 
@@ -49,7 +49,7 @@ impl LaserTool {
             active: false,
             right: right,
             mode: LaserEditMode::New,
-            section: chart::LaserSection {
+            section: LaserSection {
                 y: 0,
                 wide: 0,
                 v: Vec::new(),
@@ -92,7 +92,7 @@ impl LaserTool {
 }
 
 impl CursorObject for ButtonInterval {
-    fn mouse_down(&mut self, tick: u32, lane: f32, _chart: &mut chart::Chart) {
+    fn mouse_down(&mut self, tick: u32, lane: f32, _chart: &mut Chart) {
         self.pressed = true;
         if self.fx {
             self.lane = if lane < 3.0 { 0 } else { 1 };
@@ -102,13 +102,13 @@ impl CursorObject for ButtonInterval {
         self.interval.y = tick;
     }
 
-    fn mouse_up(&mut self, tick: u32, _lane: f32, chart: &mut chart::Chart) {
+    fn mouse_up(&mut self, tick: u32, _lane: f32, chart: &mut Chart) {
         if self.interval.y >= tick {
             self.interval.l = 0;
         } else {
             self.interval.l = tick - self.interval.y;
         }
-        let v = std::mem::replace(&mut self.interval, chart::Interval { y: 0, l: 0 });
+        let v = std::mem::replace(&mut self.interval, Interval { y: 0, l: 0 });
         if self.fx {
             chart.note.fx[self.lane].push(v);
             chart.note.fx[self.lane].sort_by(|a, b| a.y.partial_cmp(&b.y).unwrap());
@@ -213,7 +213,7 @@ impl CursorObject for ButtonInterval {
 }
 
 impl CursorObject for LaserTool {
-    fn mouse_down(&mut self, tick: u32, lane: f32, chart: &mut chart::Chart) {
+    fn mouse_down(&mut self, tick: u32, lane: f32, chart: &mut Chart) {
         let v = LaserTool::lane_to_pos(lane);
         let ry = self.calc_ry(tick);
         let mut finalize = false;
@@ -251,7 +251,7 @@ impl CursorObject for LaserTool {
             .v
             .push(GraphSectionPoint::new(ry, LaserTool::lane_to_pos(lane)));
     }
-    fn mouse_up(&mut self, _tick: u32, _lane: f32, _chart: &mut chart::Chart) {}
+    fn mouse_up(&mut self, _tick: u32, _lane: f32, _chart: &mut Chart) {}
     fn update(&mut self, tick: u32, lane: f32) {
         if self.active {
             let ry = self.calc_ry(tick);

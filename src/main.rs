@@ -1,5 +1,4 @@
 #![windows_subsystem = "windows"]
-mod chart;
 mod custom_loop;
 mod dsp;
 mod gui;
@@ -29,7 +28,7 @@ macro_rules! profile_scope {
 
 pub struct MainState {
     redraw: bool,
-    chart: chart::Chart,
+    chart: kson::Chart,
     w: f32,
     h: f32,
     tick_height: f32,
@@ -54,7 +53,7 @@ impl MainState {
             w: 800.0,
             h: 600.0,
             redraw: false,
-            chart: chart::Chart::new(),
+            chart: kson::Chart::new(),
             tick_height: 1.0,
             track_width: 72.0,
             save_path: None,
@@ -81,7 +80,7 @@ impl MainState {
 
     fn draw_laser_section(
         &self,
-        section: &chart::LaserSection,
+        section: &kson::LaserSection,
         mb: &mut graphics::MeshBuilder,
         color: graphics::Color,
     ) -> GameResult {
@@ -98,7 +97,7 @@ impl MainState {
             let s = &se[0];
             let e = &se[1];
             let l = e.ry - s.ry;
-            let interval = chart::Interval {
+            let interval = kson::Interval {
                 y: s.ry + y_base,
                 l: l,
             };
@@ -249,10 +248,7 @@ impl MainState {
         (x * 6.0).min(5.0) as f32
     }
 
-    fn interval_to_ranges(
-        &self,
-        in_interval: &chart::Interval,
-    ) -> Vec<(f32, f32, f32, (f32, f32))> // (x,y,h, (start,end))
+    fn interval_to_ranges(&self, in_interval: &kson::Interval) -> Vec<(f32, f32, f32, (f32, f32))> // (x,y,h, (start,end))
     {
         let mut res: Vec<(f32, f32, f32, (f32, f32))> = Vec::new();
         let mut ranges: Vec<(u32, u32)> = Vec::new();
@@ -727,7 +723,7 @@ fn get_extension_from_filename(filename: &str) -> Option<&str> {
     Path::new(filename).extension().and_then(OsStr::to_str)
 }
 
-fn open_chart() -> Result<Option<(chart::Chart, String)>, Box<dyn Error>> {
+fn open_chart() -> Result<Option<(kson::Chart, String)>, Box<dyn Error>> {
     let path: String;
     let dialog_result = nfd::dialog().filter("ksh,kson").open().unwrap_or_else(|e| {
         println!("{}", e);
@@ -745,7 +741,7 @@ fn open_chart() -> Result<Option<(chart::Chart, String)>, Box<dyn Error>> {
                 "ksh" => {
                     let mut data = String::from("");
                     File::open(&path).unwrap().read_to_string(&mut data)?;
-                    return Ok(Some((chart::Chart::from_ksh(&data)?, path)));
+                    return Ok(Some((kson::Chart::from_ksh(&data)?, path)));
                 }
                 "kson" => {
                     let file = File::open(&path)?;
@@ -763,7 +759,7 @@ fn open_chart() -> Result<Option<(chart::Chart, String)>, Box<dyn Error>> {
     Ok(None)
 }
 
-fn save_chart_as(chart: &chart::Chart) -> Option<String> {
+fn save_chart_as(chart: &kson::Chart) -> Option<String> {
     let path: String;
     let dialog_result = nfd::open_save_dialog(Some("kson"), None).unwrap_or_else(|e| {
         println!("{}", e);
@@ -788,7 +784,7 @@ pub fn main() {
     thread_profiler::register_thread_with_profiler();
 
     let win_setup = ggez::conf::WindowSetup {
-        title: "USC Editor".to_owned(),
+        title: "KSON Editor".to_owned(),
         samples: ggez::conf::NumSamples::Four,
         vsync: false,
         icon: "".to_owned(),
@@ -813,7 +809,7 @@ pub fn main() {
         audio: true,
     };
 
-    let cb = ggez::ContextBuilder::new("usc-editor", "Drewol")
+    let cb = ggez::ContextBuilder::new("kson-editor", "Drewol")
         .window_setup(win_setup)
         .window_mode(mode)
         .modules(modules);

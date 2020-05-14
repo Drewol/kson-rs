@@ -1,6 +1,6 @@
-use crate::chart::{Chart, GraphSectionPoint};
 use crate::dsp;
 use ggez::GameResult;
+use kson::{Chart, GraphSectionPoint};
 use rodio::*;
 use std::fs::File;
 use std::io::BufReader;
@@ -176,7 +176,7 @@ impl AudioPlayback {
                 None => 0,
             };
             let ms = ms - offset as f64;
-            chart.ms_to_tickf(ms)
+            chart.ms_to_tick(ms) as f64
         } else {
             0.0
         }
