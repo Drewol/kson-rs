@@ -33,6 +33,7 @@ use ggez::graphics;
 use ggez::Context;
 use imgui::*;
 use std::collections::VecDeque;
+use std::error::Error;
 
 use std::time::Instant;
 
@@ -70,7 +71,7 @@ pub struct ImGuiWrapper {
 }
 
 impl ImGuiWrapper {
-    pub fn new(ctx: &mut Context) -> Self {
+    pub fn new(ctx: &mut Context) -> Result<Self, Box<dyn Error>> {
         // Create the imgui object
         let mut imgui = imgui::Context::create();
         let (factory, gfx_device, _, _, _) = graphics::gfx_objects(ctx);
@@ -93,10 +94,10 @@ impl ImGuiWrapper {
         };
 
         // Renderer
-        let renderer = Renderer::init(&mut imgui, &mut *factory, shaders).unwrap();
+        let renderer = Renderer::init(&mut imgui, &mut *factory, shaders)?;
 
         // Create instace
-        Self {
+        Ok(Self {
             imgui,
             renderer,
             last_frame: Instant::now(),
@@ -108,7 +109,7 @@ impl ImGuiWrapper {
                 (String::from("RL"), ChartTool::RLaser),
             ],
             selected_tool: ChartTool::None,
-        }
+        })
     }
 
     fn labeled_text_input(ui: &Ui, target: &mut String, label: &ImStr) {

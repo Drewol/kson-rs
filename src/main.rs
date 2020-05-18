@@ -1,7 +1,7 @@
 #![windows_subsystem = "windows"]
 mod custom_loop;
-mod gui;
 mod dsp;
+mod gui;
 mod playback;
 mod tools;
 
@@ -302,7 +302,11 @@ impl EventHandler for MainState {
                     }
                     None => (),
                 },
-                GuiEvent::SaveAs => match save_chart_as(&self.chart) {
+                GuiEvent::SaveAs => match save_chart_as(&self.chart).unwrap_or_else(|e| {
+                    println!("Failed to save chart:");
+                    println!("\t{}", e);
+                    None
+                }) {
                     Some(new_path) => self.save_path = Some(new_path),
                     None => (),
                 },
@@ -725,16 +729,13 @@ fn get_extension_from_filename(filename: &str) -> Option<&str> {
 
 fn open_chart() -> Result<Option<(kson::Chart, String)>, Box<dyn Error>> {
     let path: String;
-    let dialog_result = nfd::dialog().filter("ksh,kson").open().unwrap_or_else(|e| {
-        println!("{}", e);
-        panic!(e);
-    });
+    let dialog_result = nfd::dialog().filter("ksh,kson").open()?;
 
     match dialog_result {
         nfd::Response::Okay(file_path) => {
             path = String::from(&file_path);
             match get_extension_from_filename(&file_path)
-                .unwrap()
+                .unwrap_or("")
                 .to_lowercase()
                 .as_ref()
             {
@@ -759,25 +760,21 @@ fn open_chart() -> Result<Option<(kson::Chart, String)>, Box<dyn Error>> {
     Ok(None)
 }
 
-fn save_chart_as(chart: &kson::Chart) -> Option<String> {
+fn save_chart_as(chart: &kson::Chart) -> Result<Option<String>, Box<dyn Error>> {
     let path: String;
-    let dialog_result = nfd::open_save_dialog(Some("kson"), None).unwrap_or_else(|e| {
-        println!("{}", e);
-        panic!(e);
-    });
+    let dialog_result = nfd::open_save_dialog(Some("kson"), None)?;
 
     match dialog_result {
         nfd::Response::Okay(file_path) => {
             path = file_path;
             let mut file = File::create(&path).unwrap();
             profile_scope!("Write kson");
-            file.write_all(serde_json::to_string(&chart).unwrap().as_bytes())
-                .unwrap_or_else(|e| println!("{}", e));
+            file.write_all(serde_json::to_string(&chart)?.as_bytes())?;
         }
-        _ => return None,
+        _ => return Ok(None),
     }
 
-    Some(path)
+    Ok(Some(path))
 }
 
 pub fn main() {
@@ -824,7 +821,10 @@ pub fn main() {
         panic!(e);
     });
 
-    let imgui_wrapper = &mut ImGuiWrapper::new(ctx);
+    let imgui_wrapper = &mut ImGuiWrapper::new(ctx).unwrap_or_else(|e| {
+        println!("{}", e);
+        panic!();
+    });
 
     match custom_loop::run(ctx, event_loop, state, imgui_wrapper) {
         Ok(_) => (),
