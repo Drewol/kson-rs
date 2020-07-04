@@ -1,6 +1,8 @@
 use regex;
 use serde;
 use serde::{Deserialize, Serialize};
+use serde_json::Value;
+use std::collections::HashMap;
 use std::collections::HashSet;
 use std::error;
 use std::str;
@@ -56,6 +58,14 @@ pub struct Interval {
 
 fn default_zero<T: From<u8>>() -> T {
     T::from(0)
+}
+
+fn default_true<T: From<bool>>() -> T {
+    T::from(true)
+}
+
+fn default_false<T: From<bool>>() -> T {
+    T::from(false)
 }
 
 #[derive(Serialize, Deserialize)]
@@ -147,6 +157,32 @@ pub struct ByPulse<T> {
     pub v: T,
 }
 
+#[derive(Serialize, Deserialize, Copy, Clone)]
+pub struct ByBtnNote<T> {
+    lane: u64,
+    idx: u64,
+    v: Option<T>,
+    #[serde(default = "default_true")]
+    dom: bool,
+}
+
+#[derive(Serialize, Deserialize, Copy, Clone)]
+pub struct ByLaserNote<T> {
+    lane: u64,
+    sec: u64,
+    idx: u64,
+    v: Option<T>,
+    #[serde(default = "default_true")]
+    dom: bool,
+}
+
+#[derive(Serialize, Deserialize, Clone)]
+pub struct ByNotes<T> {
+    bt: Option<Vec<ByBtnNote<T>>>,
+    fx: Option<Vec<ByBtnNote<T>>>,
+    laser: Option<Vec<ByLaserNote<T>>>,
+}
+
 #[derive(Serialize, Deserialize)]
 pub struct TimeSignature {
     pub n: u32,
@@ -220,15 +256,26 @@ impl BgmInfo {
 pub struct KeySoundInfo;
 
 #[derive(Serialize, Deserialize)]
-pub struct AudioEffectInfo;
+pub struct AudioEffect {
+    #[serde(rename = "type")]
+    effect_type: String,
+    v: Value,
+    filename: Option<String>,
+}
+
+#[derive(Serialize, Deserialize)]
+pub struct AudioEffectInfo {
+    def: Option<HashMap<String, AudioEffect>>,
+    pulse_event: Option<HashMap<String, ByPulse<AudioEffect>>>,
+    note_event: Option<HashMap<String, ByNotes<AudioEffect>>>,
+}
 
 #[derive(Serialize, Deserialize)]
 pub struct AudioInfo {
     pub bgm: Option<BgmInfo>,
+    pub audio_effect: Option<AudioEffectInfo>,
     #[serde(skip_deserializing)]
     pub key_sound: Option<KeySoundInfo>,
-    #[serde(skip_deserializing)]
-    pub audio_effect: Option<AudioEffectInfo>,
 }
 
 impl AudioInfo {
