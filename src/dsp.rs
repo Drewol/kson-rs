@@ -2,10 +2,7 @@ pub trait DSP: Send + Sync {
     fn process(&mut self, sample: &mut f32, c: usize);
     fn set_mix(&mut self, mix: f32);
     fn set_bypass(&mut self, bypass: bool);
-}
-
-pub trait LaserEffect: DSP {
-    fn set_laser_value(&mut self, v: f32);
+    fn set_param_transition(&mut self, v: f32);
 }
 
 #[derive(Copy, Clone)]
@@ -153,10 +150,8 @@ impl DSP for BiQuad {
     fn set_bypass(&mut self, bypass: bool) {
         self.bypass = bypass;
     }
-}
 
-impl LaserEffect for BiQuad {
-    fn set_laser_value(&mut self, v: f32) {
+    fn set_param_transition(&mut self, v: f32) {
         let start = self.freq_start.ln();
         let end = self.freq_end.ln();
 

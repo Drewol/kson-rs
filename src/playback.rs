@@ -15,7 +15,39 @@ pub struct AudioFile {
     size: usize,
     pos: Arc<Mutex<usize>>,
     stopped: Arc<AtomicBool>,
-    laser_dsp: Arc<Mutex<dyn dsp::LaserEffect>>,
+    laser_dsp: Arc<Mutex<dyn dsp::DSP>>,
+    fx_dsp: [Option<Arc<Mutex<dyn dsp::DSP>>>; 2],
+    fx_enable: [Arc<AtomicBool>; 2],
+}
+
+pub struct EventList<T> {
+    events: Vec<(u32, T)>,
+}
+
+impl<T> EventList<T> {
+    pub fn update(&mut self, tick: &u32, f: &dyn Fn(&T)) {
+        //while let in case of multiple events on a tick
+        //or if multiple ticks passed since the last update.
+        while let Some((event_tick, value)) = self.events.first() {
+            if event_tick <= tick {
+                f(&value);
+                self.events.remove(0);
+            } else {
+                return;
+            }
+        }
+    }
+
+    pub fn add(&mut self, tick: u32, value: T) {
+        match self.events.binary_search_by(|t| t.0.cmp(&tick)) {
+            Ok(index) => self.events.insert(index, (tick, value)),
+            Err(index) => self.events.insert(index, (tick, value)),
+        }
+    }
+
+    pub fn clear(&mut self) {
+        self.events.clear();
+    }
 }
 
 impl Iterator for AudioFile {
@@ -39,6 +71,16 @@ impl Iterator for AudioFile {
                 *pos = *pos + 1;
 
                 //apply DSPs
+                for i in 0..2 {
+                    let d = &self.fx_dsp[i];
+                    let en = &self.fx_enable[i];
+                    if en.load(Ordering::SeqCst) {
+                        if let Some(d) = d {
+                            let mut d = d.lock().unwrap();
+                            d.process(&mut v, *pos % self.channels as usize);
+                        }
+                    }
+                }
 
                 //apply Laser DSP
                 {
@@ -230,7 +272,7 @@ impl AudioPlayback {
                 if let Some(dsp_value) = dsp_value {
                     let mut laser = file.laser_dsp.lock().unwrap();
                     laser.set_mix(1.0);
-                    laser.set_laser_value(dsp_value);
+                    laser.set_param_transition(dsp_value);
                 } else {
                     let mut laser = file.laser_dsp.lock().unwrap();
                     laser.set_mix(0.0);
@@ -289,6 +331,11 @@ impl AudioPlayback {
             channels: channels,
             pos: Arc::new(Mutex::new(0)),
             stopped: Arc::new(AtomicBool::new(false)),
+            fx_enable: [
+                Arc::new(AtomicBool::new(false)),
+                Arc::new(AtomicBool::new(false)),
+            ],
+            fx_dsp: [None, None],
             laser_dsp: Arc::new(Mutex::new(dsp::BiQuad::new(
                 dsp::BiQuadType::Peaking(10.0),
                 rate,

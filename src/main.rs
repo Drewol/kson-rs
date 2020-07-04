@@ -708,6 +708,10 @@ impl EventHandler for MainState {
         self.mouse_x = x;
         self.mouse_y = y;
 
+        let xi = 0;
+
+        let awd = if (xi == 0) { 50 } else { 10 };
+
         let lane = self.pos_to_lane(x);
         let tick = self.pos_to_tick(x, y);
         let tick = tick - (tick % (self.chart.beat.resolution / 2));
@@ -806,7 +810,7 @@ pub fn main() {
         audio: true,
     };
 
-    let cb = ggez::ContextBuilder::new("kson-editor", "Drewol")
+    let cb = ggez::ContextBuilder::new("usc-editor", "Drewol")
         .window_setup(win_setup)
         .window_mode(mode)
         .modules(modules);
