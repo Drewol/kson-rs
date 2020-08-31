@@ -4,7 +4,7 @@ use kson::{Chart, GraphSectionPoint};
 use rodio::*;
 use std::fs::File;
 use std::io::BufReader;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 
 #[derive(Clone)]
@@ -13,7 +13,7 @@ pub struct AudioFile {
     sample_rate: u32,
     channels: u16,
     size: usize,
-    pos: Arc<Mutex<usize>>,
+    pos: Arc<AtomicUsize>,
     stopped: Arc<AtomicBool>,
     laser_dsp: Arc<Mutex<dyn dsp::DSP>>,
     fx_dsp: [Option<Arc<Mutex<dyn dsp::DSP>>>; 2],
@@ -60,15 +60,15 @@ impl Iterator for AudioFile {
             }
         }
         {
-            let mut pos = self.pos.lock().unwrap();
+            let mut pos = self.pos.load(Ordering::SeqCst);
             let samples = self.samples.lock().unwrap();
 
-            if *pos >= self.size {
+            if pos >= self.size {
                 None
             } else {
-                let mut v = *(*samples).get(*pos).unwrap();
-                v = v * 0.6;
-                *pos = *pos + 1;
+                let mut v = *(*samples).get(pos).unwrap();
+                v *= 0.6;
+                pos += 1;
 
                 //apply DSPs
                 for i in 0..2 {
@@ -77,7 +77,7 @@ impl Iterator for AudioFile {
                     if en.load(Ordering::SeqCst) {
                         if let Some(d) = d {
                             let mut d = d.lock().unwrap();
-                            d.process(&mut v, *pos % self.channels as usize);
+                            d.process(&mut v, pos % self.channels as usize);
                         }
                     }
                 }
@@ -85,9 +85,9 @@ impl Iterator for AudioFile {
                 //apply Laser DSP
                 {
                     let mut laser = self.laser_dsp.lock().unwrap();
-                    (*laser).process(&mut v, *pos % self.channels as usize);
+                    (*laser).process(&mut v, pos % self.channels as usize);
                 }
-
+                self.pos.store(pos, Ordering::SeqCst);
                 Some(v)
             }
         }
@@ -101,11 +101,11 @@ impl Iterator for AudioFile {
 
 impl source::Source for AudioFile {
     fn current_frame_len(&self) -> Option<usize> {
-        let pos = self.pos.lock().unwrap();
-        if *pos == self.size {
+        let pos = self.pos.load(Ordering::SeqCst);
+        if pos == self.size {
             Some(0)
         } else {
-            Some(32.min(self.size - *pos))
+            Some(32.min(self.size - pos))
         }
     }
 
@@ -129,26 +129,27 @@ impl source::Source for AudioFile {
 
 impl AudioFile {
     fn get_ms(&self) -> f64 {
-        let pos = self.pos.lock().unwrap();
-        (*pos / self.channels as usize) as f64 / (self.sample_rate as f64 / 1000.0)
+        (self.pos.load(Ordering::SeqCst) / self.channels as usize) as f64
+            / (self.sample_rate as f64 / 1000.0)
     }
 
     fn set_ms(&mut self, ms: f64) {
-        let mut pos = self.pos.lock().unwrap();
-        *pos = ((ms / 1000.0) * (self.sample_rate * self.channels as u32) as f64) as usize;
-        *pos = *pos - (*pos % self.channels as usize);
+        let mut pos = ((ms / 1000.0) * (self.sample_rate * self.channels as u32) as f64) as usize;
+        pos -= pos % self.channels as usize;
+        self.pos.store(pos, Ordering::SeqCst);
     }
 
     fn set_stopped(&mut self, val: bool) {
         self.stopped.store(val, Ordering::SeqCst);
     }
 }
+type LaserFn = Box<dyn Fn(f32) -> f32>;
 
 pub struct AudioPlayback {
     sink: Sink,
     file: Option<AudioFile>,
     last_file: String,
-    laser_funcs: [Vec<(u32, u32, Box<dyn Fn(f32) -> f32>)>; 2],
+    laser_funcs: [Vec<(u32, u32, LaserFn)>; 2],
     laser_values: (Option<f32>, Option<f32>),
 }
 
@@ -178,7 +179,7 @@ impl AudioPlayback {
         let value_delta = end_value - start_value;
         let length = end_tick - start_tick;
 
-        if start_value == end_value {
+        if (start_value - end_value).abs() < f32::EPSILON {
             Box::new(move |_: f32| start_value)
         } else {
             Box::new(move |y: f32| start_value + value_delta * ((y - start_tick) / length))
@@ -301,11 +302,9 @@ impl AudioPlayback {
 
     pub fn open(&mut self, path: &str) -> GameResult {
         let new_file = String::from(path);
-        if let Some(_) = &self.file {
-            if self.last_file.eq(&new_file) {
-                //don't reopen already opened file
-                return Ok(());
-            }
+        if self.file.is_some() && self.last_file.eq(&new_file) {
+            //don't reopen already opened file
+            return Ok(());
         }
 
         self.close();
@@ -328,8 +327,8 @@ impl AudioPlayback {
             size: (*data).len(),
             samples: dataref.clone(),
             sample_rate: rate,
-            channels: channels,
-            pos: Arc::new(Mutex::new(0)),
+            channels,
+            pos: Arc::new(AtomicUsize::new(0)),
             stopped: Arc::new(AtomicBool::new(false)),
             fx_enable: [
                 Arc::new(AtomicBool::new(false)),
@@ -358,7 +357,7 @@ impl AudioPlayback {
     //release trhe currently loaded file
     pub fn close(&mut self) {
         self.stop();
-        if let Some(_) = &self.file {
+        if self.file.is_some() {
             self.file = None;
         }
     }

@@ -217,7 +217,7 @@ impl ImGuiWrapper {
                             new_tool = *value; //seems unsafe(?)
                         }
                         ui.same_line(i * 40.0);
-                        i = i + 1.0;
+                        i += 1.0;
                     }
                 });
             if new_tool != ChartTool::None && new_tool != self.selected_tool {
@@ -240,7 +240,7 @@ impl ImGuiWrapper {
             .render(
                 &mut *factory,
                 encoder,
-                &mut RenderTargetView::new(render_target.clone()),
+                &mut RenderTargetView::new(render_target),
                 draw_data,
             )
             .unwrap();

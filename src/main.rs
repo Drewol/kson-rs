@@ -99,7 +99,7 @@ impl MainState {
             let l = e.ry - s.ry;
             let interval = kson::Interval {
                 y: s.ry + y_base,
-                l: l,
+                l,
             };
 
             if interval.l == 0 {
@@ -139,7 +139,7 @@ impl MainState {
 
             let mut value_width = (e.v as f32 - start_value) as f32;
             if wide {
-                value_width = value_width * 2.0;
+                value_width *= 2.0;
                 start_value = start_value * 2.0 - 0.5;
             }
 
@@ -267,7 +267,7 @@ impl MainState {
             let prog_e = (e - in_interval.y) as f32 / in_l as f32;
             let start_pos = self.tick_to_pos(s);
             let end_pos = self.tick_to_pos(e);
-            if start_pos.0 != end_pos.0 {
+            if (start_pos.0 - end_pos.0).abs() > f32::EPSILON {
                 res.push((
                     start_pos.0,
                     start_pos.1,
@@ -291,25 +291,25 @@ impl EventHandler for MainState {
     fn update(&mut self, ctx: &mut Context) -> GameResult {
         while let Some(e) = self.gui_event_queue.pop_front() {
             match e {
-                GuiEvent::Open => match open_chart().unwrap_or_else(|e| {
-                    println!("Failed to open chart:");
-                    println!("\t{}", e);
-                    None
-                }) {
-                    Some((new_chart, path)) => {
-                        self.chart = new_chart;
-                        self.save_path = Some(path);
+                GuiEvent::Open => {
+                    if let Some(new_chart) = open_chart().unwrap_or_else(|e| {
+                        println!("Failed to open chart:");
+                        println!("\t{}", e);
+                        None
+                    }) {
+                        self.chart = new_chart.0;
+                        self.save_path = Some(new_chart.1);
                     }
-                    None => (),
-                },
-                GuiEvent::SaveAs => match save_chart_as(&self.chart).unwrap_or_else(|e| {
-                    println!("Failed to save chart:");
-                    println!("\t{}", e);
-                    None
-                }) {
-                    Some(new_path) => self.save_path = Some(new_path),
-                    None => (),
-                },
+                }
+                GuiEvent::SaveAs => {
+                    if let Some(new_path) = save_chart_as(&self.chart).unwrap_or_else(|e| {
+                        println!("Failed to save chart:");
+                        println!("\t{}", e);
+                        None
+                    }) {
+                        self.save_path = Some(new_path);
+                    }
+                }
                 GuiEvent::Exit => ctx.continuing = false,
                 GuiEvent::ToolChanged(new_tool) => match new_tool {
                     ChartTool::BT => {
@@ -529,40 +529,34 @@ impl EventHandler for MainState {
 
                 //long fx
                 let note_mesh = long_fx_builder.build(ctx);
-                match note_mesh {
-                    Ok(mesh) => graphics::draw(ctx, &mesh, (na::Point2::new(0.0, 0.0),))?,
-                    _ => (),
+                if let Ok(mesh) = note_mesh {
+                    graphics::draw(ctx, &mesh, (na::Point2::new(0.0, 0.0),))?;
                 }
                 //long bt
                 let note_mesh = long_bt_builder.build(ctx);
-                match note_mesh {
-                    Ok(mesh) => graphics::draw(ctx, &mesh, (na::Point2::new(0.0, 0.0),))?,
-                    _ => (),
+                if let Ok(mesh) = note_mesh {
+                    graphics::draw(ctx, &mesh, (na::Point2::new(0.0, 0.0),))?;
                 }
                 //fx
                 let note_mesh = fx_builder.build(ctx);
-                match note_mesh {
-                    Ok(mesh) => graphics::draw(ctx, &mesh, (na::Point2::new(0.0, 0.0),))?,
-                    _ => (),
+                if let Ok(mesh) = note_mesh {
+                    graphics::draw(ctx, &mesh, (na::Point2::new(0.0, 0.0),))?;
                 }
                 //bt
                 let note_mesh = bt_builder.build(ctx);
-                match note_mesh {
-                    Ok(mesh) => graphics::draw(ctx, &mesh, (na::Point2::new(0.0, 0.0),))?,
-                    _ => (),
+                if let Ok(mesh) = note_mesh {
+                    graphics::draw(ctx, &mesh, (na::Point2::new(0.0, 0.0),))?;
                 }
                 //laser
                 graphics::set_blend_mode(ctx, graphics::BlendMode::Add)?;
                 let note_mesh = laser_builder.build(ctx);
-                match note_mesh {
-                    Ok(mesh) => graphics::draw(ctx, &mesh, (na::Point2::new(0.0, 0.0),))?,
-                    _ => (),
+                if let Ok(mesh) = note_mesh {
+                    graphics::draw(ctx, &mesh, (na::Point2::new(0.0, 0.0),))?;
                 }
             }
 
-            match self.cursor_object {
-                Some(ref cursor) => cursor.draw(self, ctx).unwrap_or_else(|e| println!("{}", e)),
-                None => (),
+            if let Some(cursor) = &self.cursor_object {
+                cursor.draw(self, ctx).unwrap_or_else(|e| println!("{}", e));
             }
 
             {
@@ -606,9 +600,8 @@ impl EventHandler for MainState {
             let lane = self.pos_to_lane(x);
             let tick = self.pos_to_tick(x, y);
             let tick = tick - (tick % (self.chart.beat.resolution / 2));
-            match self.cursor_object {
-                Some(ref mut cursor) => cursor.mouse_up(tick, lane, &mut self.chart),
-                None => (),
+            if let Some(cursor) = &mut self.cursor_object {
+                cursor.mouse_up(tick, lane, &mut self.chart);
             }
         }
     }
@@ -620,8 +613,8 @@ impl EventHandler for MainState {
             graphics::Rect {
                 x: 0.0,
                 y: 0.0,
-                w: w,
-                h: h,
+                w,
+                h,
             },
         )
         .unwrap_or_else(|e| println!("{}", e));
@@ -640,10 +633,7 @@ impl EventHandler for MainState {
     ) {
         match keycode {
             KeyCode::Home => self.x_offset_target = 0.0,
-            KeyCode::PageUp => {
-                self.x_offset_target =
-                    self.x_offset_target + (self.w - (self.w % self.track_spacing()))
-            }
+            KeyCode::PageUp => self.x_offset_target += self.w - (self.w % self.track_spacing()),
             KeyCode::PageDown => {
                 self.x_offset_target =
                     (self.x_offset_target - (self.w - (self.w % self.track_spacing()))).max(0.0)
@@ -684,7 +674,7 @@ impl EventHandler for MainState {
                     let path = Path::new(path).parent().unwrap();
                     if let Some(bgm) = &self.chart.audio.bgm {
                         if let Some(filename) = &bgm.filename {
-                            let filename = &filename.split(";").next().unwrap();
+                            let filename = &filename.split(';').next().unwrap();
                             let path = path.join(Path::new(filename));
                             println!("Playing file: {}", path.display());
                             let path = path.to_str().unwrap();
@@ -708,21 +698,16 @@ impl EventHandler for MainState {
         self.mouse_x = x;
         self.mouse_y = y;
 
-        let xi = 0;
-
-        let awd = if (xi == 0) { 50 } else { 10 };
-
         let lane = self.pos_to_lane(x);
         let tick = self.pos_to_tick(x, y);
         let tick = tick - (tick % (self.chart.beat.resolution / 2));
-        match self.cursor_object {
-            Some(ref mut cursor) => cursor.update(tick, lane),
-            None => (),
+        if let Some(cursor) = &mut self.cursor_object {
+            cursor.update(tick, lane);
         }
     }
 
     fn mouse_wheel_event(&mut self, _ctx: &mut Context, _x: f32, y: f32) {
-        self.x_offset_target = self.x_offset_target + y * self.track_width;
+        self.x_offset_target += y * self.track_width;
         self.x_offset_target = self.x_offset_target.max(0.0);
     }
 }

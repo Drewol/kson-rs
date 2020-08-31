@@ -126,9 +126,7 @@ pub fn run(
                         // trace!("ignoring window event {:?}", x);
                     }
                 },
-                Event::DeviceEvent { event, .. } => match event {
-                    _ => (),
-                },
+                Event::DeviceEvent { event, .. } => (),
                 Event::Awakened => (),
                 Event::Suspended(_) => (),
             }

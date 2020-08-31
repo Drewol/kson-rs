@@ -24,7 +24,7 @@ impl ButtonInterval {
     pub fn new(fx: bool) -> Self {
         ButtonInterval {
             pressed: false,
-            fx: fx,
+            fx,
             interval: Interval { y: 0, l: 0 },
             lane: 0,
         }
@@ -47,7 +47,7 @@ impl LaserTool {
     pub fn new(right: bool) -> Self {
         LaserTool {
             active: false,
-            right: right,
+            right,
             mode: LaserEditMode::New,
             section: LaserSection {
                 y: 0,
@@ -226,7 +226,7 @@ impl CursorObject for LaserTool {
         } else if let Some(last) = self.get_second_to_last() {
             finalize = match (*last).vf {
                 Some(_) => ry == last.ry,
-                None => ry == last.ry && v == last.v,
+                None => ry == last.ry && (v - last.v).abs() < f64::EPSILON,
             };
         }
 
