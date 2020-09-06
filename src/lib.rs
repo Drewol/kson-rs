@@ -1,3 +1,5 @@
+pub mod effects;
+pub mod parameter;
 use regex;
 use serde;
 use serde::{Deserialize, Serialize};
@@ -48,7 +50,7 @@ impl GraphSectionPoint {
     }
 }
 
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize, Deserialize, Copy, Clone)]
 pub struct Interval {
     pub y: u32,
 
@@ -64,11 +66,11 @@ fn default_true<T: From<bool>>() -> T {
     T::from(true)
 }
 
-fn default_false<T: From<bool>>() -> T {
-    T::from(false)
-}
+// fn default_false<T: From<bool>>() -> T {
+//     T::from(false)
+// }
 
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize, Deserialize, Clone)]
 pub struct LaserSection {
     pub y: u32,
     pub v: Vec<GraphSectionPoint>,
@@ -80,7 +82,7 @@ fn default_one<T: From<u8>>() -> T {
     T::from(1)
 }
 
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize, Deserialize, Clone)]
 pub struct NoteInfo {
     pub bt: [Vec<Interval>; 4],
     pub fx: [Vec<Interval>; 2],
@@ -97,14 +99,14 @@ impl NoteInfo {
     }
 }
 
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize, Deserialize, Clone)]
 pub struct DifficultyInfo {
     pub name: Option<String>,
     pub short_name: Option<String>,
     pub idx: u8,
 }
 
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize, Deserialize, Clone)]
 pub struct MetaInfo {
     pub title: String,
     pub title_translit: Option<String>,
@@ -183,7 +185,7 @@ pub struct ByNotes<T> {
     laser: Option<Vec<ByLaserNote<T>>>,
 }
 
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize, Deserialize, Copy, Clone)]
 pub struct TimeSignature {
     pub n: u32,
     pub d: u32,
@@ -200,13 +202,13 @@ impl TimeSignature {
     }
 }
 
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize, Deserialize, Copy, Clone)]
 pub struct ByMeasureIndex<T> {
     pub idx: u32,
     pub v: T,
 }
 
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize, Deserialize, Clone)]
 pub struct BeatInfo {
     pub bpm: Vec<ByPulse<f64>>,
     pub time_sig: Vec<ByMeasureIndex<TimeSignature>>,
@@ -252,10 +254,10 @@ impl BgmInfo {
     }
 }
 
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize, Deserialize, Clone)]
 pub struct KeySoundInfo;
 
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize, Deserialize, Clone)]
 pub struct AudioEffect {
     #[serde(rename = "type")]
     effect_type: String,
@@ -263,14 +265,14 @@ pub struct AudioEffect {
     filename: Option<String>,
 }
 
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize, Deserialize, Clone)]
 pub struct AudioEffectInfo {
     def: Option<HashMap<String, AudioEffect>>,
     pulse_event: Option<HashMap<String, ByPulse<AudioEffect>>>,
     note_event: Option<HashMap<String, ByNotes<AudioEffect>>>,
 }
 
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize, Deserialize, Clone)]
 pub struct AudioInfo {
     pub bgm: Option<BgmInfo>,
     pub audio_effect: Option<AudioEffectInfo>,
@@ -288,7 +290,7 @@ impl AudioInfo {
     }
 }
 
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize, Deserialize, Clone)]
 pub struct Chart {
     pub meta: MetaInfo,
     pub note: NoteInfo,
