@@ -9,12 +9,12 @@ Editor program for the Sound Voltex simulator format [KSON](https://gist.github.
 * Note & Laser placing
 * Basic metadata editing
 * Basic laser effects
+* Undo/Redo
 
 ## TODO
 * Effecting
 * Modifying existing objects
 * Camera editing
-* Undo/Redo
 * Full metadata editing
 * BPM editing
 * Time signature editing

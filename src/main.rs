@@ -1,4 +1,5 @@
 #![windows_subsystem = "windows"]
+mod action_stack;
 mod custom_loop;
 mod dsp;
 mod gui;
@@ -27,8 +28,8 @@ macro_rules! profile_scope {
 }
 
 pub struct MainState {
-    redraw: bool,
     chart: kson::Chart,
+    redraw: bool,
     w: f32,
     h: f32,
     tick_height: f32,
@@ -43,6 +44,7 @@ pub struct MainState {
     x_offset_target: f32,
     cursor_line: u32,
     cursor_object: Option<Box<dyn CursorObject>>,
+    actions: action_stack::ActionStack<kson::Chart>,
     pub audio_playback: playback::AudioPlayback,
     pub gui_event_queue: VecDeque<GuiEvent>,
 }
@@ -50,10 +52,10 @@ pub struct MainState {
 impl MainState {
     fn new(ctx: &ggez::Context) -> GameResult<MainState> {
         let s = MainState {
+            chart: kson::Chart::new(),
             w: 800.0,
             h: 600.0,
             redraw: false,
-            chart: kson::Chart::new(),
             tick_height: 1.0,
             track_width: 72.0,
             save_path: None,
@@ -68,6 +70,7 @@ impl MainState {
             audio_playback: playback::AudioPlayback::new(ctx),
             gui_event_queue: VecDeque::new(),
             cursor_line: 0,
+            actions: action_stack::ActionStack::new(kson::Chart::new()),
         };
         Ok(s)
     }
@@ -297,17 +300,19 @@ impl EventHandler for MainState {
                         println!("\t{}", e);
                         None
                     }) {
-                        self.chart = new_chart.0;
+                        self.actions.reset(new_chart.0);
                         self.save_path = Some(new_chart.1);
                     }
                 }
                 GuiEvent::SaveAs => {
-                    if let Some(new_path) = save_chart_as(&self.chart).unwrap_or_else(|e| {
-                        println!("Failed to save chart:");
-                        println!("\t{}", e);
-                        None
-                    }) {
-                        self.save_path = Some(new_path);
+                    if let Ok(chart) = self.actions.get_current() {
+                        if let Some(new_path) = save_chart_as(&chart).unwrap_or_else(|e| {
+                            println!("Failed to save chart:");
+                            println!("\t{}", e);
+                            None
+                        }) {
+                            self.save_path = Some(new_path);
+                        }
                     }
                 }
                 GuiEvent::Exit => ctx.continuing = false,
@@ -320,10 +325,14 @@ impl EventHandler for MainState {
                     ChartTool::RLaser => self.cursor_object = Some(Box::new(LaserTool::new(true))),
                     _ => self.cursor_object = None,
                 },
+                GuiEvent::Undo => self.actions.undo(),
+                GuiEvent::Redo => self.actions.redo(),
                 _ => (),
             }
         }
-
+        if let Ok(current_chart) = self.actions.get_current() {
+            self.chart = current_chart;
+        }
         let delta_time = (10.0 * ggez::timer::delta(ctx).as_secs_f32()).min(1.0);
         self.x_offset = self.x_offset + (self.x_offset_target - self.x_offset) * delta_time;
         let tick = self.audio_playback.get_tick(&self.chart);
@@ -589,7 +598,9 @@ impl EventHandler for MainState {
             let tick = self.pos_to_tick(x, y);
             let tick = tick - (tick % (self.chart.beat.resolution / 2));
             match self.cursor_object {
-                Some(ref mut cursor) => cursor.mouse_down(tick, lane, &mut self.chart),
+                Some(ref mut cursor) => {
+                    cursor.mouse_down(tick, lane, &self.chart, &mut self.actions)
+                }
                 None => self.cursor_line = tick,
             }
         }
@@ -601,7 +612,7 @@ impl EventHandler for MainState {
             let tick = self.pos_to_tick(x, y);
             let tick = tick - (tick % (self.chart.beat.resolution / 2));
             if let Some(cursor) = &mut self.cursor_object {
-                cursor.mouse_up(tick, lane, &mut self.chart);
+                cursor.mouse_up(tick, lane, &self.chart, &mut self.actions);
             }
         }
     }
@@ -628,7 +639,7 @@ impl EventHandler for MainState {
         &mut self,
         _ctx: &mut Context,
         keycode: KeyCode,
-        _keymods: KeyMods,
+        keymods: KeyMods,
         _repeat: bool,
     ) {
         match keycode {
@@ -688,6 +699,16 @@ impl EventHandler for MainState {
                             }
                         }
                     }
+                }
+            }
+            KeyCode::Z => {
+                if keymods & KeyMods::CTRL != KeyMods::NONE {
+                    self.actions.undo();
+                }
+            }
+            KeyCode::Y => {
+                if keymods & KeyMods::CTRL != KeyMods::NONE {
+                    self.actions.redo();
                 }
             }
             _ => (),

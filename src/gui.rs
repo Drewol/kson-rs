@@ -50,6 +50,8 @@ pub enum GuiEvent {
     Open,
     Save,
     ToolChanged(ChartTool),
+    Undo,
+    Redo,
     SaveAs,
     Exit,
 }
@@ -134,7 +136,7 @@ impl ImGuiWrapper {
         let ui = self.imgui.frame();
         // Various ui things
         {
-            let mut file_menu_items = || {
+            let file_menu_items = |state: &mut MainState| {
                 if MenuItem::new(im_str!("Open")).build(&ui) {
                     state.gui_event_queue.push_back(GuiEvent::Open);
                 }
@@ -152,13 +154,31 @@ impl ImGuiWrapper {
                 }
             };
 
+            let edit_menu_items = |state: &mut MainState| {
+                if let Some(undo_desc) = state.actions.prev_action_desc() {
+                    if MenuItem::new(im_str!("Undo: {}", undo_desc).as_ref()).build(&ui) {
+                        state.gui_event_queue.push_back(GuiEvent::Undo);
+                    }
+                }
+                if let Some(undo_desc) = state.actions.next_action_desc() {
+                    if MenuItem::new(im_str!("Redo: {}", undo_desc).as_ref()).build(&ui) {
+                        state.gui_event_queue.push_back(GuiEvent::Redo);
+                    }
+                }
+            };
+
             // Menu bar
             let main_menu = ui.begin_main_menu_bar();
             if let Some(main_menu) = main_menu {
                 let file_menu = ui.begin_menu(im_str!("File"), true);
                 if let Some(file_menu) = file_menu {
-                    file_menu_items();
+                    file_menu_items(state);
                     file_menu.end(&ui);
+                }
+                let edit_menu = ui.begin_menu(im_str!("Edit"), true);
+                if let Some(edit_menu) = edit_menu {
+                    edit_menu_items(state);
+                    edit_menu.end(&ui);
                 }
                 main_menu.end(&ui);
             }

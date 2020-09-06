@@ -1,3 +1,4 @@
+use crate::action_stack::{Action, ActionStack};
 use crate::MainState;
 
 use ggez::graphics;
@@ -6,8 +7,8 @@ use ggez::{Context, GameResult};
 use kson::{Chart, GraphSectionPoint, Interval, LaserSection};
 
 pub trait CursorObject {
-    fn mouse_down(&mut self, tick: u32, lane: f32, chart: &mut Chart);
-    fn mouse_up(&mut self, tick: u32, lane: f32, chart: &mut Chart);
+    fn mouse_down(&mut self, tick: u32, lane: f32, chart: &Chart, actions: &mut ActionStack<Chart>);
+    fn mouse_up(&mut self, tick: u32, lane: f32, chart: &Chart, actions: &mut ActionStack<Chart>);
     fn update(&mut self, tick: u32, lane: f32);
     fn draw(&self, state: &MainState, ctx: &mut Context) -> GameResult;
 }
@@ -92,7 +93,13 @@ impl LaserTool {
 }
 
 impl CursorObject for ButtonInterval {
-    fn mouse_down(&mut self, tick: u32, lane: f32, _chart: &mut Chart) {
+    fn mouse_down(
+        &mut self,
+        tick: u32,
+        lane: f32,
+        chart: &Chart,
+        actions: &mut ActionStack<Chart>,
+    ) {
         self.pressed = true;
         if self.fx {
             self.lane = if lane < 3.0 { 0 } else { 1 };
@@ -102,7 +109,7 @@ impl CursorObject for ButtonInterval {
         self.interval.y = tick;
     }
 
-    fn mouse_up(&mut self, tick: u32, _lane: f32, chart: &mut Chart) {
+    fn mouse_up(&mut self, tick: u32, _lane: f32, chart: &Chart, actions: &mut ActionStack<Chart>) {
         if self.interval.y >= tick {
             self.interval.l = 0;
         } else {
@@ -110,11 +117,33 @@ impl CursorObject for ButtonInterval {
         }
         let v = std::mem::replace(&mut self.interval, Interval { y: 0, l: 0 });
         if self.fx {
-            chart.note.fx[self.lane].push(v);
-            chart.note.fx[self.lane].sort_by(|a, b| a.y.partial_cmp(&b.y).unwrap());
+            let l = self.lane;
+
+            actions.commit(Action {
+                description: format!(
+                    "Add {} FX Note",
+                    if self.lane == 0 { "Left" } else { "Right" }
+                ),
+                action: Box::new(move |edit_chart: &mut Chart| {
+                    edit_chart.note.fx[l].push(v);
+                    edit_chart.note.fx[l].sort_by(|a, b| a.y.partial_cmp(&b.y).unwrap());
+                    Ok(())
+                }),
+            })
         } else {
-            chart.note.bt[self.lane].push(v);
-            chart.note.bt[self.lane].sort_by(|a, b| a.y.partial_cmp(&b.y).unwrap());
+            let l = self.lane;
+
+            actions.commit(Action {
+                description: format!(
+                    "Add {} BT Note",
+                    std::char::from_u32('A' as u32 + self.lane as u32).unwrap_or_default()
+                ),
+                action: Box::new(move |edit_chart: &mut Chart| {
+                    edit_chart.note.bt[l].push(v);
+                    edit_chart.note.bt[l].sort_by(|a, b| a.y.partial_cmp(&b.y).unwrap());
+                    Ok(())
+                }),
+            })
         }
         self.pressed = false;
         self.lane = 0;
@@ -213,7 +242,13 @@ impl CursorObject for ButtonInterval {
 }
 
 impl CursorObject for LaserTool {
-    fn mouse_down(&mut self, tick: u32, lane: f32, chart: &mut Chart) {
+    fn mouse_down(
+        &mut self,
+        tick: u32,
+        lane: f32,
+        chart: &Chart,
+        actions: &mut ActionStack<Chart>,
+    ) {
         let v = LaserTool::lane_to_pos(lane);
         let ry = self.calc_ry(tick);
         let mut finalize = false;
@@ -241,9 +276,17 @@ impl CursorObject for LaserTool {
                     wide: 1,
                 },
             );
+            let v = std::rc::Rc::new(v.clone()); //Can't capture by clone so use RC
             let i = if self.right { 1 } else { 0 };
-            chart.note.laser[i].push(v);
-            chart.note.laser[i].sort_by(|a, b| a.y.partial_cmp(&b.y).unwrap());
+            actions.commit(Action {
+                description: format!("Add {} Laser", if self.right { "Right" } else { "Left" }),
+                action: Box::new(move |edit_chart| {
+                    edit_chart.note.laser[i].push(v.as_ref().clone());
+                    edit_chart.note.laser[i].sort_by(|a, b| a.y.partial_cmp(&b.y).unwrap());
+                    Ok(())
+                }),
+            });
+
             return;
         }
 
@@ -251,7 +294,14 @@ impl CursorObject for LaserTool {
             .v
             .push(GraphSectionPoint::new(ry, LaserTool::lane_to_pos(lane)));
     }
-    fn mouse_up(&mut self, _tick: u32, _lane: f32, _chart: &mut Chart) {}
+    fn mouse_up(
+        &mut self,
+        _tick: u32,
+        _lane: f32,
+        chart: &Chart,
+        actions: &mut ActionStack<Chart>,
+    ) {
+    }
     fn update(&mut self, tick: u32, lane: f32) {
         if self.active {
             let ry = self.calc_ry(tick);
