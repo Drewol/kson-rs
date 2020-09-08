@@ -33,12 +33,12 @@ impl ButtonInterval {
 }
 
 enum LaserEditMode {
+    None,
     New,
-    Edit,
+    Edit(usize),
 }
 
 pub struct LaserTool {
-    active: bool,
     right: bool,
     section: LaserSection,
     mode: LaserEditMode,
@@ -47,9 +47,8 @@ pub struct LaserTool {
 impl LaserTool {
     pub fn new(right: bool) -> Self {
         LaserTool {
-            active: false,
             right,
-            mode: LaserEditMode::New,
+            mode: LaserEditMode::None,
             section: LaserSection {
                 y: 0,
                 wide: 0,
@@ -89,6 +88,23 @@ impl LaserTool {
         } else {
             ry
         }
+    }
+
+    fn hit_test(&self, chart: &Chart, tick: u32) -> Option<usize> {
+        let side_index: usize = if self.right { 1 } else { 0 };
+
+        for si in 0..chart.note.laser[side_index].len() {
+            let current_section = &chart.note.laser[side_index][si];
+            if tick < current_section.y {
+                break;
+            }
+            if tick >= current_section.y
+                && tick <= current_section.y + current_section.v.last().unwrap().ry
+            {
+                return Some(si);
+            }
+        }
+        None
     }
 }
 
@@ -253,94 +269,132 @@ impl CursorObject for LaserTool {
         let ry = self.calc_ry(tick);
         let mut finalize = false;
 
-        if !self.active {
-            self.section.y = tick;
-            self.section.v.push(GraphSectionPoint::new(0, v));
-            self.section.wide = 1;
-            self.active = true;
-        } else if let Some(last) = self.get_second_to_last() {
-            finalize = match (*last).vf {
-                Some(_) => ry == last.ry,
-                None => ry == last.ry && (v - last.v).abs() < f64::EPSILON,
-            };
-        }
+        match self.mode {
+            LaserEditMode::None => {
+                //hit test existing lasers
+                //if a laser exists enter edit mode for that laser
+                //if no lasers exist create new laser
+                let side_index: usize = if self.right { 1 } else { 0 };
+                if let Some(section_index) = self.hit_test(chart, tick) {
+                    self.section = chart.note.laser[side_index][section_index].clone();
+                    self.mode = LaserEditMode::Edit(section_index);
+                } else {
+                    self.section.y = tick;
+                    self.section.v.push(GraphSectionPoint::new(0, v));
+                    self.section.v.push(GraphSectionPoint::new(0, v));
+                    self.section.wide = 1;
+                    self.mode = LaserEditMode::New;
+                }
+            }
+            LaserEditMode::New => {
+                if let Some(last) = self.get_second_to_last() {
+                    finalize = match (*last).vf {
+                        Some(_) => ry == last.ry,
+                        None => ry == last.ry && (v - last.v).abs() < f64::EPSILON,
+                    };
+                }
+                if finalize {
+                    self.mode = LaserEditMode::None;
+                    self.section.v.pop();
+                    let v = std::mem::replace(
+                        &mut self.section,
+                        LaserSection {
+                            y: 0,
+                            v: Vec::new(),
+                            wide: 1,
+                        },
+                    );
+                    let v = std::rc::Rc::new(v.clone()); //Can't capture by clone so use RC
+                    let i = if self.right { 1 } else { 0 };
+                    actions.commit(Action {
+                        description: format!(
+                            "Add {} Laser",
+                            if self.right { "Right" } else { "Left" }
+                        ),
+                        action: Box::new(move |edit_chart| {
+                            edit_chart.note.laser[i].push(v.as_ref().clone());
+                            edit_chart.note.laser[i].sort_by(|a, b| a.y.partial_cmp(&b.y).unwrap());
+                            Ok(())
+                        }),
+                    });
 
-        if finalize {
-            self.active = false;
-            self.section.v.pop();
-            let v = std::mem::replace(
-                &mut self.section,
-                LaserSection {
-                    y: 0,
-                    v: Vec::new(),
-                    wide: 1,
-                },
-            );
-            let v = std::rc::Rc::new(v.clone()); //Can't capture by clone so use RC
-            let i = if self.right { 1 } else { 0 };
-            actions.commit(Action {
-                description: format!("Add {} Laser", if self.right { "Right" } else { "Left" }),
-                action: Box::new(move |edit_chart| {
-                    edit_chart.note.laser[i].push(v.as_ref().clone());
-                    edit_chart.note.laser[i].sort_by(|a, b| a.y.partial_cmp(&b.y).unwrap());
-                    Ok(())
-                }),
-            });
+                    return;
+                }
 
-            return;
-        }
-
-        self.section
-            .v
-            .push(GraphSectionPoint::new(ry, LaserTool::lane_to_pos(lane)));
-    }
-    fn mouse_up(
-        &mut self,
-        _tick: u32,
-        _lane: f32,
-        chart: &Chart,
-        actions: &mut ActionStack<Chart>,
-    ) {
-    }
-    fn update(&mut self, tick: u32, lane: f32) {
-        if self.active {
-            let ry = self.calc_ry(tick);
-            let v = LaserTool::lane_to_pos(lane);
-            let second_last: Option<GraphSectionPoint> = match self.get_second_to_last() {
-                Some(sl) => Some(*sl),
-                None => None,
-            };
-            if let Some(last) = self.section.v.last_mut() {
-                (*last).ry = ry;
-                (*last).v = v;
-
-                if let Some(second_last) = second_last {
-                    if second_last.ry == ry {
-                        (*last).v = second_last.v;
-                        (*last).vf = Some(v);
-                    } else {
-                        (*last).vf = None;
+                self.section
+                    .v
+                    .push(GraphSectionPoint::new(ry, LaserTool::lane_to_pos(lane)));
+            }
+            LaserEditMode::Edit(section_index) => {
+                if self.hit_test(chart, tick) == Some(section_index) {
+                    //do stuff
+                } else {
+                    self.mode = LaserEditMode::None;
+                    self.section = LaserSection {
+                        y: tick,
+                        v: Vec::new(),
+                        wide: 1,
                     }
                 }
             }
         }
     }
-    fn draw(&self, state: &MainState, ctx: &mut Context) -> GameResult {
-        if !self.active {
-            return Ok(());
-        }
-        let b = 0.8;
-        let color: graphics::Color = if self.right {
-            [0.76 * b, 0.024 * b, 0.55 * b, 1.0].into()
-        } else {
-            [0.0, 0.45 * b, 0.565 * b, 1.0].into()
-        };
+    fn mouse_up(
+        &mut self,
+        _tick: u32,
+        _lane: f32,
+        _chart: &Chart,
+        _actions: &mut ActionStack<Chart>,
+    ) {
+    }
+    fn update(&mut self, tick: u32, lane: f32) {
+        match self.mode {
+            LaserEditMode::New => {
+                let ry = self.calc_ry(tick);
+                let v = LaserTool::lane_to_pos(lane);
+                let second_last: Option<GraphSectionPoint> = match self.get_second_to_last() {
+                    Some(sl) => Some(*sl),
+                    None => None,
+                };
+                if let Some(last) = self.section.v.last_mut() {
+                    (*last).ry = ry;
+                    (*last).v = v;
 
-        let mut mb = graphics::MeshBuilder::new();
-        state.draw_laser_section(&self.section, &mut mb, color)?;
-        graphics::set_blend_mode(ctx, graphics::BlendMode::Add)?;
-        let m = mb.build(ctx)?;
-        graphics::draw(ctx, &m, (na::Point2::new(0.0, 0.0),))?;
+                    if let Some(second_last) = second_last {
+                        if second_last.ry == ry {
+                            (*last).v = second_last.v;
+                            (*last).vf = Some(v);
+                        } else {
+                            (*last).vf = None;
+                        }
+                    }
+                }
+            }
+            LaserEditMode::None => {}
+            LaserEditMode::Edit(_) => {}
+        }
+    }
+    fn draw(&self, state: &MainState, ctx: &mut Context) -> GameResult {
+        if self.section.v.len() > 1 {
+            if let Some(color) = match self.mode {
+                LaserEditMode::None => None,
+                LaserEditMode::New => {
+                    let b = 0.8;
+                    if self.right {
+                        [0.76 * b, 0.024 * b, 0.55 * b, 1.0].into()
+                    } else {
+                        [0.0, 0.45 * b, 0.565 * b, 1.0].into()
+                    }
+                }
+                LaserEditMode::Edit(_) => Some([0.0, 0.76, 0.0, 1.0]),
+            } {
+                let mut mb = graphics::MeshBuilder::new();
+                state.draw_laser_section(&self.section, &mut mb, color.into())?;
+                graphics::set_blend_mode(ctx, graphics::BlendMode::Add)?;
+                let m = mb.build(ctx)?;
+                graphics::draw(ctx, &m, (na::Point2::new(0.0, 0.0),))?;
+            }
+        }
         Ok(())
     }
 }
