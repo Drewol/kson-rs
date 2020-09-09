@@ -813,7 +813,7 @@ pub fn main() {
 
     let modules = ggez::conf::ModuleConf {
         gamepad: false,
-        audio: true,
+        audio: false,
     };
 
     let cb = ggez::ContextBuilder::new("usc-editor", "Drewol")

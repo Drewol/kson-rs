@@ -155,8 +155,9 @@ pub struct AudioPlayback {
 
 impl AudioPlayback {
     pub fn new(ctx: &ggez::Context) -> Self {
+        let device = rodio::default_output_device().unwrap();
         AudioPlayback {
-            sink: Sink::new(ctx.audio_context.device()),
+            sink: Sink::new(&device),
             file: None,
             last_file: String::new(),
             laser_funcs: [Vec::new(), Vec::new()],
