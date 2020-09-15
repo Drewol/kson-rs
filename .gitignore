@@ -1,5 +1,4 @@
 target/*
-*.lock
 .vscode/*
 imgui.ini
 profiling.json
