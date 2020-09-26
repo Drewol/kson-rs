@@ -45,11 +45,16 @@ impl ButtonInterval {
         }
     }
 }
+#[derive(Copy, Clone)]
+struct LaserEditState {
+    section_index: usize,
+    curving_index: Option<usize>,
+}
 
 enum LaserEditMode {
     None,
     New,
-    Edit(usize),
+    Edit(LaserEditState),
 }
 
 pub struct LaserTool {
@@ -68,6 +73,16 @@ impl LaserTool {
                 wide: 0,
                 v: Vec::new(),
             },
+        }
+    }
+
+    fn gsp(ry: u32, v: f64) -> GraphSectionPoint {
+        GraphSectionPoint {
+            ry,
+            v,
+            vf: None,
+            a: Some(0.5),
+            b: Some(0.5),
         }
     }
 
@@ -301,11 +316,14 @@ impl CursorObject for LaserTool {
                 let side_index: usize = if self.right { 1 } else { 0 };
                 if let Some(section_index) = self.hit_test(chart, tick) {
                     self.section = chart.note.laser[side_index][section_index].clone();
-                    self.mode = LaserEditMode::Edit(section_index);
+                    self.mode = LaserEditMode::Edit(LaserEditState {
+                        section_index,
+                        curving_index: None,
+                    });
                 } else {
                     self.section.y = tick;
-                    self.section.v.push(GraphSectionPoint::new(0, v));
-                    self.section.v.push(GraphSectionPoint::new(0, v));
+                    self.section.v.push(LaserTool::gsp(0, v));
+                    self.section.v.push(LaserTool::gsp(0, v));
                     self.section.wide = 1;
                     self.mode = LaserEditMode::New;
                 }
@@ -347,10 +365,10 @@ impl CursorObject for LaserTool {
 
                 self.section
                     .v
-                    .push(GraphSectionPoint::new(ry, LaserTool::lane_to_pos(lane)));
+                    .push(LaserTool::gsp(ry, LaserTool::lane_to_pos(lane)));
             }
-            LaserEditMode::Edit(section_index) => {
-                if self.hit_test(chart, tick) == Some(section_index) {
+            LaserEditMode::Edit(edit_state) => {
+                if self.hit_test(chart, tick) == Some(edit_state.section_index) {
                     //do stuff
                 } else {
                     self.mode = LaserEditMode::None;
@@ -401,6 +419,7 @@ impl CursorObject for LaserTool {
     }
     fn draw(&self, state: &MainState, ctx: &mut Context) -> GameResult {
         if self.section.v.len() > 1 {
+            //Draw laser mesh
             if let Some(color) = match self.mode {
                 LaserEditMode::None => None,
                 LaserEditMode::New => {
@@ -416,6 +435,69 @@ impl CursorObject for LaserTool {
                 let mut mb = graphics::MeshBuilder::new();
                 state.draw_laser_section(&self.section, &mut mb, color.into())?;
                 graphics::set_blend_mode(ctx, graphics::BlendMode::Add)?;
+                let m = mb.build(ctx)?;
+                graphics::draw(ctx, &m, (na::Point2::new(0.0, 0.0),))?;
+            }
+
+            //Draw curve control points
+            if let LaserEditMode::Edit(edit_state) = self.mode {
+                let mut i = 0;
+                let mut mb = graphics::MeshBuilder::new();
+                for start_end in self.section.v.windows(2) {
+                    let start = start_end.get(0).unwrap();
+                    //TODO: (a,b) should not be optional
+                    if start.a == None || start.b == None {
+                        continue;
+                    }
+                    let start_value = if let Some(vf) = start.vf { vf } else { start.v };
+                    let end = start_end.get(1).unwrap();
+                    let start_tick = self.section.y + start.ry;
+                    let end_tick = self.section.y + end.ry;
+                    match start_tick.cmp(&end_tick) {
+                        std::cmp::Ordering::Greater => {
+                            panic!("Laser section start later than end.")
+                        }
+                        std::cmp::Ordering::Equal => continue,
+                        _ => {}
+                    };
+                    let intervals = state.interval_to_ranges(&Interval {
+                        y: start_tick,
+                        l: end_tick - start_tick,
+                    });
+
+                    let color = if edit_state.curving_index == Some(i) {
+                        [0.0, 1.0, 0.0, 1.0]
+                    } else {
+                        [0.0, 0.0, 1.0, 1.0]
+                    };
+
+                    if let Some(&interv) = intervals.iter().find(|&&v| {
+                        let a = start.a.unwrap();
+                        let s = (v.3).0 as f64;
+                        let e = (v.3).1 as f64;
+                        a >= s && a <= e
+                    }) {
+                        let value_width = end.v - start_value;
+                        let x_offset = state.x_offset + state.track_width / 2.0;
+                        let x = interv.0
+                            + x_offset
+                            + (start_value + start.b.unwrap() * value_width) as f32
+                                * state.track_width;
+                        let y = interv.1
+                            + interv.2 * (start.a.unwrap() as f32 - (interv.3).0) / (interv.3).1;
+                        mb.circle(
+                            graphics::DrawMode::fill(),
+                            ggez::nalgebra::Point2::new(x, y),
+                            5.0,
+                            0.3,
+                            color.into(),
+                        );
+                    } else {
+                        panic!("Curve `a` was not in any interval");
+                    }
+
+                    i += 1;
+                }
                 let m = mb.build(ctx)?;
                 graphics::draw(ctx, &m, (na::Point2::new(0.0, 0.0),))?;
             }
