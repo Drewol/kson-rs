@@ -86,6 +86,48 @@ impl LaserTool {
         }
     }
 
+    fn get_control_point_pos(
+        state: &MainState,
+        points: &[GraphSectionPoint],
+        start_y: u32,
+    ) -> Option<ggez::nalgebra::Point2<f32>> {
+        let start = points.get(0).unwrap();
+        //TODO: (a,b) should not be optional
+        if start.a == None || start.b == None {
+            return None;
+        }
+        let start_value = if let Some(vf) = start.vf { vf } else { start.v };
+        let end = points.get(1).unwrap();
+        let start_tick = start_y + start.ry;
+        let end_tick = start_y + end.ry;
+        match start_tick.cmp(&end_tick) {
+            std::cmp::Ordering::Greater => panic!("Laser section start later than end."),
+            std::cmp::Ordering::Equal => return None,
+            _ => {}
+        };
+        let intervals = state.interval_to_ranges(&Interval {
+            y: start_tick,
+            l: end_tick - start_tick,
+        });
+
+        if let Some(&interv) = intervals.iter().find(|&&v| {
+            let a = start.a.unwrap();
+            let s = (v.3).0 as f64;
+            let e = (v.3).1 as f64;
+            a >= s && a <= e
+        }) {
+            let value_width = end.v - start_value;
+            let x = (start_value + start.b.unwrap() * value_width) as f32;
+            let x = 1.0 / 10.0 + x * 8.0 / 10.0;
+            let x = x * state.track_width + interv.0 + state.track_width / 2.0;
+            let y = interv.1 + interv.2 * (start.a.unwrap() as f32 - (interv.3).0) / (interv.3).1;
+            return Some(ggez::nalgebra::Point2::new(x, y));
+        } else {
+            panic!("Curve `a` was not in any interval");
+        }
+        None
+    }
+
     fn lane_to_pos(lane: f32) -> f64 {
         let resolution: f64 = 10.0;
         math::round::floor(resolution * lane as f64 / 6.0, 0) / resolution
@@ -414,7 +456,16 @@ impl CursorObject for LaserTool {
                 }
             }
             LaserEditMode::None => {}
-            LaserEditMode::Edit(_) => {}
+            LaserEditMode::Edit(_) => {
+                for gp in &mut self.section.v {
+                    if gp.a.is_none() {
+                        gp.a = Some(0.5);
+                    }
+                    if gp.b.is_none() {
+                        gp.b = Some(0.5);
+                    }
+                }
+            }
         }
     }
     fn draw(&self, state: &MainState, ctx: &mut Context) -> GameResult {
@@ -441,64 +492,22 @@ impl CursorObject for LaserTool {
 
             //Draw curve control points
             if let LaserEditMode::Edit(edit_state) = self.mode {
-                let mut i = 0;
                 let mut mb = graphics::MeshBuilder::new();
-                for start_end in self.section.v.windows(2) {
-                    let start = start_end.get(0).unwrap();
-                    //TODO: (a,b) should not be optional
-                    if start.a == None || start.b == None {
-                        continue;
-                    }
-                    let start_value = if let Some(vf) = start.vf { vf } else { start.v };
-                    let end = start_end.get(1).unwrap();
-                    let start_tick = self.section.y + start.ry;
-                    let end_tick = self.section.y + end.ry;
-                    match start_tick.cmp(&end_tick) {
-                        std::cmp::Ordering::Greater => {
-                            panic!("Laser section start later than end.")
-                        }
-                        std::cmp::Ordering::Equal => continue,
-                        _ => {}
-                    };
-                    let intervals = state.interval_to_ranges(&Interval {
-                        y: start_tick,
-                        l: end_tick - start_tick,
-                    });
-
+                for (i, start_end) in self.section.v.windows(2).enumerate() {
                     let color = if edit_state.curving_index == Some(i) {
                         [0.0, 1.0, 0.0, 1.0]
                     } else {
                         [0.0, 0.0, 1.0, 1.0]
                     };
 
-                    if let Some(&interv) = intervals.iter().find(|&&v| {
-                        let a = start.a.unwrap();
-                        let s = (v.3).0 as f64;
-                        let e = (v.3).1 as f64;
-                        a >= s && a <= e
-                    }) {
-                        let value_width = end.v - start_value;
-                        let x_offset = state.x_offset + state.track_width / 2.0;
-                        let x = interv.0
-                            + x_offset
-                            + (start_value + start.b.unwrap() * value_width) as f32
-                                * state.track_width;
-                        let y = interv.1
-                            + interv.2 * (start.a.unwrap() as f32 - (interv.3).0) / (interv.3).1;
-                        mb.circle(
-                            graphics::DrawMode::fill(),
-                            ggez::nalgebra::Point2::new(x, y),
-                            5.0,
-                            0.3,
-                            color.into(),
-                        );
-                    } else {
-                        panic!("Curve `a` was not in any interval");
+                    if let Some(pos) =
+                        LaserTool::get_control_point_pos(state, start_end, self.section.y)
+                    {
+                        mb.circle(graphics::DrawMode::fill(), pos, 5.0, 0.3, color.into());
                     }
-
-                    i += 1;
                 }
                 let m = mb.build(ctx)?;
+                graphics::set_blend_mode(ctx, graphics::BlendMode::Alpha)?;
                 graphics::draw(ctx, &m, (na::Point2::new(0.0, 0.0),))?;
             }
         }
