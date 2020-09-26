@@ -7,9 +7,23 @@ use ggez::{Context, GameResult};
 use kson::{Chart, GraphSectionPoint, Interval, LaserSection};
 
 pub trait CursorObject {
-    fn mouse_down(&mut self, tick: u32, lane: f32, chart: &Chart, actions: &mut ActionStack<Chart>);
-    fn mouse_up(&mut self, tick: u32, lane: f32, chart: &Chart, actions: &mut ActionStack<Chart>);
-    fn update(&mut self, tick: u32, lane: f32);
+    fn mouse_down(
+        &mut self,
+        tick: u32,
+        tick_f: f64,
+        lane: f32,
+        chart: &Chart,
+        actions: &mut ActionStack<Chart>,
+    );
+    fn mouse_up(
+        &mut self,
+        tick: u32,
+        tick_f: f64,
+        lane: f32,
+        chart: &Chart,
+        actions: &mut ActionStack<Chart>,
+    );
+    fn update(&mut self, tick: u32, tick_f: f64, lane: f32);
     fn draw(&self, state: &MainState, ctx: &mut Context) -> GameResult;
 }
 
@@ -58,7 +72,8 @@ impl LaserTool {
     }
 
     fn lane_to_pos(lane: f32) -> f64 {
-        math::round::floor(lane as f64 * 2.0, 0) / 10.0
+        let resolution: f64 = 10.0;
+        math::round::floor(resolution * lane as f64 / 6.0, 0) / resolution
     }
 
     fn get_second_to_last(&self) -> Option<&GraphSectionPoint> {
@@ -112,6 +127,7 @@ impl CursorObject for ButtonInterval {
     fn mouse_down(
         &mut self,
         tick: u32,
+        tick_f: f64,
         lane: f32,
         chart: &Chart,
         actions: &mut ActionStack<Chart>,
@@ -125,7 +141,14 @@ impl CursorObject for ButtonInterval {
         self.interval.y = tick;
     }
 
-    fn mouse_up(&mut self, tick: u32, _lane: f32, chart: &Chart, actions: &mut ActionStack<Chart>) {
+    fn mouse_up(
+        &mut self,
+        tick: u32,
+        tick_f: f64,
+        _lane: f32,
+        chart: &Chart,
+        actions: &mut ActionStack<Chart>,
+    ) {
         if self.interval.y >= tick {
             self.interval.l = 0;
         } else {
@@ -165,7 +188,7 @@ impl CursorObject for ButtonInterval {
         self.lane = 0;
     }
 
-    fn update(&mut self, tick: u32, lane: f32) {
+    fn update(&mut self, tick: u32, tick_f: f64, lane: f32) {
         if !self.pressed {
             self.interval.y = tick;
             if self.fx {
@@ -261,6 +284,7 @@ impl CursorObject for LaserTool {
     fn mouse_down(
         &mut self,
         tick: u32,
+        tick_f: f64,
         lane: f32,
         chart: &Chart,
         actions: &mut ActionStack<Chart>,
@@ -342,12 +366,13 @@ impl CursorObject for LaserTool {
     fn mouse_up(
         &mut self,
         _tick: u32,
+        _tick_f: f64,
         _lane: f32,
         _chart: &Chart,
         _actions: &mut ActionStack<Chart>,
     ) {
     }
-    fn update(&mut self, tick: u32, lane: f32) {
+    fn update(&mut self, tick: u32, tick_f: f64, lane: f32) {
         match self.mode {
             LaserEditMode::New => {
                 let ry = self.calc_ry(tick);

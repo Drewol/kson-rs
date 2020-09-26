@@ -184,6 +184,9 @@ impl ImGuiWrapper {
             }
 
             let cursor_ms = state.get_cursor_ms();
+            let cursor_tick = state.get_cursor_tick();
+            let cursor_tick_f = state.get_cursor_tick_f();
+            let cursor_lane = state.get_cursor_lane();
             let (lval, rval) = state.audio_playback.get_laser_values();
             Window::new(im_str!("Stats"))
                 .size([300.0, 600.0], imgui::Condition::FirstUseEver)
@@ -192,6 +195,9 @@ impl ImGuiWrapper {
                     let fps = ggez::timer::fps(ctx);
                     ui.text(im_str!("FPS: {:.1}", fps));
                     ui.text(im_str!("Cursor: {:.1}ms", cursor_ms));
+                    ui.text(im_str!("Cursor tick: {}", cursor_tick));
+                    ui.text(im_str!("Cursor tick_f: {:.2}", cursor_tick_f));
+                    ui.text(im_str!("Cursor lane: {}", cursor_lane));
                     ui.text(im_str!("Lasers: ({:.2?},{:.2?})", lval, rval))
                 });
 

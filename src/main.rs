@@ -81,6 +81,18 @@ impl MainState {
         self.chart.tick_to_ms(tick)
     }
 
+    pub fn get_cursor_tick(&self) -> u32 {
+        self.pos_to_tick(self.mouse_x, self.mouse_y)
+    }
+
+    pub fn get_cursor_tick_f(&self) -> f64 {
+        self.pos_to_tick_f(self.mouse_x, self.mouse_y)
+    }
+
+    pub fn get_cursor_lane(&self) -> f32 {
+        self.pos_to_lane(self.mouse_x)
+    }
+
     fn draw_laser_section(
         &self,
         section: &kson::LaserSection,
@@ -234,21 +246,21 @@ impl MainState {
     }
 
     fn pos_to_tick(&self, in_x: f32, in_y: f32) -> u32 {
-        let h = self.chart_draw_height();
-        let y = 1.0 - ((in_y - self.top_margin).max(0.0) / h).min(1.0);
-        let x = in_x + self.x_offset;
+        self.pos_to_tick_f(in_x, in_y).floor() as u32
+    }
+
+    fn pos_to_tick_f(&self, in_x: f32, in_y: f32) -> f64 {
+        let h = self.chart_draw_height() as f64;
+        let y: f64 = 1.0 - ((in_y - self.top_margin).max(0.0) / h as f32).min(1.0) as f64;
+        let x = (in_x + self.x_offset) as f64;
         let x = math::round::floor(x as f64 / self.track_spacing() as f64, 0);
-        math::round::floor(
-            (y as f64 + x) * self.beats_per_col as f64 * self.chart.beat.resolution as f64,
-            0,
-        )
-        .max(0.0) as u32
+        ((y + x) * self.beats_per_col as f64 * self.chart.beat.resolution as f64).max(0.0)
     }
 
     fn pos_to_lane(&self, in_x: f32) -> f32 {
         let mut x = (in_x + self.x_offset) % self.track_spacing();
         x = ((x - self.track_width as f32 / 2.0).max(0.0) / self.track_width as f32).min(1.0);
-        (x * 6.0).min(5.0) as f32
+        (x * 6.0).min(6.0) as f32
     }
 
     fn interval_to_ranges(&self, in_interval: &kson::Interval) -> Vec<(f32, f32, f32, (f32, f32))> // (x,y,h, (start,end))
@@ -597,9 +609,10 @@ impl EventHandler for MainState {
             let lane = self.pos_to_lane(x);
             let tick = self.pos_to_tick(x, y);
             let tick = tick - (tick % (self.chart.beat.resolution / 2));
+            let tick_f = self.pos_to_tick_f(x, y);
             match self.cursor_object {
                 Some(ref mut cursor) => {
-                    cursor.mouse_down(tick, lane, &self.chart, &mut self.actions)
+                    cursor.mouse_down(tick, tick_f, lane, &self.chart, &mut self.actions)
                 }
                 None => self.cursor_line = tick,
             }
@@ -610,9 +623,10 @@ impl EventHandler for MainState {
         if button == MouseButton::Left {
             let lane = self.pos_to_lane(x);
             let tick = self.pos_to_tick(x, y);
+            let tick_f = self.pos_to_tick_f(x, y);
             let tick = tick - (tick % (self.chart.beat.resolution / 2));
             if let Some(cursor) = &mut self.cursor_object {
-                cursor.mouse_up(tick, lane, &self.chart, &mut self.actions);
+                cursor.mouse_up(tick, tick_f, lane, &self.chart, &mut self.actions);
             }
         }
     }
@@ -721,9 +735,10 @@ impl EventHandler for MainState {
 
         let lane = self.pos_to_lane(x);
         let tick = self.pos_to_tick(x, y);
+        let tick_f: f64 = self.pos_to_tick_f(x, y);
         let tick = tick - (tick % (self.chart.beat.resolution / 2));
         if let Some(cursor) = &mut self.cursor_object {
-            cursor.update(tick, lane);
+            cursor.update(tick, tick_f, lane);
         }
     }
 
@@ -789,6 +804,7 @@ fn save_chart_as(chart: &kson::Chart) -> Result<Option<String>, Box<dyn Error>> 
 
 pub fn main() {
     thread_profiler::register_thread_with_profiler();
+    println!("{:?}", std::env::temp_dir());
 
     let win_setup = ggez::conf::WindowSetup {
         title: "KSON Editor".to_owned(),
