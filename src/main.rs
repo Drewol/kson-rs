@@ -361,6 +361,39 @@ impl MainState {
                     [x, y, w, -slam_height].into(),
                     color,
                 );
+                let end_rect_x = if sx > ex {
+                    0.0
+                } else {
+                    self.screen.lane_width()
+                };
+                mb.rectangle(
+                    graphics::DrawMode::fill(),
+                    [
+                        x + w - end_rect_x,
+                        y - slam_height,
+                        self.screen.lane_width(),
+                        -slam_height,
+                    ]
+                    .into(),
+                    color,
+                );
+            }
+        }
+
+        if let Some(l) = section.v.first() {
+            if l.vf.is_some() {
+                let mut sv: f32 = l.v as f32;
+                if wide {
+                    sv = sv * 2.0 - 0.5;
+                }
+
+                let (x, y) = self.screen.tick_to_pos(l.ry + y_base);
+                let x = x + sv * track_lane_diff + half_track;
+                mb.rectangle(
+                    graphics::DrawMode::fill(),
+                    [x, y, self.screen.lane_width(), slam_height].into(),
+                    color,
+                );
             }
         }
         Ok(())
