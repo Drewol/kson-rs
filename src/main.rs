@@ -934,9 +934,16 @@ fn save_chart_as(chart: &kson::Chart) -> Result<Option<String>, Box<dyn Error>> 
     Ok(Some(path))
 }
 
+fn get_config_path() -> std::path::PathBuf {
+    let mut dir = dirs::config_dir().unwrap_or_else(std::env::temp_dir);
+    dir.push("Drewol");
+    dir.push("kson-editor");
+    dir
+}
+
 pub fn main() {
     thread_profiler::register_thread_with_profiler();
-    println!("{:?}", std::env::temp_dir());
+    std::fs::create_dir_all(get_config_path()).unwrap();
 
     let win_setup = ggez::conf::WindowSetup {
         title: "KSON Editor".to_owned(),
@@ -989,5 +996,8 @@ pub fn main() {
         Err(e) => println!("Program exited with error: {}", e),
     }
     state.audio_playback.release();
-    thread_profiler::write_profile("profiling.json");
+    let mut profiling_path = get_config_path();
+    profiling_path.push("profiling");
+    profiling_path.set_extension("json");
+    thread_profiler::write_profile(profiling_path.to_str().unwrap());
 }

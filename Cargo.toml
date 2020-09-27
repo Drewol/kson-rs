@@ -21,6 +21,7 @@ winit = { version = ">= 0.16, <= 0.19", package = "winit" }
 rodio = { version = "0.11", default-features = false, features = ["flac", "vorbis", "wav"] }
 serde_cbor = "0.11.1"
 kson = { git = "https://github.com/Drewol/kson-rs.git" }
+dirs = "3.0.1"
 
 [features]
 profiler = ["thread_profiler/thread_profiler"]

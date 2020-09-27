@@ -76,6 +76,10 @@ impl ImGuiWrapper {
     pub fn new(ctx: &mut Context) -> Result<Self, Box<dyn Error>> {
         // Create the imgui object
         let mut imgui = imgui::Context::create();
+        let mut imgui_config = crate::get_config_path();
+        imgui_config.push("imgui");
+        imgui_config.set_extension("ini");
+        imgui.set_ini_filename(imgui_config);
         let (factory, gfx_device, _, _, _) = graphics::gfx_objects(ctx);
         // Shaders
         let shaders = {
