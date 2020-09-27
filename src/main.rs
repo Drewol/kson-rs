@@ -255,35 +255,83 @@ impl MainState {
                 start_value = start_value * 2.0 - 0.5;
             }
 
+            let curve_points = (s.a.unwrap_or(0.5), s.b.unwrap_or(0.5));
+
             for (x, y, h, (sv, ev)) in self.screen.interval_to_ranges(&interval) {
-                profile_scope!("Range");
-                let sx = x
-                    + (start_value + (sv * value_width)) * track_lane_diff
-                    + half_track
-                    + half_lane;
-                let ex = x
-                    + (start_value + (ev * value_width)) * track_lane_diff
-                    + half_track
-                    + half_lane;
+                if (curve_points.0 - curve_points.1).abs() < std::f64::EPSILON {
+                    profile_scope!("Range - Linear");
+                    let sx = x
+                        + (start_value + (sv * value_width)) * track_lane_diff
+                        + half_track
+                        + half_lane;
+                    let ex = x
+                        + (start_value + (ev * value_width)) * track_lane_diff
+                        + half_track
+                        + half_lane;
 
-                let sy = y;
-                let ey = y + h;
+                    let sy = y;
+                    let ey = y + h;
 
-                let xoff = half_lane;
-                let (tr, tl, br, bl): (
-                    na::Point2<f32>,
-                    na::Point2<f32>,
-                    na::Point2<f32>,
-                    na::Point2<f32>,
-                ) = (
-                    [ex - xoff, ey].into(),
-                    [ex + xoff, ey].into(),
-                    [sx - xoff, sy - syoff].into(),
-                    [sx + xoff, sy - syoff].into(),
-                );
-                syoff = 0.0; //only first section after slam needs this
-                let points = [tl, tr, br, br, bl, tl];
-                mb.triangles(&points, color)?;
+                    let xoff = half_lane;
+                    let (tr, tl, br, bl): (
+                        na::Point2<f32>,
+                        na::Point2<f32>,
+                        na::Point2<f32>,
+                        na::Point2<f32>,
+                    ) = (
+                        [ex - xoff, ey].into(),
+                        [ex + xoff, ey].into(),
+                        [sx - xoff, sy - syoff].into(),
+                        [sx + xoff, sy - syoff].into(),
+                    );
+                    syoff = 0.0; //only first section after slam needs this
+                    let points = [tl, tr, br, br, bl, tl];
+                    mb.triangles(&points, color)?;
+                } else {
+                    profile_scope!("Range - Curved");
+                    let sy = y - syoff;
+                    syoff = 0.0; //only first section after slam needs this
+                    let ey = y + h;
+                    let curve_segments = ((ey - sy).abs() / 3.0) as i32;
+                    let curve_segment_h = (ey - sy) / curve_segments as f32;
+                    let curve_segment_progress_h = (ev - sv) / curve_segments as f32;
+                    // let interval_start_value = start_value + sv * value_width;
+                    // let interval_value_width =
+                    //     (start_value + ev * value_width) - interval_start_value;
+                    for i in 0..curve_segments {
+                        let cssv = sv + curve_segment_progress_h * i as f32;
+                        let csev = sv + curve_segment_progress_h * (i + 1) as f32;
+                        let csv = do_curve(cssv as f64, curve_points.0, curve_points.1) as f32;
+                        let cev = do_curve(csev as f64, curve_points.0, curve_points.1) as f32;
+
+                        let sx = x
+                            + (start_value + (csv * value_width)) * track_lane_diff
+                            + half_track
+                            + half_lane;
+                        let ex = x
+                            + (start_value + (cev * value_width)) * track_lane_diff
+                            + half_track
+                            + half_lane;
+
+                        let csy = sy + curve_segment_h * i as f32;
+                        let cey = sy + curve_segment_h * (i + 1) as f32;
+
+                        let xoff = half_lane;
+                        let (tr, tl, br, bl): (
+                            na::Point2<f32>,
+                            na::Point2<f32>,
+                            na::Point2<f32>,
+                            na::Point2<f32>,
+                        ) = (
+                            [ex - xoff, cey].into(),
+                            [ex + xoff, cey].into(),
+                            [sx - xoff, csy].into(),
+                            [sx + xoff, csy].into(),
+                        );
+                        let points = [tl, tr, br, br, bl, tl];
+                        mb.triangles(&points, color)?;
+                    }
+                }
             }
         }
 
@@ -791,6 +839,16 @@ impl EventHandler for MainState {
 
 fn get_extension_from_filename(filename: &str) -> Option<&str> {
     Path::new(filename).extension().and_then(OsStr::to_str)
+}
+
+//https://github.com/m4saka/ksh2kson/issues/4#issuecomment-573343229
+pub fn do_curve(x: f64, a: f64, b: f64) -> f64 {
+    let t = if x < std::f64::EPSILON || a < std::f64::EPSILON {
+        (a - (a * a + x - 2.0 * a * x).sqrt()) / (-1.0 + 2.0 * a)
+    } else {
+        x / (a + (a * a + (1.0 - 2.0 * a) * x).sqrt())
+    };
+    2.0 * (1.0 - t) * t * b + t * t
 }
 
 fn open_chart() -> Result<Option<(kson::Chart, String)>, Box<dyn Error>> {
