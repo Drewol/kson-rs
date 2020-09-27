@@ -179,9 +179,15 @@ impl AudioPlayback {
         let end_value = p2.v as f32;
         let value_delta = end_value - start_value;
         let length = end_tick - start_tick;
-
+        let a = p1.a.unwrap_or(0.5);
+        let b = p1.b.unwrap_or(0.5);
         if (start_value - end_value).abs() < f32::EPSILON {
             Box::new(move |_: f32| start_value)
+        } else if (a - b).abs() > f64::EPSILON {
+            Box::new(move |y: f32| {
+                let x = ((y - start_tick) / length).min(1.0).max(0.0) as f64;
+                start_value + value_delta * crate::do_curve(x, a, b) as f32
+            })
         } else {
             Box::new(move |y: f32| start_value + value_delta * ((y - start_tick) / length))
         }
