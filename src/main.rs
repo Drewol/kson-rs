@@ -30,42 +30,139 @@ macro_rules! profile_scope {
 pub struct MainState {
     chart: kson::Chart,
     redraw: bool,
+    save_path: Option<String>,
+    mouse_x: f32,
+    mouse_y: f32,
+
+    cursor_line: u32,
+    cursor_object: Option<Box<dyn CursorObject>>,
+    actions: action_stack::ActionStack<kson::Chart>,
+    pub screen: ScreenState,
+    pub audio_playback: playback::AudioPlayback,
+    pub gui_event_queue: VecDeque<GuiEvent>,
+}
+
+#[derive(Copy, Clone)]
+pub struct ScreenState {
     w: f32,
     h: f32,
     tick_height: f32,
     track_width: f32,
-    save_path: Option<String>,
     top_margin: f32,
     bottom_margin: f32,
     beats_per_col: u32,
-    mouse_x: f32,
-    mouse_y: f32,
     x_offset: f32,
     x_offset_target: f32,
-    cursor_line: u32,
-    cursor_object: Option<Box<dyn CursorObject>>,
-    actions: action_stack::ActionStack<kson::Chart>,
-    pub audio_playback: playback::AudioPlayback,
-    pub gui_event_queue: VecDeque<GuiEvent>,
+    beat_res: u32,
+}
+
+impl ScreenState {
+    fn lane_width(&self) -> f32 {
+        self.track_width / 6.0
+    }
+
+    fn ticks_per_col(&self) -> u32 {
+        self.beats_per_col * self.beat_res
+    }
+
+    fn track_spacing(&self) -> f32 {
+        self.track_width * 2.0
+    }
+
+    fn tick_to_pos(&self, in_y: u32) -> (f32, f32) {
+        let h = self.chart_draw_height();
+        let x = (in_y / self.ticks_per_col()) as f32 * self.track_spacing();
+        let y = (in_y % self.ticks_per_col()) as f32 * self.tick_height;
+        let y = h - y + self.top_margin;
+        (x - self.x_offset, y)
+    }
+
+    fn chart_draw_height(&self) -> f32 {
+        self.h - (self.bottom_margin + self.top_margin)
+    }
+
+    fn pos_to_tick(&self, in_x: f32, in_y: f32) -> u32 {
+        self.pos_to_tick_f(in_x, in_y).floor() as u32
+    }
+
+    fn pos_to_tick_f(&self, in_x: f32, in_y: f32) -> f64 {
+        let h = self.chart_draw_height() as f64;
+        let y: f64 = 1.0 - ((in_y - self.top_margin).max(0.0) / h as f32).min(1.0) as f64;
+        let x = (in_x + self.x_offset) as f64;
+        let x = math::round::floor(x as f64 / self.track_spacing() as f64, 0);
+        ((y + x) * self.beats_per_col as f64 * self.beat_res as f64).max(0.0)
+    }
+
+    fn pos_to_lane(&self, in_x: f32) -> f32 {
+        let mut x = (in_x + self.x_offset) % self.track_spacing();
+        x = ((x - self.track_width as f32 / 2.0).max(0.0) / self.track_width as f32).min(1.0);
+        (x * 6.0).min(6.0) as f32
+    }
+
+    fn update(&mut self, delta_time: f32) {
+        self.x_offset = self.x_offset + (self.x_offset_target - self.x_offset) * delta_time;
+    }
+
+    fn interval_to_ranges(&self, in_interval: &kson::Interval) -> Vec<(f32, f32, f32, (f32, f32))> // (x,y,h, (start,end))
+    {
+        let mut res: Vec<(f32, f32, f32, (f32, f32))> = Vec::new();
+        let mut ranges: Vec<(u32, u32)> = Vec::new();
+        let ticks_per_col = self.beats_per_col * self.beat_res;
+        let mut start = in_interval.y;
+        let end = start + in_interval.l;
+        while start / ticks_per_col < end / ticks_per_col {
+            ranges.push((start, ticks_per_col * (1 + start / ticks_per_col)));
+            start = ticks_per_col * (1 + start / ticks_per_col);
+        }
+        ranges.push((start, end));
+
+        for (s, e) in ranges {
+            let in_l = in_interval.l;
+            let prog_s = (s - in_interval.y) as f32 / in_l as f32;
+            let prog_e = (e - in_interval.y) as f32 / in_l as f32;
+            let start_pos = self.tick_to_pos(s);
+            let end_pos = self.tick_to_pos(e);
+            if (start_pos.0 - end_pos.0).abs() > f32::EPSILON {
+                res.push((
+                    start_pos.0,
+                    start_pos.1,
+                    self.top_margin - start_pos.1,
+                    (prog_s, prog_e),
+                ));
+            } else {
+                res.push((
+                    start_pos.0,
+                    start_pos.1,
+                    end_pos.1 - start_pos.1,
+                    (prog_s, prog_e),
+                ))
+            }
+        }
+        res
+    }
 }
 
 impl MainState {
     fn new(ctx: &ggez::Context) -> GameResult<MainState> {
         let s = MainState {
             chart: kson::Chart::new(),
-            w: 800.0,
-            h: 600.0,
+            screen: ScreenState {
+                w: 800.0,
+                h: 600.0,
+                tick_height: 1.0,
+                track_width: 72.0,
+                top_margin: 60.0,
+                bottom_margin: 10.0,
+                beats_per_col: 16,
+                x_offset: 0.0,
+                x_offset_target: 0.0,
+                beat_res: 240,
+            },
             redraw: false,
-            tick_height: 1.0,
-            track_width: 72.0,
             save_path: None,
-            top_margin: 60.0,
-            bottom_margin: 10.0,
-            beats_per_col: 16,
             mouse_x: 0.0,
             mouse_y: 0.0,
-            x_offset: 0.0,
-            x_offset_target: 0.0,
+
             cursor_object: None,
             audio_playback: playback::AudioPlayback::new(ctx),
             gui_event_queue: VecDeque::new(),
@@ -76,21 +173,21 @@ impl MainState {
     }
 
     pub fn get_cursor_ms(&self) -> f64 {
-        let tick = self.pos_to_tick(self.mouse_x, self.mouse_y);
+        let tick = self.screen.pos_to_tick(self.mouse_x, self.mouse_y);
         let tick = tick - (tick % (self.chart.beat.resolution / 2));
         self.chart.tick_to_ms(tick)
     }
 
     pub fn get_cursor_tick(&self) -> u32 {
-        self.pos_to_tick(self.mouse_x, self.mouse_y)
+        self.screen.pos_to_tick(self.mouse_x, self.mouse_y)
     }
 
     pub fn get_cursor_tick_f(&self) -> f64 {
-        self.pos_to_tick_f(self.mouse_x, self.mouse_y)
+        self.screen.pos_to_tick_f(self.mouse_x, self.mouse_y)
     }
 
     pub fn get_cursor_lane(&self) -> f32 {
-        self.pos_to_lane(self.mouse_x)
+        self.screen.pos_to_lane(self.mouse_x)
     }
 
     fn draw_laser_section(
@@ -103,9 +200,9 @@ impl MainState {
         let y_base = section.y;
         let wide = section.wide == 2;
         let slam_height = 6.0 as f32;
-        let half_lane = self.lane_width() / 2.0;
-        let half_track = self.track_width / 2.0;
-        let track_lane_diff = self.track_width - self.lane_width();
+        let half_lane = self.screen.lane_width() / 2.0;
+        let half_track = self.screen.track_width / 2.0;
+        let track_lane_diff = self.screen.track_width - self.screen.lane_width();
 
         for se in section.v.windows(2) {
             profile_scope!("Window");
@@ -136,7 +233,7 @@ impl MainState {
                 }
 
                 //draw slam
-                let (x, y) = self.tick_to_pos(interval.y);
+                let (x, y) = self.screen.tick_to_pos(interval.y);
                 let sx = x + sv * track_lane_diff + half_track + half_lane;
                 let ex = x + ev * track_lane_diff + half_track + half_lane;
 
@@ -158,7 +255,7 @@ impl MainState {
                 start_value = start_value * 2.0 - 0.5;
             }
 
-            for (x, y, h, (sv, ev)) in self.interval_to_ranges(&interval) {
+            for (x, y, h, (sv, ev)) in self.screen.interval_to_ranges(&interval) {
                 profile_scope!("Range");
                 let sx = x
                     + (start_value + (sv * value_width)) * track_lane_diff
@@ -201,7 +298,7 @@ impl MainState {
                     ev = ev * 2.0 - 0.5;
                 }
 
-                let (x, y) = self.tick_to_pos(l.ry + y_base);
+                let (x, y) = self.screen.tick_to_pos(l.ry + y_base);
                 let sx = x + sv * track_lane_diff + half_track + half_lane;
                 let ex = x + ev as f32 * track_lane_diff + half_track + half_lane;
 
@@ -219,86 +316,6 @@ impl MainState {
             }
         }
         Ok(())
-    }
-
-    fn lane_width(&self) -> f32 {
-        self.track_width / 6.0
-    }
-
-    fn ticks_per_col(&self) -> u32 {
-        self.beats_per_col * self.chart.beat.resolution
-    }
-
-    fn track_spacing(&self) -> f32 {
-        self.track_width * 2.0
-    }
-
-    fn tick_to_pos(&self, in_y: u32) -> (f32, f32) {
-        let h = self.chart_draw_height();
-        let x = (in_y / self.ticks_per_col()) as f32 * self.track_spacing();
-        let y = (in_y % self.ticks_per_col()) as f32 * self.tick_height;
-        let y = h - y + self.top_margin;
-        (x - self.x_offset, y)
-    }
-
-    fn chart_draw_height(&self) -> f32 {
-        self.h - (self.bottom_margin + self.top_margin)
-    }
-
-    fn pos_to_tick(&self, in_x: f32, in_y: f32) -> u32 {
-        self.pos_to_tick_f(in_x, in_y).floor() as u32
-    }
-
-    fn pos_to_tick_f(&self, in_x: f32, in_y: f32) -> f64 {
-        let h = self.chart_draw_height() as f64;
-        let y: f64 = 1.0 - ((in_y - self.top_margin).max(0.0) / h as f32).min(1.0) as f64;
-        let x = (in_x + self.x_offset) as f64;
-        let x = math::round::floor(x as f64 / self.track_spacing() as f64, 0);
-        ((y + x) * self.beats_per_col as f64 * self.chart.beat.resolution as f64).max(0.0)
-    }
-
-    fn pos_to_lane(&self, in_x: f32) -> f32 {
-        let mut x = (in_x + self.x_offset) % self.track_spacing();
-        x = ((x - self.track_width as f32 / 2.0).max(0.0) / self.track_width as f32).min(1.0);
-        (x * 6.0).min(6.0) as f32
-    }
-
-    fn interval_to_ranges(&self, in_interval: &kson::Interval) -> Vec<(f32, f32, f32, (f32, f32))> // (x,y,h, (start,end))
-    {
-        let mut res: Vec<(f32, f32, f32, (f32, f32))> = Vec::new();
-        let mut ranges: Vec<(u32, u32)> = Vec::new();
-        let ticks_per_col = self.beats_per_col * self.chart.beat.resolution;
-        let mut start = in_interval.y;
-        let end = start + in_interval.l;
-        while start / ticks_per_col < end / ticks_per_col {
-            ranges.push((start, ticks_per_col * (1 + start / ticks_per_col)));
-            start = ticks_per_col * (1 + start / ticks_per_col);
-        }
-        ranges.push((start, end));
-
-        for (s, e) in ranges {
-            let in_l = in_interval.l;
-            let prog_s = (s - in_interval.y) as f32 / in_l as f32;
-            let prog_e = (e - in_interval.y) as f32 / in_l as f32;
-            let start_pos = self.tick_to_pos(s);
-            let end_pos = self.tick_to_pos(e);
-            if (start_pos.0 - end_pos.0).abs() > f32::EPSILON {
-                res.push((
-                    start_pos.0,
-                    start_pos.1,
-                    self.top_margin - start_pos.1,
-                    (prog_s, prog_e),
-                ));
-            } else {
-                res.push((
-                    start_pos.0,
-                    start_pos.1,
-                    end_pos.1 - start_pos.1,
-                    (prog_s, prog_e),
-                ))
-            }
-        }
-        res
     }
 }
 
@@ -346,7 +363,7 @@ impl EventHandler for MainState {
             self.chart = current_chart;
         }
         let delta_time = (10.0 * ggez::timer::delta(ctx).as_secs_f32()).min(1.0);
-        self.x_offset = self.x_offset + (self.x_offset_target - self.x_offset) * delta_time;
+        self.screen.update(delta_time);
         let tick = self.audio_playback.get_tick(&self.chart);
         self.audio_playback.update(tick);
         Ok(())
@@ -368,32 +385,33 @@ impl EventHandler for MainState {
                 graphics::Color::from_rgba(0, 115, 144, 255),
                 graphics::Color::from_rgba(194, 6, 140, 255),
             ];
-            let min_tick_render = self.pos_to_tick(-100.0, self.h);
-            let max_tick_render = self.pos_to_tick(self.w + 50.0, 0.0);
+            let min_tick_render = self.screen.pos_to_tick(-100.0, self.screen.h);
+            let max_tick_render = self.screen.pos_to_tick(self.screen.w + 50.0, 0.0);
             graphics::clear(ctx, graphics::BLACK);
-            let chart_draw_height = self.chart_draw_height();
-            let lane_width = self.lane_width();
-            let track_spacing = self.track_spacing();
+            let chart_draw_height = self.screen.chart_draw_height();
+            let lane_width = self.screen.lane_width();
+            let track_spacing = self.screen.track_spacing();
             //draw track
             {
                 profile_scope!("Track");
-                let track_count = 2 + (self.w / self.track_spacing()) as u32;
-                let x = self.track_width / 2.0 - (self.x_offset % track_spacing) + lane_width;
+                let track_count = 2 + (self.screen.w / self.screen.track_spacing()) as u32;
+                let x = self.screen.track_width / 2.0 - (self.screen.x_offset % track_spacing)
+                    + lane_width;
                 for i in 0..track_count {
                     let x = x + i as f32 * track_spacing;
                     for j in 0..5 {
                         let x = x + j as f32 * lane_width;
                         track_builder.rectangle(
                             graphics::DrawMode::fill(),
-                            [x, self.top_margin, 0.5, chart_draw_height].into(),
+                            [x, self.screen.top_margin, 0.5, chart_draw_height].into(),
                             graphics::WHITE,
                         );
                     }
                 }
 
                 //measure & beat lines
-                let x = self.track_width / 2.0 + self.lane_width();
-                let w = self.lane_width() * 4.0;
+                let x = self.screen.track_width / 2.0 + self.screen.lane_width();
+                let w = self.screen.lane_width() * 4.0;
                 for (tick, is_measure) in self.chart.beat_line_iter() {
                     if tick < min_tick_render {
                         continue;
@@ -401,7 +419,7 @@ impl EventHandler for MainState {
                         break;
                     }
 
-                    let (tx, y) = self.tick_to_pos(tick);
+                    let (tx, y) = self.screen.tick_to_pos(tick);
                     let x = tx + x;
                     let color = if is_measure {
                         ggez::graphics::Color {
@@ -438,15 +456,15 @@ impl EventHandler for MainState {
                         }
 
                         if n.l == 0 {
-                            let (x, y) = self.tick_to_pos(n.y);
+                            let (x, y) = self.screen.tick_to_pos(n.y);
 
                             let x = x
-                                + i as f32 * self.lane_width()
+                                + i as f32 * self.screen.lane_width()
                                 + 1.0 * i as f32
-                                + self.lane_width()
-                                + self.track_width / 2.0;
+                                + self.screen.lane_width()
+                                + self.screen.track_width / 2.0;
                             let y = y as f32;
-                            let w = self.track_width as f32 / 6.0 - 2.0;
+                            let w = self.screen.track_width as f32 / 6.0 - 2.0;
                             let h = -2.0;
 
                             bt_builder.rectangle(
@@ -455,13 +473,13 @@ impl EventHandler for MainState {
                                 graphics::WHITE,
                             );
                         } else {
-                            for (x, y, h, _) in self.interval_to_ranges(n) {
+                            for (x, y, h, _) in self.screen.interval_to_ranges(n) {
                                 let x = x
-                                    + i as f32 * self.lane_width()
+                                    + i as f32 * self.screen.lane_width()
                                     + 1.0 * i as f32
-                                    + self.lane_width()
-                                    + self.track_width / 2.0;
-                                let w = self.track_width as f32 / 6.0 - 2.0;
+                                    + self.screen.lane_width()
+                                    + self.screen.track_width / 2.0;
+                                let w = self.screen.track_width as f32 / 6.0 - 2.0;
 
                                 long_bt_builder.rectangle(
                                     graphics::DrawMode::fill(),
@@ -487,14 +505,14 @@ impl EventHandler for MainState {
                         }
 
                         if n.l == 0 {
-                            let (x, y) = self.tick_to_pos(n.y);
+                            let (x, y) = self.screen.tick_to_pos(n.y);
 
                             let x = x
-                                + (i as f32 * self.lane_width() * 2.0)
-                                + self.track_width / 2.0
+                                + (i as f32 * self.screen.lane_width() * 2.0)
+                                + self.screen.track_width / 2.0
                                 + 2.0 * i as f32
-                                + self.lane_width();
-                            let w = self.lane_width() * 2.0 - 1.0;
+                                + self.screen.lane_width();
+                            let w = self.screen.lane_width() * 2.0 - 1.0;
                             let h = -2.0;
 
                             fx_builder.rectangle(
@@ -503,13 +521,13 @@ impl EventHandler for MainState {
                                 [1.0, 0.3, 0.0, 1.0].into(),
                             );
                         } else {
-                            for (x, y, h, _) in self.interval_to_ranges(n) {
+                            for (x, y, h, _) in self.screen.interval_to_ranges(n) {
                                 let x = x
-                                    + (i as f32 * self.lane_width() * 2.0)
-                                    + self.track_width / 2.0
+                                    + (i as f32 * self.screen.lane_width() * 2.0)
+                                    + self.screen.track_width / 2.0
                                     + 2.0 * i as f32
-                                    + self.lane_width();
-                                let w = self.lane_width() * 2.0 - 1.0;
+                                    + self.screen.lane_width();
+                                let w = self.screen.lane_width() * 2.0 - 1.0;
 
                                 long_fx_builder.rectangle(
                                     graphics::DrawMode::fill(),
@@ -587,14 +605,14 @@ impl EventHandler for MainState {
                     let tick = self.audio_playback.get_tick(&self.chart);
 
                     //let delta = ms - self.tick_to_ms(tick);
-                    self.tick_to_pos(tick as u32)
+                    self.screen.tick_to_pos(tick as u32)
                 } else {
-                    self.tick_to_pos(self.cursor_line)
+                    self.screen.tick_to_pos(self.cursor_line)
                 };
 
-                let x = x + self.track_width / 2.0;
+                let x = x + self.screen.track_width / 2.0;
                 let p1: na::Point2<f32> = [x, y].into();
-                let p2: na::Point2<f32> = [x + self.track_width, y].into();
+                let p2: na::Point2<f32> = [x + self.screen.track_width, y].into();
                 let m =
                     graphics::Mesh::new_line(ctx, &[p1, p2], 1.5, (255u8, 0u8, 0u8, 255u8).into())?;
                 graphics::draw(ctx, &m, (na::Point2::new(0.0, 0.0),))?;
@@ -606,14 +624,21 @@ impl EventHandler for MainState {
     }
     fn mouse_button_down_event(&mut self, _ctx: &mut Context, button: MouseButton, x: f32, y: f32) {
         if button == MouseButton::Left {
-            let lane = self.pos_to_lane(x);
-            let tick = self.pos_to_tick(x, y);
+            let res = self.chart.beat.resolution;
+            let lane = self.screen.pos_to_lane(x);
+            let tick = self.screen.pos_to_tick(x, y);
             let tick = tick - (tick % (self.chart.beat.resolution / 2));
-            let tick_f = self.pos_to_tick_f(x, y);
+            let tick_f = self.screen.pos_to_tick_f(x, y);
             match self.cursor_object {
-                Some(ref mut cursor) => {
-                    cursor.mouse_down(tick, tick_f, lane, &self.chart, &mut self.actions)
-                }
+                Some(ref mut cursor) => cursor.mouse_down(
+                    self.screen,
+                    tick,
+                    tick_f,
+                    lane,
+                    &self.chart,
+                    &mut self.actions,
+                    na::Point2::new(x, y),
+                ),
                 None => self.cursor_line = tick,
             }
         }
@@ -621,12 +646,20 @@ impl EventHandler for MainState {
 
     fn mouse_button_up_event(&mut self, _ctx: &mut Context, button: MouseButton, x: f32, y: f32) {
         if button == MouseButton::Left {
-            let lane = self.pos_to_lane(x);
-            let tick = self.pos_to_tick(x, y);
-            let tick_f = self.pos_to_tick_f(x, y);
+            let lane = self.screen.pos_to_lane(x);
+            let tick = self.screen.pos_to_tick(x, y);
+            let tick_f = self.screen.pos_to_tick_f(x, y);
             let tick = tick - (tick % (self.chart.beat.resolution / 2));
             if let Some(cursor) = &mut self.cursor_object {
-                cursor.mouse_up(tick, tick_f, lane, &self.chart, &mut self.actions);
+                cursor.mouse_up(
+                    self.screen,
+                    tick,
+                    tick_f,
+                    lane,
+                    &self.chart,
+                    &mut self.actions,
+                    na::Point2::new(x, y),
+                );
             }
         }
     }
@@ -643,10 +676,10 @@ impl EventHandler for MainState {
             },
         )
         .unwrap_or_else(|e| println!("{}", e));
-        self.w = w;
-        self.h = h;
-        self.tick_height =
-            self.chart_draw_height() / (self.chart.beat.resolution * self.beats_per_col) as f32;
+        self.screen.w = w;
+        self.screen.h = h;
+        self.screen.tick_height = self.screen.chart_draw_height()
+            / (self.chart.beat.resolution * self.screen.beats_per_col) as f32;
     }
 
     fn key_down_event(
@@ -657,11 +690,15 @@ impl EventHandler for MainState {
         _repeat: bool,
     ) {
         match keycode {
-            KeyCode::Home => self.x_offset_target = 0.0,
-            KeyCode::PageUp => self.x_offset_target += self.w - (self.w % self.track_spacing()),
+            KeyCode::Home => self.screen.x_offset_target = 0.0,
+            KeyCode::PageUp => {
+                self.screen.x_offset_target +=
+                    self.screen.w - (self.screen.w % self.screen.track_spacing())
+            }
             KeyCode::PageDown => {
-                self.x_offset_target =
-                    (self.x_offset_target - (self.w - (self.w % self.track_spacing()))).max(0.0)
+                self.screen.x_offset_target = (self.screen.x_offset_target
+                    - (self.screen.w - (self.screen.w % self.screen.track_spacing())))
+                .max(0.0)
             }
             KeyCode::End => {
                 let mut target: f32 = 0.0;
@@ -669,14 +706,16 @@ impl EventHandler for MainState {
                 //check pos of last bt
                 for i in 0..4 {
                     if let Some(note) = self.chart.note.bt[i].last() {
-                        target = target.max(self.tick_to_pos(note.y + note.l).0 + self.x_offset)
+                        target = target
+                            .max(self.screen.tick_to_pos(note.y + note.l).0 + self.screen.x_offset)
                     }
                 }
 
                 //check pos of last fx
                 for i in 0..2 {
                     if let Some(note) = self.chart.note.fx[i].last() {
-                        target = target.max(self.tick_to_pos(note.y + note.l).0 + self.x_offset)
+                        target = target
+                            .max(self.screen.tick_to_pos(note.y + note.l).0 + self.screen.x_offset)
                     }
                 }
 
@@ -684,13 +723,15 @@ impl EventHandler for MainState {
                 for i in 0..2 {
                     if let Some(section) = self.chart.note.laser[i].last() {
                         if let Some(segment) = section.v.last() {
-                            target = target
-                                .max(self.tick_to_pos(segment.ry + section.y).0 + self.x_offset)
+                            target = target.max(
+                                self.screen.tick_to_pos(segment.ry + section.y).0
+                                    + self.screen.x_offset,
+                            )
                         }
                     }
                 }
 
-                self.x_offset_target = target - (target % self.track_spacing())
+                self.screen.x_offset_target = target - (target % self.screen.track_spacing())
             }
             KeyCode::Space => {
                 if self.audio_playback.is_playing() {
@@ -733,18 +774,18 @@ impl EventHandler for MainState {
         self.mouse_x = x;
         self.mouse_y = y;
 
-        let lane = self.pos_to_lane(x);
-        let tick = self.pos_to_tick(x, y);
-        let tick_f: f64 = self.pos_to_tick_f(x, y);
+        let lane = self.screen.pos_to_lane(x);
+        let tick = self.screen.pos_to_tick(x, y);
+        let tick_f: f64 = self.screen.pos_to_tick_f(x, y);
         let tick = tick - (tick % (self.chart.beat.resolution / 2));
         if let Some(cursor) = &mut self.cursor_object {
-            cursor.update(tick, tick_f, lane);
+            cursor.update(tick, tick_f, lane, na::Point2::new(x, y));
         }
     }
 
     fn mouse_wheel_event(&mut self, _ctx: &mut Context, _x: f32, y: f32) {
-        self.x_offset_target += y * self.track_width;
-        self.x_offset_target = self.x_offset_target.max(0.0);
+        self.screen.x_offset_target += y * self.screen.track_width;
+        self.screen.x_offset_target = self.screen.x_offset_target.max(0.0);
     }
 }
 

@@ -1,5 +1,5 @@
 use crate::action_stack::{Action, ActionStack};
-use crate::MainState;
+use crate::{MainState, ScreenState};
 
 use ggez::graphics;
 use ggez::nalgebra as na;
@@ -9,21 +9,25 @@ use kson::{Chart, GraphSectionPoint, Interval, LaserSection};
 pub trait CursorObject {
     fn mouse_down(
         &mut self,
+        screen: ScreenState,
         tick: u32,
         tick_f: f64,
         lane: f32,
         chart: &Chart,
         actions: &mut ActionStack<Chart>,
+        pos: na::Point2<f32>,
     );
     fn mouse_up(
         &mut self,
+        screen: ScreenState,
         tick: u32,
         tick_f: f64,
         lane: f32,
         chart: &Chart,
         actions: &mut ActionStack<Chart>,
+        pos: na::Point2<f32>,
     );
-    fn update(&mut self, tick: u32, tick_f: f64, lane: f32);
+    fn update(&mut self, tick: u32, tick_f: f64, lane: f32, pos: na::Point2<f32>);
     fn draw(&self, state: &MainState, ctx: &mut Context) -> GameResult;
 }
 
@@ -87,7 +91,7 @@ impl LaserTool {
     }
 
     fn get_control_point_pos(
-        state: &MainState,
+        screen: ScreenState,
         points: &[GraphSectionPoint],
         start_y: u32,
     ) -> Option<ggez::nalgebra::Point2<f32>> {
@@ -105,7 +109,7 @@ impl LaserTool {
             std::cmp::Ordering::Equal => return None,
             _ => {}
         };
-        let intervals = state.interval_to_ranges(&Interval {
+        let intervals = screen.interval_to_ranges(&Interval {
             y: start_tick,
             l: end_tick - start_tick,
         });
@@ -119,7 +123,7 @@ impl LaserTool {
             let value_width = end.v - start_value;
             let x = (start_value + start.b.unwrap() * value_width) as f32;
             let x = 1.0 / 10.0 + x * 8.0 / 10.0;
-            let x = x * state.track_width + interv.0 + state.track_width / 2.0;
+            let x = x * screen.track_width + interv.0 + screen.track_width / 2.0;
             let y = interv.1 + interv.2 * (start.a.unwrap() as f32 - (interv.3).0) / (interv.3).1;
             return Some(ggez::nalgebra::Point2::new(x, y));
         } else {
@@ -183,11 +187,13 @@ impl LaserTool {
 impl CursorObject for ButtonInterval {
     fn mouse_down(
         &mut self,
+        screen: ScreenState,
         tick: u32,
         tick_f: f64,
         lane: f32,
         chart: &Chart,
         actions: &mut ActionStack<Chart>,
+        pos: na::Point2<f32>,
     ) {
         self.pressed = true;
         if self.fx {
@@ -200,11 +206,13 @@ impl CursorObject for ButtonInterval {
 
     fn mouse_up(
         &mut self,
+        screen: ScreenState,
         tick: u32,
         tick_f: f64,
         _lane: f32,
         chart: &Chart,
         actions: &mut ActionStack<Chart>,
+        pos: na::Point2<f32>,
     ) {
         if self.interval.y >= tick {
             self.interval.l = 0;
@@ -245,7 +253,7 @@ impl CursorObject for ButtonInterval {
         self.lane = 0;
     }
 
-    fn update(&mut self, tick: u32, tick_f: f64, lane: f32) {
+    fn update(&mut self, tick: u32, tick_f: f64, lane: f32, pos: na::Point2<f32>) {
         if !self.pressed {
             self.interval.y = tick;
             if self.fx {
@@ -279,25 +287,25 @@ impl CursorObject for ButtonInterval {
             }
         };
         if self.interval.l == 0 {
-            let (x, y) = state.tick_to_pos(self.interval.y);
+            let (x, y) = state.screen.tick_to_pos(self.interval.y);
 
             let x = if self.fx {
-                x + self.lane as f32 * state.lane_width() * 2.0
+                x + self.lane as f32 * state.screen.lane_width() * 2.0
                     + 2.0 * self.lane as f32
-                    + state.lane_width()
-                    + state.track_width / 2.0
+                    + state.screen.lane_width()
+                    + state.screen.track_width / 2.0
             } else {
-                x + self.lane as f32 * state.lane_width()
+                x + self.lane as f32 * state.screen.lane_width()
                     + 1.0 * self.lane as f32
-                    + state.lane_width()
-                    + state.track_width / 2.0
+                    + state.screen.lane_width()
+                    + state.screen.track_width / 2.0
             };
             let y = y as f32;
 
             let w = if self.fx {
-                state.track_width as f32 / 3.0 - 1.0
+                state.screen.track_width as f32 / 3.0 - 1.0
             } else {
-                state.track_width as f32 / 6.0 - 2.0
+                state.screen.track_width as f32 / 6.0 - 2.0
             };
             let h = -2.0;
 
@@ -310,23 +318,23 @@ impl CursorObject for ButtonInterval {
             graphics::draw(ctx, &m, (na::Point2::new(0.0, 0.0),))
         } else {
             let mut long_bt_builder = graphics::MeshBuilder::new();
-            for (x, y, h, _) in state.interval_to_ranges(&self.interval) {
+            for (x, y, h, _) in state.screen.interval_to_ranges(&self.interval) {
                 let x = if self.fx {
-                    x + self.lane as f32 * state.lane_width() * 2.0
+                    x + self.lane as f32 * state.screen.lane_width() * 2.0
                         + 2.0 * self.lane as f32
-                        + state.lane_width()
-                        + state.track_width / 2.0
+                        + state.screen.lane_width()
+                        + state.screen.track_width / 2.0
                 } else {
-                    x + self.lane as f32 * state.lane_width()
+                    x + self.lane as f32 * state.screen.lane_width()
                         + 1.0 * self.lane as f32
-                        + state.lane_width()
-                        + state.track_width / 2.0
+                        + state.screen.lane_width()
+                        + state.screen.track_width / 2.0
                 };
 
                 let w = if self.fx {
-                    state.track_width as f32 / 3.0 - 1.0
+                    state.screen.track_width as f32 / 3.0 - 1.0
                 } else {
-                    state.track_width as f32 / 6.0 - 2.0
+                    state.screen.track_width as f32 / 6.0 - 2.0
                 };
 
                 long_bt_builder.rectangle(graphics::DrawMode::fill(), [x, y, w, h].into(), color);
@@ -340,11 +348,13 @@ impl CursorObject for ButtonInterval {
 impl CursorObject for LaserTool {
     fn mouse_down(
         &mut self,
+        screen: ScreenState,
         tick: u32,
         tick_f: f64,
         lane: f32,
         chart: &Chart,
         actions: &mut ActionStack<Chart>,
+        pos: na::Point2<f32>,
     ) {
         let v = LaserTool::lane_to_pos(lane);
         let ry = self.calc_ry(tick);
@@ -411,7 +421,19 @@ impl CursorObject for LaserTool {
             }
             LaserEditMode::Edit(edit_state) => {
                 if self.hit_test(chart, tick) == Some(edit_state.section_index) {
-                    //do stuff
+                    for (i, points) in self.section.v.windows(2).enumerate() {
+                        if let Some(control_point) =
+                            LaserTool::get_control_point_pos(screen, points, self.section.y)
+                        {
+                            if na::distance(&control_point, &pos) < 5.0 {
+                                self.mode = LaserEditMode::Edit(LaserEditState {
+                                    section_index: edit_state.section_index,
+                                    curving_index: Some(i),
+                                })
+                            }
+                        }
+                    }
+                //TODO: Subdivide and stuff
                 } else {
                     self.mode = LaserEditMode::None;
                     self.section = LaserSection {
@@ -425,14 +447,37 @@ impl CursorObject for LaserTool {
     }
     fn mouse_up(
         &mut self,
+        screen: ScreenState,
         _tick: u32,
         _tick_f: f64,
         _lane: f32,
         _chart: &Chart,
-        _actions: &mut ActionStack<Chart>,
+        actions: &mut ActionStack<Chart>,
+        _pos: na::Point2<f32>,
     ) {
+        if let LaserEditMode::Edit(edit_state) = self.mode {
+            if let Some(curving_index) = edit_state.curving_index {
+                let right = self.right;
+                let laser_text = if right { "Right" } else { "Left" };
+                let section_index = edit_state.section_index;
+                let laser_i = if right { 1 } else { 0 };
+                let updated_point = self.section.v[curving_index];
+                actions.commit(Action {
+                    description: format!("Adjust {} Laser Curve", laser_text),
+                    action: Box::new(move |c| {
+                        c.note.laser[laser_i][section_index].v[curving_index] = updated_point;
+                        Ok(())
+                    }),
+                });
+            }
+            self.mode = LaserEditMode::Edit(LaserEditState {
+                section_index: edit_state.section_index,
+                curving_index: None,
+            })
+        }
     }
-    fn update(&mut self, tick: u32, tick_f: f64, lane: f32) {
+
+    fn update(&mut self, tick: u32, tick_f: f64, lane: f32, pos: na::Point2<f32>) {
         match self.mode {
             LaserEditMode::New => {
                 let ry = self.calc_ry(tick);
@@ -456,7 +501,7 @@ impl CursorObject for LaserTool {
                 }
             }
             LaserEditMode::None => {}
-            LaserEditMode::Edit(_) => {
+            LaserEditMode::Edit(edit_state) => {
                 for gp in &mut self.section.v {
                     if gp.a.is_none() {
                         gp.a = Some(0.5);
@@ -464,6 +509,23 @@ impl CursorObject for LaserTool {
                     if gp.b.is_none() {
                         gp.b = Some(0.5);
                     }
+                }
+                if let Some(curving_index) = edit_state.curving_index {
+                    let end_point = self.section.v[curving_index + 1];
+                    let point = &mut self.section.v[curving_index];
+                    let start_tick = (self.section.y + point.ry) as f64;
+                    let end_tick = (self.section.y + end_point.ry) as f64;
+                    point.a = Some(
+                        ((tick_f - start_tick) / (end_tick - start_tick))
+                            .max(0.0)
+                            .min(1.0),
+                    );
+
+                    let start_value = point.vf.unwrap_or(point.v);
+                    let in_value = lane as f64 / 6.0;
+                    let value = (in_value - start_value) / (end_point.v - start_value);
+
+                    self.section.v[curving_index].b = Some(value.min(1.0).max(0.0));
                 }
             }
         }
@@ -501,7 +563,7 @@ impl CursorObject for LaserTool {
                     };
 
                     if let Some(pos) =
-                        LaserTool::get_control_point_pos(state, start_end, self.section.y)
+                        LaserTool::get_control_point_pos(state.screen, start_end, self.section.y)
                     {
                         mb.circle(graphics::DrawMode::fill(), pos, 5.0, 0.3, color.into());
                     }
