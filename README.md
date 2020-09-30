@@ -1,7 +1,7 @@
 *This project is not actively developed but PRs are still welcome.*
 
 # KSON Editor
-Editor program for the Sound Voltex simulator format [KSON](https://gist.github.com/m4saka/a89594a17dc9422d75e01998bcfd2722)
+Editor program for the Sound Voltex simulator format [KSON](https://github.com/m4saka/ksh2kson/blob/master/kson_format.md)
 
 ## Done
 * Chart loading
@@ -10,6 +10,7 @@ Editor program for the Sound Voltex simulator format [KSON](https://gist.github.
 * Basic metadata editing
 * Basic laser effects
 * Undo/Redo
+* Curved lasers
 
 ## TODO
 * Effecting
@@ -18,7 +19,6 @@ Editor program for the Sound Voltex simulator format [KSON](https://gist.github.
 * Full metadata editing
 * BPM editing
 * Time signature editing
-* Curved lasers
 * Key sound editing
 * Hotkeys
 * Improve editing tools
