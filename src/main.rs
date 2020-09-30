@@ -884,6 +884,28 @@ pub fn do_curve(x: f64, a: f64, b: f64) -> f64 {
     2.0 * (1.0 - t) * t * b + t * t
 }
 
+fn open_chart_file(path: String) -> Result<Option<(kson::Chart, String)>, Box<dyn Error>> {
+    match get_extension_from_filename(&path)
+        .unwrap_or("")
+        .to_lowercase()
+        .as_ref()
+    {
+        "ksh" => {
+            let mut data = String::from("");
+            File::open(&path).unwrap().read_to_string(&mut data)?;
+            Ok(Some((kson::Chart::from_ksh(&data)?, path)))
+        }
+        "kson" => {
+            let file = File::open(&path)?;
+            let reader = BufReader::new(file);
+            profile_scope!("kson parse");
+            Ok(Some((serde_json::from_reader(reader)?, path)))
+        }
+
+        _ => Ok(None),
+    }
+}
+
 fn open_chart() -> Result<Option<(kson::Chart, String)>, Box<dyn Error>> {
     let path: String;
     let dialog_result = nfd::dialog().filter("ksh,kson").open()?;
@@ -891,30 +913,10 @@ fn open_chart() -> Result<Option<(kson::Chart, String)>, Box<dyn Error>> {
     match dialog_result {
         nfd::Response::Okay(file_path) => {
             path = String::from(&file_path);
-            match get_extension_from_filename(&file_path)
-                .unwrap_or("")
-                .to_lowercase()
-                .as_ref()
-            {
-                "ksh" => {
-                    let mut data = String::from("");
-                    File::open(&path).unwrap().read_to_string(&mut data)?;
-                    return Ok(Some((kson::Chart::from_ksh(&data)?, path)));
-                }
-                "kson" => {
-                    let file = File::open(&path)?;
-                    let reader = BufReader::new(file);
-                    profile_scope!("kson parse");
-                    return Ok(Some((serde_json::from_reader(reader)?, path)));
-                }
-
-                _ => (),
-            }
+            open_chart_file(path)
         }
-        _ => return Ok(None),
+        _ => Ok(None),
     }
-
-    Ok(None)
 }
 
 fn save_chart_as(chart: &kson::Chart) -> Result<Option<String>, Box<dyn Error>> {
@@ -985,6 +987,19 @@ pub fn main() {
         println!("{}", e);
         panic!(e);
     });
+
+    let mut args = std::env::args();
+    if args.len() > 1 {
+        args.next();
+        if let Some(input_filename) = args.next() {
+            if let Ok(load_result) = open_chart_file(input_filename) {
+                if let Some(loaded_chart) = load_result {
+                    state.chart = loaded_chart.0;
+                    state.actions.reset(state.chart.clone());
+                }
+            }
+        }
+    }
 
     let imgui_wrapper = &mut ImGuiWrapper::new(ctx).unwrap_or_else(|e| {
         println!("{}", e);
