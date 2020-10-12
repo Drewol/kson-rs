@@ -4,6 +4,7 @@ use crate::{MainState, ScreenState};
 use ggez::graphics;
 use ggez::nalgebra as na;
 use ggez::{Context, GameResult};
+use imgui::*;
 use kson::{Chart, GraphSectionPoint, Interval, LaserSection};
 
 pub trait CursorObject {
@@ -29,6 +30,7 @@ pub trait CursorObject {
     );
     fn update(&mut self, tick: u32, tick_f: f64, lane: f32, pos: na::Point2<f32>);
     fn draw(&self, state: &MainState, ctx: &mut Context) -> GameResult;
+    fn draw_ui(&mut self, ui: &Ui, actions: &mut ActionStack<Chart>);
 }
 
 //structs for cursor objects
@@ -343,6 +345,8 @@ impl CursorObject for ButtonInterval {
             graphics::draw(ctx, &m, (na::Point2::new(0.0, 0.0),))
         }
     }
+
+    fn draw_ui(&mut self, ui: &Ui, actions: &mut ActionStack<Chart>) {}
 }
 
 impl CursorObject for LaserTool {
@@ -574,5 +578,131 @@ impl CursorObject for LaserTool {
             }
         }
         Ok(())
+    }
+    fn draw_ui(&mut self, ui: &Ui, actions: &mut ActionStack<Chart>) {}
+}
+
+enum BpmToolStates {
+    None,
+    Add(u32),
+    Edit(usize),
+}
+
+pub struct BpmTool {
+    bpm: f64,
+    state: BpmToolStates,
+    cursor_tick: u32,
+}
+
+impl BpmTool {
+    pub fn new() -> Self {
+        BpmTool {
+            bpm: 120.0,
+            state: BpmToolStates::None,
+            cursor_tick: 0,
+        }
+    }
+}
+
+impl CursorObject for BpmTool {
+    fn mouse_down(
+        &mut self,
+        screen: ScreenState,
+        tick: u32,
+        tick_f: f64,
+        lane: f32,
+        chart: &Chart,
+        actions: &mut ActionStack<Chart>,
+        pos: na::Point2<f32>,
+    ) {
+        if let BpmToolStates::None = self.state {
+            //check for bpm changes on selected tick
+            for (i, change) in chart.beat.bpm.iter().enumerate() {
+                if change.y == tick {
+                    self.state = BpmToolStates::Edit(i);
+                    self.bpm = change.v;
+                    return;
+                }
+            }
+
+            self.state = BpmToolStates::Add(tick);
+        }
+    }
+
+    fn mouse_up(
+        &mut self,
+        _screen: ScreenState,
+        _tick: u32,
+        _tick_f: f64,
+        _lane: f32,
+        _chart: &Chart,
+        _actions: &mut ActionStack<Chart>,
+        _pos: na::Point2<f32>,
+    ) {
+    }
+
+    fn update(&mut self, tick: u32, _tick_f: f64, _lane: f32, _pos: na::Point2<f32>) {
+        self.cursor_tick = tick;
+    }
+
+    fn draw(&self, state: &MainState, ctx: &mut Context) -> GameResult {
+        //draw cursor line
+        Ok(())
+    }
+
+    fn draw_ui(&mut self, ui: &Ui, actions: &mut ActionStack<Chart>) {
+        let complete_func: Option<Box<dyn Fn(&mut ActionStack<Chart>, f64) -> ()>> =
+            match self.state {
+                BpmToolStates::None => None,
+                BpmToolStates::Add(tick) => {
+                    Some(Box::new(move |a: &mut ActionStack<Chart>, bpm: f64| {
+                        let v = bpm;
+                        let y = tick;
+                        a.commit(Action {
+                            description: String::from("Add BPM Change"),
+                            action: Box::new(move |c| {
+                                c.beat.bpm.push(kson::ByPulse { v, y });
+                                c.beat.bpm.sort_by(|a, b| a.y.cmp(&b.y));
+                                Ok(())
+                            }),
+                        })
+                    }))
+                }
+                BpmToolStates::Edit(index) => {
+                    Some(Box::new(move |a: &mut ActionStack<Chart>, bpm: f64| {
+                        let v = bpm;
+                        a.commit(Action {
+                            description: String::from("Edit BPM Change"),
+                            action: Box::new(move |c| {
+                                if let Some(change) = c.beat.bpm.get_mut(index) {
+                                    change.v = v;
+                                    Ok(())
+                                } else {
+                                    Err(String::from("Tried to edit non existing BPM Change"))
+                                }
+                            }),
+                        })
+                    }))
+                }
+            };
+
+        if let Some(complete) = complete_func {
+            let mut bpm = self.bpm as f32;
+            Window::new(im_str!("Change BPM"))
+                .size([300.0, 600.0], imgui::Condition::FirstUseEver)
+                .position([100.0, 100.0], imgui::Condition::FirstUseEver)
+                .build(&ui, || {
+                    InputFloat::new(ui, im_str!("BPM"), &mut bpm).build();
+                    self.bpm = bpm as f64;
+                    if Selectable::new(im_str!("Ok")).selected(false).build(ui) {
+                        complete(actions, bpm as f64);
+                        self.state = BpmToolStates::None;
+                    }
+
+                    if Selectable::new(im_str!("Cancel")).selected(false).build(ui) {
+                        self.state = BpmToolStates::None;
+                    }
+                });
+        }
     }
 }

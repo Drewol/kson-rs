@@ -18,7 +18,7 @@ use std::fs::File;
 use std::io::prelude::*;
 use std::io::BufReader;
 use std::path::Path;
-use tools::{ButtonInterval, CursorObject, LaserTool};
+use tools::{BpmTool, ButtonInterval, CursorObject, LaserTool};
 
 macro_rules! profile_scope {
     ($string:expr) => {
@@ -435,6 +435,7 @@ impl EventHandler for MainState {
                     ChartTool::FX => self.cursor_object = Some(Box::new(ButtonInterval::new(true))),
                     ChartTool::LLaser => self.cursor_object = Some(Box::new(LaserTool::new(false))),
                     ChartTool::RLaser => self.cursor_object = Some(Box::new(LaserTool::new(true))),
+                    ChartTool::BPM => self.cursor_object = Some(Box::new(BpmTool::new())),
                     _ => self.cursor_object = None,
                 },
                 GuiEvent::Undo => self.actions.undo(),

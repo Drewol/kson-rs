@@ -45,6 +45,7 @@ pub enum ChartTool {
     FX,
     RLaser,
     LLaser,
+    BPM,
 }
 
 pub enum GuiEvent {
@@ -112,7 +113,7 @@ pub struct ImGuiWrapper {
     pub renderer: Renderer<gfx_core::format::Rgba8, gfx_device_gl::Resources>,
     last_frame: Instant,
     pub event_queue: VecDeque<GuiEvent>,
-    tools: [(String, ChartTool); 4],
+    tools: [(String, ChartTool); 5],
     pub selected_tool: ChartTool,
 }
 
@@ -157,6 +158,7 @@ impl ImGuiWrapper {
                 (String::from("FX"), ChartTool::FX),
                 (String::from("LL"), ChartTool::LLaser),
                 (String::from("RL"), ChartTool::RLaser),
+                (String::from("BPM"), ChartTool::BPM),
             ],
             selected_tool: ChartTool::None,
         })
@@ -259,6 +261,11 @@ impl ImGuiWrapper {
                     state.chart.meta = serde_json::from_value(json_widget(v, &ui, String::new()))
                         .unwrap_or_else(|_| state.chart.meta.clone());
                 });
+
+            // Tool window
+            if let Some(tool) = &mut state.cursor_object {
+                tool.draw_ui(&ui, &mut state.actions);
+            }
 
             // Toolbar
             let tools = &self.tools;
