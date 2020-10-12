@@ -32,6 +32,7 @@ use crate::MainState;
 use ggez::graphics;
 use ggez::Context;
 use imgui::*;
+use serde_json::Value;
 use std::collections::VecDeque;
 use std::error::Error;
 
@@ -61,6 +62,49 @@ struct MouseState {
     pos: (i32, i32),
     pressed: (bool, bool, bool),
     wheel: f32,
+}
+
+fn json_widget(jobj: Value, ui: &imgui::Ui, name: String) -> Value {
+    let imname = ImString::from(name);
+    match jobj {
+        Value::Array(valvec) => {
+            let mut modified_vec: Vec<Value> = Vec::new();
+            for v in valvec {
+                modified_vec.push(json_widget(v, ui, String::new()));
+            }
+            Value::Array(modified_vec)
+        }
+        Value::Object(children) => {
+            let mut modified_object: serde_json::Map<String, Value> = serde_json::Map::new();
+            for (name, v) in children {
+                modified_object.insert(name.clone(), json_widget(v, ui, name.clone()));
+            }
+            Value::Object(modified_object)
+        }
+        Value::Bool(v) => {
+            let v = Selectable::new(imname.as_ref()).selected(v).build(ui);
+            Value::Bool(v)
+        }
+        Value::Number(v) => {
+            if v.is_i64() {
+                let mut value = v.as_i64().unwrap() as i32;
+                InputInt::new(ui, imname.as_ref(), &mut value).build();
+                Value::Number(serde_json::Number::from(value))
+            } else if v.is_f64() {
+                let mut value = v.as_f64().unwrap() as f32;
+                InputFloat::new(ui, imname.as_ref(), &mut value).build();
+                Value::Number(serde_json::Number::from_f64(value as f64).unwrap())
+            } else {
+                Value::Null
+            }
+        }
+        Value::String(v) => {
+            let mut vclone = v;
+            ImGuiWrapper::labeled_text_input(ui, &mut vclone, imname.as_ref());
+            Value::String(vclone)
+        }
+        Value::Null => Value::Null,
+    }
 }
 
 pub struct ImGuiWrapper {
@@ -211,17 +255,9 @@ impl ImGuiWrapper {
                 .size([300.0, 600.0], imgui::Condition::FirstUseEver)
                 .position([100.0, 100.0], imgui::Condition::FirstUseEver)
                 .build(&ui, || {
-                    ImGuiWrapper::labeled_text_input(
-                        &ui,
-                        &mut state.chart.meta.title,
-                        im_str!("Title"),
-                    );
-
-                    ImGuiWrapper::labeled_text_input(
-                        &ui,
-                        &mut state.chart.meta.artist,
-                        im_str!("Artist"),
-                    );
+                    let v = serde_json::to_value(state.chart.meta.clone()).unwrap();
+                    state.chart.meta = serde_json::from_value(json_widget(v, &ui, String::new()))
+                        .unwrap_or_else(|_| state.chart.meta.clone());
                 });
 
             // Toolbar

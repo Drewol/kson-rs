@@ -410,12 +410,14 @@ impl EventHandler for MainState {
                         println!("\t{}", e);
                         None
                     }) {
+                        self.chart = new_chart.0.clone();
                         self.actions.reset(new_chart.0);
                         self.save_path = Some(new_chart.1);
                     }
                 }
                 GuiEvent::SaveAs => {
-                    if let Ok(chart) = self.actions.get_current() {
+                    if let Ok(mut chart) = self.actions.get_current() {
+                        chart.meta = self.chart.meta.clone();
                         if let Some(new_path) = save_chart_as(&chart).unwrap_or_else(|e| {
                             println!("Failed to save chart:");
                             println!("\t{}", e);
@@ -441,7 +443,9 @@ impl EventHandler for MainState {
             }
         }
         if let Ok(current_chart) = self.actions.get_current() {
+            let tempmeta = self.chart.meta.clone(); //metadata editing not covered by action stack
             self.chart = current_chart;
+            self.chart.meta = tempmeta;
         }
         let delta_time = (10.0 * ggez::timer::delta(ctx).as_secs_f32()).min(1.0);
         self.screen.update(delta_time);
