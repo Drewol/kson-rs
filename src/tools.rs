@@ -642,12 +642,13 @@ impl CursorObject for BpmTool {
     }
 
     fn update(&mut self, tick: u32, _tick_f: f64, _lane: f32, _pos: na::Point2<f32>) {
-        self.cursor_tick = tick;
+        if let BpmToolStates::None = self.state {
+            self.cursor_tick = tick;
+        }
     }
 
     fn draw(&self, state: &MainState, ctx: &mut Context) -> GameResult {
-        //draw cursor line
-        Ok(())
+        state.draw_cursor_line(ctx, self.cursor_tick, (0, 128, 255, 255))
     }
 
     fn draw_ui(&mut self, ui: &Ui, actions: &mut ActionStack<Chart>) {

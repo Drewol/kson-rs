@@ -190,6 +190,21 @@ impl MainState {
         self.screen.pos_to_lane(self.mouse_x)
     }
 
+    pub fn draw_cursor_line(
+        &self,
+        ctx: &mut Context,
+        tick: u32,
+        color: (u8, u8, u8, u8),
+    ) -> GameResult {
+        graphics::set_blend_mode(ctx, graphics::BlendMode::Alpha)?;
+        let (x, y) = self.screen.tick_to_pos(tick as u32);
+        let x = x + self.screen.track_width / 2.0;
+        let p1: na::Point2<f32> = [x, y].into();
+        let p2: na::Point2<f32> = [x + self.screen.track_width, y].into();
+        let m = graphics::Mesh::new_line(ctx, &[p1, p2], 1.5, color.into())?;
+        graphics::draw(ctx, &m, (na::Point2::new(0.0, 0.0),))
+    }
+
     fn draw_laser_section(
         &self,
         section: &kson::LaserSection,
@@ -685,23 +700,13 @@ impl EventHandler for MainState {
             }
 
             {
-                //cursor line
-                graphics::set_blend_mode(ctx, graphics::BlendMode::Alpha)?;
-                let (x, y) = if self.audio_playback.is_playing() {
-                    let tick = self.audio_playback.get_tick(&self.chart);
-
-                    //let delta = ms - self.tick_to_ms(tick);
-                    self.screen.tick_to_pos(tick as u32)
+                let tick = if self.audio_playback.is_playing() {
+                    self.audio_playback.get_tick(&self.chart) as u32
                 } else {
-                    self.screen.tick_to_pos(self.cursor_line)
+                    self.cursor_line
                 };
 
-                let x = x + self.screen.track_width / 2.0;
-                let p1: na::Point2<f32> = [x, y].into();
-                let p2: na::Point2<f32> = [x + self.screen.track_width, y].into();
-                let m =
-                    graphics::Mesh::new_line(ctx, &[p1, p2], 1.5, (255u8, 0u8, 0u8, 255u8).into())?;
-                graphics::draw(ctx, &m, (na::Point2::new(0.0, 0.0),))?;
+                self.draw_cursor_line(ctx, tick, (255u8, 0u8, 0u8, 255u8))?;
             }
         }
 
