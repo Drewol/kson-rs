@@ -1,7 +1,6 @@
 pub mod effects;
 pub mod parameter;
-use regex;
-use serde;
+
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::collections::HashMap;
@@ -194,11 +193,11 @@ pub struct TimeSignature {
 impl TimeSignature {
     //Parse from "n/d" string
     fn from_str(s: &str) -> Self {
-        let mut data = s.split("/");
+        let mut data = s.split('/');
         let n: u32 = data.next().unwrap_or("4").parse().unwrap_or(4);
         let d: u32 = data.next().unwrap_or("4").parse().unwrap_or(4);
 
-        TimeSignature { n: n, d: d }
+        TimeSignature { n, d }
     }
 }
 
@@ -306,7 +305,7 @@ pub struct MeasureBeatLines {
 
 impl Iterator for MeasureBeatLines {
     type Item = (u32, bool);
-
+ 
     fn next(&mut self) -> Option<(u32, bool)> {
         if let Some(func) = self.funcs.get(self.func_index) {
             let (new_tick, is_measure) = func.1(self.tick);
@@ -314,7 +313,7 @@ impl Iterator for MeasureBeatLines {
             self.tick = new_tick;
             if let Some(next_func) = self.funcs.get(self.func_index + 1) {
                 if self.tick >= next_func.0 {
-                    self.func_index = self.func_index + 1;
+                    self.func_index += 1;
                 }
             }
 
@@ -338,13 +337,13 @@ fn laser_char_to_value(value: u8) -> Result<f64, String> {
             if *c == value {
                 return Ok(i as f64 / 50.0);
             }
-            i = i + 1;
+            i += 1;
         }
     }
-    Err(String::from(format!(
+    Err(format!(
         "Invalid laser char: '{}'",
         value as char
-    )))
+    ))
 }
 
 impl Chart {
@@ -357,7 +356,7 @@ impl Chart {
         }
     }
 
-    pub fn from_ksh(data: &String) -> Result<Chart, Box<dyn error::Error>> {
+    pub fn from_ksh(data: &str) -> Result<Chart, Box<dyn error::Error>> {
         let mut new_chart = Chart::new();
         let mut num = 4;
         let mut den = 4;
@@ -366,7 +365,7 @@ impl Chart {
         let meta = parts.first().unwrap_or(&"").lines();
         let mut bgm = BgmInfo::new();
         for line in meta {
-            let line_data: Vec<&str> = line.split("=").collect();
+            let line_data: Vec<&str> = line.split('=').collect();
             if line_data.len() < 2 {
                 continue;
             }
@@ -378,7 +377,7 @@ impl Chart {
                 "jacket" => new_chart.meta.jacket_filename = value,
                 "illustrator" => new_chart.meta.jacket_author = value,
                 "t" => {
-                    if !value.contains("-") {
+                    if !value.contains('-') {
                         new_chart.beat.bpm.push(ByPulse {
                             y: 0,
                             v: value.parse()?,
@@ -405,7 +404,7 @@ impl Chart {
         let mut long_y: [u32; 8] = [0; 8];
         let mut laser_builder: [LaserSection; 2] = [
             LaserSection {
-                y: 0,
+                y: 0 ,
                 v: Vec::new(),
                 wide: 1,
             },
@@ -432,12 +431,12 @@ impl Chart {
                     let chars: Vec<char> = line.chars().collect();
                     for i in 0..4 {
                         if chars[i] == '1' {
-                            new_chart.note.bt[i].push(Interval { y: y, l: 0 });
+                            new_chart.note.bt[i].push(Interval {y, l: 0 });
                         } else if chars[i] == '2' && last_char[i] != '2' {
                             long_y[i] = y;
                         } else if chars[i] != '2' && last_char[i] == '2' {
                             let l = y - long_y[i];
-                            new_chart.note.bt[i].push(Interval { y: long_y[i], l: l });
+                            new_chart.note.bt[i].push(Interval { y: long_y[i], l });
                         }
 
                         last_char[i] = chars[i];
@@ -446,7 +445,7 @@ impl Chart {
                     //read fx
                     for i in 0..2 {
                         if chars[i + 5] == '2' {
-                            new_chart.note.fx[i].push(Interval { y: y, l: 0 })
+                            new_chart.note.fx[i].push(Interval { y, l: 0 })
                         } else if chars[i + 5] == '0'
                             && last_char[i + 4] != '0'
                             && last_char[i + 4] != '2'
@@ -496,9 +495,9 @@ impl Chart {
                         last_char[i + 6] = chars[i + 8];
                     }
 
-                    y = y + ticks_per_line;
-                } else if line.contains("=") {
-                    let mut line_data = line.split("=");
+                    y += ticks_per_line;
+                } else if line.contains('=') {
+                    let mut line_data = line.split('=');
 
                     let line_prop = String::from(line_data.next().unwrap_or(""));
                     let mut line_value = String::from(line_data.next().unwrap_or(""));
@@ -523,7 +522,7 @@ impl Chart {
                             }
                         }
                         "t" => new_chart.beat.bpm.push(ByPulse {
-                            y: y,
+                            y,
                             v: line_value.parse()?,
                         }),
                         "laserrange_l" => {
@@ -538,7 +537,7 @@ impl Chart {
                     }
                 }
             }
-            measure_index = measure_index + 1;
+            measure_index += 1;
         }
         //set slams
         for i in 0..2 {
@@ -560,11 +559,11 @@ impl Chart {
                 section.v.retain(|p| !for_removal.contains(&p.ry));
                 section
                     .v
-                    .retain(|p| if let Some(vf) = p.vf { vf != p.v } else { true });
+                    .retain(|p| if let Some(vf) = p.vf { vf.ne(&p.v) } else { true });
             }
         }
 
-        return Ok(new_chart);
+        Ok(new_chart)
     }
 
     pub fn ms_to_tick(&self, ms: f64) -> u32 {
@@ -592,10 +591,28 @@ impl Chart {
             if b.y > tick {
                 break;
             }
-            ret = ret + ms_from_ticks((b.y - prev.y) as i64, prev.v, self.beat.resolution);
+            ret += ms_from_ticks((b.y - prev.y) as i64, prev.v, self.beat.resolution);
             prev = b;
         }
         ret + ms_from_ticks((tick - prev.y) as i64, prev.v, self.beat.resolution)
+    }
+
+    pub fn tick_to_measure(&self, tick: u32) -> u32 {
+        let mut current_tick = 0;
+        let mut ret = 0;
+        let first_sig = self.beat.time_sig.first().unwrap();
+        let mut ticks_per_measure = (first_sig.v.n * 4 * self.beat.resolution) / first_sig.v.d;
+        let mut last_idx = 0;
+        for t in &self.beat.time_sig {
+            ret += (tick - current_tick) / ticks_per_measure;
+            ticks_per_measure = (t.v.n * 4 * self.beat.resolution) / t.v.d;
+            current_tick += ticks_per_measure * (t.idx - last_idx);
+            last_idx = t.idx;
+            if current_tick >= tick {
+                break;
+            }
+        }
+        ret
     }
 
     pub fn bpm_at_tick(&self, tick: u32) -> f64 {
@@ -642,7 +659,7 @@ impl Chart {
 
         MeasureBeatLines {
             tick: 0,
-            funcs: funcs,
+            funcs,
             func_index: 0,
         }
     }

@@ -1,3 +1,4 @@
+#![allow(dead_code)]
 use crate::parameter::{BoolParameter, EffectParameter};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -213,7 +214,7 @@ impl BiQuad {
             b2: 0.0,
             za: Vec::new(),
             zb: Vec::new(),
-            rate: rate,
+            rate,
             q: q.max(0.01),
             mix: 1.0,
         };
@@ -276,7 +277,7 @@ impl DSP for PeakingFilter {
 
         self.filter.set_peaking(freq, self.q.v);
     }
-    fn update_params(&mut self, v: &Value) {}
+    fn update_params(&mut self, _v: &Value) {}
 }
 
 impl DSP for LowPassFilter {
@@ -296,7 +297,7 @@ impl DSP for LowPassFilter {
         self.filter.q = self.q.v;
         self.filter.set_lowpass(freq);
     }
-    fn update_params(&mut self, v: &Value) {}
+    fn update_params(&mut self, _v: &Value) {}
 }
 
 impl DSP for HighPassFilter {
@@ -316,5 +317,5 @@ impl DSP for HighPassFilter {
         self.filter.q = self.q.v;
         self.filter.set_highpass(freq);
     }
-    fn update_params(&mut self, v: &Value) {}
+    fn update_params(&mut self, _v: &Value) {}
 }
