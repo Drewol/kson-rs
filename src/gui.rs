@@ -247,6 +247,10 @@ impl ImGuiWrapper {
                     ui.text(im_str!("Cursor: {:.1}ms", cursor_ms));
                     ui.text(im_str!("Cursor tick: {}", cursor_tick));
                     ui.text(im_str!("Cursor tick_f: {:.2}", cursor_tick_f));
+                    ui.text(im_str!(
+                        "Cursor measure: {}",
+                        state.chart.tick_to_measure(cursor_tick)
+                    ));
                     ui.text(im_str!("Cursor lane: {}", cursor_lane));
                     ui.text(im_str!("Lasers: ({:.2?},{:.2?})", lval, rval))
                 });

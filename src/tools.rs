@@ -127,7 +127,7 @@ impl LaserTool {
             let x = 1.0 / 10.0 + x * 8.0 / 10.0;
             let x = x * screen.track_width + interv.0 + screen.track_width / 2.0;
             let y = interv.1 + interv.2 * (start.a.unwrap() as f32 - (interv.3).0) / (interv.3).1;
-            return Some(ggez::nalgebra::Point2::new(x, y));
+            return Some(ggez::nalgebra::Point2::new(x - screen.x_offset, y));
         } else {
             panic!("Curve `a` was not in any interval");
         }
@@ -317,7 +317,7 @@ impl CursorObject for ButtonInterval {
                 [x, y, w, h].into(),
                 color,
             )?;
-            graphics::draw(ctx, &m, (na::Point2::new(0.0, 0.0),))
+            graphics::draw(ctx, &m, (na::Point2::new(-state.screen.x_offset, 0.0),))
         } else {
             let mut long_bt_builder = graphics::MeshBuilder::new();
             for (x, y, h, _) in state.screen.interval_to_ranges(&self.interval) {
@@ -553,7 +553,7 @@ impl CursorObject for LaserTool {
                 state.draw_laser_section(&self.section, &mut mb, color.into())?;
                 graphics::set_blend_mode(ctx, graphics::BlendMode::Add)?;
                 let m = mb.build(ctx)?;
-                graphics::draw(ctx, &m, (na::Point2::new(0.0, 0.0),))?;
+                graphics::draw(ctx, &m, (na::Point2::new(-state.screen.x_offset, 0.0),))?;
             }
 
             //Draw curve control points

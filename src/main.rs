@@ -74,7 +74,7 @@ impl ScreenState {
         let x = (in_y / self.ticks_per_col()) as f32 * self.track_spacing();
         let y = (in_y % self.ticks_per_col()) as f32 * self.tick_height;
         let y = h - y + self.top_margin;
-        (x - self.x_offset, y)
+        (x, y)
     }
 
     fn chart_draw_height(&self) -> f32 {
@@ -198,7 +198,7 @@ impl MainState {
     ) -> GameResult {
         graphics::set_blend_mode(ctx, graphics::BlendMode::Alpha)?;
         let (x, y) = self.screen.tick_to_pos(tick as u32);
-        let x = x + self.screen.track_width / 2.0;
+        let x = x + self.screen.track_width / 2.0 - self.screen.x_offset;
         let p1: na::Point2<f32> = [x, y].into();
         let p2: na::Point2<f32> = [x + self.screen.track_width, y].into();
         let m = graphics::Mesh::new_line(ctx, &[p1, p2], 1.5, color.into())?;
@@ -521,7 +521,7 @@ impl EventHandler for MainState {
                     }
 
                     let (tx, y) = self.screen.tick_to_pos(tick);
-                    let x = tx + x;
+                    let x = tx + x - self.screen.x_offset;
                     let color = if is_measure {
                         ggez::graphics::Color {
                             r: 1.0,
@@ -660,6 +660,7 @@ impl EventHandler for MainState {
             }
 
             {
+                let params = (na::Point2::new(-self.screen.x_offset, 0.0),);
                 profile_scope!("Build Meshes");
                 graphics::set_blend_mode(ctx, graphics::BlendMode::Alpha)?;
                 //draw built meshes
@@ -670,28 +671,28 @@ impl EventHandler for MainState {
                 //long fx
                 let note_mesh = long_fx_builder.build(ctx);
                 if let Ok(mesh) = note_mesh {
-                    graphics::draw(ctx, &mesh, (na::Point2::new(0.0, 0.0),))?;
+                    graphics::draw(ctx, &mesh, params)?;
                 }
                 //long bt
                 let note_mesh = long_bt_builder.build(ctx);
                 if let Ok(mesh) = note_mesh {
-                    graphics::draw(ctx, &mesh, (na::Point2::new(0.0, 0.0),))?;
+                    graphics::draw(ctx, &mesh, params)?;
                 }
                 //fx
                 let note_mesh = fx_builder.build(ctx);
                 if let Ok(mesh) = note_mesh {
-                    graphics::draw(ctx, &mesh, (na::Point2::new(0.0, 0.0),))?;
+                    graphics::draw(ctx, &mesh, params)?;
                 }
                 //bt
                 let note_mesh = bt_builder.build(ctx);
                 if let Ok(mesh) = note_mesh {
-                    graphics::draw(ctx, &mesh, (na::Point2::new(0.0, 0.0),))?;
+                    graphics::draw(ctx, &mesh, params)?;
                 }
                 //laser
                 graphics::set_blend_mode(ctx, graphics::BlendMode::Add)?;
                 let note_mesh = laser_builder.build(ctx);
                 if let Ok(mesh) = note_mesh {
-                    graphics::draw(ctx, &mesh, (na::Point2::new(0.0, 0.0),))?;
+                    graphics::draw(ctx, &mesh, params)?;
                 }
             }
 
@@ -707,6 +708,88 @@ impl EventHandler for MainState {
                 };
 
                 self.draw_cursor_line(ctx, tick, (255u8, 0u8, 0u8, 255u8))?;
+            }
+
+            //BPM & Time Signatures
+            {
+                let mut changes: Vec<(u32, Vec<(String, graphics::Color)>)> = Vec::new();
+                {
+                    profile_scope!("Build BPM & Time signature change list");
+                    for bpm_change in &self.chart.beat.bpm {
+                        let color: graphics::Color = (0, 128, 255, 255).into();
+                        let entry = (format!("{:.2}", bpm_change.v), color.clone());
+                        match changes.binary_search_by(|c| c.0.cmp(&bpm_change.y)) {
+                            Ok(idx) => changes.get_mut(idx).unwrap().1.push(entry),
+                            Err(new_idx) => {
+                                let mut new_vec: Vec<(String, graphics::Color)> = Vec::new();
+                                new_vec.push(entry);
+                                changes.insert(new_idx, (bpm_change.y, new_vec));
+                            }
+                        }
+                    }
+
+                    for ts_change in &self.chart.beat.time_sig {
+                        let tick = self
+                            .chart
+                            .beat_line_iter()
+                            .filter(|b| b.1)
+                            .nth(ts_change.idx as usize)
+                            .unwrap_or((0, false))
+                            .0;
+
+                        let color: graphics::Color = (255, 255, 0, 255).into();
+                        let entry = (
+                            format!("{}/{}", ts_change.v.n, ts_change.v.d),
+                            color.clone(),
+                        );
+
+                        match changes.binary_search_by(|c| c.0.cmp(&tick)) {
+                            Ok(idx) => changes.get_mut(idx).unwrap().1.push(entry),
+                            Err(new_idx) => {
+                                let mut new_vec: Vec<(String, graphics::Color)> = Vec::new();
+                                new_vec.push(entry);
+                                changes.insert(new_idx, (tick, new_vec));
+                            }
+                        }
+                    }
+                }
+                {
+                    profile_scope!("Build Text");
+                    for c in changes {
+                        if c.0 < min_tick_render {
+                            continue;
+                        } else if c.0 > max_tick_render {
+                            break;
+                        }
+                        let (x, y) = self.screen.tick_to_pos(c.0);
+                        let line_height = 12.0;
+
+                        for (i, l) in c.1.iter().enumerate() {
+                            let text = graphics::Text::new(graphics::TextFragment {
+                                text: l.0.clone(),
+                                color: Some(l.1),
+                                font: Some(graphics::Font::default()),
+                                scale: Some(graphics::Scale::uniform(line_height)),
+                                ..Default::default()
+                            });
+                            graphics::queue_text(
+                                ctx,
+                                &text,
+                                [x, y - i as f32 * line_height - self.screen.bottom_margin],
+                                Some(graphics::WHITE),
+                            );
+                        }
+                    }
+                }
+                {
+                    profile_scope!("Draw Text");
+                    graphics::draw_queued_text(
+                        ctx,
+                        graphics::DrawParam::new().dest([-self.screen.x_offset, 0.0]),
+                        Some(graphics::BlendMode::Alpha),
+                        graphics::FilterMode::Linear,
+                    )?;
+                }
             }
         }
 
