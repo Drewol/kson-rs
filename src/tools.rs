@@ -582,7 +582,7 @@ impl CursorObject for LaserTool {
     fn draw_ui(&mut self, ui: &Ui, actions: &mut ActionStack<Chart>) {}
 }
 
-enum BpmToolStates {
+enum CursorToolStates {
     None,
     Add(u32),
     Edit(usize),
@@ -590,7 +590,7 @@ enum BpmToolStates {
 
 pub struct BpmTool {
     bpm: f64,
-    state: BpmToolStates,
+    state: CursorToolStates,
     cursor_tick: u32,
 }
 
@@ -598,7 +598,7 @@ impl BpmTool {
     pub fn new() -> Self {
         BpmTool {
             bpm: 120.0,
-            state: BpmToolStates::None,
+            state: CursorToolStates::None,
             cursor_tick: 0,
         }
     }
@@ -615,17 +615,17 @@ impl CursorObject for BpmTool {
         actions: &mut ActionStack<Chart>,
         pos: na::Point2<f32>,
     ) {
-        if let BpmToolStates::None = self.state {
+        if let CursorToolStates::None = self.state {
             //check for bpm changes on selected tick
             for (i, change) in chart.beat.bpm.iter().enumerate() {
                 if change.y == tick {
-                    self.state = BpmToolStates::Edit(i);
+                    self.state = CursorToolStates::Edit(i);
                     self.bpm = change.v;
                     return;
                 }
             }
 
-            self.state = BpmToolStates::Add(tick);
+            self.state = CursorToolStates::Add(tick);
         }
     }
 
@@ -642,7 +642,7 @@ impl CursorObject for BpmTool {
     }
 
     fn update(&mut self, tick: u32, _tick_f: f64, _lane: f32, _pos: na::Point2<f32>) {
-        if let BpmToolStates::None = self.state {
+        if let CursorToolStates::None = self.state {
             self.cursor_tick = tick;
         }
     }
@@ -654,8 +654,8 @@ impl CursorObject for BpmTool {
     fn draw_ui(&mut self, ui: &Ui, actions: &mut ActionStack<Chart>) {
         let complete_func: Option<Box<dyn Fn(&mut ActionStack<Chart>, f64) -> ()>> =
             match self.state {
-                BpmToolStates::None => None,
-                BpmToolStates::Add(tick) => {
+                CursorToolStates::None => None,
+                CursorToolStates::Add(tick) => {
                     Some(Box::new(move |a: &mut ActionStack<Chart>, bpm: f64| {
                         let v = bpm;
                         let y = tick;
@@ -669,7 +669,7 @@ impl CursorObject for BpmTool {
                         })
                     }))
                 }
-                BpmToolStates::Edit(index) => {
+                CursorToolStates::Edit(index) => {
                     Some(Box::new(move |a: &mut ActionStack<Chart>, bpm: f64| {
                         let v = bpm;
                         a.commit(Action {
@@ -697,11 +697,134 @@ impl CursorObject for BpmTool {
                     self.bpm = bpm as f64;
                     if Selectable::new(im_str!("Ok")).selected(false).build(ui) {
                         complete(actions, bpm as f64);
-                        self.state = BpmToolStates::None;
+                        self.state = CursorToolStates::None;
                     }
 
                     if Selectable::new(im_str!("Cancel")).selected(false).build(ui) {
-                        self.state = BpmToolStates::None;
+                        self.state = CursorToolStates::None;
+                    }
+                });
+        }
+    }
+}
+
+pub struct TimeSigTool {
+    ts: kson::TimeSignature,
+    state: CursorToolStates,
+    cursor_tick: u32,
+}
+
+impl TimeSigTool {
+    pub fn new() -> Self {
+        TimeSigTool {
+            ts: kson::TimeSignature { d: 4, n: 4 },
+            state: CursorToolStates::None,
+            cursor_tick: 0,
+        }
+    }
+}
+
+impl CursorObject for TimeSigTool {
+    fn mouse_down(
+        &mut self,
+        screen: ScreenState,
+        tick: u32,
+        tick_f: f64,
+        lane: f32,
+        chart: &Chart,
+        actions: &mut ActionStack<Chart>,
+        pos: na::Point2<f32>,
+    ) {
+        let measure = chart.tick_to_measure(tick) - 1;
+        if let CursorToolStates::None = self.state {
+            //check for bpm changes on selected tick
+            if let Ok(idx) = chart
+                .beat
+                .time_sig
+                .binary_search_by(|tsc| tsc.idx.cmp(&measure))
+            {
+                self.state = CursorToolStates::Edit(idx);
+                self.ts = chart.beat.time_sig.get(idx).unwrap().v.clone();
+            } else {
+                self.state = CursorToolStates::Add(measure);
+                self.ts = kson::TimeSignature { d: 4, n: 4 };
+            }
+        }
+    }
+
+    fn mouse_up(
+        &mut self,
+        _screen: ScreenState,
+        _tick: u32,
+        _tick_f: f64,
+        _lane: f32,
+        _chart: &Chart,
+        _actions: &mut ActionStack<Chart>,
+        _pos: na::Point2<f32>,
+    ) {
+    }
+
+    fn update(&mut self, tick: u32, _tick_f: f64, _lane: f32, _pos: na::Point2<f32>) {
+        if let CursorToolStates::None = self.state {
+            self.cursor_tick = tick;
+        }
+    }
+
+    fn draw(&self, state: &MainState, ctx: &mut Context) -> GameResult {
+        state.draw_cursor_line(ctx, self.cursor_tick, (0, 128, 255, 255))
+    }
+
+    fn draw_ui(&mut self, ui: &Ui, actions: &mut ActionStack<Chart>) {
+        let complete_func: Option<Box<dyn Fn(&mut ActionStack<Chart>, [i32; 2]) -> ()>> =
+            match self.state {
+                CursorToolStates::None => None,
+                CursorToolStates::Add(measure) => Some(Box::new(move |a, ts| {
+                    let v = kson::TimeSignature {
+                        n: ts[0] as u32,
+                        d: ts[1] as u32,
+                    };
+                    let idx = measure;
+                    a.commit(Action {
+                        description: String::from("Add Time Signature Change"),
+                        action: Box::new(move |c| {
+                            c.beat.time_sig.push(kson::ByMeasureIndex { idx, v });
+                            c.beat.time_sig.sort_by(|a, b| a.idx.cmp(&b.idx));
+                            Ok(())
+                        }),
+                    })
+                })),
+                CursorToolStates::Edit(index) => Some(Box::new(move |a, ts| {
+                    a.commit(Action {
+                        description: String::from("Edit BPM Change"),
+                        action: Box::new(move |c| {
+                            if let Some(change) = c.beat.time_sig.get_mut(index) {
+                                change.v.n = ts[0] as u32;
+                                change.v.d = ts[1] as u32;
+                                Ok(())
+                            } else {
+                                Err(String::from("Tried to edit non existing BPM Change"))
+                            }
+                        }),
+                    })
+                })),
+            };
+
+        if let Some(complete) = complete_func {
+            Window::new(im_str!("Change BPM"))
+                .size([300.0, 600.0], imgui::Condition::FirstUseEver)
+                .position([100.0, 100.0], imgui::Condition::FirstUseEver)
+                .build(&ui, || {
+                    let mut ts_data = [self.ts.n as i32, self.ts.d as i32];
+                    InputInt2::new(ui, im_str!("Time signature a/b"), &mut ts_data).build();
+                    self.ts.n = ts_data[0].max(1) as u32;
+                    self.ts.d = ts_data[1].max(1) as u32;
+                    if Selectable::new(im_str!("Ok")).selected(false).build(ui) {
+                        complete(actions, ts_data);
+                        self.state = CursorToolStates::None;
+                    }
+
+                    if Selectable::new(im_str!("Cancel")).selected(false).build(ui) {
+                        self.state = CursorToolStates::None;
                     }
                 });
         }

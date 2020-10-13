@@ -46,6 +46,7 @@ pub enum ChartTool {
     RLaser,
     LLaser,
     BPM,
+    TimeSig,
 }
 
 pub enum GuiEvent {
@@ -113,7 +114,7 @@ pub struct ImGuiWrapper {
     pub renderer: Renderer<gfx_core::format::Rgba8, gfx_device_gl::Resources>,
     last_frame: Instant,
     pub event_queue: VecDeque<GuiEvent>,
-    tools: [(String, ChartTool); 5],
+    tools: [(String, ChartTool); 6],
     pub selected_tool: ChartTool,
 }
 
@@ -159,6 +160,7 @@ impl ImGuiWrapper {
                 (String::from("LL"), ChartTool::LLaser),
                 (String::from("RL"), ChartTool::RLaser),
                 (String::from("BPM"), ChartTool::BPM),
+                (String::from("TS"), ChartTool::TimeSig),
             ],
             selected_tool: ChartTool::None,
         })

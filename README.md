@@ -12,13 +12,13 @@ Editor program for the Sound Voltex simulator format [KSON](https://github.com/m
 * Undo/Redo
 * Curved lasers
 * BPM editing
+* Time signature editing
 
 ## TODO
 * Effecting
 * Modifying existing objects
 * Camera editing
 * Full metadata editing
-* Time signature editing
 * Key sound editing
 * Hotkeys
 * Improve editing tools

@@ -18,7 +18,7 @@ use std::fs::File;
 use std::io::prelude::*;
 use std::io::BufReader;
 use std::path::Path;
-use tools::{BpmTool, ButtonInterval, CursorObject, LaserTool};
+use tools::*;
 
 macro_rules! profile_scope {
     ($string:expr) => {
@@ -444,6 +444,7 @@ impl EventHandler for MainState {
                 }
                 GuiEvent::Exit => ctx.continuing = false,
                 GuiEvent::ToolChanged(new_tool) => match new_tool {
+                    ChartTool::None => {}
                     ChartTool::BT => {
                         self.cursor_object = Some(Box::new(ButtonInterval::new(false)))
                     }
@@ -451,7 +452,7 @@ impl EventHandler for MainState {
                     ChartTool::LLaser => self.cursor_object = Some(Box::new(LaserTool::new(false))),
                     ChartTool::RLaser => self.cursor_object = Some(Box::new(LaserTool::new(true))),
                     ChartTool::BPM => self.cursor_object = Some(Box::new(BpmTool::new())),
-                    _ => self.cursor_object = None,
+                    ChartTool::TimeSig => self.cursor_object = Some(Box::new(TimeSigTool::new())),
                 },
                 GuiEvent::Undo => self.actions.undo(),
                 GuiEvent::Redo => self.actions.redo(),
@@ -717,7 +718,7 @@ impl EventHandler for MainState {
                     profile_scope!("Build BPM & Time signature change list");
                     for bpm_change in &self.chart.beat.bpm {
                         let color: graphics::Color = (0, 128, 255, 255).into();
-                        let entry = (format!("{:.2}", bpm_change.v), color.clone());
+                        let entry = (format!("{:.2}", bpm_change.v), color);
                         match changes.binary_search_by(|c| c.0.cmp(&bpm_change.y)) {
                             Ok(idx) => changes.get_mut(idx).unwrap().1.push(entry),
                             Err(new_idx) => {
@@ -754,6 +755,7 @@ impl EventHandler for MainState {
                     }
                 }
                 {
+                    //TODO: Cache text, it renders very slow but it will have to do for now
                     profile_scope!("Build Text");
                     for c in changes {
                         if c.0 < min_tick_render {
