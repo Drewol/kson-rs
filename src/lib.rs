@@ -299,7 +299,7 @@ pub struct Chart {
 
 pub struct MeasureBeatLines {
     tick: u32,
-    funcs: Vec<(u32, Box<dyn Fn(u32) -> (u32, bool)>)>,
+    funcs: Vec<(u32, Box<dyn Fn(u32) ->Option<(u32, bool)>>)>,
     func_index: usize,
 }
 
@@ -308,16 +308,18 @@ impl Iterator for MeasureBeatLines {
  
     fn next(&mut self) -> Option<(u32, bool)> {
         if let Some(func) = self.funcs.get(self.func_index) {
-            let (new_tick, is_measure) = func.1(self.tick);
-            let old_tick = self.tick;
-            self.tick = new_tick;
-            if let Some(next_func) = self.funcs.get(self.func_index + 1) {
-                if self.tick >= next_func.0 {
-                    self.func_index += 1;
+            if let Some((new_tick, is_measure)) = func.1(self.tick)
+            {
+                let old_tick = self.tick;
+                self.tick = new_tick;
+                if let Some(next_func) = self.funcs.get(self.func_index + 1) {
+                    if self.tick >= next_func.0 {
+                        self.func_index += 1;
+                    }
                 }
-            }
 
-            return Some((old_tick, is_measure));
+                return Some((old_tick, is_measure));
+            }
         }
 
         None
@@ -629,7 +631,7 @@ impl Chart {
     }
 
     pub fn beat_line_iter(&self) -> MeasureBeatLines {
-        let mut funcs: Vec<(u32, Box<dyn Fn(u32) -> (u32, bool)>)> = Vec::new();
+        let mut funcs: Vec<(u32, Box<dyn Fn(u32) -> Option<(u32, bool)>>)> = Vec::new();
         let mut prev_start = 0;
         let mut prev_sig = match self.beat.time_sig.get(0) {
             Some(v) => v,
@@ -645,14 +647,17 @@ impl Chart {
             let prev_ticks_per_measure = self.beat.resolution * 4 * prev_sig.v.n / prev_sig.v.d;
 
             let new_start = prev_start + (time_sig.idx - prev_sig.idx) * prev_ticks_per_measure;
-
+            if ticks_per_measure > 0 && ticks_per_beat > 0 {
             funcs.push((
                 new_start,
                 Box::new(move |y| {
                     let adjusted = y - new_start;
-                    (y + ticks_per_beat, (adjusted % ticks_per_measure) == 0)
+                    Some((y + ticks_per_beat, (adjusted % ticks_per_measure) == 0))
                 }),
             ));
+        } else {
+            funcs.push((new_start, Box::new(|_| { None })));
+        }
 
             prev_start = new_start;
             prev_sig = time_sig;
