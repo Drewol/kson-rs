@@ -598,9 +598,7 @@ impl Chart {
     }
 
     pub fn tick_to_measure(&self, tick: u32) -> u32 {
-        self.beat_line_iter().filter(|l| {
-            l.1 && l.0 <= tick
-        }).count() as u32
+        self.beat_line_iter().take_while(|l | l.0 <= tick).filter(|l| l.1).count() as u32
         // let mut current_tick = 0;
         // let mut ret = 0;
         // let first_sig = self.beat.time_sig.first().unwrap();
