@@ -598,21 +598,24 @@ impl Chart {
     }
 
     pub fn tick_to_measure(&self, tick: u32) -> u32 {
-        let mut current_tick = 0;
-        let mut ret = 0;
-        let first_sig = self.beat.time_sig.first().unwrap();
-        let mut ticks_per_measure = (first_sig.v.n * 4 * self.beat.resolution) / first_sig.v.d;
-        let mut last_idx = 0;
-        for t in &self.beat.time_sig {
-            ret += (tick - current_tick) / ticks_per_measure;
-            ticks_per_measure = (t.v.n * 4 * self.beat.resolution) / t.v.d;
-            current_tick += ticks_per_measure * (t.idx - last_idx);
-            last_idx = t.idx;
-            if current_tick >= tick {
-                break;
-            }
-        }
-        ret
+        self.beat_line_iter().filter(|l| {
+            l.1 && l.0 <= tick
+        }).count() as u32
+        // let mut current_tick = 0;
+        // let mut ret = 0;
+        // let first_sig = self.beat.time_sig.first().unwrap();
+        // let mut ticks_per_measure = (first_sig.v.n * 4 * self.beat.resolution) / first_sig.v.d;
+        // let mut last_idx = 0;
+        // for t in &self.beat.time_sig {
+        //     ret += (tick - current_tick) / ticks_per_measure;
+        //     ticks_per_measure = (t.v.n * 4 * self.beat.resolution) / t.v.d;
+        //     current_tick += ticks_per_measure * (t.idx - last_idx);
+        //     last_idx = t.idx;
+        //     if current_tick >= tick {
+        //         break;
+        //     }
+        // }
+
     }
 
     pub fn bpm_at_tick(&self, tick: u32) -> f64 {
