@@ -770,7 +770,10 @@ impl CursorObject for TimeSigTool {
     }
 
     fn draw(&self, state: &MainState, ctx: &mut Context) -> GameResult {
-        state.draw_cursor_line(ctx, self.cursor_tick, (0, 128, 255, 255))
+        let tick = state
+            .chart
+            .measure_to_tick(state.chart.tick_to_measure(self.cursor_tick));
+        state.draw_cursor_line(ctx, tick, (255, 255, 0, 255))
     }
 
     fn draw_ui(&mut self, ui: &Ui, actions: &mut ActionStack<Chart>) {

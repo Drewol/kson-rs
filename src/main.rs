@@ -444,7 +444,7 @@ impl EventHandler for MainState {
                 }
                 GuiEvent::Exit => ctx.continuing = false,
                 GuiEvent::ToolChanged(new_tool) => match new_tool {
-                    ChartTool::None => {}
+                    ChartTool::None => self.cursor_object = None,
                     ChartTool::BT => {
                         self.cursor_object = Some(Box::new(ButtonInterval::new(false)))
                     }
@@ -730,13 +730,7 @@ impl EventHandler for MainState {
                     }
 
                     for ts_change in &self.chart.beat.time_sig {
-                        let tick = self
-                            .chart
-                            .beat_line_iter()
-                            .filter(|b| b.1)
-                            .nth(ts_change.idx as usize)
-                            .unwrap_or((0, false))
-                            .0;
+                        let tick = self.chart.measure_to_tick(ts_change.idx);
 
                         let color: graphics::Color = (255, 255, 0, 255).into();
                         let entry = (
