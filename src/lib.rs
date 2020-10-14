@@ -600,22 +600,32 @@ impl Chart {
     }
 
     pub fn tick_to_measure(&self, tick: u32) -> u32 {
-        self.beat_line_iter().take_while(|l | l.0 <= tick).filter(|l| l.1).count() as u32
-        // let mut current_tick = 0;
-        // let mut ret = 0;
-        // let first_sig = self.beat.time_sig.first().unwrap();
-        // let mut ticks_per_measure = (first_sig.v.n * 4 * self.beat.resolution) / first_sig.v.d;
-        // let mut last_idx = 0;
-        // for t in &self.beat.time_sig {
-        //     ret += (tick - current_tick) / ticks_per_measure;
-        //     ticks_per_measure = (t.v.n * 4 * self.beat.resolution) / t.v.d;
-        //     current_tick += ticks_per_measure * (t.idx - last_idx);
-        //     last_idx = t.idx;
-        //     if current_tick >= tick {
-        //         break;
-        //     }
-        // }
-
+        let mut ret = 0;
+        let mut time_sig_iter = self.beat.time_sig.iter();
+        let mut remaining_ticks = tick;
+        if let Some(first_sig) = time_sig_iter.next() {
+            let mut prev_index = first_sig.idx;
+            let mut prev_ticks_per_measure = self.beat.resolution * 4 * first_sig.v.n / first_sig.v.d;
+            if prev_ticks_per_measure == 0 {
+                    return ret;
+            }
+            for current_sig in time_sig_iter {
+                let measure_count = current_sig.idx - prev_index;
+                let tick_count = measure_count * prev_ticks_per_measure;
+                if tick_count > remaining_ticks {
+                    break;
+                }
+                ret += measure_count;
+                remaining_ticks -= tick_count;
+                prev_index = current_sig.idx;
+                prev_ticks_per_measure = self.beat.resolution * 4 * current_sig.v.n / current_sig.v.d;
+                if prev_ticks_per_measure == 0 {
+                    return ret;
+                }
+            }
+            ret += remaining_ticks / prev_ticks_per_measure;
+        }
+        ret
     }
 
     pub fn bpm_at_tick(&self, tick: u32) -> f64 {
