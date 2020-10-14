@@ -1004,7 +1004,7 @@ checksum = "e2db585e1d738fc771bf08a151420d3ed193d9d895a36df7f6f8a9456b911ddc"
 [[package]]
 name = "kson"
 version = "0.1.0"
-source = "git+https://github.com/Drewol/kson-rs.git#988e5e0ae30928a3cb26f77d7d5ed9f4c17bda14"
+source = "git+https://github.com/Drewol/kson-rs.git#2e0eab295b58b14b28887b91a669cfd075849acf"
 dependencies = [
  "regex",
  "serde",

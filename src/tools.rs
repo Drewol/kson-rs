@@ -127,11 +127,10 @@ impl LaserTool {
             let x = 1.0 / 10.0 + x * 8.0 / 10.0;
             let x = x * screen.track_width + interv.0 + screen.track_width / 2.0;
             let y = interv.1 + interv.2 * (start.a.unwrap() as f32 - (interv.3).0) / (interv.3).1;
-            return Some(ggez::nalgebra::Point2::new(x - screen.x_offset, y));
+            Some(ggez::nalgebra::Point2::new(x - screen.x_offset, y))
         } else {
             panic!("Curve `a` was not in any interval");
         }
-        None
     }
 
     fn lane_to_pos(lane: f32) -> f64 {
@@ -189,13 +188,13 @@ impl LaserTool {
 impl CursorObject for ButtonInterval {
     fn mouse_down(
         &mut self,
-        screen: ScreenState,
+        _screen: ScreenState,
         tick: u32,
-        tick_f: f64,
+        _tick_f: f64,
         lane: f32,
-        chart: &Chart,
-        actions: &mut ActionStack<Chart>,
-        pos: na::Point2<f32>,
+        _chart: &Chart,
+        _actions: &mut ActionStack<Chart>,
+        _pos: na::Point2<f32>,
     ) {
         self.pressed = true;
         if self.fx {
@@ -208,13 +207,13 @@ impl CursorObject for ButtonInterval {
 
     fn mouse_up(
         &mut self,
-        screen: ScreenState,
+        _screen: ScreenState,
         tick: u32,
-        tick_f: f64,
+        _tick_f: f64,
         _lane: f32,
-        chart: &Chart,
+        _chart: &Chart,
         actions: &mut ActionStack<Chart>,
-        pos: na::Point2<f32>,
+        _pos: na::Point2<f32>,
     ) {
         if self.interval.y >= tick {
             self.interval.l = 0;
@@ -255,7 +254,7 @@ impl CursorObject for ButtonInterval {
         self.lane = 0;
     }
 
-    fn update(&mut self, tick: u32, tick_f: f64, lane: f32, pos: na::Point2<f32>) {
+    fn update(&mut self, tick: u32, _tick_f: f64, lane: f32, _pos: na::Point2<f32>) {
         if !self.pressed {
             self.interval.y = tick;
             if self.fx {
@@ -346,7 +345,7 @@ impl CursorObject for ButtonInterval {
         }
     }
 
-    fn draw_ui(&mut self, ui: &Ui, actions: &mut ActionStack<Chart>) {}
+    fn draw_ui(&mut self, _ui: &Ui, _actions: &mut ActionStack<Chart>) {}
 }
 
 impl CursorObject for LaserTool {
@@ -354,7 +353,7 @@ impl CursorObject for LaserTool {
         &mut self,
         screen: ScreenState,
         tick: u32,
-        tick_f: f64,
+        _tick_f: f64,
         lane: f32,
         chart: &Chart,
         actions: &mut ActionStack<Chart>,
@@ -451,7 +450,7 @@ impl CursorObject for LaserTool {
     }
     fn mouse_up(
         &mut self,
-        screen: ScreenState,
+        _screen: ScreenState,
         _tick: u32,
         _tick_f: f64,
         _lane: f32,
@@ -579,7 +578,7 @@ impl CursorObject for LaserTool {
         }
         Ok(())
     }
-    fn draw_ui(&mut self, ui: &Ui, actions: &mut ActionStack<Chart>) {}
+    fn draw_ui(&mut self, _ui: &Ui, _actions: &mut ActionStack<Chart>) {}
 }
 
 enum CursorToolStates {
@@ -607,13 +606,13 @@ impl BpmTool {
 impl CursorObject for BpmTool {
     fn mouse_down(
         &mut self,
-        screen: ScreenState,
+        _screen: ScreenState,
         tick: u32,
-        tick_f: f64,
-        lane: f32,
+        _tick_f: f64,
+        _lane: f32,
         chart: &Chart,
-        actions: &mut ActionStack<Chart>,
-        pos: na::Point2<f32>,
+        _actions: &mut ActionStack<Chart>,
+        _pos: na::Point2<f32>,
     ) {
         if let CursorToolStates::None = self.state {
             //check for bpm changes on selected tick
@@ -727,15 +726,15 @@ impl TimeSigTool {
 impl CursorObject for TimeSigTool {
     fn mouse_down(
         &mut self,
-        screen: ScreenState,
+        _screen: ScreenState,
         tick: u32,
-        tick_f: f64,
-        lane: f32,
+        _tick_f: f64,
+        _lane: f32,
         chart: &Chart,
-        actions: &mut ActionStack<Chart>,
-        pos: na::Point2<f32>,
+        _actions: &mut ActionStack<Chart>,
+        _pos: na::Point2<f32>,
     ) {
-        let measure = chart.tick_to_measure(tick) - 1;
+        let measure = chart.tick_to_measure(tick);
         if let CursorToolStates::None = self.state {
             //check for bpm changes on selected tick
             if let Ok(idx) = chart
@@ -744,7 +743,7 @@ impl CursorObject for TimeSigTool {
                 .binary_search_by(|tsc| tsc.idx.cmp(&measure))
             {
                 self.state = CursorToolStates::Edit(idx);
-                self.ts = chart.beat.time_sig.get(idx).unwrap().v.clone();
+                self.ts = chart.beat.time_sig.get(idx).unwrap().v;
             } else {
                 self.state = CursorToolStates::Add(measure);
                 self.ts = kson::TimeSignature { d: 4, n: 4 };

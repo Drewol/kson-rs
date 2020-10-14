@@ -803,7 +803,7 @@ impl EventHandler for MainState {
             let res = self.chart.beat.resolution;
             let lane = self.screen.pos_to_lane(x);
             let tick = self.screen.pos_to_tick(x, y);
-            let tick = tick - (tick % (self.chart.beat.resolution / 2));
+            let tick = tick - (tick % (res / 2));
             let tick_f = self.screen.pos_to_tick_f(x, y);
             match self.cursor_object {
                 Some(ref mut cursor) => cursor.mouse_down(
