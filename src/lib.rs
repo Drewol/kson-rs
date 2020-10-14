@@ -628,6 +628,29 @@ impl Chart {
         ret
     }
 
+    pub fn measure_to_tick(&self, measure: u32) -> u32 {
+        let mut ret = 0;
+        let mut remaining_measures = measure;
+        let mut time_sig_iter = self.beat.time_sig.iter();
+
+        if let Some(first_sig) = time_sig_iter.next() {
+            let mut prev_index = first_sig.idx;
+            let mut prev_ticks_per_measure = self.beat.resolution * 4 * first_sig.v.n / first_sig.v.d;
+            for current_sig in time_sig_iter {
+                let measure_count = current_sig.idx - prev_index;
+                if measure_count > remaining_measures {
+                    break;
+                }
+                ret += measure_count * prev_ticks_per_measure;
+                remaining_measures -= measure_count;
+                prev_index = current_sig.idx;
+                prev_ticks_per_measure = self.beat.resolution * 4 * current_sig.v.n / current_sig.v.d;
+            }
+            ret += remaining_measures * prev_ticks_per_measure;
+        }
+        ret
+    }
+
     pub fn bpm_at_tick(&self, tick: u32) -> f64 {
         let mut prev = self.beat.bpm.first().unwrap_or(&ByPulse { y: 0, v: 120.0 });
 
