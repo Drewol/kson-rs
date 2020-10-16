@@ -144,8 +144,15 @@ impl ScreenState {
 
 impl MainState {
     fn new(ctx: &ggez::Context) -> GameResult<MainState> {
+        let mut new_chart = kson::Chart::new();
+        new_chart.beat.bpm.push(kson::ByPulse { y: 0, v: 120.0 });
+        new_chart.beat.time_sig.push(kson::ByMeasureIndex {
+            idx: 0,
+            v: kson::TimeSignature { d: 4, n: 4 },
+        });
+
         let s = MainState {
-            chart: kson::Chart::new(),
+            chart: new_chart.clone(),
             screen: ScreenState {
                 w: 800.0,
                 h: 600.0,
@@ -167,7 +174,7 @@ impl MainState {
             audio_playback: playback::AudioPlayback::new(ctx),
             gui_event_queue: VecDeque::new(),
             cursor_line: 0,
-            actions: action_stack::ActionStack::new(kson::Chart::new()),
+            actions: action_stack::ActionStack::new(new_chart),
         };
         Ok(s)
     }
@@ -430,7 +437,7 @@ impl EventHandler for MainState {
                         self.save_path = Some(new_chart.1);
                     }
                 }
-                GuiEvent::SaveAs => {
+                GuiEvent::SaveAs | GuiEvent::Save => {
                     if let Ok(mut chart) = self.actions.get_current() {
                         chart.meta = self.chart.meta.clone();
                         if let Some(new_path) = save_chart_as(&chart).unwrap_or_else(|e| {
@@ -456,7 +463,50 @@ impl EventHandler for MainState {
                 },
                 GuiEvent::Undo => self.actions.undo(),
                 GuiEvent::Redo => self.actions.redo(),
-                _ => (),
+                GuiEvent::New(audio_file, filename, chart_folder) => {
+                    let mut new_chart = kson::Chart::new();
+                    new_chart.beat.bpm.push(kson::ByPulse { y: 0, v: 120.0 });
+                    new_chart.beat.time_sig.push(kson::ByMeasureIndex {
+                        idx: 0,
+                        v: kson::TimeSignature { d: 4, n: 4 },
+                    });
+
+                    let audio_pathbuf = std::path::PathBuf::from(audio_file);
+                    new_chart.audio.bgm = Some(kson::BgmInfo {
+                        filename: Some(String::from(
+                            audio_pathbuf.file_name().unwrap().to_str().unwrap(),
+                        )),
+                        offset: 0,
+                        vol: 1.0,
+                        preview_duration: 15000,
+                        preview_filename: None,
+                        preview_offset: 0,
+                    });
+                    self.save_path = if let Some(save_path) = chart_folder {
+                        //copy audio file
+                        let mut audio_new_path = std::path::PathBuf::from(save_path.clone());
+                        audio_new_path.push(audio_pathbuf.file_name().unwrap());
+                        if !audio_new_path.exists() {
+                            std::fs::copy(audio_pathbuf, audio_new_path).unwrap();
+                        }
+                        Some(save_path)
+                    } else {
+                        Some(String::from(
+                            audio_pathbuf.parent().unwrap().to_str().unwrap(),
+                        ))
+                    };
+
+                    let mut kson_path = std::path::PathBuf::from(self.save_path.clone().unwrap());
+                    kson_path.push(filename);
+                    kson_path.set_extension("kson");
+                    self.save_path = Some(String::from(kson_path.to_str().unwrap()));
+                    if let Ok(mut file) = File::create(kson_path) {
+                        file.write_all(serde_json::to_string(&new_chart).unwrap().as_bytes())
+                            .unwrap();
+                    }
+                    self.actions.reset(new_chart.clone());
+                    self.chart = new_chart;
+                }
             }
         }
         if let Ok(current_chart) = self.actions.get_current() {
@@ -914,13 +964,18 @@ impl EventHandler for MainState {
                             let path = path.join(Path::new(filename));
                             println!("Playing file: {}", path.display());
                             let path = path.to_str().unwrap();
-                            if self.audio_playback.open(path).is_ok() {
-                                let ms =
-                                    self.chart.tick_to_ms(self.cursor_line) + bgm.offset as f64;
-                                let ms = ms.max(0.0);
-                                self.audio_playback.build_effects(&self.chart);
-                                self.audio_playback.set_poistion(ms);
-                                self.audio_playback.play();
+                            match self.audio_playback.open(path) {
+                                Ok(_) => {
+                                    let ms =
+                                        self.chart.tick_to_ms(self.cursor_line) + bgm.offset as f64;
+                                    let ms = ms.max(0.0);
+                                    self.audio_playback.build_effects(&self.chart);
+                                    self.audio_playback.set_poistion(ms);
+                                    self.audio_playback.play();
+                                }
+                                Err(msg) => {
+                                    println!("{}", msg);
+                                }
                             }
                         }
                     }

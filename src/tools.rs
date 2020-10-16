@@ -694,12 +694,15 @@ impl CursorObject for BpmTool {
                 .build(&ui, || {
                     InputFloat::new(ui, im_str!("BPM"), &mut bpm).build();
                     self.bpm = bpm as f64;
-                    if Selectable::new(im_str!("Ok")).selected(false).build(ui) {
-                        complete(actions, bpm as f64);
+
+                    if ui.button(im_str!("Cancel"), [50.0, 20.0]) {
                         self.state = CursorToolStates::None;
                     }
 
-                    if Selectable::new(im_str!("Cancel")).selected(false).build(ui) {
+                    ui.same_line(0.0);
+
+                    if ui.button(im_str!("Ok"), [30.0, 20.0]) {
+                        complete(actions, bpm as f64);
                         self.state = CursorToolStates::None;
                     }
                 });
@@ -820,12 +823,13 @@ impl CursorObject for TimeSigTool {
                     InputInt2::new(ui, im_str!("Time signature a/b"), &mut ts_data).build();
                     self.ts.n = ts_data[0].max(1) as u32;
                     self.ts.d = ts_data[1].max(1) as u32;
-                    if Selectable::new(im_str!("Ok")).selected(false).build(ui) {
-                        complete(actions, ts_data);
+
+                    if ui.button(im_str!("Cancel"), [50.0, 20.0]) {
                         self.state = CursorToolStates::None;
                     }
-
-                    if Selectable::new(im_str!("Cancel")).selected(false).build(ui) {
+                    ui.same_line(0.0);
+                    if ui.button(im_str!("Ok"), [30.0, 20.0]) {
+                        complete(actions, ts_data);
                         self.state = CursorToolStates::None;
                     }
                 });

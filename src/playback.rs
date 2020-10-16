@@ -318,10 +318,11 @@ impl AudioPlayback {
         let file = File::open(path)?;
         let source = match rodio::Decoder::new(BufReader::new(file)) {
             Ok(s) => s,
-            Err(_) => {
-                return Err(ggez::GameError::AudioError(
-                    "Failed to create decoder.".to_owned(),
-                ))
+            Err(err) => {
+                return Err(ggez::GameError::AudioError(format!(
+                    "Failed to create decoder: {}",
+                    err
+                )))
             }
         };
         let rate = source.sample_rate();

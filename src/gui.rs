@@ -36,6 +36,7 @@ use serde_json::Value;
 use std::collections::VecDeque;
 use std::error::Error;
 
+use std::rc::Rc;
 use std::time::Instant;
 
 #[derive(PartialEq, Copy, Clone)]
@@ -50,6 +51,7 @@ pub enum ChartTool {
 }
 
 pub enum GuiEvent {
+    New(String, String, Option<String>), //(Audio, Filename, Destination)
     Open,
     Save,
     ToolChanged(ChartTool),
@@ -109,6 +111,15 @@ fn json_widget(jobj: Value, ui: &imgui::Ui, name: String) -> Value {
     }
 }
 
+#[derive(Default, Clone)]
+struct NewState {
+    visible: bool,
+    audio_path: String,
+    filename: String,
+    chart_path: String,
+    msg: Option<String>,
+}
+
 pub struct ImGuiWrapper {
     pub imgui: imgui::Context,
     pub renderer: Renderer<gfx_core::format::Rgba8, gfx_device_gl::Resources>,
@@ -116,6 +127,7 @@ pub struct ImGuiWrapper {
     pub event_queue: VecDeque<GuiEvent>,
     tools: [(String, ChartTool); 6],
     pub selected_tool: ChartTool,
+    new_state: NewState,
 }
 
 impl ImGuiWrapper {
@@ -163,6 +175,7 @@ impl ImGuiWrapper {
                 (String::from("TS"), ChartTool::TimeSig),
             ],
             selected_tool: ChartTool::None,
+            new_state: NewState::default(),
         })
     }
 
@@ -188,7 +201,13 @@ impl ImGuiWrapper {
         let ui = self.imgui.frame();
         // Various ui things
         {
-            let file_menu_items = |state: &mut MainState| {
+            let file_menu_items = |state: &mut MainState, new_state: &mut NewState| {
+                if MenuItem::new(im_str!("New")).build(&ui) && !new_state.visible {
+                    new_state.visible = true;
+                    new_state.filename = String::new();
+                    new_state.chart_path = String::new();
+                    new_state.filename = String::new();
+                }
                 if MenuItem::new(im_str!("Open")).build(&ui) {
                     state.gui_event_queue.push_back(GuiEvent::Open);
                 }
@@ -211,11 +230,15 @@ impl ImGuiWrapper {
                     if MenuItem::new(im_str!("Undo: {}", undo_desc).as_ref()).build(&ui) {
                         state.gui_event_queue.push_back(GuiEvent::Undo);
                     }
+                } else {
+                    MenuItem::new(im_str!("Undo")).enabled(false).build(&ui);
                 }
                 if let Some(undo_desc) = state.actions.next_action_desc() {
                     if MenuItem::new(im_str!("Redo: {}", undo_desc).as_ref()).build(&ui) {
                         state.gui_event_queue.push_back(GuiEvent::Redo);
                     }
+                } else {
+                    MenuItem::new(im_str!("Redo")).enabled(false).build(&ui);
                 }
             };
 
@@ -224,7 +247,7 @@ impl ImGuiWrapper {
             if let Some(main_menu) = main_menu {
                 let file_menu = ui.begin_menu(im_str!("File"), true);
                 if let Some(file_menu) = file_menu {
-                    file_menu_items(state);
+                    file_menu_items(state, &mut self.new_state);
                     file_menu.end(&ui);
                 }
                 let edit_menu = ui.begin_menu(im_str!("Edit"), true);
@@ -272,6 +295,89 @@ impl ImGuiWrapper {
             if let Some(tool) = &mut state.cursor_object {
                 tool.draw_ui(&ui, &mut state.actions);
             }
+
+            // New chart window
+
+            let mut modified_new_state_rc = Rc::new(self.new_state.clone());
+
+            if self.new_state.visible {
+                Window::new(im_str!("New Chart"))
+                    .size([600.0, 300.0], imgui::Condition::FirstUseEver)
+                    .position([100.0, 100.0], imgui::Condition::FirstUseEver)
+                    .build(&ui, || {
+                        let modified_new_state = Rc::get_mut(&mut modified_new_state_rc);
+                        if modified_new_state.is_none() {
+                            return;
+                        }
+                        let modified_new_state = modified_new_state.unwrap();
+                        ImGuiWrapper::labeled_text_input(
+                            &ui,
+                            &mut modified_new_state.filename,
+                            im_str!("Filename"),
+                        );
+                        ui.separator();
+                        ui.text(im_str!("Audio File:"));
+                        ui.text(im_str!("{}", modified_new_state.audio_path));
+                        if ui.button(im_str!("..."), [25.0, 20.0]) {
+                            if let Ok(audio_file) = nfd::open_file_dialog(Some("ogg,flac"), None) {
+                                match audio_file {
+                                    nfd::Response::Okay(name) => {
+                                        modified_new_state.audio_path = name
+                                    }
+                                    nfd::Response::OkayMultiple(_) => {}
+                                    nfd::Response::Cancel => {}
+                                }
+                            }
+                        }
+                        ui.separator();
+                        ui.text(im_str!(
+                            "Chart Save Folder (audio folder will be used if empty):"
+                        ));
+                        ui.text(im_str!("{}", modified_new_state.chart_path));
+                        if ui.button(im_str!("...##"), [25.0, 20.0]) {
+                            if let Ok(chart_folder) = nfd::open_pick_folder(None) {
+                                match chart_folder {
+                                    nfd::Response::Okay(folder) => {
+                                        modified_new_state.chart_path = folder
+                                    }
+                                    nfd::Response::OkayMultiple(_) => {}
+                                    nfd::Response::Cancel => {}
+                                }
+                            }
+                        }
+                        ui.separator();
+                        if ui.button(im_str!("Cancel"), [50.0, 20.0]) {
+                            modified_new_state.visible = false;
+                        }
+                        ui.same_line(0.0);
+                        if ui.button(im_str!("Ok"), [30.0, 20.0]) {
+                            if modified_new_state.filename.is_empty() {
+                                modified_new_state.msg = Some(String::from("Filename is required"));
+                            } else if modified_new_state.audio_path.is_empty() {
+                                modified_new_state.msg =
+                                    Some(String::from("Audio file is required"));
+                            } else {
+                                modified_new_state.msg = None;
+                                let actual_chart_path = if modified_new_state.chart_path.is_empty()
+                                {
+                                    None
+                                } else {
+                                    Some(modified_new_state.chart_path.clone())
+                                };
+                                state.gui_event_queue.push_back(GuiEvent::New(
+                                    modified_new_state.audio_path.clone(),
+                                    modified_new_state.filename.clone(),
+                                    actual_chart_path,
+                                ));
+                                modified_new_state.visible = false;
+                            }
+                        }
+                        if let Some(msg) = &modified_new_state.msg {
+                            ui.text(im_str!("{}", msg));
+                        }
+                    });
+            }
+            self.new_state = (*modified_new_state_rc).clone();
 
             // Toolbar
             let tools = &self.tools;
