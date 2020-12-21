@@ -299,17 +299,16 @@ pub struct Chart {
 
 pub struct MeasureBeatLines {
     tick: u32,
-    funcs: Vec<(u32, Box<dyn Fn(u32) ->Option<(u32, bool)>>)>,
+    funcs: Vec<(u32, Box<dyn Fn(u32) -> Option<(u32, bool)>>)>,
     func_index: usize,
 }
 
 impl Iterator for MeasureBeatLines {
     type Item = (u32, bool);
- 
+
     fn next(&mut self) -> Option<(u32, bool)> {
         if let Some(func) = self.funcs.get(self.func_index) {
-            if let Some((new_tick, is_measure)) = func.1(self.tick)
-            {
+            if let Some((new_tick, is_measure)) = func.1(self.tick) {
                 let old_tick = self.tick;
                 self.tick = new_tick;
                 if let Some(next_func) = self.funcs.get(self.func_index + 1) {
@@ -342,10 +341,7 @@ fn laser_char_to_value(value: u8) -> Result<f64, String> {
             i += 1;
         }
     }
-    Err(format!(
-        "Invalid laser char: '{}'",
-        value as char
-    ))
+    Err(format!("Invalid laser char: '{}'", value as char))
 }
 
 impl Chart {
@@ -392,6 +388,22 @@ impl Chart {
                 "level" => {
                     new_chart.meta.level = value.parse::<u8>().unwrap_or(0);
                 }
+                "difficulty" => {
+                    let mut short_name = String::from(&value);
+                    short_name.truncate(3);
+                    new_chart.meta.difficulty = DifficultyInfo {
+                        idx: 0,
+                        name: Some(String::from(&value)),
+                        short_name: Some(short_name),
+                    };
+                    new_chart.meta.difficulty.idx = match value.as_ref() {
+                        "light" => 0,
+                        "challenge" => 1,
+                        "extended" => 2,
+                        "infinite" => 3,
+                        _ => 0,
+                    };
+                }
                 _ => (),
             }
         }
@@ -406,7 +418,7 @@ impl Chart {
         let mut long_y: [u32; 8] = [0; 8];
         let mut laser_builder: [LaserSection; 2] = [
             LaserSection {
-                y: 0 ,
+                y: 0,
                 v: Vec::new(),
                 wide: 1,
             },
@@ -433,7 +445,7 @@ impl Chart {
                     let chars: Vec<char> = line.chars().collect();
                     for i in 0..4 {
                         if chars[i] == '1' {
-                            new_chart.note.bt[i].push(Interval {y, l: 0 });
+                            new_chart.note.bt[i].push(Interval { y, l: 0 });
                         } else if chars[i] == '2' && last_char[i] != '2' {
                             long_y[i] = y;
                         } else if chars[i] != '2' && last_char[i] == '2' {
@@ -559,9 +571,13 @@ impl Chart {
                     prev = next;
                 }
                 section.v.retain(|p| !for_removal.contains(&p.ry));
-                section
-                    .v
-                    .retain(|p| if let Some(vf) = p.vf { vf.ne(&p.v) } else { true });
+                section.v.retain(|p| {
+                    if let Some(vf) = p.vf {
+                        vf.ne(&p.v)
+                    } else {
+                        true
+                    }
+                });
             }
         }
 
@@ -605,9 +621,10 @@ impl Chart {
         let mut remaining_ticks = tick;
         if let Some(first_sig) = time_sig_iter.next() {
             let mut prev_index = first_sig.idx;
-            let mut prev_ticks_per_measure = self.beat.resolution * 4 * first_sig.v.n / first_sig.v.d;
+            let mut prev_ticks_per_measure =
+                self.beat.resolution * 4 * first_sig.v.n / first_sig.v.d;
             if prev_ticks_per_measure == 0 {
-                    return ret;
+                return ret;
             }
             for current_sig in time_sig_iter {
                 let measure_count = current_sig.idx - prev_index;
@@ -618,7 +635,8 @@ impl Chart {
                 ret += measure_count;
                 remaining_ticks -= tick_count;
                 prev_index = current_sig.idx;
-                prev_ticks_per_measure = self.beat.resolution * 4 * current_sig.v.n / current_sig.v.d;
+                prev_ticks_per_measure =
+                    self.beat.resolution * 4 * current_sig.v.n / current_sig.v.d;
                 if prev_ticks_per_measure == 0 {
                     return ret;
                 }
@@ -635,7 +653,8 @@ impl Chart {
 
         if let Some(first_sig) = time_sig_iter.next() {
             let mut prev_index = first_sig.idx;
-            let mut prev_ticks_per_measure = self.beat.resolution * 4 * first_sig.v.n / first_sig.v.d;
+            let mut prev_ticks_per_measure =
+                self.beat.resolution * 4 * first_sig.v.n / first_sig.v.d;
             for current_sig in time_sig_iter {
                 let measure_count = current_sig.idx - prev_index;
                 if measure_count > remaining_measures {
@@ -644,7 +663,8 @@ impl Chart {
                 ret += measure_count * prev_ticks_per_measure;
                 remaining_measures -= measure_count;
                 prev_index = current_sig.idx;
-                prev_ticks_per_measure = self.beat.resolution * 4 * current_sig.v.n / current_sig.v.d;
+                prev_ticks_per_measure =
+                    self.beat.resolution * 4 * current_sig.v.n / current_sig.v.d;
             }
             ret += remaining_measures * prev_ticks_per_measure;
         }
@@ -681,16 +701,16 @@ impl Chart {
 
             let new_start = prev_start + (time_sig.idx - prev_sig.idx) * prev_ticks_per_measure;
             if ticks_per_measure > 0 && ticks_per_beat > 0 {
-            funcs.push((
-                new_start,
-                Box::new(move |y| {
-                    let adjusted = y - new_start;
-                    Some((y + ticks_per_beat, (adjusted % ticks_per_measure) == 0))
-                }),
-            ));
-        } else {
-            funcs.push((new_start, Box::new(|_| { None })));
-        }
+                funcs.push((
+                    new_start,
+                    Box::new(move |y| {
+                        let adjusted = y - new_start;
+                        Some((y + ticks_per_beat, (adjusted % ticks_per_measure) == 0))
+                    }),
+                ));
+            } else {
+                funcs.push((new_start, Box::new(|_| None)));
+            }
 
             prev_start = new_start;
             prev_sig = time_sig;
