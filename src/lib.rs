@@ -8,6 +8,10 @@ use std::collections::HashSet;
 use std::error;
 use std::str;
 
+pub trait Graph<T> {
+    fn value_at(&self, tick: f64) -> Option<T>;
+}
+
 #[inline]
 pub fn beat_in_ms(bpm: f64) -> f64 {
     60_000.0 / bpm
@@ -38,10 +42,10 @@ pub struct GraphSectionPoint {
 }
 
 impl GraphSectionPoint {
-    pub fn new(_ry: u32, _v: f64) -> Self {
+    pub fn new(ry: u32, v: f64) -> Self {
         GraphSectionPoint {
-            ry: _ry,
-            v: _v,
+            ry,
+            v,
             vf: None,
             a: None,
             b: None,
@@ -75,6 +79,70 @@ pub struct LaserSection {
     pub v: Vec<GraphSectionPoint>,
     #[serde(default = "default_one")]
     pub wide: u8,
+}
+
+//https://github.com/m4saka/ksh2kson/issues/4#issuecomment-573343229
+pub fn do_curve(x: f64, a: f64, b: f64) -> f64 {
+    let t = if x < std::f64::EPSILON || a < std::f64::EPSILON {
+        (a - (a * a + x - 2.0 * a * x).sqrt()) / (-1.0 + 2.0 * a)
+    } else {
+        x / (a + (a * a + (1.0 - 2.0 * a) * x).sqrt())
+    };
+    2.0 * (1.0 - t) * t * b + t * t
+}
+
+impl Graph<f64> for Vec<GraphSectionPoint> {
+    fn value_at(&self, tick: f64) -> Option<f64> {
+        match self.binary_search_by(|g| g.ry.cmp(&(tick as u32))) {
+            Ok(p) /*On a point*/ => Some(self.get(p).unwrap().v),
+            Err(p) /*Between points*/ => {
+                if p == 0 || p >= self.len() {
+                    return None;
+                }
+                let start_p = self.get(p - 1).unwrap();
+                let end_p = self.get(p).unwrap();
+                assert!(start_p.ry < end_p.ry);
+                let start_v = match start_p.vf {
+                    Some(v) => v,
+                    None => start_p.v
+                };
+                let x = (tick - start_p.ry as f64) / (end_p.ry - start_p.ry) as f64;
+                let w = end_p.v - start_v;
+                let (a,b) = match (start_p.a, start_p.b) {
+                    (Some(a), Some(b)) => (a,b),
+                    _ => (0.,0.)
+                };
+                if (a-b).abs() > f64::EPSILON {
+                    Some(start_v + do_curve(x, a, b) * w)
+                }
+                else {
+                    Some(start_v + x * w)
+                }
+            }
+        }
+    }
+}
+
+impl Graph<f64> for LaserSection {
+    fn value_at(&self, tick: f64) -> Option<f64> {
+        let r_tick = tick - self.y as f64;
+        self.v.value_at(r_tick)
+    }
+}
+
+impl Graph<f64> for Vec<LaserSection> {
+    fn value_at(&self, tick: f64) -> Option<f64> {
+        match self.binary_search_by(|s| s.y.cmp(&(tick as u32))) {
+            Ok(i) => self.get(i).unwrap().value_at(tick),
+            Err(i) => {
+                if i > 0 {
+                    self.get(i - 1).unwrap().value_at(tick)
+                } else {
+                    None
+                }
+            }
+        }
+    }
 }
 
 fn default_one<T: From<u8>>() -> T {
