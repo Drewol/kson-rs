@@ -1,6 +1,8 @@
+pub mod camera;
 pub mod effects;
 pub mod parameter;
 
+use camera::CameraInfo;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::collections::HashMap;
@@ -9,7 +11,7 @@ use std::error;
 use std::str;
 
 pub trait Graph<T> {
-    fn value_at(&self, tick: f64) -> Option<T>;
+    fn value_at(&self, tick: f64) -> T;
 }
 
 #[inline]
@@ -30,6 +32,15 @@ pub fn ticks_from_ms(ms: f64, bpm: f64, tpqn: u32) -> f64 {
 #[inline]
 pub fn ms_from_ticks(ticks: i64, bpm: f64, tpqn: u32) -> f64 {
     tick_in_ms(bpm, tpqn) * ticks as f64
+}
+
+#[derive(Serialize, Deserialize, Copy, Clone, Default)]
+pub struct GraphPoint {
+    pub y: u32,
+    pub v: f64,
+    pub vf: Option<f64>,
+    pub a: Option<f64>,
+    pub b: Option<f64>,
 }
 
 #[derive(Serialize, Deserialize, Copy, Clone)]
@@ -91,7 +102,47 @@ pub fn do_curve(x: f64, a: f64, b: f64) -> f64 {
     2.0 * (1.0 - t) * t * b + t * t
 }
 
-impl Graph<f64> for Vec<GraphSectionPoint> {
+impl Graph<f64> for Vec<GraphPoint> {
+    fn value_at(&self, tick: f64) -> f64 {
+        match self.binary_search_by(|g| g.y.cmp(&(tick as u32))) {
+            Ok(i) =>
+            //On a point
+            {
+                self.get(i).unwrap().v
+            }
+            Err(i) =>
+            //Between points
+            {
+                if i == 0 {
+                    self.first().map_or(0.0, |g| g.v)
+                } else if i >= self.len() {
+                    self.last().map_or(0.0, |g| g.vf.unwrap_or(g.v))
+                } else {
+                    let start_p = self.get(i - 1).unwrap();
+                    let end_p = self.get(i).unwrap();
+                    assert!(start_p.y < end_p.y);
+                    let start_v = match start_p.vf {
+                        Some(v) => v,
+                        None => start_p.v,
+                    };
+                    let x = (tick - start_p.y as f64) / (end_p.y - start_p.y) as f64;
+                    let w = end_p.v - start_v;
+                    let (a, b) = match (start_p.a, start_p.b) {
+                        (Some(a), Some(b)) => (a, b),
+                        _ => (0., 0.),
+                    };
+                    if (a - b).abs() > f64::EPSILON {
+                        start_v + do_curve(x, a, b) * w
+                    } else {
+                        start_v + x * w
+                    }
+                }
+            }
+        }
+    }
+}
+
+impl Graph<Option<f64>> for Vec<GraphSectionPoint> {
     fn value_at(&self, tick: f64) -> Option<f64> {
         match self.binary_search_by(|g| g.ry.cmp(&(tick as u32))) {
             Ok(p) /*On a point*/ => Some(self.get(p).unwrap().v),
@@ -123,14 +174,14 @@ impl Graph<f64> for Vec<GraphSectionPoint> {
     }
 }
 
-impl Graph<f64> for LaserSection {
+impl Graph<Option<f64>> for LaserSection {
     fn value_at(&self, tick: f64) -> Option<f64> {
         let r_tick = tick - self.y as f64;
         self.v.value_at(r_tick)
     }
 }
 
-impl Graph<f64> for Vec<LaserSection> {
+impl Graph<Option<f64>> for Vec<LaserSection> {
     fn value_at(&self, tick: f64) -> Option<f64> {
         match self.binary_search_by(|s| s.y.cmp(&(tick as u32))) {
             Ok(i) => self.get(i).unwrap().value_at(tick),
@@ -363,6 +414,8 @@ pub struct Chart {
     pub note: NoteInfo,
     pub beat: BeatInfo,
     pub audio: AudioInfo,
+    #[serde(default)]
+    pub camera: camera::CameraInfo,
 }
 
 pub struct MeasureBeatLines {
@@ -419,6 +472,7 @@ impl Chart {
             note: NoteInfo::new(),
             beat: BeatInfo::new(),
             audio: AudioInfo::new(),
+            camera: CameraInfo::default(),
         }
     }
 
@@ -614,6 +668,33 @@ impl Chart {
                         "laserrange_r" => {
                             line_value.truncate(1);
                             laser_builder[1].wide = line_value.parse()?;
+                        }
+                        "zoom_bottom" => {
+                            let (v, vf) = camera::parse_ksh_zoom_values(&line_value)?;
+                            new_chart.camera.cam.body.zoom.push(GraphPoint {
+                                y,
+                                v,
+                                vf,
+                                ..Default::default()
+                            })
+                        }
+                        "zoom_top" => {
+                            let (v, vf) = camera::parse_ksh_zoom_values(&line_value)?;
+                            new_chart.camera.cam.body.rotation_x.push(GraphPoint {
+                                y,
+                                v,
+                                vf,
+                                ..Default::default()
+                            })
+                        }
+                        "zoom_side" => {
+                            let (v, vf) = camera::parse_ksh_zoom_values(&line_value)?;
+                            new_chart.camera.cam.body.shift_x.push(GraphPoint {
+                                y,
+                                v,
+                                vf,
+                                ..Default::default()
+                            })
                         }
                         _ => (),
                     }
