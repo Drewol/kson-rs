@@ -157,7 +157,7 @@ pub struct PeakingFilter {
     filter: BiQuad,
 }
 
-pub trait DSP: Send + Sync {
+pub trait Dsp: Send + Sync {
     fn process(&mut self, sample: &mut f32, c: usize);
     fn set_param_transition(&mut self, v: f32, on: bool);
     fn update_params(&mut self, v: &Value);
@@ -260,7 +260,7 @@ impl BiQuad {
     }
 }
 
-impl DSP for PeakingFilter {
+impl Dsp for PeakingFilter {
     fn process(&mut self, sample: &mut f32, c: usize) {
         self.filter.process(sample, c);
     }
@@ -280,7 +280,7 @@ impl DSP for PeakingFilter {
     fn update_params(&mut self, _v: &Value) {}
 }
 
-impl DSP for LowPassFilter {
+impl Dsp for LowPassFilter {
     fn process(&mut self, sample: &mut f32, c: usize) {
         self.filter.process(sample, c);
     }
@@ -300,7 +300,7 @@ impl DSP for LowPassFilter {
     fn update_params(&mut self, _v: &Value) {}
 }
 
-impl DSP for HighPassFilter {
+impl Dsp for HighPassFilter {
     fn process(&mut self, sample: &mut f32, c: usize) {
         self.filter.process(sample, c);
     }

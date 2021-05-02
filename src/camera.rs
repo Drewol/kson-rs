@@ -47,9 +47,7 @@ pub fn parse_ksh_zoom_values(data: &str) -> Result<(f64, Option<f64>), Box<dyn E
             let mut values = data.split(';');
             (
                 values.next().unwrap_or("0").parse()?,
-                values
-                    .next()
-                    .map_or(None, |vf| Some(vf.parse::<f64>().unwrap_or(0.))),
+                values.next().map(|vf| vf.parse::<f64>().unwrap_or(0.)),
             )
         } else {
             (data.parse()?, None)

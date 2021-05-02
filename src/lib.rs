@@ -1,6 +1,7 @@
 pub mod camera;
 pub mod effects;
 pub mod parameter;
+pub mod score_ticks;
 
 use camera::CameraInfo;
 use serde::{Deserialize, Serialize};
@@ -126,15 +127,15 @@ impl Graph<f64> for Vec<GraphPoint> {
                         None => start_p.v,
                     };
                     let x = (tick - start_p.y as f64) / (end_p.y - start_p.y) as f64;
-                    let w = end_p.v - start_v;
+                    let width = end_p.v - start_v;
                     let (a, b) = match (start_p.a, start_p.b) {
                         (Some(a), Some(b)) => (a, b),
                         _ => (0., 0.),
                     };
                     if (a - b).abs() > f64::EPSILON {
-                        start_v + do_curve(x, a, b) * w
+                        start_v + do_curve(x, a, b) * width
                     } else {
-                        start_v + x * w
+                        start_v + x * width
                     }
                 }
             }
@@ -158,16 +159,16 @@ impl Graph<Option<f64>> for Vec<GraphSectionPoint> {
                     None => start_p.v
                 };
                 let x = (tick - start_p.ry as f64) / (end_p.ry - start_p.ry) as f64;
-                let w = end_p.v - start_v;
+                let width = end_p.v - start_v;
                 let (a,b) = match (start_p.a, start_p.b) {
                     (Some(a), Some(b)) => (a,b),
                     _ => (0.,0.)
                 };
                 if (a-b).abs() > f64::EPSILON {
-                    Some(start_v + do_curve(x, a, b) * w)
+                    Some(start_v + do_curve(x, a, b) * width)
                 }
                 else {
-                    Some(start_v + x * w)
+                    Some(start_v + x * width)
                 }
             }
         }
@@ -418,9 +419,10 @@ pub struct Chart {
     pub camera: camera::CameraInfo,
 }
 
+type BeatLineFn = dyn Fn(u32) -> Option<(u32, bool)>;
 pub struct MeasureBeatLines {
     tick: u32,
-    funcs: Vec<(u32, Box<dyn Fn(u32) -> Option<(u32, bool)>>)>,
+    funcs: Vec<(u32, Box<BeatLineFn>)>,
     func_index: usize,
 }
 
@@ -463,6 +465,12 @@ fn laser_char_to_value(value: u8) -> Result<f64, String> {
         }
     }
     Err(format!("Invalid laser char: '{}'", value as char))
+}
+
+impl Default for Chart {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl Chart {
@@ -833,7 +841,7 @@ impl Chart {
     }
 
     pub fn beat_line_iter(&self) -> MeasureBeatLines {
-        let mut funcs: Vec<(u32, Box<dyn Fn(u32) -> Option<(u32, bool)>>)> = Vec::new();
+        let mut funcs: Vec<(u32, Box<BeatLineFn>)> = Vec::new();
         let mut prev_start = 0;
         let mut prev_sig = match self.beat.time_sig.get(0) {
             Some(v) => v,
