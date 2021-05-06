@@ -1,6 +1,6 @@
 use crate::*;
 
-#[derive(Debug, Copy, Clone)]
+#[derive(Debug, Copy, Clone, PartialEq)]
 pub enum ScoreTick {
     Laser { lane: usize, pos: f64 },
     Slam { lane: usize, start: f64, end: f64 },
@@ -56,6 +56,14 @@ fn ticks_from_interval(interval: &Interval, lane: usize, chart: &Chart) -> Vec<P
             });
             step = get_hold_step_at(y, chart);
             y += step;
+        }
+
+        //Ensure holds always have a tick.
+        if res.is_empty() {
+            res.push(PlacedScoreTick {
+                y: interval.y + interval.l / 2,
+                tick: ScoreTick::Hold { lane },
+            })
         }
 
         res
@@ -129,6 +137,20 @@ fn ticks_from_laser_section(
         res.push(t);
     }
 
+    //ensure there's always one tick
+    if res.is_empty() {
+        assert!(section.v.len() >= 2);
+        let y = section.y + section.v.last().map(|s| s.ry / 2).unwrap_or_default();
+
+        res.push(PlacedScoreTick {
+            y,
+            tick: ScoreTick::Laser {
+                lane,
+                pos: section.value_at(y as f64).unwrap_or_default(),
+            },
+        })
+    }
+
     res
 }
 
@@ -154,7 +176,10 @@ pub fn generate_score_ticks(chart: &Chart) -> ScoreTicks {
             .fx
             .iter()
             .enumerate()
-            .map(|(lane, l)| l.iter().map(move |i| ticks_from_interval(i, lane, chart)))
+            .map(|(lane, l)| {
+                l.iter()
+                    .map(move |i| ticks_from_interval(i, lane + 4, chart))
+            })
             .flatten()
             .flatten()
             .collect(),
