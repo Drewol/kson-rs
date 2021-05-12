@@ -467,6 +467,18 @@ fn laser_char_to_value(value: u8) -> Result<f64, String> {
     Err(format!("Invalid laser char: '{}'", value as char))
 }
 
+fn is_beat_line(s: &&str) -> bool {
+    if s.len() > 9 {
+        let chars = s.as_bytes();
+
+        (chars[0] == b'0' || chars[0] == b'1' || chars[0] == b'2')
+            && chars[4] == b'|'
+            && chars[7] == b'|'
+    } else {
+        false
+    }
+}
+
 impl Default for Chart {
     fn default() -> Self {
         Self::new()
@@ -561,15 +573,14 @@ impl Chart {
 
         for measure in parts {
             let measure_lines = measure.lines();
-            let note_regex = regex::Regex::new("[0-2]{4}\\|")?;
-            let line_count = measure.lines().filter(|x| note_regex.is_match(x)).count() as u32;
+            let line_count = measure.lines().filter(is_beat_line).count() as u32;
             if line_count == 0 {
                 continue;
             }
             let mut ticks_per_line = (new_chart.beat.resolution * 4 * num / den) / line_count;
             let mut has_read_notes = false;
             for line in measure_lines {
-                if note_regex.is_match(line) {
+                if is_beat_line(&line) {
                     //read bt
                     has_read_notes = true;
                     let chars: Vec<char> = line.chars().collect();
