@@ -448,26 +448,31 @@ impl Iterator for MeasureBeatLines {
     }
 }
 
-fn laser_char_to_value(value: u8) -> Result<f64, String> {
-    let chars = [
-        (b'0'..=b'9').collect::<Vec<u8>>(),
-        (b'A'..=b'Z').collect::<Vec<u8>>(),
-        (b'a'..=b'o').collect::<Vec<u8>>(),
-    ]; //TODO: check for cleaner ways to do this
-
-    let mut i = 0;
-    for cr in chars.iter() {
-        for c in cr {
-            if *c == value {
-                return Ok(i as f64 / 50.0);
-            }
-            i += 1;
-        }
+#[inline]
+const fn find_laser_char(value: u8) -> u8 {
+    if value >= b'0' && value <= b'9' {
+        value - b'0'
+    } else if value >= b'A' && value <= b'Z' {
+        value - b'A' + 10
+    } else if value >= b'a' && value <= b'o' {
+        value - b'a' + 36
+    } else {
+        u8::MAX
     }
-    Err(format!("Invalid laser char: '{}'", value as char))
 }
 
-fn is_beat_line(s: &&str) -> bool {
+#[inline]
+fn laser_char_to_value(value: u8) -> Result<f64, String> {
+    let v = find_laser_char(value);
+    if v == u8::MAX {
+        Err(format!("Invalid laser char: '{}'", value as char))
+    } else {
+        Ok(v as f64 / 50.0)
+    }
+}
+
+#[inline]
+const fn is_beat_line(s: &&str) -> bool {
     if s.len() > 9 {
         let chars = s.as_bytes();
 
@@ -553,9 +558,9 @@ impl Chart {
         parts.remove(0);
         let mut y: u32 = 0;
         let mut measure_index = 0;
-        let mut last_char: [char; 8] = ['0'; 8];
-        last_char[6] = '-';
-        last_char[7] = '-';
+        let mut last_char: [u8; 8] = [b'0'; 8];
+        last_char[6] = b'-';
+        last_char[7] = b'-';
 
         let mut long_y: [u32; 8] = [0; 8];
         let mut laser_builder: [LaserSection; 2] = [
@@ -583,13 +588,13 @@ impl Chart {
                 if is_beat_line(&line) {
                     //read bt
                     has_read_notes = true;
-                    let chars: Vec<char> = line.chars().collect();
+                    let chars = line.as_bytes();
                     for i in 0..4 {
-                        if chars[i] == '1' {
+                        if chars[i] == b'1' {
                             new_chart.note.bt[i].push(Interval { y, l: 0 });
-                        } else if chars[i] == '2' && last_char[i] != '2' {
+                        } else if chars[i] == b'2' && last_char[i] != b'2' {
                             long_y[i] = y;
-                        } else if chars[i] != '2' && last_char[i] == '2' {
+                        } else if chars[i] != b'2' && last_char[i] == b'2' {
                             let l = y - long_y[i];
                             new_chart.note.bt[i].push(Interval { y: long_y[i], l });
                         }
@@ -599,18 +604,18 @@ impl Chart {
 
                     //read fx
                     for i in 0..2 {
-                        if chars[i + 5] == '2' {
+                        if chars[i + 5] == b'2' {
                             new_chart.note.fx[i].push(Interval { y, l: 0 })
-                        } else if chars[i + 5] == '0'
-                            && last_char[i + 4] != '0'
-                            && last_char[i + 4] != '2'
+                        } else if chars[i + 5] == b'0'
+                            && last_char[i + 4] != b'0'
+                            && last_char[i + 4] != b'2'
                         {
                             new_chart.note.fx[i].push(Interval {
                                 y: long_y[i + 4],
                                 l: y - long_y[i + 4],
                             })
-                        } else if (chars[i + 5] != '0' && chars[i + 5] != '2')
-                            && (last_char[i + 4] == '0' || last_char[i + 4] == '2')
+                        } else if (chars[i + 5] != b'0' && chars[i + 5] != b'2')
+                            && (last_char[i + 4] == b'0' || last_char[i + 4] == b'2')
                         {
                             long_y[i + 4] = y;
                         }
@@ -620,7 +625,7 @@ impl Chart {
 
                     //read laser
                     for i in 0..2 {
-                        if chars[i + 8] == '-' && last_char[i + 6] != '-' {
+                        if chars[i + 8] == b'-' && last_char[i + 6] != b'-' {
                             // end laser
                             let v = std::mem::replace(
                                 &mut laser_builder[i],
@@ -632,14 +637,15 @@ impl Chart {
                             );
                             new_chart.note.laser[i].push(v);
                         }
-                        if chars[i + 8] != '-' && chars[i + 8] != ':' && last_char[i + 6] == '-' {
+                        if chars[i + 8] != b'-' && chars[i + 8] != b':' && last_char[i + 6] == b'-'
+                        {
                             // new laser
                             laser_builder[i].y = y;
                             laser_builder[i].v.push(GraphSectionPoint::new(
                                 0,
                                 laser_char_to_value(chars[i + 8] as u8)?,
                             ));
-                        } else if chars[i + 8] != ':' && chars[i + 8] != '-' {
+                        } else if chars[i + 8] != b':' && chars[i + 8] != b'-' {
                             // new point
                             laser_builder[i].v.push(GraphSectionPoint::new(
                                 y - laser_builder[i].y,
