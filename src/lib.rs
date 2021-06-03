@@ -522,11 +522,8 @@ impl Chart {
                 "jacket" => new_chart.meta.jacket_filename = value,
                 "illustrator" => new_chart.meta.jacket_author = value,
                 "t" => {
-                    if !value.contains('-') {
-                        new_chart.beat.bpm.push(ByPulse {
-                            y: 0,
-                            v: value.parse()?,
-                        })
+                    if let Ok(v) = value.parse::<f64>() {
+                        new_chart.beat.bpm.push(ByPulse { y: 0, v })
                     }
                 }
                 "beat" => {}
@@ -759,20 +756,21 @@ impl Chart {
     }
 
     pub fn ms_to_tick(&self, ms: f64) -> u32 {
-        let mut remaining = ms;
-        let mut ret: u32 = 0;
-        let mut prev = self.beat.bpm.first().unwrap_or(&ByPulse { y: 0, v: 120.0 });
-
-        for b in &self.beat.bpm {
-            let new_ms = self.tick_to_ms(b.y);
-            if new_ms > ms {
-                break;
-            }
-            ret = b.y;
-            remaining = ms - new_ms;
-            prev = b;
+        if ms <= 0.0 {
+            return 0;
         }
-        ret + ticks_from_ms(remaining, prev.v, self.beat.resolution) as u32
+
+        let bpm = match self
+            .beat
+            .bpm
+            .binary_search_by(|b| self.tick_to_ms(b.y).partial_cmp(&ms).unwrap())
+        {
+            Ok(i) => self.beat.bpm.get(i).unwrap(),
+            Err(i) => self.beat.bpm.get(i - 1).unwrap(),
+        };
+
+        let remaining = ms - self.tick_to_ms(bpm.y);
+        bpm.y + ticks_from_ms(remaining, bpm.v, self.beat.resolution) as u32
     }
 
     pub fn tick_to_ms(&self, tick: u32) -> f64 {
@@ -846,15 +844,10 @@ impl Chart {
     }
 
     pub fn bpm_at_tick(&self, tick: u32) -> f64 {
-        let mut prev = self.beat.bpm.first().unwrap_or(&ByPulse { y: 0, v: 120.0 });
-
-        for b in &self.beat.bpm {
-            if b.y > tick {
-                break;
-            }
-            prev = b;
+        match self.beat.bpm.binary_search_by(|b| b.y.cmp(&tick)) {
+            Ok(i) => self.beat.bpm.get(i).unwrap().v,
+            Err(i) => self.beat.bpm.get(i - 1).unwrap().v,
         }
-        prev.v
     }
 
     pub fn beat_line_iter(&self) -> MeasureBeatLines {
