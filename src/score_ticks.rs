@@ -72,18 +72,14 @@ fn ticks_from_interval(interval: &Interval, lane: usize, chart: &Chart) -> Vec<P
 
 fn get_if_slam(point: Option<&GraphSectionPoint>, lane: usize, y: u32) -> Option<PlacedScoreTick> {
     if let Some(s) = point {
-        if let Some(vf) = s.vf {
-            Some(PlacedScoreTick {
-                y: y + s.ry,
-                tick: ScoreTick::Slam {
-                    lane,
-                    end: vf,
-                    start: s.v,
-                },
-            })
-        } else {
-            None
-        }
+        s.vf.map(|vf| PlacedScoreTick {
+            y: y + s.ry,
+            tick: ScoreTick::Slam {
+                lane,
+                end: vf,
+                start: s.v,
+            },
+        })
     } else {
         None
     }
