@@ -58,6 +58,7 @@ pub enum GuiEvent {
     Undo,
     Redo,
     SaveAs,
+    ExportKsh,
     Exit,
 }
 
@@ -218,6 +219,10 @@ impl ImGuiWrapper {
 
                 if MenuItem::new(im_str!("Save as")).build(&ui) {
                     state.gui_event_queue.push_back(GuiEvent::SaveAs);
+                }
+
+                if MenuItem::new(im_str!("Export KSH")).build(&ui) {
+                    state.gui_event_queue.push_back(GuiEvent::ExportKsh);
                 }
 
                 if MenuItem::new(im_str!("Exit")).build(&ui) {

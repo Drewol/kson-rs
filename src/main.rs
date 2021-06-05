@@ -1,4 +1,3 @@
-#![windows_subsystem = "windows"]
 mod action_stack;
 mod custom_loop;
 mod dsp;
@@ -8,9 +7,9 @@ mod tools;
 
 use crate::gui::{ChartTool, GuiEvent, ImGuiWrapper};
 use ggez::event::{EventHandler, KeyCode, KeyMods, MouseButton};
-use ggez::graphics;
-use ggez::nalgebra as na;
+use ggez::{graphics, nalgebra as na};
 use ggez::{Context, GameResult};
+use kson::Ksh;
 use std::collections::VecDeque;
 use std::error::Error;
 use std::ffi::OsStr;
@@ -163,7 +162,7 @@ impl MainState {
                 beats_per_col: 16,
                 x_offset: 0.0,
                 x_offset_target: 0.0,
-                beat_res: 240,
+                beat_res: 48,
             },
             redraw: false,
             save_path: None,
@@ -506,6 +505,17 @@ impl EventHandler for MainState {
                     }
                     self.actions.reset(new_chart.clone());
                     self.chart = new_chart;
+                }
+                GuiEvent::ExportKsh => {
+                    if let Ok(mut chart) = self.actions.get_current() {
+                        let dialog_result = nfd::open_save_dialog(Some("ksh"), None);
+
+                        if let Ok(nfd::Response::Okay(file_path)) = dialog_result {
+                            let mut file = File::create(&file_path).unwrap();
+                            profile_scope!("Write KSH");
+                            chart.to_ksh(file);
+                        }
+                    }
                 }
             }
         }
@@ -1159,11 +1169,9 @@ pub fn main() {
     if args.len() > 1 {
         args.next();
         if let Some(input_filename) = args.next() {
-            if let Ok(load_result) = open_chart_file(input_filename) {
-                if let Some(loaded_chart) = load_result {
-                    state.chart = loaded_chart.0;
-                    state.actions.reset(state.chart.clone());
-                }
+            if let Ok(Some(loaded_chart)) = open_chart_file(input_filename) {
+                state.chart = loaded_chart.0;
+                state.actions.reset(state.chart.clone());
             }
         }
     }
