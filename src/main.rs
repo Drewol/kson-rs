@@ -1,3 +1,4 @@
+#![windows_subsystem = "windows"]
 mod action_stack;
 mod custom_loop;
 mod dsp;
@@ -1127,7 +1128,7 @@ pub fn main() {
     let win_setup = ggez::conf::WindowSetup {
         title: "KSON Editor".to_owned(),
         samples: ggez::conf::NumSamples::Four,
-        vsync: false,
+        vsync: true,
         icon: "".to_owned(),
         srgb: true,
     };
