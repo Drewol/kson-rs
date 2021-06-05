@@ -2,7 +2,6 @@ use std::io::BufWriter;
 use std::io::Write;
 
 use crate::*;
-use anyhow::bail;
 use anyhow::ensure;
 use anyhow::Result;
 pub trait Ksh {
@@ -66,7 +65,7 @@ const LASER_CHARS: &str = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmno";
 
 #[inline]
 fn laser_value_to_char(v: f64) -> Result<char> {
-    ensure!(v >= 0.0 && v <= 1.0, "Out of range value");
+    ensure!((0.0..=1.0).contains(&v), "Out of range value");
 
     let i = (v * (LASER_CHARS.len() - 1) as f64).round() as usize;
 
@@ -368,6 +367,7 @@ impl Ksh for crate::Chart {
 
         let mut measure = 0;
         let mut last_laser_write_y = [u32::MAX, u32::MAX];
+        let mut last_laser_write_v = [char::MAX, char::MAX];
         let last_tick = self.get_last_tick();
         loop {
             let measure_tick = self.measure_to_tick(measure);
@@ -476,7 +476,8 @@ impl Ksh for crate::Chart {
                         Ok(i) => {
                             let section = l.get(i).unwrap();
                             if let Some(s) = section.v.first() {
-                                w.write_all(&[laser_value_to_char(s.v)? as u8])?;
+                                let ksh_v = laser_value_to_char(s.v)?;
+                                w.write_all(&[ksh_v as u8])?;
                                 last_laser_write_y[li] = y;
                             }
                         }
@@ -490,7 +491,9 @@ impl Ksh for crate::Chart {
                                 match s.v.binary_search_by(|f| f.ry.cmp(&ry)) {
                                     Ok(p) => {
                                         let point = s.v.get(p).unwrap();
-                                        w.write_all(&[laser_value_to_char(point.v)? as u8])?;
+                                        let ksh_v = laser_value_to_char(point.v)?;
+                                        w.write_all(&[ksh_v as u8])?;
+                                        last_laser_write_v[li] = ksh_v;
                                         last_laser_write_y[li] = y;
                                     }
                                     Err(p) => {
@@ -502,7 +505,9 @@ impl Ksh for crate::Chart {
                                                 if last_laser_write_y[li] == s.y + point.ry
                                                     && y == last_laser_write_y[li] + slam_distance
                                                 {
-                                                    w.write_all(&[laser_value_to_char(v)? as u8])?;
+                                                    let ksh_v = laser_value_to_char(v)?;
+                                                    w.write_all(&[ksh_v as u8])?;
+                                                    last_laser_write_v[li] = ksh_v;
                                                     last_laser_write_y[li] = y
                                                 } else {
                                                     w.write_all(b"-")?;
@@ -517,7 +522,9 @@ impl Ksh for crate::Chart {
                                                 if last_laser_write_y[li] == s.y + point.ry
                                                     && y == last_laser_write_y[li] + slam_distance
                                                 {
-                                                    w.write_all(&[laser_value_to_char(v)? as u8])?;
+                                                    let ksh_v = laser_value_to_char(v)?;
+                                                    w.write_all(&[ksh_v as u8])?;
+                                                    last_laser_write_v[li] = ksh_v;
                                                     last_laser_write_y[li] = y;
                                                 } else {
                                                     w.write_all(b":")?;
@@ -525,18 +532,26 @@ impl Ksh for crate::Chart {
                                             } else {
                                                 //interpolate curve
                                                 match (point.a, point.b) {
-                                                    (Some(_), Some(_)) => {
-                                                        let delta = (ry - point.ry).min(
-                                                            s.v.get(p)
-                                                                .map(|e| e.ry - ry)
-                                                                .unwrap_or(u32::MAX),
-                                                        );
-                                                        if delta > slam_distance {
-                                                            w.write_all(&[laser_value_to_char(
+                                                    (Some(a), Some(b)) => {
+                                                        let delta = (y - last_laser_write_y[li])
+                                                            .min(
+                                                                s.v.get(p)
+                                                                    .map(|e| e.ry - ry)
+                                                                    .unwrap_or(u32::MAX),
+                                                            );
+                                                        if delta > slam_distance
+                                                            && (a - b).abs() > f64::EPSILON
+                                                        {
+                                                            let ksh_v = laser_value_to_char(
                                                                 s.value_at(y as f64).unwrap(),
-                                                            )?
-                                                                as u8])?;
-                                                            last_laser_write_y[li] = y;
+                                                            )?;
+                                                            if ksh_v != last_laser_write_v[li] {
+                                                                w.write_all(&[ksh_v as u8])?;
+                                                                last_laser_write_y[li] = y;
+                                                                last_laser_write_v[li] = ksh_v;
+                                                            } else {
+                                                                w.write_all(b":")?;
+                                                            }
                                                         } else {
                                                             w.write_all(b":")?;
                                                         }
