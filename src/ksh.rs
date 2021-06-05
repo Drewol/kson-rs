@@ -336,9 +336,9 @@ impl Ksh for crate::Chart {
 
         //Meta
         {
-            writeln!(&mut w, "title={}", self.meta.title)?;
-            writeln!(&mut w, "artist={}", self.meta.artist)?;
-            writeln!(&mut w, "effect={}", self.meta.chart_author)?;
+            writeln!(&mut w, "title={}\r", self.meta.title)?;
+            writeln!(&mut w, "artist={}\r", self.meta.artist)?;
+            writeln!(&mut w, "effect={}\r", self.meta.chart_author)?;
 
             let diff = match self.meta.difficulty.idx {
                 0 => "light",
@@ -347,22 +347,22 @@ impl Ksh for crate::Chart {
                 _ => "infinite",
             };
 
-            writeln!(&mut w, "difficulty={}", diff)?;
-            writeln!(&mut w, "level={}", self.meta.level)?;
-            writeln!(&mut w, "jacket={}", self.meta.jacket_filename)?;
-            writeln!(&mut w, "illustrator={}", self.meta.jacket_author)?;
+            writeln!(&mut w, "difficulty={}\r", diff)?;
+            writeln!(&mut w, "level={}\r", self.meta.level)?;
+            writeln!(&mut w, "jacket={}\r", self.meta.jacket_filename)?;
+            writeln!(&mut w, "illustrator={}\r", self.meta.jacket_author)?;
             let bgm = self.audio.bgm.clone().unwrap_or_default();
-            writeln!(&mut w, "m={}", bgm.filename.unwrap_or_default())?;
-            writeln!(&mut w, "o={}", bgm.offset)?;
-            writeln!(&mut w, "po={}", bgm.preview_offset)?;
-            writeln!(&mut w, "plength={}", bgm.preview_duration)?;
+            writeln!(&mut w, "m={}\r", bgm.filename.unwrap_or_default())?;
+            writeln!(&mut w, "o={}\r", bgm.offset)?;
+            writeln!(&mut w, "po={}\r", bgm.preview_offset)?;
+            writeln!(&mut w, "plength={}\r", bgm.preview_duration)?;
             writeln!(
                 &mut w,
-                "information={}",
+                "information={}\r",
                 self.meta.information.clone().unwrap_or_default()
             )?;
-            writeln!(&mut w, "ver=167")?;
-            writeln!(&mut w, "--")?;
+            writeln!(&mut w, "ver=171\r")?;
+            writeln!(&mut w, "--\r")?;
         }
 
         let mut measure = 0;
@@ -378,7 +378,7 @@ impl Ksh for crate::Chart {
             if let Ok(i) = self.beat.time_sig.binary_search_by(|f| f.idx.cmp(&measure)) {
                 let sig = self.beat.time_sig.get(i).unwrap();
 
-                writeln!(&mut w, "beat={}/{}", sig.v.n, sig.v.d)?;
+                writeln!(&mut w, "beat={}/{}\r", sig.v.n, sig.v.d)?;
             }
 
             let next_measure_tick = self.measure_to_tick(measure + 1);
@@ -389,20 +389,20 @@ impl Ksh for crate::Chart {
                     //BPM
                     if let Ok(b) = self.beat.bpm.binary_search_by(|f| f.y.cmp(&y)) {
                         let bpm = self.beat.bpm.get(b).unwrap();
-                        writeln!(&mut w, "t={}", bpm.v)?;
+                        writeln!(&mut w, "t={}\r", bpm.v)?;
                     }
 
                     //Laser width
                     if let Ok(b) = self.note.laser[0].binary_search_by(|f| f.y.cmp(&y)) {
                         let l = self.note.laser[0].get(b).unwrap();
                         if l.wide == 2 {
-                            writeln!(&mut w, "laserrange_l=2x")?;
+                            writeln!(&mut w, "laserrange_l=2x\r")?;
                         }
                     }
                     if let Ok(b) = self.note.laser[1].binary_search_by(|f| f.y.cmp(&y)) {
                         let l = self.note.laser[1].get(b).unwrap();
                         if l.wide == 2 {
-                            writeln!(&mut w, "laserrange_r=2x")?;
+                            writeln!(&mut w, "laserrange_r=2x\r")?;
                         }
                     }
 
@@ -489,18 +489,18 @@ impl Ksh for crate::Chart {
                             if let Some(s) = l.get(i - 1) {
                                 let ry = y - s.y;
                                 match s.v.binary_search_by(|f| f.ry.cmp(&ry)) {
-                                    Ok(p) => {
-                                        let point = s.v.get(p).unwrap();
+                                    Ok(point_i) => {
+                                        let point = s.v.get(point_i).unwrap();
                                         let ksh_v = laser_value_to_char(point.v)?;
                                         w.write_all(&[ksh_v as u8])?;
                                         last_laser_write_v[li] = ksh_v;
                                         last_laser_write_y[li] = y;
                                     }
-                                    Err(p) => {
-                                        if p == 0 {
+                                    Err(point_i) => {
+                                        if point_i == 0 {
                                             w.write_all(b":")?;
-                                        } else if p >= s.v.len() {
-                                            let point = s.v.get(p - 1).unwrap();
+                                        } else if point_i >= s.v.len() {
+                                            let point = s.v.get(point_i - 1).unwrap();
                                             if let Some(v) = point.vf {
                                                 if last_laser_write_y[li] == s.y + point.ry
                                                     && y == last_laser_write_y[li] + slam_distance
@@ -516,7 +516,7 @@ impl Ksh for crate::Chart {
                                                 w.write_all(b"-")?;
                                             }
                                         } else {
-                                            let point = s.v.get(p - 1).unwrap();
+                                            let point = s.v.get(point_i - 1).unwrap();
                                             // Slam
                                             if let Some(v) = point.vf {
                                                 if last_laser_write_y[li] == s.y + point.ry
@@ -535,11 +535,11 @@ impl Ksh for crate::Chart {
                                                     (Some(a), Some(b)) => {
                                                         let delta = (y - last_laser_write_y[li])
                                                             .min(
-                                                                s.v.get(p)
+                                                                s.v.get(point_i)
                                                                     .map(|e| e.ry - ry)
                                                                     .unwrap_or(u32::MAX),
                                                             );
-                                                        if delta > slam_distance
+                                                        if delta > slam_distance * 2
                                                             && (a - b).abs() > f64::EPSILON
                                                         {
                                                             let ksh_v = laser_value_to_char(
@@ -568,10 +568,10 @@ impl Ksh for crate::Chart {
                         }
                     }
                 }
-                w.write_all(b"\n")?;
+                w.write_all(b"\r\n")?;
             }
 
-            writeln!(&mut w, "--")?;
+            writeln!(&mut w, "--\r")?;
             measure += 1;
         }
 

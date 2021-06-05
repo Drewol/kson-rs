@@ -1,5 +1,3 @@
-use std::error::Error;
-
 use crate::{ByPulse, GraphPoint, GraphSectionPoint, Interval};
 use serde::{Deserialize, Serialize};
 
