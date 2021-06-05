@@ -1,4 +1,8 @@
+use std::io::BufWriter;
+use std::io::Write;
+
 use crate::*;
+use anyhow::bail;
 use anyhow::ensure;
 use anyhow::Result;
 pub trait Ksh {
@@ -56,6 +60,17 @@ const fn is_beat_line(s: &&str) -> bool {
     } else {
         false
     }
+}
+
+const LASER_CHARS: &str = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmno";
+
+#[inline]
+fn laser_value_to_char(v: f64) -> Result<char> {
+    ensure!(v >= 0.0 && v <= 1.0, "Out of range value");
+
+    let i = (v * (LASER_CHARS.len() - 1) as f64).round() as usize;
+
+    Ok(LASER_CHARS.chars().nth(i).unwrap())
 }
 
 impl Ksh for crate::Chart {
@@ -313,10 +328,238 @@ impl Ksh for crate::Chart {
         Ok(new_chart)
     }
 
-    fn to_ksh<W>(&self, _out: W) -> Result<()>
+    //TODO: Write optimized charts using lcm, also ksm doesn't seem to like resolution > 48
+    fn to_ksh<W>(&self, out: W) -> Result<()>
     where
         W: std::io::Write,
     {
-        todo!()
+        let mut w = BufWriter::new(out);
+
+        //Meta
+        {
+            writeln!(&mut w, "title={}", self.meta.title)?;
+            writeln!(&mut w, "artist={}", self.meta.artist)?;
+            writeln!(&mut w, "effect={}", self.meta.chart_author)?;
+
+            let diff = match self.meta.difficulty.idx {
+                0 => "light",
+                1 => "challenge",
+                2 => "extended",
+                _ => "infinite",
+            };
+
+            writeln!(&mut w, "difficulty={}", diff)?;
+            writeln!(&mut w, "level={}", self.meta.level)?;
+            writeln!(&mut w, "jacket={}", self.meta.jacket_filename)?;
+            writeln!(&mut w, "illustrator={}", self.meta.jacket_author)?;
+            let bgm = self.audio.bgm.clone().unwrap_or_default();
+            writeln!(&mut w, "m={}", bgm.filename.unwrap_or_default())?;
+            writeln!(&mut w, "o={}", bgm.offset)?;
+            writeln!(&mut w, "po={}", bgm.preview_offset)?;
+            writeln!(&mut w, "plength={}", bgm.preview_duration)?;
+            writeln!(
+                &mut w,
+                "information={}",
+                self.meta.information.clone().unwrap_or_default()
+            )?;
+            writeln!(&mut w, "ver=167")?;
+            writeln!(&mut w, "--")?;
+        }
+
+        let mut measure = 0;
+        let mut last_laser_write_y = [u32::MAX, u32::MAX];
+        let last_tick = self.get_last_tick();
+        loop {
+            let measure_tick = self.measure_to_tick(measure);
+            if measure_tick > last_tick {
+                break;
+            }
+
+            if let Ok(i) = self.beat.time_sig.binary_search_by(|f| f.idx.cmp(&measure)) {
+                let sig = self.beat.time_sig.get(i).unwrap();
+
+                writeln!(&mut w, "beat={}/{}", sig.v.n, sig.v.d)?;
+            }
+
+            let next_measure_tick = self.measure_to_tick(measure + 1);
+            let slam_distance = self.beat.resolution / 8;
+            for y in measure_tick..next_measure_tick {
+                //Tick events
+                {
+                    //BPM
+                    if let Ok(b) = self.beat.bpm.binary_search_by(|f| f.y.cmp(&y)) {
+                        let bpm = self.beat.bpm.get(b).unwrap();
+                        writeln!(&mut w, "t={}", bpm.v)?;
+                    }
+
+                    //Laser width
+                    if let Ok(b) = self.note.laser[0].binary_search_by(|f| f.y.cmp(&y)) {
+                        let l = self.note.laser[0].get(b).unwrap();
+                        if l.wide == 2 {
+                            writeln!(&mut w, "laserrange_l=2x")?;
+                        }
+                    }
+                    if let Ok(b) = self.note.laser[1].binary_search_by(|f| f.y.cmp(&y)) {
+                        let l = self.note.laser[1].get(b).unwrap();
+                        if l.wide == 2 {
+                            writeln!(&mut w, "laserrange_r=2x")?;
+                        }
+                    }
+
+                    //Camera Pos
+                }
+
+                //BT
+                for l in &self.note.bt {
+                    match l.binary_search_by(|f| f.y.cmp(&y)) {
+                        Ok(i) => {
+                            let note = l.get(i).unwrap();
+                            if note.l == 0 {
+                                w.write_all(b"1")?;
+                            } else {
+                                w.write_all(b"2")?;
+                            }
+                        }
+                        Err(i) => {
+                            if i == 0 {
+                                w.write_all(b"0")?;
+                                continue;
+                            }
+                            if let Some(note) = l.get(i - 1) {
+                                if y < note.y + note.l {
+                                    w.write_all(b"2")?;
+                                } else {
+                                    w.write_all(b"0")?;
+                                }
+                            } else {
+                                w.write_all(b"0")?;
+                            }
+                        }
+                    }
+                }
+                w.write_all(b"|")?;
+
+                //FX
+                for l in &self.note.fx {
+                    match l.binary_search_by(|f| f.y.cmp(&y)) {
+                        Ok(i) => {
+                            let note = l.get(i).unwrap();
+                            if note.l == 0 {
+                                w.write_all(b"2")?;
+                            } else {
+                                w.write_all(b"1")?;
+                            }
+                        }
+                        Err(i) => {
+                            if i == 0 {
+                                w.write_all(b"0")?;
+                                continue;
+                            }
+                            if let Some(note) = l.get(i - 1) {
+                                if y < note.y + note.l {
+                                    w.write_all(b"1")?;
+                                } else {
+                                    w.write_all(b"0")?;
+                                }
+                            } else {
+                                w.write_all(b"0")?;
+                            }
+                        }
+                    }
+                }
+                w.write_all(b"|")?;
+
+                //Lasers
+                //TODO: Clean up
+                for (li, l) in self.note.laser.iter().enumerate() {
+                    match l.binary_search_by(|f| f.y.cmp(&y)) {
+                        Ok(i) => {
+                            let section = l.get(i).unwrap();
+                            if let Some(s) = section.v.first() {
+                                w.write_all(&[laser_value_to_char(s.v)? as u8])?;
+                                last_laser_write_y[li] = y;
+                            }
+                        }
+                        Err(i) => {
+                            if i == 0 {
+                                w.write_all(b"-")?;
+                                continue;
+                            }
+                            if let Some(s) = l.get(i - 1) {
+                                let ry = y - s.y;
+                                match s.v.binary_search_by(|f| f.ry.cmp(&ry)) {
+                                    Ok(p) => {
+                                        let point = s.v.get(p).unwrap();
+                                        w.write_all(&[laser_value_to_char(point.v)? as u8])?;
+                                        last_laser_write_y[li] = y;
+                                    }
+                                    Err(p) => {
+                                        if p == 0 {
+                                            w.write_all(b":")?;
+                                        } else if p >= s.v.len() {
+                                            let point = s.v.get(p - 1).unwrap();
+                                            if let Some(v) = point.vf {
+                                                if last_laser_write_y[li] == s.y + point.ry
+                                                    && y == last_laser_write_y[li] + slam_distance
+                                                {
+                                                    w.write_all(&[laser_value_to_char(v)? as u8])?;
+                                                    last_laser_write_y[li] = y
+                                                } else {
+                                                    w.write_all(b"-")?;
+                                                }
+                                            } else {
+                                                w.write_all(b"-")?;
+                                            }
+                                        } else {
+                                            let point = s.v.get(p - 1).unwrap();
+                                            // Slam
+                                            if let Some(v) = point.vf {
+                                                if last_laser_write_y[li] == s.y + point.ry
+                                                    && y == last_laser_write_y[li] + slam_distance
+                                                {
+                                                    w.write_all(&[laser_value_to_char(v)? as u8])?;
+                                                    last_laser_write_y[li] = y;
+                                                } else {
+                                                    w.write_all(b":")?;
+                                                }
+                                            } else {
+                                                //interpolate curve
+                                                match (point.a, point.b) {
+                                                    (Some(_), Some(_)) => {
+                                                        let delta = (ry - point.ry).min(
+                                                            s.v.get(p)
+                                                                .map(|e| e.ry - ry)
+                                                                .unwrap_or(u32::MAX),
+                                                        );
+                                                        if delta > slam_distance {
+                                                            w.write_all(&[laser_value_to_char(
+                                                                s.value_at(y as f64).unwrap(),
+                                                            )?
+                                                                as u8])?;
+                                                            last_laser_write_y[li] = y;
+                                                        } else {
+                                                            w.write_all(b":")?;
+                                                        }
+                                                    }
+                                                    _ => w.write_all(b":")?,
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            } else {
+                                w.write_all(b"-")?;
+                            }
+                        }
+                    }
+                }
+                w.write_all(b"\n")?;
+            }
+
+            writeln!(&mut w, "--")?;
+            measure += 1;
+        }
+
+        Ok(())
     }
 }

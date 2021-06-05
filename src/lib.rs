@@ -244,12 +244,12 @@ impl BeatInfo {
         BeatInfo {
             bpm: Vec::new(),
             time_sig: Vec::new(),
-            resolution: 240,
+            resolution: 48,
         }
     }
 }
 
-#[derive(Serialize, Deserialize, Clone)]
+#[derive(Serialize, Deserialize, Clone, Default)]
 pub struct BgmInfo {
     pub filename: Option<String>,
     #[serde(default = "default_one")]
