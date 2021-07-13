@@ -26,6 +26,11 @@ pub enum GuiEvent {
     Redo,
     SaveAs,
     ExportKsh,
+    Play,
+    Home,
+    End,
+    Next,
+    Previous,
 }
 
 #[derive(Debug, PartialEq, Copy, Clone, Serialize, Deserialize)]
@@ -149,33 +154,51 @@ impl Default for Config {
             GuiEvent::Open,
         );
         default_bindings.insert(
-            KeyCombo::new(Key::Num0, nomod),
-            GuiEvent::ToolChanged(ChartTool::None),
+            KeyCombo::new(Key::Z, Modifiers::new().ctrl()),
+            GuiEvent::Undo,
         );
         default_bindings.insert(
-            KeyCombo::new(Key::Num1, nomod),
-            GuiEvent::ToolChanged(ChartTool::BT),
+            KeyCombo::new(Key::Y, Modifiers::new().ctrl()),
+            GuiEvent::Redo,
         );
-        default_bindings.insert(
-            KeyCombo::new(Key::Num2, nomod),
-            GuiEvent::ToolChanged(ChartTool::FX),
-        );
-        default_bindings.insert(
-            KeyCombo::new(Key::Num3, nomod),
-            GuiEvent::ToolChanged(ChartTool::LLaser),
-        );
-        default_bindings.insert(
-            KeyCombo::new(Key::Num4, nomod),
-            GuiEvent::ToolChanged(ChartTool::RLaser),
-        );
-        default_bindings.insert(
-            KeyCombo::new(Key::Num5, nomod),
-            GuiEvent::ToolChanged(ChartTool::BPM),
-        );
-        default_bindings.insert(
-            KeyCombo::new(Key::Num6, nomod),
-            GuiEvent::ToolChanged(ChartTool::TimeSig),
-        );
+
+        //Tools
+        {
+            default_bindings.insert(
+                KeyCombo::new(Key::Num0, nomod),
+                GuiEvent::ToolChanged(ChartTool::None),
+            );
+            default_bindings.insert(
+                KeyCombo::new(Key::Num1, nomod),
+                GuiEvent::ToolChanged(ChartTool::BT),
+            );
+            default_bindings.insert(
+                KeyCombo::new(Key::Num2, nomod),
+                GuiEvent::ToolChanged(ChartTool::FX),
+            );
+            default_bindings.insert(
+                KeyCombo::new(Key::Num3, nomod),
+                GuiEvent::ToolChanged(ChartTool::LLaser),
+            );
+            default_bindings.insert(
+                KeyCombo::new(Key::Num4, nomod),
+                GuiEvent::ToolChanged(ChartTool::RLaser),
+            );
+            default_bindings.insert(
+                KeyCombo::new(Key::Num5, nomod),
+                GuiEvent::ToolChanged(ChartTool::BPM),
+            );
+            default_bindings.insert(
+                KeyCombo::new(Key::Num6, nomod),
+                GuiEvent::ToolChanged(ChartTool::TimeSig),
+            );
+        }
+
+        default_bindings.insert(KeyCombo::new(Key::Space, nomod), GuiEvent::Play);
+        default_bindings.insert(KeyCombo::new(Key::Home, nomod), GuiEvent::Home);
+        default_bindings.insert(KeyCombo::new(Key::End, nomod), GuiEvent::End);
+        default_bindings.insert(KeyCombo::new(Key::PageDown, nomod), GuiEvent::Next);
+        default_bindings.insert(KeyCombo::new(Key::PageUp, nomod), GuiEvent::Previous);
 
         Self {
             key_bindings: default_bindings,

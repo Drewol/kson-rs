@@ -3,7 +3,7 @@ use anyhow::Result;
 use kson::{Chart, GraphSectionPoint};
 use rodio::*;
 use std::fs::File;
-use std::io::BufReader;
+use std::io::{sink, BufReader};
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 
@@ -147,6 +147,7 @@ type LaserFn = Box<dyn Fn(f32) -> f32>;
 
 pub struct AudioPlayback {
     sink: Sink,
+    stream: OutputStream,
     file: Option<AudioFile>,
     last_file: String,
     laser_funcs: [Vec<(u32, u32, LaserFn)>; 2],
@@ -155,9 +156,11 @@ pub struct AudioPlayback {
 
 impl AudioPlayback {
     pub fn try_new() -> Result<Self> {
-        let (_stream, stream_handle) = OutputStream::try_default()?;
+        let (stream, stream_handle) = OutputStream::try_default()?;
+        let sink = Sink::try_new(&stream_handle)?;
         Ok(AudioPlayback {
-            sink: Sink::try_new(&stream_handle)?,
+            sink,
+            stream,
             file: None,
             last_file: String::new(),
             laser_funcs: [Vec::new(), Vec::new()],
@@ -300,6 +303,7 @@ impl AudioPlayback {
             if let Some(file) = &mut self.file {
                 file.set_stopped(false);
                 self.sink.append(file.clone());
+                self.sink.play();
                 return true;
             }
 

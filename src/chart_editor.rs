@@ -526,6 +526,79 @@ impl MainState {
                         }
                     }
                 }
+                GuiEvent::Play => {
+                    if self.audio_playback.is_playing() {
+                        self.audio_playback.stop()
+                    } else if let Some(path) = &self.save_path {
+                        let path = Path::new(path).parent().unwrap();
+                        if let Some(bgm) = &self.chart.audio.bgm {
+                            if let Some(filename) = &bgm.filename {
+                                let filename = &filename.split(';').next().unwrap();
+                                let path = path.join(Path::new(filename));
+                                debug!("Playing file: {}", path.display());
+                                let path = path.to_str().unwrap();
+                                match self.audio_playback.open(path) {
+                                    Ok(_) => {
+                                        let ms = self.chart.tick_to_ms(self.cursor_line)
+                                            + bgm.offset as f64;
+                                        let ms = ms.max(0.0);
+                                        self.audio_playback.build_effects(&self.chart);
+                                        self.audio_playback.set_poistion(ms);
+                                        self.audio_playback.play();
+                                    }
+                                    Err(msg) => {
+                                        println!("{}", msg);
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+                GuiEvent::Home => self.screen.x_offset_target = 0.0,
+                GuiEvent::End => {
+                    let mut target: f32 = 0.0;
+
+                    //check pos of last bt
+                    for i in 0..4 {
+                        if let Some(note) = self.chart.note.bt[i].last() {
+                            target = target.max(
+                                self.screen.tick_to_pos(note.y + note.l).0 + self.screen.x_offset,
+                            )
+                        }
+                    }
+
+                    //check pos of last fx
+                    for i in 0..2 {
+                        if let Some(note) = self.chart.note.fx[i].last() {
+                            target = target.max(
+                                self.screen.tick_to_pos(note.y + note.l).0 + self.screen.x_offset,
+                            )
+                        }
+                    }
+
+                    //check pos of last lasers
+                    for i in 0..2 {
+                        if let Some(section) = self.chart.note.laser[i].last() {
+                            if let Some(segment) = section.v.last() {
+                                target = target.max(
+                                    self.screen.tick_to_pos(segment.ry + section.y).0
+                                        + self.screen.x_offset,
+                                )
+                            }
+                        }
+                    }
+
+                    self.screen.x_offset_target = target - (target % self.screen.track_spacing())
+                }
+                GuiEvent::Next => {
+                    self.screen.x_offset_target = (self.screen.x_offset_target
+                        - (self.screen.w - (self.screen.w % self.screen.track_spacing())))
+                    .max(0.0)
+                }
+                GuiEvent::Previous => {
+                    self.screen.x_offset_target +=
+                        self.screen.w - (self.screen.w % self.screen.track_spacing())
+                }
             }
         }
         if let Ok(current_chart) = self.actions.get_current() {
@@ -535,7 +608,7 @@ impl MainState {
         }
 
         let delta_time = (10.0 * ctx.input().unstable_dt).min(1.0);
-        if self.screen.update(delta_time) {
+        if self.screen.update(delta_time) || self.audio_playback.is_playing() {
             ctx.request_repaint();
         }
         let tick = self.audio_playback.get_tick(&self.chart);
@@ -599,11 +672,15 @@ impl MainState {
 
                     let (tx, y) = self.screen.tick_to_pos(tick);
                     let x = tx + x;
-                    let shade = if is_measure { 255 } else { 127 };
+                    let color = if is_measure {
+                        Rgba::from_rgb(1.0, 1.0, 0.0)
+                    } else {
+                        Rgba::from_gray(0.5)
+                    };
                     track_measure_builder.push(Shape::rect_filled(
                         rect_xy_wh([x, painter.round_to_pixel(y), w, -1.0]),
                         0.0,
-                        Color32::from_gray(shade),
+                        color,
                     ));
                 }
             }
@@ -916,93 +993,6 @@ impl MainState {
 
         self.screen.tick_height = self.screen.chart_draw_height()
             / (self.chart.beat.resolution * self.screen.beats_per_col) as f32;
-    }
-
-    fn key_down_event(&mut self, keycode: egui::Key, keymods: egui::Modifiers, pressed: bool) {
-        match keycode {
-            egui::Key::Home => self.screen.x_offset_target = 0.0,
-            egui::Key::PageUp => {
-                self.screen.x_offset_target +=
-                    self.screen.w - (self.screen.w % self.screen.track_spacing())
-            }
-            egui::Key::PageDown => {
-                self.screen.x_offset_target = (self.screen.x_offset_target
-                    - (self.screen.w - (self.screen.w % self.screen.track_spacing())))
-                .max(0.0)
-            }
-            egui::Key::End => {
-                let mut target: f32 = 0.0;
-
-                //check pos of last bt
-                for i in 0..4 {
-                    if let Some(note) = self.chart.note.bt[i].last() {
-                        target = target
-                            .max(self.screen.tick_to_pos(note.y + note.l).0 + self.screen.x_offset)
-                    }
-                }
-
-                //check pos of last fx
-                for i in 0..2 {
-                    if let Some(note) = self.chart.note.fx[i].last() {
-                        target = target
-                            .max(self.screen.tick_to_pos(note.y + note.l).0 + self.screen.x_offset)
-                    }
-                }
-
-                //check pos of last lasers
-                for i in 0..2 {
-                    if let Some(section) = self.chart.note.laser[i].last() {
-                        if let Some(segment) = section.v.last() {
-                            target = target.max(
-                                self.screen.tick_to_pos(segment.ry + section.y).0
-                                    + self.screen.x_offset,
-                            )
-                        }
-                    }
-                }
-
-                self.screen.x_offset_target = target - (target % self.screen.track_spacing())
-            }
-            egui::Key::Space => {
-                if self.audio_playback.is_playing() {
-                    self.audio_playback.stop()
-                } else if let Some(path) = &self.save_path {
-                    let path = Path::new(path).parent().unwrap();
-                    if let Some(bgm) = &self.chart.audio.bgm {
-                        if let Some(filename) = &bgm.filename {
-                            let filename = &filename.split(';').next().unwrap();
-                            let path = path.join(Path::new(filename));
-                            println!("Playing file: {}", path.display());
-                            let path = path.to_str().unwrap();
-                            match self.audio_playback.open(path) {
-                                Ok(_) => {
-                                    let ms =
-                                        self.chart.tick_to_ms(self.cursor_line) + bgm.offset as f64;
-                                    let ms = ms.max(0.0);
-                                    self.audio_playback.build_effects(&self.chart);
-                                    self.audio_playback.set_poistion(ms);
-                                    self.audio_playback.play();
-                                }
-                                Err(msg) => {
-                                    println!("{}", msg);
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-            egui::Key::Z => {
-                if keymods.ctrl {
-                    self.actions.undo();
-                }
-            }
-            egui::Key::Y => {
-                if keymods.ctrl {
-                    self.actions.redo();
-                }
-            }
-            _ => (),
-        }
     }
 
     pub fn primary_clicked(&mut self, pos: Pos2) {
