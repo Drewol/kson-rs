@@ -1011,6 +1011,27 @@ impl MainState {
         }
     }
 
+    pub fn primary_clicked(&mut self, pos: Pos2) {
+        self.mouse_x = pos.x;
+        self.mouse_y = pos.y;
+        let lane = self.screen.pos_to_lane(pos.x);
+        let tick = self.screen.pos_to_tick(pos.x, pos.y);
+        let tick_f: f64 = self.screen.pos_to_tick_f(pos.x, pos.y);
+        let tick = tick - (tick % (self.chart.beat.resolution / 2));
+
+        if let Some(cursor) = &mut self.cursor_object {
+            cursor.primary_click(
+                self.screen,
+                tick,
+                tick_f,
+                lane,
+                &self.chart,
+                &mut self.actions,
+                na::point![pos.x, pos.y],
+            );
+        }
+    }
+
     pub fn mouse_motion_event(&mut self, pos: Pos2) {
         self.mouse_x = pos.x;
         self.mouse_y = pos.y;

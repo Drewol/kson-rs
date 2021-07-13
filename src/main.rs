@@ -164,6 +164,10 @@ impl App for AppState {
                 ..Default::default()
             };
 
+            if let Some(tool) = &mut self.editor.cursor_object {
+                tool.draw_ui(ctx, &mut self.editor.actions);
+            }
+
             let main_response = egui::CentralPanel::default()
                 .frame(main_frame)
                 .show(ctx, |ui| self.editor.draw(ui))
@@ -173,6 +177,12 @@ impl App for AppState {
                 Ok(response) => {
                     if response.hovered() && ctx.input().scroll_delta != Vec2::ZERO {
                         self.editor.mouse_wheel_event(ctx.input().scroll_delta.y);
+                    }
+
+                    if response.clicked() {
+                        let pos = ctx.input().pointer.hover_pos().unwrap_or(Pos2::ZERO);
+
+                        self.editor.primary_clicked(pos)
                     }
 
                     if response.drag_started() {

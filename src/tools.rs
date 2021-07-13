@@ -4,7 +4,7 @@ use crate::{
     rect_xy_wh,
 };
 use anyhow::Result;
-use eframe::egui::{self, CtxRef, DragValue, Label, Pos2, Rgba, Stroke, Window};
+use eframe::egui::{self, CtxRef, DragValue, Label, Layout, Pos2, Rgba, Stroke, Window};
 use eframe::egui::{Painter, Shape};
 use na::point;
 use na::Point2;
@@ -706,17 +706,22 @@ impl CursorObject for BpmTool {
                 .default_size([300.0, 600.0])
                 .default_pos([100.0, 100.0])
                 .show(ctx, |ui| {
-                    ui.add(Label::new("BPM:"));
-                    ui.add(DragValue::new(&mut bpm).speed(0.1));
-                    self.bpm = bpm as f64;
-                    ui.end_row();
-                    if ui.button("Cancel").clicked() {
-                        self.state = CursorToolStates::None;
-                    }
-                    if ui.button("Ok").clicked() {
-                        complete(actions, bpm as f64);
-                        self.state = CursorToolStates::None;
-                    }
+                    ui.horizontal_wrapped(|ui| {
+                        ui.add(Label::new("BPM:"));
+                        ui.add(DragValue::new(&mut bpm).speed(0.1));
+                        self.bpm = bpm as f64;
+
+                        ui.end_row();
+                        ui.end_row();
+
+                        if ui.button("Cancel").clicked() {
+                            self.state = CursorToolStates::None;
+                        }
+                        if ui.button("Ok").clicked() {
+                            complete(actions, bpm as f64);
+                            self.state = CursorToolStates::None;
+                        }
+                    });
                 });
         }
     }
@@ -823,23 +828,26 @@ impl CursorObject for TimeSigTool {
                 .default_size([300.0, 600.0])
                 .default_pos([100.0, 100.0])
                 .show(ctx, |ui| {
-                    let (mut ts_n, mut ts_d) = (self.ts.n as f32, self.ts.d as f32);
+                    ui.horizontal_wrapped(|ui| {
+                        let (mut ts_n, mut ts_d) = (self.ts.n, self.ts.d);
 
-                    ui.add(egui::widgets::DragValue::new(&mut ts_n).speed(1));
-                    ui.add(egui::Label::new("/"));
-                    ui.add(egui::widgets::DragValue::new(&mut ts_d).speed(1));
-                    ui.end_row();
+                        ui.add(egui::widgets::DragValue::new(&mut ts_n).speed(0.2));
+                        ui.add(egui::Label::new("/"));
+                        ui.add(egui::widgets::DragValue::new(&mut ts_d).speed(0.2));
+                        ui.end_row();
+                        ui.end_row();
 
-                    self.ts.n = ts_n.max(1.0) as u32;
-                    self.ts.d = ts_d.max(1.0) as u32;
+                        self.ts.n = ts_n;
+                        self.ts.d = ts_d;
 
-                    if ui.button("Ok").clicked() {
-                        complete(actions, [ts_n as i32, ts_d as i32]);
-                        self.state = CursorToolStates::None;
-                    }
-                    if ui.button("Cancel").clicked() {
-                        self.state = CursorToolStates::None;
-                    }
+                        if ui.button("Ok").clicked() {
+                            complete(actions, [ts_n as i32, ts_d as i32]);
+                            self.state = CursorToolStates::None;
+                        }
+                        if ui.button("Cancel").clicked() {
+                            self.state = CursorToolStates::None;
+                        }
+                    });
                 });
         }
     }
