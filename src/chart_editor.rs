@@ -729,8 +729,6 @@ impl MainState {
             }
         }
 
-        debug!("Max Rect: {:?}", ui.max_rect_finite());
-
         let painter = ui.painter_at(ui.max_rect_finite());
 
         //meshses
