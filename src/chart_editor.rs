@@ -552,6 +552,7 @@ impl MainState {
         self.resize_event(ui.max_rect_finite());
 
         profile_scope!("Draw Chart");
+        let painter = ui.painter_at(ui.max_rect_finite());
         //draw notes
         let mut track_line_builder = Vec::new();
         let mut track_measure_builder = Vec::new();
@@ -583,9 +584,9 @@ impl MainState {
                     for j in 0..5 {
                         let x = x + j as f32 * lane_width;
                         track_line_builder.push(Shape::rect_filled(
-                            rect_xy_wh([x, self.screen.top_margin, 0.5, chart_draw_height]),
+                            rect_xy_wh([x, self.screen.top_margin, 1.0, chart_draw_height]),
                             0.0,
-                            Color32::WHITE,
+                            Color32::GRAY,
                         ));
                     }
                 }
@@ -604,7 +605,7 @@ impl MainState {
                     let x = tx + x;
                     let shade = if is_measure { 255 } else { 127 };
                     track_measure_builder.push(Shape::rect_filled(
-                        rect_xy_wh([x, y, w, -0.5]),
+                        rect_xy_wh([x, painter.round_to_pixel(y), w, -1.0]),
                         0.0,
                         Color32::from_gray(shade),
                     ));
@@ -728,8 +729,6 @@ impl MainState {
                 }
             }
         }
-
-        let painter = ui.painter_at(ui.max_rect_finite());
 
         //meshses
         {
