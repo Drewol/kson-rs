@@ -2,7 +2,7 @@ use std::path::PathBuf;
 
 use anyhow::Result;
 use chart_editor::MainState;
-use eframe::egui::{self, menu, warn_if_debug_build, Color32, Frame, Label, Rect, Vec2};
+use eframe::egui::{self, menu, warn_if_debug_build, Color32, Frame, Label, Pos2, Rect, Vec2};
 use eframe::epi::App;
 use log::debug;
 use nalgebra::ComplexField;
@@ -15,6 +15,7 @@ mod tools;
 
 struct AppState {
     editor: chart_editor::MainState,
+    current_tool: ChartTool,
 }
 
 pub enum GuiEvent {
@@ -54,6 +55,15 @@ pub fn rect_xy_wh(rect: [f32; 4]) -> Rect {
     Rect::from_x_y_ranges(x..=x + w, y..=y + h)
 }
 
+const TOOLS: [(&str, ChartTool); 6] = [
+    ("BT", ChartTool::BT),
+    ("FX", ChartTool::FX),
+    ("LL", ChartTool::LLaser),
+    ("RL", ChartTool::RLaser),
+    ("BPM", ChartTool::BPM),
+    ("TS", ChartTool::TimeSig),
+];
+
 impl App for AppState {
     fn setup(
         &mut self,
@@ -86,7 +96,7 @@ impl App for AppState {
                     pressed,
                     modifiers,
                 } => {}
-                egui::Event::PointerMoved(pos) => {}
+                egui::Event::PointerMoved(pos) => self.editor.mouse_motion_event(*pos),
                 egui::Event::PointerButton {
                     pos,
                     button,
@@ -114,6 +124,27 @@ impl App for AppState {
                         }
                     })
                 });
+                ui.separator();
+                menu::bar(ui, |ui| {
+                    for (name, tool) in &TOOLS {
+                        if ui
+                            .selectable_label(self.current_tool == *tool, name)
+                            .clicked()
+                        {
+                            if *tool == self.current_tool {
+                                self.current_tool = ChartTool::None;
+                                self.editor
+                                    .gui_event_queue
+                                    .push_back(GuiEvent::ToolChanged(ChartTool::None))
+                            } else {
+                                self.current_tool = *tool;
+                                self.editor
+                                    .gui_event_queue
+                                    .push_back(GuiEvent::ToolChanged(*tool));
+                            }
+                        }
+                    }
+                })
             });
         }
 
@@ -126,15 +157,37 @@ impl App for AppState {
                     warn_if_debug_build(ui);
                     ui.label(&format!("FPS: {:.1}", 1.0 / &dt));
                 });
+
+            let main_frame = Frame {
+                margin: Vec2::new(0.0, 0.0),
+                fill: Color32::BLACK,
+                ..Default::default()
+            };
+
             let main_response = egui::CentralPanel::default()
-                .frame(Frame {
-                    margin: Vec2::new(0.0, 0.0),
-                    fill: Color32::BLACK,
-                    ..Default::default()
-                })
-                .show(ctx, |ui| self.editor.draw(ui));
-            if main_response.response.hovered() && ctx.input().scroll_delta != Vec2::ZERO {
-                self.editor.mouse_wheel_event(ctx.input().scroll_delta.y);
+                .frame(main_frame)
+                .show(ctx, |ui| self.editor.draw(ui))
+                .inner;
+
+            match main_response {
+                Ok(response) => {
+                    if response.hovered() && ctx.input().scroll_delta != Vec2::ZERO {
+                        self.editor.mouse_wheel_event(ctx.input().scroll_delta.y);
+                    }
+
+                    if response.drag_started() {
+                        let pos = ctx.input().pointer.hover_pos().unwrap_or(Pos2::ZERO);
+                        self.editor
+                            .drag_start(egui::PointerButton::Primary, pos.x, pos.y)
+                    }
+
+                    if response.drag_released() {
+                        let pos = ctx.input().pointer.hover_pos().unwrap_or(Pos2::ZERO);
+                        self.editor
+                            .drag_end(egui::PointerButton::Primary, pos.x, pos.y)
+                    }
+                }
+                Err(e) => panic!(e),
             }
         }
 
@@ -158,6 +211,7 @@ fn main() -> Result<()> {
     eframe::run_native(
         Box::new(AppState {
             editor: MainState::new()?,
+            current_tool: ChartTool::None,
         }),
         options,
     );

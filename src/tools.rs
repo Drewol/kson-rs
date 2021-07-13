@@ -13,7 +13,7 @@ use nalgebra as na;
 use kson::{Chart, GraphSectionPoint, Interval, LaserSection};
 
 pub trait CursorObject {
-    fn mouse_down(
+    fn primary_click(
         &mut self,
         screen: ScreenState,
         tick: u32,
@@ -22,8 +22,9 @@ pub trait CursorObject {
         chart: &Chart,
         actions: &mut ActionStack<Chart>,
         pos: Point2<f32>,
-    );
-    fn mouse_up(
+    ) {
+    }
+    fn secondary_click(
         &mut self,
         screen: ScreenState,
         tick: u32,
@@ -32,10 +33,44 @@ pub trait CursorObject {
         chart: &Chart,
         actions: &mut ActionStack<Chart>,
         pos: Point2<f32>,
-    );
+    ) {
+    }
+    fn middle_click(
+        &mut self,
+        screen: ScreenState,
+        tick: u32,
+        tick_f: f64,
+        lane: f32,
+        chart: &Chart,
+        actions: &mut ActionStack<Chart>,
+        pos: Point2<f32>,
+    ) {
+    }
+    fn drag_end(
+        &mut self,
+        screen: ScreenState,
+        tick: u32,
+        tick_f: f64,
+        lane: f32,
+        chart: &Chart,
+        actions: &mut ActionStack<Chart>,
+        pos: Point2<f32>,
+    ) {
+    }
+    fn drag_start(
+        &mut self,
+        screen: ScreenState,
+        tick: u32,
+        tick_f: f64,
+        lane: f32,
+        chart: &Chart,
+        actions: &mut ActionStack<Chart>,
+        pos: Point2<f32>,
+    ) {
+    }
     fn update(&mut self, tick: u32, tick_f: f64, lane: f32, pos: Point2<f32>);
     fn draw(&self, state: &MainState, painter: &Painter) -> Result<()>;
-    fn draw_ui(&mut self, ctx: &CtxRef, actions: &mut ActionStack<Chart>);
+    fn draw_ui(&mut self, ctx: &CtxRef, actions: &mut ActionStack<Chart>) {}
 }
 
 //structs for cursor objects
@@ -191,7 +226,7 @@ impl LaserTool {
 }
 
 impl CursorObject for ButtonInterval {
-    fn mouse_down(
+    fn drag_start(
         &mut self,
         _screen: ScreenState,
         tick: u32,
@@ -210,7 +245,7 @@ impl CursorObject for ButtonInterval {
         self.interval.y = tick;
     }
 
-    fn mouse_up(
+    fn drag_end(
         &mut self,
         _screen: ScreenState,
         tick: u32,
@@ -339,7 +374,7 @@ impl CursorObject for ButtonInterval {
 }
 
 impl CursorObject for LaserTool {
-    fn mouse_down(
+    fn drag_start(
         &mut self,
         screen: ScreenState,
         tick: u32,
@@ -438,7 +473,7 @@ impl CursorObject for LaserTool {
             }
         }
     }
-    fn mouse_up(
+    fn drag_end(
         &mut self,
         _screen: ScreenState,
         _tick: u32,
@@ -593,7 +628,7 @@ impl BpmTool {
 }
 
 impl CursorObject for BpmTool {
-    fn mouse_down(
+    fn primary_click(
         &mut self,
         _screen: ScreenState,
         tick: u32,
@@ -615,18 +650,6 @@ impl CursorObject for BpmTool {
 
             self.state = CursorToolStates::Add(tick);
         }
-    }
-
-    fn mouse_up(
-        &mut self,
-        _screen: ScreenState,
-        _tick: u32,
-        _tick_f: f64,
-        _lane: f32,
-        _chart: &Chart,
-        _actions: &mut ActionStack<Chart>,
-        _pos: Point2<f32>,
-    ) {
     }
 
     fn update(&mut self, tick: u32, _tick_f: f64, _lane: f32, _pos: Point2<f32>) {
@@ -716,7 +739,7 @@ impl TimeSigTool {
 }
 
 impl CursorObject for TimeSigTool {
-    fn mouse_down(
+    fn primary_click(
         &mut self,
         _screen: ScreenState,
         tick: u32,
@@ -741,18 +764,6 @@ impl CursorObject for TimeSigTool {
                 self.ts = kson::TimeSignature { d: 4, n: 4 };
             }
         }
-    }
-
-    fn mouse_up(
-        &mut self,
-        _screen: ScreenState,
-        _tick: u32,
-        _tick_f: f64,
-        _lane: f32,
-        _chart: &Chart,
-        _actions: &mut ActionStack<Chart>,
-        _pos: Point2<f32>,
-    ) {
     }
 
     fn update(&mut self, tick: u32, _tick_f: f64, _lane: f32, _pos: Point2<f32>) {

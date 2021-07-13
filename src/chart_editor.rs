@@ -5,7 +5,7 @@ use crate::*;
 use anyhow::Result;
 
 use directories_next::BaseDirs;
-use eframe::egui::{Color32, CtxRef, PointerButton, Pos2, Rect, Shape, Stroke};
+use eframe::egui::{Color32, CtxRef, PointerButton, Pos2, Rect, Response, Sense, Shape, Stroke};
 use eframe::egui::{Painter, Rgba};
 
 use egui::Ui;
@@ -61,6 +61,7 @@ pub struct ScreenState {
     pub tick_height: f32,
     pub track_width: f32,
     pub top_margin: f32,
+    pub top: f32,
     pub left_margin: f32,
     pub bottom_margin: f32,
     pub beats_per_col: u32,
@@ -92,7 +93,7 @@ impl ScreenState {
     }
 
     pub fn chart_draw_height(&self) -> f32 {
-        self.h - (self.bottom_margin + self.top_margin)
+        self.h - (self.bottom_margin + self.top_margin) + self.top
     }
 
     pub fn pos_to_tick(&self, in_x: f32, in_y: f32) -> u32 {
@@ -108,7 +109,7 @@ impl ScreenState {
     }
 
     pub fn pos_to_lane(&self, in_x: f32) -> f32 {
-        let mut x = (in_x + self.x_offset - self.left_margin) % self.track_spacing();
+        let mut x = (in_x + self.x_offset + self.left_margin) % self.track_spacing();
         x = ((x - self.track_width as f32 / 2.0).max(0.0) / self.track_width as f32).min(1.0);
         (x * 6.0).min(6.0) as f32
     }
@@ -177,6 +178,7 @@ impl MainState {
         let s = MainState {
             chart: new_chart.clone(),
             screen: ScreenState {
+                top: 0.0,
                 w: 800.0,
                 h: 600.0,
                 tick_height: 1.0,
@@ -547,7 +549,7 @@ impl MainState {
         Ok(())
     }
 
-    pub fn draw(&mut self, ui: &Ui) -> Result<()> {
+    pub fn draw(&mut self, ui: &Ui) -> Result<Response> {
         ui.make_persistent_id(EGUI_ID);
         self.resize_event(ui.max_rect_finite());
 
@@ -866,9 +868,10 @@ impl MainState {
             // }
         }
 
-        Ok(())
+        Ok(ui.interact(ui.max_rect_finite(), ui.id(), Sense::click_and_drag()))
     }
-    fn mouse_button_down_event(&mut self, button: PointerButton, x: f32, y: f32) {
+
+    pub fn drag_start(&mut self, button: PointerButton, x: f32, y: f32) {
         if let PointerButton::Primary = button {
             let res = self.chart.beat.resolution;
             let lane = self.screen.pos_to_lane(x);
@@ -876,7 +879,7 @@ impl MainState {
             let tick = tick - (tick % (res / 2));
             let tick_f = self.screen.pos_to_tick_f(x, y);
             match self.cursor_object {
-                Some(ref mut cursor) => cursor.mouse_down(
+                Some(ref mut cursor) => cursor.drag_start(
                     self.screen,
                     tick,
                     tick_f,
@@ -890,14 +893,14 @@ impl MainState {
         }
     }
 
-    fn mouse_button_up_event(&mut self, button: PointerButton, x: f32, y: f32) {
+    pub fn drag_end(&mut self, button: PointerButton, x: f32, y: f32) {
         if let PointerButton::Primary = button {
             let lane = self.screen.pos_to_lane(x);
             let tick = self.screen.pos_to_tick(x, y);
             let tick_f = self.screen.pos_to_tick_f(x, y);
             let tick = tick - (tick % (self.chart.beat.resolution / 2));
             if let Some(cursor) = &mut self.cursor_object {
-                cursor.mouse_up(
+                cursor.drag_end(
                     self.screen,
                     tick,
                     tick_f,
@@ -913,6 +916,7 @@ impl MainState {
     fn resize_event(&mut self, size: Rect) {
         self.screen.w = size.width();
         self.screen.h = size.height();
+        self.screen.top = size.top();
         self.screen.top_margin = size.top() + 20.0;
         self.screen.left_margin = size.left();
 
@@ -1007,7 +1011,7 @@ impl MainState {
         }
     }
 
-    fn mouse_motion_event(&mut self, pos: Pos2) {
+    pub fn mouse_motion_event(&mut self, pos: Pos2) {
         self.mouse_x = pos.x;
         self.mouse_y = pos.y;
 
