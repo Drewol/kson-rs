@@ -21,11 +21,6 @@
 * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 * SOFTWARE.
 */
-extern crate gfx_core;
-extern crate gfx_device_gl;
-extern crate imgui;
-extern crate imgui_gfx_renderer;
-
 use self::gfx_core::{handle::RenderTargetView, memory::Typed};
 use self::imgui_gfx_renderer::*;
 use crate::MainState;
@@ -39,16 +34,7 @@ use std::error::Error;
 use std::rc::Rc;
 use std::time::Instant;
 
-#[derive(PartialEq, Copy, Clone)]
-pub enum ChartTool {
-    None,
-    BT,
-    FX,
-    RLaser,
-    LLaser,
-    BPM,
-    TimeSig,
-}
+
 
 pub enum GuiEvent {
     New(String, String, Option<String>), //(Audio, Filename, Destination)

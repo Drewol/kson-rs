@@ -1,5 +1,5 @@
 use crate::dsp;
-use ggez::GameResult;
+use anyhow::Result;
 use kson::{Chart, GraphSectionPoint};
 use rodio::*;
 use std::fs::File;
@@ -154,15 +154,15 @@ pub struct AudioPlayback {
 }
 
 impl AudioPlayback {
-    pub fn new(ctx: &ggez::Context) -> Self {
-        let device = rodio::default_output_device().unwrap();
-        AudioPlayback {
-            sink: Sink::new(&device),
+    pub fn try_new() -> Result<Self> {
+        let (_stream, stream_handle) = OutputStream::try_default()?;
+        Ok(AudioPlayback {
+            sink: Sink::try_new(&stream_handle)?,
             file: None,
             last_file: String::new(),
             laser_funcs: [Vec::new(), Vec::new()],
             laser_values: (None, None),
-        }
+        })
     }
 
     fn make_laser_fn(
@@ -186,7 +186,7 @@ impl AudioPlayback {
         } else if (a - b).abs() > f64::EPSILON {
             Box::new(move |y: f32| {
                 let x = ((y - start_tick) / length).min(1.0).max(0.0) as f64;
-                start_value + value_delta * crate::do_curve(x, a, b) as f32
+                start_value + value_delta * kson::do_curve(x, a, b) as f32
             })
         } else {
             Box::new(move |y: f32| start_value + value_delta * ((y - start_tick) / length))
@@ -307,7 +307,7 @@ impl AudioPlayback {
         }
     }
 
-    pub fn open(&mut self, path: &str) -> GameResult {
+    pub fn open(&mut self, path: &str) -> Result<()> {
         let new_file = String::from(path);
         if self.file.is_some() && self.last_file.eq(&new_file) {
             //don't reopen already opened file
@@ -316,15 +316,7 @@ impl AudioPlayback {
 
         self.close();
         let file = File::open(path)?;
-        let source = match rodio::Decoder::new(BufReader::new(file)) {
-            Ok(s) => s,
-            Err(err) => {
-                return Err(ggez::GameError::AudioError(format!(
-                    "Failed to create decoder: {}",
-                    err
-                )))
-            }
-        };
+        let source = rodio::Decoder::new(BufReader::new(file))?;
         let rate = source.sample_rate();
         let channels = source.channels();
         let dataref: Arc<Mutex<Vec<f32>>> =

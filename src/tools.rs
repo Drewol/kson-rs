@@ -1,10 +1,15 @@
-use crate::action_stack::{Action, ActionStack};
-use crate::{MainState, ScreenState};
+use crate::{
+    action_stack::{Action, ActionStack},
+    chart_editor::{MainState, ScreenState},
+    rect_xy_wh,
+};
+use anyhow::Result;
+use eframe::egui::{self, CtxRef, DragValue, Label, Pos2, Rgba, Stroke, Window};
+use eframe::egui::{Painter, Shape};
+use na::point;
+use na::Point2;
+use nalgebra as na;
 
-use ggez::graphics;
-use ggez::nalgebra as na;
-use ggez::{Context, GameResult};
-use imgui::*;
 use kson::{Chart, GraphSectionPoint, Interval, LaserSection};
 
 pub trait CursorObject {
@@ -16,7 +21,7 @@ pub trait CursorObject {
         lane: f32,
         chart: &Chart,
         actions: &mut ActionStack<Chart>,
-        pos: na::Point2<f32>,
+        pos: Point2<f32>,
     );
     fn mouse_up(
         &mut self,
@@ -26,11 +31,11 @@ pub trait CursorObject {
         lane: f32,
         chart: &Chart,
         actions: &mut ActionStack<Chart>,
-        pos: na::Point2<f32>,
+        pos: Point2<f32>,
     );
-    fn update(&mut self, tick: u32, tick_f: f64, lane: f32, pos: na::Point2<f32>);
-    fn draw(&self, state: &MainState, ctx: &mut Context) -> GameResult;
-    fn draw_ui(&mut self, ui: &Ui, actions: &mut ActionStack<Chart>);
+    fn update(&mut self, tick: u32, tick_f: f64, lane: f32, pos: Point2<f32>);
+    fn draw(&self, state: &MainState, painter: &Painter) -> Result<()>;
+    fn draw_ui(&mut self, ctx: &CtxRef, actions: &mut ActionStack<Chart>);
 }
 
 //structs for cursor objects
@@ -96,7 +101,7 @@ impl LaserTool {
         screen: ScreenState,
         points: &[GraphSectionPoint],
         start_y: u32,
-    ) -> Option<ggez::nalgebra::Point2<f32>> {
+    ) -> Option<Pos2> {
         let start = points.get(0).unwrap();
         //TODO: (a,b) should not be optional
         if start.a == None || start.b == None {
@@ -127,7 +132,7 @@ impl LaserTool {
             let x = 1.0 / 10.0 + x * 8.0 / 10.0;
             let x = x * screen.track_width + interv.0 + screen.track_width / 2.0;
             let y = interv.1 + interv.2 * (start.a.unwrap() as f32 - (interv.3).0) / (interv.3).1;
-            Some(ggez::nalgebra::Point2::new(x - screen.x_offset, y))
+            Some(Pos2::new(x - screen.x_offset, y))
         } else {
             panic!("Curve `a` was not in any interval");
         }
@@ -194,7 +199,7 @@ impl CursorObject for ButtonInterval {
         lane: f32,
         _chart: &Chart,
         _actions: &mut ActionStack<Chart>,
-        _pos: na::Point2<f32>,
+        _pos: Point2<f32>,
     ) {
         self.pressed = true;
         if self.fx {
@@ -213,7 +218,7 @@ impl CursorObject for ButtonInterval {
         _lane: f32,
         _chart: &Chart,
         actions: &mut ActionStack<Chart>,
-        _pos: na::Point2<f32>,
+        _pos: Point2<f32>,
     ) {
         if self.interval.y >= tick {
             self.interval.l = 0;
@@ -254,7 +259,7 @@ impl CursorObject for ButtonInterval {
         self.lane = 0;
     }
 
-    fn update(&mut self, tick: u32, _tick_f: f64, lane: f32, _pos: na::Point2<f32>) {
+    fn update(&mut self, tick: u32, _tick_f: f64, lane: f32, _pos: Point2<f32>) {
         if !self.pressed {
             self.interval.y = tick;
             if self.fx {
@@ -270,22 +275,11 @@ impl CursorObject for ButtonInterval {
         }
     }
 
-    fn draw(&self, state: &MainState, ctx: &mut Context) -> GameResult {
-        graphics::set_blend_mode(ctx, graphics::BlendMode::Alpha)?;
+    fn draw(&self, state: &MainState, painter: &Painter) -> Result<()> {
         let color = if self.fx {
-            graphics::Color {
-                r: 1.0,
-                g: 0.3,
-                b: 0.0,
-                a: 0.5,
-            }
+            Rgba::from_rgba_premultiplied(1.0, 0.3, 0.0, 0.5)
         } else {
-            graphics::Color {
-                r: 1.0,
-                g: 1.0,
-                b: 1.0,
-                a: 0.5,
-            }
+            Rgba::from_rgba_premultiplied(1.0, 1.0, 1.0, 0.5)
         };
         if self.interval.l == 0 {
             let (x, y) = state.screen.tick_to_pos(self.interval.y);
@@ -310,15 +304,10 @@ impl CursorObject for ButtonInterval {
             };
             let h = -2.0;
 
-            let m = graphics::Mesh::new_rectangle(
-                ctx,
-                graphics::DrawMode::fill(),
-                [x, y, w, h].into(),
-                color,
-            )?;
-            graphics::draw(ctx, &m, (na::Point2::new(-state.screen.x_offset, 0.0),))
+            painter.rect_filled(rect_xy_wh([x, y, w, h]), 0.0, color);
+            Ok(())
         } else {
-            let mut long_bt_builder = graphics::MeshBuilder::new();
+            let mut long_bt_builder = Vec::<Shape>::new();
             for (x, y, h, _) in state.screen.interval_to_ranges(&self.interval) {
                 let x = if self.fx {
                     x + self.lane as f32 * state.screen.lane_width() * 2.0
@@ -338,14 +327,15 @@ impl CursorObject for ButtonInterval {
                     state.screen.track_width as f32 / 6.0 - 2.0
                 };
 
-                long_bt_builder.rectangle(graphics::DrawMode::fill(), [x, y, w, h].into(), color);
+                long_bt_builder.push(Shape::rect_filled(rect_xy_wh([x, y, w, h]), 0.0, color));
             }
-            let m = long_bt_builder.build(ctx)?;
-            graphics::draw(ctx, &m, (na::Point2::new(0.0, 0.0),))
+
+            painter.extend(long_bt_builder);
+            Ok(())
         }
     }
 
-    fn draw_ui(&mut self, _ui: &Ui, _actions: &mut ActionStack<Chart>) {}
+    fn draw_ui(&mut self, _ctx: &CtxRef, _actions: &mut ActionStack<Chart>) {}
 }
 
 impl CursorObject for LaserTool {
@@ -357,7 +347,7 @@ impl CursorObject for LaserTool {
         lane: f32,
         chart: &Chart,
         actions: &mut ActionStack<Chart>,
-        pos: na::Point2<f32>,
+        pos: Point2<f32>,
     ) {
         let v = LaserTool::lane_to_pos(lane);
         let ry = self.calc_ry(tick);
@@ -428,7 +418,7 @@ impl CursorObject for LaserTool {
                         if let Some(control_point) =
                             LaserTool::get_control_point_pos(screen, points, self.section.y)
                         {
-                            if na::distance(&control_point, &pos) < 5.0 {
+                            if na::distance(&point![control_point.x, control_point.y], &pos) < 5.0 {
                                 self.mode = LaserEditMode::Edit(LaserEditState {
                                     section_index: edit_state.section_index,
                                     curving_index: Some(i),
@@ -456,7 +446,7 @@ impl CursorObject for LaserTool {
         _lane: f32,
         _chart: &Chart,
         actions: &mut ActionStack<Chart>,
-        _pos: na::Point2<f32>,
+        _pos: Point2<f32>,
     ) {
         if let LaserEditMode::Edit(edit_state) = self.mode {
             if let Some(curving_index) = edit_state.curving_index {
@@ -480,7 +470,7 @@ impl CursorObject for LaserTool {
         }
     }
 
-    fn update(&mut self, tick: u32, tick_f: f64, lane: f32, pos: na::Point2<f32>) {
+    fn update(&mut self, tick: u32, tick_f: f64, lane: f32, pos: Point2<f32>) {
         match self.mode {
             LaserEditMode::New => {
                 let ry = self.calc_ry(tick);
@@ -533,7 +523,7 @@ impl CursorObject for LaserTool {
             }
         }
     }
-    fn draw(&self, state: &MainState, ctx: &mut Context) -> GameResult {
+    fn draw(&self, state: &MainState, painter: &Painter) -> Result<()> {
         if self.section.v.len() > 1 {
             //Draw laser mesh
             if let Some(color) = match self.mode {
@@ -541,44 +531,43 @@ impl CursorObject for LaserTool {
                 LaserEditMode::New => {
                     let b = 0.8;
                     if self.right {
-                        [0.76 * b, 0.024 * b, 0.55 * b, 1.0].into()
+                        Some(Rgba::from_rgba_premultiplied(
+                            0.76 * b,
+                            0.024 * b,
+                            0.55 * b,
+                            1.0,
+                        ))
                     } else {
-                        [0.0, 0.45 * b, 0.565 * b, 1.0].into()
+                        Some(Rgba::from_rgba_premultiplied(0.0, 0.45 * b, 0.565 * b, 1.0))
                     }
                 }
-                LaserEditMode::Edit(_) => Some([0.0, 0.76, 0.0, 1.0]),
+                LaserEditMode::Edit(_) => Some(Rgba::from_rgba_premultiplied(0.0, 0.76, 0.0, 1.0)),
             } {
-                let mut mb = graphics::MeshBuilder::new();
+                let mut mb = Vec::new();
                 state.draw_laser_section(&self.section, &mut mb, color.into())?;
-                graphics::set_blend_mode(ctx, graphics::BlendMode::Add)?;
-                let m = mb.build(ctx)?;
-                graphics::draw(ctx, &m, (na::Point2::new(-state.screen.x_offset, 0.0),))?;
+                painter.extend(mb);
             }
 
             //Draw curve control points
             if let LaserEditMode::Edit(edit_state) = self.mode {
-                let mut mb = graphics::MeshBuilder::new();
                 for (i, start_end) in self.section.v.windows(2).enumerate() {
                     let color = if edit_state.curving_index == Some(i) {
-                        [0.0, 1.0, 0.0, 1.0]
+                        Rgba::from_rgba_premultiplied(0.0, 1.0, 0.0, 1.0)
                     } else {
-                        [0.0, 0.0, 1.0, 1.0]
+                        Rgba::from_rgba_premultiplied(0.0, 0.0, 1.0, 1.0)
                     };
 
                     if let Some(pos) =
                         LaserTool::get_control_point_pos(state.screen, start_end, self.section.y)
                     {
-                        mb.circle(graphics::DrawMode::fill(), pos, 5.0, 0.3, color.into());
+                        painter.circle(pos, 5.0, color, Stroke::none());
                     }
                 }
-                let m = mb.build(ctx)?;
-                graphics::set_blend_mode(ctx, graphics::BlendMode::Alpha)?;
-                graphics::draw(ctx, &m, (na::Point2::new(0.0, 0.0),))?;
             }
         }
         Ok(())
     }
-    fn draw_ui(&mut self, _ui: &Ui, _actions: &mut ActionStack<Chart>) {}
+    fn draw_ui(&mut self, _ctx: &CtxRef, _actions: &mut ActionStack<Chart>) {}
 }
 
 enum CursorToolStates {
@@ -612,7 +601,7 @@ impl CursorObject for BpmTool {
         _lane: f32,
         chart: &Chart,
         _actions: &mut ActionStack<Chart>,
-        _pos: na::Point2<f32>,
+        _pos: Point2<f32>,
     ) {
         if let CursorToolStates::None = self.state {
             //check for bpm changes on selected tick
@@ -636,21 +625,22 @@ impl CursorObject for BpmTool {
         _lane: f32,
         _chart: &Chart,
         _actions: &mut ActionStack<Chart>,
-        _pos: na::Point2<f32>,
+        _pos: Point2<f32>,
     ) {
     }
 
-    fn update(&mut self, tick: u32, _tick_f: f64, _lane: f32, _pos: na::Point2<f32>) {
+    fn update(&mut self, tick: u32, _tick_f: f64, _lane: f32, _pos: Point2<f32>) {
         if let CursorToolStates::None = self.state {
             self.cursor_tick = tick;
         }
     }
 
-    fn draw(&self, state: &MainState, ctx: &mut Context) -> GameResult {
-        state.draw_cursor_line(ctx, self.cursor_tick, (0, 128, 255, 255))
+    fn draw(&self, state: &MainState, painter: &Painter) -> Result<()> {
+        state.draw_cursor_line(painter, self.cursor_tick, (0, 128, 255, 255));
+        Ok(())
     }
 
-    fn draw_ui(&mut self, ui: &Ui, actions: &mut ActionStack<Chart>) {
+    fn draw_ui(&mut self, ctx: &CtxRef, actions: &mut ActionStack<Chart>) {
         let complete_func: Option<Box<dyn Fn(&mut ActionStack<Chart>, f64) -> ()>> =
             match self.state {
                 CursorToolStates::None => None,
@@ -688,20 +678,19 @@ impl CursorObject for BpmTool {
 
         if let Some(complete) = complete_func {
             let mut bpm = self.bpm as f32;
-            Window::new(im_str!("Change BPM"))
-                .size([300.0, 600.0], imgui::Condition::FirstUseEver)
-                .position([100.0, 100.0], imgui::Condition::FirstUseEver)
-                .build(&ui, || {
-                    InputFloat::new(ui, im_str!("BPM"), &mut bpm).build();
+            Window::new("Change BPM")
+                .title_bar(true)
+                .default_size([300.0, 600.0])
+                .default_pos([100.0, 100.0])
+                .show(ctx, |ui| {
+                    ui.add(Label::new("BPM:"));
+                    ui.add(DragValue::new(&mut bpm).speed(0.1));
                     self.bpm = bpm as f64;
-
-                    if ui.button(im_str!("Cancel"), [50.0, 20.0]) {
+                    ui.end_row();
+                    if ui.button("Cancel").clicked() {
                         self.state = CursorToolStates::None;
                     }
-
-                    ui.same_line(0.0);
-
-                    if ui.button(im_str!("Ok"), [30.0, 20.0]) {
+                    if ui.button("Ok").clicked() {
                         complete(actions, bpm as f64);
                         self.state = CursorToolStates::None;
                     }
@@ -735,7 +724,7 @@ impl CursorObject for TimeSigTool {
         _lane: f32,
         chart: &Chart,
         _actions: &mut ActionStack<Chart>,
-        _pos: na::Point2<f32>,
+        _pos: Point2<f32>,
     ) {
         let measure = chart.tick_to_measure(tick);
         if let CursorToolStates::None = self.state {
@@ -762,24 +751,25 @@ impl CursorObject for TimeSigTool {
         _lane: f32,
         _chart: &Chart,
         _actions: &mut ActionStack<Chart>,
-        _pos: na::Point2<f32>,
+        _pos: Point2<f32>,
     ) {
     }
 
-    fn update(&mut self, tick: u32, _tick_f: f64, _lane: f32, _pos: na::Point2<f32>) {
+    fn update(&mut self, tick: u32, _tick_f: f64, _lane: f32, _pos: Point2<f32>) {
         if let CursorToolStates::None = self.state {
             self.cursor_tick = tick;
         }
     }
 
-    fn draw(&self, state: &MainState, ctx: &mut Context) -> GameResult {
+    fn draw(&self, state: &MainState, painter: &Painter) -> Result<()> {
         let tick = state
             .chart
             .measure_to_tick(state.chart.tick_to_measure(self.cursor_tick));
-        state.draw_cursor_line(ctx, tick, (255, 255, 0, 255))
+        state.draw_cursor_line(painter, tick, (255, 255, 0, 255));
+        Ok(())
     }
 
-    fn draw_ui(&mut self, ui: &Ui, actions: &mut ActionStack<Chart>) {
+    fn draw_ui(&mut self, ctx: &CtxRef, actions: &mut ActionStack<Chart>) {
         let complete_func: Option<Box<dyn Fn(&mut ActionStack<Chart>, [i32; 2]) -> ()>> =
             match self.state {
                 CursorToolStates::None => None,
@@ -800,14 +790,16 @@ impl CursorObject for TimeSigTool {
                 })),
                 CursorToolStates::Edit(index) => Some(Box::new(move |a, ts| {
                     a.commit(Action {
-                        description: String::from("Edit BPM Change"),
+                        description: String::from("Edit Time Signature Change"),
                         action: Box::new(move |c| {
                             if let Some(change) = c.beat.time_sig.get_mut(index) {
                                 change.v.n = ts[0] as u32;
                                 change.v.d = ts[1] as u32;
                                 Ok(())
                             } else {
-                                Err(String::from("Tried to edit non existing BPM Change"))
+                                Err(String::from(
+                                    "Tried to edit non existing Time Signature Change",
+                                ))
                             }
                         }),
                     })
@@ -815,21 +807,26 @@ impl CursorObject for TimeSigTool {
             };
 
         if let Some(complete) = complete_func {
-            Window::new(im_str!("Change BPM"))
-                .size([300.0, 600.0], imgui::Condition::FirstUseEver)
-                .position([100.0, 100.0], imgui::Condition::FirstUseEver)
-                .build(&ui, || {
-                    let mut ts_data = [self.ts.n as i32, self.ts.d as i32];
-                    InputInt2::new(ui, im_str!("Time signature a/b"), &mut ts_data).build();
-                    self.ts.n = ts_data[0].max(1) as u32;
-                    self.ts.d = ts_data[1].max(1) as u32;
+            egui::Window::new("Change Time Signature")
+                .title_bar(true)
+                .default_size([300.0, 600.0])
+                .default_pos([100.0, 100.0])
+                .show(ctx, |ui| {
+                    let (mut ts_n, mut ts_d) = (self.ts.n as f32, self.ts.d as f32);
 
-                    if ui.button(im_str!("Cancel"), [50.0, 20.0]) {
+                    ui.add(egui::widgets::DragValue::new(&mut ts_n).speed(1));
+                    ui.add(egui::Label::new("/"));
+                    ui.add(egui::widgets::DragValue::new(&mut ts_d).speed(1));
+                    ui.end_row();
+
+                    self.ts.n = ts_n.max(1.0) as u32;
+                    self.ts.d = ts_d.max(1.0) as u32;
+
+                    if ui.button("Ok").clicked() {
+                        complete(actions, [ts_n as i32, ts_d as i32]);
                         self.state = CursorToolStates::None;
                     }
-                    ui.same_line(0.0);
-                    if ui.button(im_str!("Ok"), [30.0, 20.0]) {
-                        complete(actions, ts_data);
+                    if ui.button("Cancel").clicked() {
                         self.state = CursorToolStates::None;
                     }
                 });
