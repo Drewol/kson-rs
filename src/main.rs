@@ -4,6 +4,7 @@ use anyhow::Result;
 use chart_editor::MainState;
 use eframe::egui::{self, menu, warn_if_debug_build, Color32, Frame, Label, Rect, Vec2};
 use eframe::epi::App;
+use log::debug;
 use nalgebra::ComplexField;
 
 mod action_stack;
@@ -125,13 +126,16 @@ impl App for AppState {
                     warn_if_debug_build(ui);
                     ui.label(&format!("FPS: {:.1}", 1.0 / &dt));
                 });
-            egui::CentralPanel::default()
+            let main_response = egui::CentralPanel::default()
                 .frame(Frame {
                     margin: Vec2::new(0.0, 0.0),
                     fill: Color32::BLACK,
                     ..Default::default()
                 })
                 .show(ctx, |ui| self.editor.draw(ui));
+            if main_response.response.hovered() && ctx.input().scroll_delta != Vec2::ZERO {
+                self.editor.mouse_wheel_event(ctx.input().scroll_delta.y);
+            }
         }
 
         frame.set_window_size(ctx.used_size());

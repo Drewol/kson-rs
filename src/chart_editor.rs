@@ -39,6 +39,8 @@ pub enum ChartTool {
     TimeSig,
 }
 
+pub const EGUI_ID: &str = "chart_editor";
+
 pub struct MainState {
     pub chart: kson::Chart,
     pub save_path: Option<PathBuf>,
@@ -82,7 +84,8 @@ impl ScreenState {
 
     pub fn tick_to_pos(&self, in_y: u32) -> (f32, f32) {
         let h = self.chart_draw_height();
-        let x = (in_y / self.ticks_per_col()) as f32 * self.track_spacing() + self.left_margin;
+        let x = (in_y / self.ticks_per_col()) as f32 * self.track_spacing() + self.left_margin
+            - self.x_offset;
         let y = (in_y % self.ticks_per_col()) as f32 * self.tick_height;
         let y = h - y + self.top_margin;
         (x, y)
@@ -110,8 +113,14 @@ impl ScreenState {
         (x * 6.0).min(6.0) as f32
     }
 
-    pub fn update(&mut self, delta_time: f32) {
+    pub fn update(&mut self, delta_time: f32) -> bool {
         self.x_offset = self.x_offset + (self.x_offset_target - self.x_offset) * delta_time;
+        if (self.x_offset_target - self.x_offset).abs() < 0.5 {
+            self.x_offset = self.x_offset_target;
+            false
+        } else {
+            true
+        }
     }
 
     pub fn interval_to_ranges(
@@ -213,7 +222,7 @@ impl MainState {
 
     pub fn draw_cursor_line(&self, painter: &Painter, tick: u32, (r, g, b, a): (u8, u8, u8, u8)) {
         let (x, y) = self.screen.tick_to_pos(tick as u32);
-        let x = x + self.screen.track_width / 2.0 - self.screen.x_offset;
+        let x = x + self.screen.track_width / 2.0;
         let p1 = egui::pos2(x, y);
         let p2 = egui::pos2(x + self.screen.track_width, y);
 
@@ -530,13 +539,16 @@ impl MainState {
         }
 
         let delta_time = (10.0 * ctx.input().unstable_dt).min(1.0);
-        self.screen.update(delta_time);
+        if self.screen.update(delta_time) {
+            ctx.request_repaint();
+        }
         let tick = self.audio_playback.get_tick(&self.chart);
         self.audio_playback.update(tick);
         Ok(())
     }
 
     pub fn draw(&mut self, ui: &Ui) -> Result<()> {
+        ui.make_persistent_id(EGUI_ID);
         self.resize_event(ui.max_rect_finite());
 
         profile_scope!("Draw Chart");
@@ -564,7 +576,8 @@ impl MainState {
             {
                 let track_count = 2 + (self.screen.w / self.screen.track_spacing()) as u32;
                 profile_scope!("Track Components");
-                let x = self.screen.track_width / 2.0 + lane_width + self.screen.left_margin;
+                let x = self.screen.track_width / 2.0 + lane_width + self.screen.left_margin
+                    - (self.screen.x_offset % (self.screen.track_width * 2.0));
                 for i in 0..track_count {
                     let x = x + i as f32 * track_spacing;
                     for j in 0..5 {
@@ -772,7 +785,7 @@ impl MainState {
                 self.cursor_line
             };
 
-            self.draw_cursor_line(ui.painter(), tick, (255u8, 0u8, 0u8, 255u8));
+            self.draw_cursor_line(&painter, tick, (255u8, 0u8, 0u8, 255u8));
         }
 
         //BPM & Time Signatures
@@ -1011,8 +1024,8 @@ impl MainState {
         }
     }
 
-    fn mouse_wheel_event(&mut self, y: f32) {
-        self.screen.x_offset_target += y * self.screen.track_width;
+    pub fn mouse_wheel_event(&mut self, y: f32) {
+        self.screen.x_offset_target += y.signum() * self.screen.track_width * 2.0;
         self.screen.x_offset_target = self.screen.x_offset_target.max(0.0);
     }
 }
