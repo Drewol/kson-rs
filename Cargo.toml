@@ -16,10 +16,13 @@ kson = { git = "https://github.com/Drewol/kson-rs.git" }
 directories-next = "2.0.0"
 nfd = { git = "https://github.com/SpaceManiac/nfd-rs.git", branch = "zenity" }
 anyhow = "1"
-eframe = "0.13"
 nalgebra = "0.28"
 log = "0.4.14"
 simple_logger = "1.11.0"
+
+[dependencies.eframe]
+version = "0.13"
+features = ["persistence"]
 
 [features]
 profiler = ["thread_profiler/thread_profiler"]

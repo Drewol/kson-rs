@@ -1,11 +1,14 @@
+use std::collections::{HashMap, HashSet};
+use std::ops::Deref;
 use std::path::PathBuf;
 
 use anyhow::Result;
 use chart_editor::MainState;
-use eframe::egui::{self, menu, warn_if_debug_build, Color32, Frame, Label, Pos2, Rect, Vec2};
+use eframe::egui::{self, menu, warn_if_debug_build, Color32, Frame, Key, Label, Pos2, Rect, Vec2};
 use eframe::epi::App;
 use log::debug;
 use nalgebra::ComplexField;
+use serde::{Deserialize, Serialize};
 
 mod action_stack;
 mod chart_editor;
@@ -13,11 +16,7 @@ mod dsp;
 mod playback;
 mod tools;
 
-struct AppState {
-    editor: chart_editor::MainState,
-    current_tool: ChartTool,
-}
-
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub enum GuiEvent {
     New(String, String, Option<PathBuf>), //(Audio, Filename, Destination)
     Open,
@@ -29,7 +28,7 @@ pub enum GuiEvent {
     ExportKsh,
 }
 
-#[derive(PartialEq, Copy, Clone)]
+#[derive(Debug, PartialEq, Copy, Clone, Serialize, Deserialize)]
 pub enum ChartTool {
     None,
     BT,
@@ -38,6 +37,150 @@ pub enum ChartTool {
     LLaser,
     BPM,
     TimeSig,
+}
+
+#[derive(Debug, Serialize, Deserialize, Hash, PartialEq, Eq, Clone)]
+pub struct KeyCombo {
+    key: egui::Key,
+    modifiers: Modifiers,
+}
+
+#[derive(Debug, Serialize, Deserialize, Hash, PartialEq, Eq, Copy, Clone)]
+pub struct Modifiers {
+    pub alt: bool,
+    pub ctrl: bool,
+    pub shift: bool,
+    pub mac_cmd: bool,
+    pub command: bool,
+}
+
+struct AppState {
+    editor: chart_editor::MainState,
+    key_bindings: HashMap<KeyCombo, GuiEvent>,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+struct Config {
+    key_bindings: HashMap<KeyCombo, GuiEvent>,
+}
+
+//TODO: ehhhhhhhhh
+impl From<egui::Modifiers> for Modifiers {
+    fn from(
+        egui::Modifiers {
+            alt,
+            ctrl,
+            shift,
+            mac_cmd,
+            command,
+        }: egui::Modifiers,
+    ) -> Self {
+        Self {
+            alt,
+            ctrl,
+            shift,
+            mac_cmd,
+            command,
+        }
+    }
+}
+
+impl KeyCombo {
+    fn new(key: egui::Key, modifiers: Modifiers) -> Self {
+        Self { key, modifiers }
+    }
+}
+
+impl Modifiers {
+    fn new() -> Self {
+        Self {
+            alt: false,
+            command: false,
+            ctrl: false,
+            mac_cmd: false,
+            shift: false,
+        }
+    }
+
+    fn alt(mut self) -> Self {
+        self.alt = true;
+        self
+    }
+    fn command(mut self) -> Self {
+        self.command = true;
+        self
+    }
+    #[cfg(target_os = "macos")]
+    fn ctrl(mut self) -> Self {
+        self.ctrl = true;
+        self
+    }
+    #[cfg(not(target_os = "macos"))]
+    fn ctrl(mut self) -> Self {
+        self.ctrl = true;
+        self.command = true;
+        self
+    }
+    fn mac_cmd(mut self) -> Self {
+        self.mac_cmd = true;
+        self
+    }
+    fn shift(mut self) -> Self {
+        self.shift = true;
+        self
+    }
+}
+
+impl Default for Config {
+    fn default() -> Self {
+        let mut default_bindings = HashMap::new();
+        let nomod = Modifiers::new();
+
+        default_bindings.insert(
+            KeyCombo::new(Key::S, Modifiers::new().ctrl()),
+            GuiEvent::Save,
+        );
+        default_bindings.insert(
+            KeyCombo::new(Key::S, Modifiers::new().ctrl().shift()),
+            GuiEvent::SaveAs,
+        );
+        default_bindings.insert(
+            KeyCombo::new(Key::O, Modifiers::new().ctrl()),
+            GuiEvent::Open,
+        );
+        default_bindings.insert(
+            KeyCombo::new(Key::Num0, nomod),
+            GuiEvent::ToolChanged(ChartTool::None),
+        );
+        default_bindings.insert(
+            KeyCombo::new(Key::Num1, nomod),
+            GuiEvent::ToolChanged(ChartTool::BT),
+        );
+        default_bindings.insert(
+            KeyCombo::new(Key::Num2, nomod),
+            GuiEvent::ToolChanged(ChartTool::FX),
+        );
+        default_bindings.insert(
+            KeyCombo::new(Key::Num3, nomod),
+            GuiEvent::ToolChanged(ChartTool::LLaser),
+        );
+        default_bindings.insert(
+            KeyCombo::new(Key::Num4, nomod),
+            GuiEvent::ToolChanged(ChartTool::RLaser),
+        );
+        default_bindings.insert(
+            KeyCombo::new(Key::Num5, nomod),
+            GuiEvent::ToolChanged(ChartTool::BPM),
+        );
+        default_bindings.insert(
+            KeyCombo::new(Key::Num6, nomod),
+            GuiEvent::ToolChanged(ChartTool::TimeSig),
+        );
+
+        Self {
+            key_bindings: default_bindings,
+        }
+    }
 }
 
 pub fn rect_xy_wh(rect: [f32; 4]) -> Rect {
@@ -69,15 +212,29 @@ impl App for AppState {
         &mut self,
         _ctx: &egui::CtxRef,
         _frame: &mut eframe::epi::Frame<'_>,
-        _storage: Option<&dyn eframe::epi::Storage>,
+        storage: Option<&dyn eframe::epi::Storage>,
     ) {
+        let config = if let Some(storage) = storage {
+            let c: Option<Config> = eframe::epi::get_value(storage, "CONFIG");
+            c.unwrap_or_default()
+        } else {
+            Config::default()
+        };
+
+        self.key_bindings = config.key_bindings;
     }
 
     fn warm_up_enabled(&self) -> bool {
         false
     }
 
-    fn save(&mut self, _storage: &mut dyn eframe::epi::Storage) {}
+    fn save(&mut self, storage: &mut dyn eframe::epi::Storage) {
+        let new_config = Config {
+            key_bindings: self.key_bindings.clone(),
+        };
+
+        eframe::epi::set_value(storage, "CONFIG", &new_config)
+    }
 
     fn on_exit(&mut self) {}
 
@@ -95,7 +252,18 @@ impl App for AppState {
                     key,
                     pressed,
                     modifiers,
-                } => {}
+                } => {
+                    if *pressed {
+                        let key_combo = KeyCombo {
+                            key: *key,
+                            modifiers: (*modifiers).into(),
+                        };
+
+                        if let Some(action) = self.key_bindings.get(&key_combo) {
+                            self.editor.gui_event_queue.push_back(action.clone())
+                        }
+                    }
+                }
                 egui::Event::PointerMoved(pos) => self.editor.mouse_motion_event(*pos),
                 egui::Event::PointerButton {
                     pos,
@@ -128,16 +296,14 @@ impl App for AppState {
                 menu::bar(ui, |ui| {
                     for (name, tool) in &TOOLS {
                         if ui
-                            .selectable_label(self.current_tool == *tool, name)
+                            .selectable_label(self.editor.current_tool == *tool, name)
                             .clicked()
                         {
-                            if *tool == self.current_tool {
-                                self.current_tool = ChartTool::None;
+                            if *tool == self.editor.current_tool {
                                 self.editor
                                     .gui_event_queue
                                     .push_back(GuiEvent::ToolChanged(ChartTool::None))
                             } else {
-                                self.current_tool = *tool;
                                 self.editor
                                     .gui_event_queue
                                     .push_back(GuiEvent::ToolChanged(*tool));
@@ -221,7 +387,7 @@ fn main() -> Result<()> {
     eframe::run_native(
         Box::new(AppState {
             editor: MainState::new()?,
-            current_tool: ChartTool::None,
+            key_bindings: HashMap::new(),
         }),
         options,
     );

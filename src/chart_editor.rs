@@ -28,17 +28,6 @@ macro_rules! profile_scope {
     };
 }
 
-#[derive(PartialEq, Copy, Clone)]
-pub enum ChartTool {
-    None,
-    BT,
-    FX,
-    RLaser,
-    LLaser,
-    BPM,
-    TimeSig,
-}
-
 pub const EGUI_ID: &str = "chart_editor";
 
 pub struct MainState {
@@ -49,6 +38,7 @@ pub struct MainState {
     pub gui_event_queue: VecDeque<crate::GuiEvent>,
     pub cursor_line: u32,
     pub cursor_object: Option<Box<dyn CursorObject>>,
+    pub current_tool: ChartTool,
     pub actions: action_stack::ActionStack<kson::Chart>,
     pub screen: ScreenState,
     pub audio_playback: playback::AudioPlayback,
@@ -195,6 +185,7 @@ impl MainState {
             save_path: None,
             mouse_x: 0.0,
             mouse_y: 0.0,
+            current_tool: ChartTool::None,
 
             cursor_object: None,
             audio_playback: playback::AudioPlayback::try_new()?,
@@ -466,17 +457,20 @@ impl MainState {
                         }
                     }
                 }
-                GuiEvent::ToolChanged(new_tool) => match new_tool {
-                    ChartTool::None => self.cursor_object = None,
-                    ChartTool::BT => {
-                        self.cursor_object = Some(Box::new(ButtonInterval::new(false)))
+                GuiEvent::ToolChanged(new_tool) => {
+                    if self.current_tool != new_tool {
+                        self.cursor_object = match new_tool {
+                            ChartTool::None => None,
+                            ChartTool::BT => Some(Box::new(ButtonInterval::new(false))),
+                            ChartTool::FX => Some(Box::new(ButtonInterval::new(true))),
+                            ChartTool::LLaser => Some(Box::new(LaserTool::new(false))),
+                            ChartTool::RLaser => Some(Box::new(LaserTool::new(true))),
+                            ChartTool::BPM => Some(Box::new(BpmTool::new())),
+                            ChartTool::TimeSig => Some(Box::new(TimeSigTool::new())),
+                        };
+                        self.current_tool = new_tool;
                     }
-                    ChartTool::FX => self.cursor_object = Some(Box::new(ButtonInterval::new(true))),
-                    ChartTool::LLaser => self.cursor_object = Some(Box::new(LaserTool::new(false))),
-                    ChartTool::RLaser => self.cursor_object = Some(Box::new(LaserTool::new(true))),
-                    ChartTool::BPM => self.cursor_object = Some(Box::new(BpmTool::new())),
-                    ChartTool::TimeSig => self.cursor_object = Some(Box::new(TimeSigTool::new())),
-                },
+                }
                 GuiEvent::Undo => self.actions.undo(),
                 GuiEvent::Redo => self.actions.redo(),
                 GuiEvent::New(audio_file, filename, chart_folder) => {
