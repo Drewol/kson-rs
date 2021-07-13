@@ -1,10 +1,10 @@
 use crate::{
-    action_stack::{Action, ActionStack},
+    action_stack::ActionStack,
     chart_editor::{MainState, ScreenState},
     rect_xy_wh,
 };
-use anyhow::Result;
-use eframe::egui::{self, CtxRef, DragValue, Label, Layout, Pos2, Rgba, Stroke, Window};
+use anyhow::{bail, Result};
+use eframe::egui::{self, CtxRef, DragValue, Label, Pos2, Rgba, Stroke, Window};
 use eframe::egui::{Painter, Shape};
 use na::point;
 use na::Point2;
@@ -15,62 +15,62 @@ use kson::{Chart, GraphSectionPoint, Interval, LaserSection};
 pub trait CursorObject {
     fn primary_click(
         &mut self,
-        screen: ScreenState,
-        tick: u32,
-        tick_f: f64,
-        lane: f32,
-        chart: &Chart,
-        actions: &mut ActionStack<Chart>,
-        pos: Point2<f32>,
+        _screen: ScreenState,
+        _tick: u32,
+        _tick_f: f64,
+        _lane: f32,
+        _chart: &Chart,
+        _actions: &mut ActionStack<Chart>,
+        _pos: Point2<f32>,
     ) {
     }
     fn secondary_click(
         &mut self,
-        screen: ScreenState,
-        tick: u32,
-        tick_f: f64,
-        lane: f32,
-        chart: &Chart,
-        actions: &mut ActionStack<Chart>,
-        pos: Point2<f32>,
+        _screen: ScreenState,
+        _tick: u32,
+        _tick_f: f64,
+        _lane: f32,
+        _chart: &Chart,
+        _actions: &mut ActionStack<Chart>,
+        _pos: Point2<f32>,
     ) {
     }
     fn middle_click(
         &mut self,
-        screen: ScreenState,
-        tick: u32,
-        tick_f: f64,
-        lane: f32,
-        chart: &Chart,
-        actions: &mut ActionStack<Chart>,
-        pos: Point2<f32>,
+        _screen: ScreenState,
+        _tick: u32,
+        _tick_f: f64,
+        _lane: f32,
+        _chart: &Chart,
+        _actions: &mut ActionStack<Chart>,
+        _pos: Point2<f32>,
     ) {
     }
     fn drag_end(
         &mut self,
-        screen: ScreenState,
-        tick: u32,
-        tick_f: f64,
-        lane: f32,
-        chart: &Chart,
-        actions: &mut ActionStack<Chart>,
-        pos: Point2<f32>,
+        _screen: ScreenState,
+        _tick: u32,
+        _tick_f: f64,
+        _lane: f32,
+        _chart: &Chart,
+        _actions: &mut ActionStack<Chart>,
+        _pos: Point2<f32>,
     ) {
     }
     fn drag_start(
         &mut self,
-        screen: ScreenState,
-        tick: u32,
-        tick_f: f64,
-        lane: f32,
-        chart: &Chart,
-        actions: &mut ActionStack<Chart>,
-        pos: Point2<f32>,
+        _screen: ScreenState,
+        _tick: u32,
+        _tick_f: f64,
+        _lane: f32,
+        _chart: &Chart,
+        _actions: &mut ActionStack<Chart>,
+        _pos: Point2<f32>,
     ) {
     }
     fn update(&mut self, tick: u32, tick_f: f64, lane: f32, pos: Point2<f32>);
     fn draw(&self, state: &MainState, painter: &Painter) -> Result<()>;
-    fn draw_ui(&mut self, ctx: &CtxRef, actions: &mut ActionStack<Chart>) {}
+    fn draw_ui(&mut self, _ctx: &CtxRef, _actions: &mut ActionStack<Chart>) {}
 }
 
 //structs for cursor objects
@@ -264,31 +264,29 @@ impl CursorObject for ButtonInterval {
         if self.fx {
             let l = self.lane;
 
-            actions.commit(Action {
-                description: format!(
-                    "Add {} FX Note",
-                    if self.lane == 0 { "Left" } else { "Right" }
-                ),
-                action: Box::new(move |edit_chart: &mut Chart| {
-                    edit_chart.note.fx[l].push(v);
-                    edit_chart.note.fx[l].sort_by(|a, b| a.y.partial_cmp(&b.y).unwrap());
-                    Ok(())
-                }),
-            })
+            let new_action = actions.new_action();
+            new_action.description = format!(
+                "Add {} FX Note",
+                if self.lane == 0 { "Left" } else { "Right" }
+            );
+            new_action.action = Box::new(move |edit_chart: &mut Chart| {
+                edit_chart.note.fx[l].push(v);
+                edit_chart.note.fx[l].sort_by(|a, b| a.y.partial_cmp(&b.y).unwrap());
+                Ok(())
+            });
         } else {
             let l = self.lane;
 
-            actions.commit(Action {
-                description: format!(
-                    "Add {} BT Note",
-                    std::char::from_u32('A' as u32 + self.lane as u32).unwrap_or_default()
-                ),
-                action: Box::new(move |edit_chart: &mut Chart| {
-                    edit_chart.note.bt[l].push(v);
-                    edit_chart.note.bt[l].sort_by(|a, b| a.y.partial_cmp(&b.y).unwrap());
-                    Ok(())
-                }),
-            })
+            let new_action = actions.new_action();
+            new_action.description = format!(
+                "Add {} BT Note",
+                std::char::from_u32('A' as u32 + self.lane as u32).unwrap_or_default()
+            );
+            new_action.action = Box::new(move |edit_chart: &mut Chart| {
+                edit_chart.note.bt[l].push(v);
+                edit_chart.note.bt[l].sort_by(|a, b| a.y.partial_cmp(&b.y).unwrap());
+                Ok(())
+            });
         }
         self.pressed = false;
         self.lane = 0;
@@ -428,16 +426,13 @@ impl CursorObject for LaserTool {
                     );
                     let v = std::rc::Rc::new(v.clone()); //Can't capture by clone so use RC
                     let i = if self.right { 1 } else { 0 };
-                    actions.commit(Action {
-                        description: format!(
-                            "Add {} Laser",
-                            if self.right { "Right" } else { "Left" }
-                        ),
-                        action: Box::new(move |edit_chart| {
-                            edit_chart.note.laser[i].push(v.as_ref().clone());
-                            edit_chart.note.laser[i].sort_by(|a, b| a.y.partial_cmp(&b.y).unwrap());
-                            Ok(())
-                        }),
+                    let new_action = actions.new_action();
+                    new_action.description =
+                        format!("Add {} Laser", if self.right { "Right" } else { "Left" });
+                    new_action.action = Box::new(move |edit_chart| {
+                        edit_chart.note.laser[i].push(v.as_ref().clone());
+                        edit_chart.note.laser[i].sort_by(|a, b| a.y.partial_cmp(&b.y).unwrap());
+                        Ok(())
                     });
 
                     return;
@@ -490,12 +485,12 @@ impl CursorObject for LaserTool {
                 let section_index = edit_state.section_index;
                 let laser_i = if right { 1 } else { 0 };
                 let updated_point = self.section.v[curving_index];
-                actions.commit(Action {
-                    description: format!("Adjust {} Laser Curve", laser_text),
-                    action: Box::new(move |c| {
-                        c.note.laser[laser_i][section_index].v[curving_index] = updated_point;
-                        Ok(())
-                    }),
+
+                let new_action = actions.new_action();
+                new_action.description = format!("Adjust {} Laser Curve", laser_text);
+                new_action.action = Box::new(move |c| {
+                    c.note.laser[laser_i][section_index].v[curving_index] = updated_point;
+                    Ok(())
                 });
             }
             self.mode = LaserEditMode::Edit(LaserEditState {
@@ -505,7 +500,7 @@ impl CursorObject for LaserTool {
         }
     }
 
-    fn update(&mut self, tick: u32, tick_f: f64, lane: f32, pos: Point2<f32>) {
+    fn update(&mut self, tick: u32, tick_f: f64, lane: f32, _pos: Point2<f32>) {
         match self.mode {
             LaserEditMode::New => {
                 let ry = self.calc_ry(tick);
@@ -671,30 +666,31 @@ impl CursorObject for BpmTool {
                     Some(Box::new(move |a: &mut ActionStack<Chart>, bpm: f64| {
                         let v = bpm;
                         let y = tick;
-                        a.commit(Action {
-                            description: String::from("Add BPM Change"),
-                            action: Box::new(move |c| {
-                                c.beat.bpm.push(kson::ByPulse { v, y });
-                                c.beat.bpm.sort_by(|a, b| a.y.cmp(&b.y));
-                                Ok(())
-                            }),
-                        })
+
+                        let new_action = a.new_action();
+
+                        new_action.description = String::from("Add BPM Change");
+                        new_action.action = Box::new(move |c| {
+                            c.beat.bpm.push(kson::ByPulse { v, y });
+                            c.beat.bpm.sort_by(|a, b| a.y.cmp(&b.y));
+                            Ok(())
+                        });
                     }))
                 }
                 CursorToolStates::Edit(index) => {
                     Some(Box::new(move |a: &mut ActionStack<Chart>, bpm: f64| {
                         let v = bpm;
-                        a.commit(Action {
-                            description: String::from("Edit BPM Change"),
-                            action: Box::new(move |c| {
-                                if let Some(change) = c.beat.bpm.get_mut(index) {
-                                    change.v = v;
-                                    Ok(())
-                                } else {
-                                    Err(String::from("Tried to edit non existing BPM Change"))
-                                }
-                            }),
-                        })
+
+                        let new_action = a.new_action();
+                        new_action.description = String::from("Edit BPM Change");
+                        new_action.action = Box::new(move |c| {
+                            if let Some(change) = c.beat.bpm.get_mut(index) {
+                                change.v = v;
+                                Ok(())
+                            } else {
+                                bail!("Tried to edit non existing BPM Change")
+                            }
+                        });
                     }))
                 }
             };
@@ -795,30 +791,27 @@ impl CursorObject for TimeSigTool {
                         d: ts[1] as u32,
                     };
                     let idx = measure;
-                    a.commit(Action {
-                        description: String::from("Add Time Signature Change"),
-                        action: Box::new(move |c| {
-                            c.beat.time_sig.push(kson::ByMeasureIndex { idx, v });
-                            c.beat.time_sig.sort_by(|a, b| a.idx.cmp(&b.idx));
-                            Ok(())
-                        }),
-                    })
+
+                    let new_action = a.new_action();
+                    new_action.description = String::from("Add Time Signature Change");
+                    new_action.action = Box::new(move |c| {
+                        c.beat.time_sig.push(kson::ByMeasureIndex { idx, v });
+                        c.beat.time_sig.sort_by(|a, b| a.idx.cmp(&b.idx));
+                        Ok(())
+                    });
                 })),
                 CursorToolStates::Edit(index) => Some(Box::new(move |a, ts| {
-                    a.commit(Action {
-                        description: String::from("Edit Time Signature Change"),
-                        action: Box::new(move |c| {
-                            if let Some(change) = c.beat.time_sig.get_mut(index) {
-                                change.v.n = ts[0] as u32;
-                                change.v.d = ts[1] as u32;
-                                Ok(())
-                            } else {
-                                Err(String::from(
-                                    "Tried to edit non existing Time Signature Change",
-                                ))
-                            }
-                        }),
-                    })
+                    let new_action = a.new_action();
+                    new_action.description = String::from("Edit Time Signature Change");
+                    new_action.action = Box::new(move |c| {
+                        if let Some(change) = c.beat.time_sig.get_mut(index) {
+                            change.v.n = ts[0] as u32;
+                            change.v.d = ts[1] as u32;
+                            Ok(())
+                        } else {
+                            bail!("Tried to edit non existing Time Signature Change")
+                        }
+                    });
                 })),
             };
 

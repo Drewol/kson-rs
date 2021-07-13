@@ -1,13 +1,12 @@
-use std::collections::{HashMap, HashSet};
-use std::ops::Deref;
+use std::collections::HashMap;
 use std::path::PathBuf;
 
 use anyhow::Result;
 use chart_editor::MainState;
-use eframe::egui::{self, menu, warn_if_debug_build, Color32, Frame, Key, Label, Pos2, Rect, Vec2};
+use eframe::egui::{
+    self, menu, warn_if_debug_build, Button, Color32, Frame, Key, Pos2, Rect, Vec2,
+};
 use eframe::epi::App;
-use log::debug;
-use nalgebra::ComplexField;
 use serde::{Deserialize, Serialize};
 
 mod action_stack;
@@ -288,18 +287,13 @@ impl App for AppState {
                     }
                 }
                 egui::Event::PointerMoved(pos) => self.editor.mouse_motion_event(*pos),
-                egui::Event::PointerButton {
-                    pos,
-                    button,
-                    pressed,
-                    modifiers,
-                } => {}
+
                 _ => {}
             }
         }
 
         if let Err(e) = self.editor.update(ctx) {
-            panic!(e);
+            panic!("{}", e);
         }
 
         //draw
@@ -312,6 +306,35 @@ impl App for AppState {
                     menu::menu(ui, "File", |ui| {
                         if ui.button("Open").clicked() {
                             self.editor.gui_event_queue.push_back(GuiEvent::Open);
+                        }
+                    });
+                    menu::menu(ui, "Edit", |ui| {
+                        let undo_desc = self.editor.actions.prev_action_desc();
+                        let redo_desc = self.editor.actions.next_action_desc();
+
+                        if ui
+                            .add(
+                                Button::new(format!(
+                                    "Undo: {}",
+                                    undo_desc.as_ref().unwrap_or(&String::new())
+                                ))
+                                .enabled(undo_desc.is_some()),
+                            )
+                            .clicked()
+                        {
+                            self.editor.gui_event_queue.push_back(GuiEvent::Undo);
+                        }
+                        if ui
+                            .add(
+                                Button::new(format!(
+                                    "Redo: {}",
+                                    redo_desc.as_ref().unwrap_or(&String::new())
+                                ))
+                                .enabled(redo_desc.is_some()),
+                            )
+                            .clicked()
+                        {
+                            self.editor.gui_event_queue.push_back(GuiEvent::Redo);
                         }
                     })
                 });
@@ -386,7 +409,7 @@ impl App for AppState {
                             .drag_end(egui::PointerButton::Primary, pos.x, pos.y)
                     }
                 }
-                Err(e) => panic!(e),
+                Err(e) => panic!("{}", e),
             }
         }
 

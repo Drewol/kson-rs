@@ -1,12 +1,16 @@
+use anyhow::Result;
+
 pub struct Action<T> {
+    id: u32,
     pub description: String,
-    pub action: Box<dyn Fn(&mut T) -> Result<(), String>>,
+    pub action: Box<dyn Fn(&mut T) -> Result<()>>,
 }
 pub struct ActionStack<T: Clone> {
     original: T,
     undo_stack: Vec<Action<T>>,
     redo_stack: Vec<Action<T>>,
-    saved: bool,
+    saved: Option<u32>,
+    next_id: u32,
 }
 
 impl<T> ActionStack<T>
@@ -18,8 +22,20 @@ where
             original,
             undo_stack: Vec::new(),
             redo_stack: Vec::new(),
-            saved: true,
+            saved: None,
+            next_id: 0,
         }
+    }
+
+    pub fn new_action(&mut self) -> &mut Action<T> {
+        self.undo_stack.push(Action {
+            action: Box::new(|_| panic!("Unset Action")),
+            description: String::new(),
+            id: self.next_id,
+        });
+        self.next_id += 1;
+        self.redo_stack.clear();
+        self.undo_stack.last_mut().unwrap()
     }
 
     pub fn undo(&mut self) {
@@ -34,15 +50,11 @@ where
         }
     }
 
-    pub fn commit(&mut self, action: Action<T>) {
-        self.undo_stack.push(action);
-        self.redo_stack.clear();
-    }
-
     pub fn reset(&mut self, origin: T) {
         self.original = origin;
         self.redo_stack.clear();
         self.undo_stack.clear();
+        self.saved = None;
     }
 
     pub fn apply(&mut self) {
@@ -67,7 +79,7 @@ where
         }
     }
 
-    pub fn get_current(&mut self) -> Result<T, String> {
+    pub fn get_current(&mut self) -> Result<T> {
         let mut current = self.original.clone();
         for action in &self.undo_stack {
             action.action.as_ref()(&mut current)?;
@@ -75,7 +87,18 @@ where
         Ok(current)
     }
 
-    pub fn set_saved(&mut self, saved: bool) {
-        self.saved = saved;
+    pub fn save(&mut self) {
+        match self.undo_stack.last() {
+            Some(a) => self.saved = Some(a.id),
+            None => self.saved = None,
+        }
+    }
+
+    pub fn is_saved(self) -> bool {
+        match (self.undo_stack.last(), self.saved) {
+            (Some(a), Some(saved)) => a.id == saved,
+            (Some(_), None) => false,
+            _ => true,
+        }
     }
 }

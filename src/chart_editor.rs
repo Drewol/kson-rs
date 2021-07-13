@@ -4,14 +4,12 @@ use crate::tools::*;
 use crate::*;
 use anyhow::Result;
 
-use directories_next::BaseDirs;
 use eframe::egui::{Color32, CtxRef, PointerButton, Pos2, Rect, Response, Sense, Shape, Stroke};
 use eframe::egui::{Painter, Rgba};
 
 use egui::Ui;
 use kson::Ksh;
 use log::debug;
-use na::point;
 use nalgebra as na;
 use std::collections::VecDeque;
 use std::ffi::OsStr;
@@ -432,7 +430,6 @@ impl MainState {
 
     pub fn update(&mut self, ctx: &CtxRef) -> Result<()> {
         while let Some(e) = self.gui_event_queue.pop_front() {
-            use crate::ChartTool;
             match e {
                 GuiEvent::Open => {
                     if let Some(new_chart) = open_chart().unwrap_or_else(|e| {
@@ -516,13 +513,13 @@ impl MainState {
                     self.chart = new_chart;
                 }
                 GuiEvent::ExportKsh => {
-                    if let Ok(mut chart) = self.actions.get_current() {
+                    if let Ok(chart) = self.actions.get_current() {
                         let dialog_result = nfd::open_save_dialog(Some("ksh"), None);
 
                         if let Ok(nfd::Response::Okay(file_path)) = dialog_result {
-                            let mut file = File::create(&file_path).unwrap();
+                            let file = File::create(&file_path).unwrap();
                             profile_scope!("Write KSH");
-                            chart.to_ksh(file);
+                            chart.to_ksh(file)?;
                         }
                     }
                 }
@@ -806,8 +803,6 @@ impl MainState {
         //meshses
         {
             profile_scope!("Build Meshes");
-            let mod_params = (point![-self.screen.x_offset % track_spacing, 0.0],);
-            let params = (point![-self.screen.x_offset, 0.0],);
             //draw built meshes
             //track
             {
