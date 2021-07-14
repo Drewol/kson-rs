@@ -363,14 +363,6 @@ impl App for AppState {
 
         //main
         {
-            egui::SidePanel::left("leftPanel")
-                .default_width(200.0)
-                .resizable(true)
-                .show(ctx, |ui| {
-                    warn_if_debug_build(ui);
-                    ui.label(&format!("FPS: {:.1}", 1.0 / &dt));
-                });
-
             let main_frame = Frame {
                 margin: Vec2::new(0.0, 0.0),
                 fill: Color32::BLACK,
