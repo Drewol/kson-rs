@@ -14,6 +14,7 @@ mod chart_editor;
 mod dsp;
 mod playback;
 mod tools;
+mod utils;
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub enum GuiEvent {

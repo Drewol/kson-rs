@@ -2,6 +2,7 @@ use crate::{
     action_stack::ActionStack,
     chart_editor::{MainState, ScreenState},
     rect_xy_wh,
+    utils::Overlaps,
 };
 use anyhow::{bail, Result};
 use eframe::egui::{self, CtxRef, DragValue, Label, Pos2, Rgba, Stroke, Window};
@@ -216,18 +217,11 @@ impl LaserTool {
     fn hit_test(&self, chart: &Chart, tick: u32) -> Option<usize> {
         let side_index: usize = if self.right { 1 } else { 0 };
 
-        for si in 0..chart.note.laser[side_index].len() {
-            let current_section = &chart.note.laser[side_index][si];
-            if tick < current_section.y {
-                break;
-            }
-            if tick >= current_section.y
-                && tick <= current_section.y + current_section.v.last().unwrap().ry
-            {
-                return Some(si);
-            }
-        }
-        None
+        chart.note.laser[side_index]
+            .iter()
+            .enumerate()
+            .find(|(_, s)| s.contains(tick))
+            .map(|(i, _)| i)
     }
 }
 
@@ -561,6 +555,28 @@ impl CursorObject for LaserTool {
                 section_index: edit_state.section_index,
                 curving_index: None,
             })
+        }
+    }
+
+    fn middle_click(
+        &mut self,
+        _screen: ScreenState,
+        tick: u32,
+        _tick_f: f64,
+        _lane: f32,
+        chart: &Chart,
+        actions: &mut ActionStack<Chart>,
+        _pos: Point2<f32>,
+    ) {
+        if let Some(index) = self.hit_test(chart, tick) {
+            let laser_i = if self.right { 1 } else { 0 };
+            let new_action = actions.new_action();
+            new_action.description =
+                format!("Remove {} laser", if self.right { "right" } else { "left" });
+            new_action.action = Box::new(move |chart: &mut Chart| {
+                chart.note.laser[laser_i].remove(index);
+                Ok(())
+            });
         }
     }
 
