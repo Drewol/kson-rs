@@ -990,13 +990,19 @@ impl MainState {
             / (self.chart.beat.resolution * self.screen.beats_per_col) as f32;
     }
 
-    pub fn primary_clicked(&mut self, pos: Pos2) {
-        self.mouse_x = pos.x;
-        self.mouse_y = pos.y;
+    fn get_clicked_data(&self, pos: Pos2) -> (f32, u32, f64) {
         let lane = self.screen.pos_to_lane(pos.x);
         let tick = self.screen.pos_to_tick(pos.x, pos.y);
         let tick_f: f64 = self.screen.pos_to_tick_f(pos.x, pos.y);
         let tick = tick - (tick % (self.chart.beat.resolution / 2));
+
+        (lane, tick, tick_f)
+    }
+
+    pub fn primary_clicked(&mut self, pos: Pos2) {
+        self.mouse_x = pos.x;
+        self.mouse_y = pos.y;
+        let (lane, tick, tick_f) = self.get_clicked_data(pos);
 
         if let Some(cursor) = &mut self.cursor_object {
             cursor.primary_click(
@@ -1011,14 +1017,28 @@ impl MainState {
         }
     }
 
+    pub fn middle_clicked(&mut self, pos: Pos2) {
+        self.mouse_x = pos.x;
+        self.mouse_y = pos.y;
+        let (lane, tick, tick_f) = self.get_clicked_data(pos);
+
+        if let Some(cursor) = &mut self.cursor_object {
+            cursor.middle_click(
+                self.screen,
+                tick,
+                tick_f,
+                lane,
+                &mut self.chart,
+                &mut self.actions,
+                na::point![pos.x, pos.y],
+            )
+        }
+    }
+
     pub fn mouse_motion_event(&mut self, pos: Pos2) {
         self.mouse_x = pos.x;
         self.mouse_y = pos.y;
-
-        let lane = self.screen.pos_to_lane(pos.x);
-        let tick = self.screen.pos_to_tick(pos.x, pos.y);
-        let tick_f: f64 = self.screen.pos_to_tick_f(pos.x, pos.y);
-        let tick = tick - (tick % (self.chart.beat.resolution / 2));
+        let (lane, tick, tick_f) = self.get_clicked_data(pos);
 
         if let Some(cursor) = &mut self.cursor_object {
             cursor.update(tick, tick_f, lane, na::point![pos.x, pos.y]);

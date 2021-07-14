@@ -24,6 +24,7 @@ pub trait CursorObject {
         _pos: Point2<f32>,
     ) {
     }
+
     fn secondary_click(
         &mut self,
         _screen: ScreenState,
@@ -35,6 +36,8 @@ pub trait CursorObject {
         _pos: Point2<f32>,
     ) {
     }
+
+    //Used as delete for most tools
     fn middle_click(
         &mut self,
         _screen: ScreenState,
@@ -46,6 +49,7 @@ pub trait CursorObject {
         _pos: Point2<f32>,
     ) {
     }
+
     fn drag_end(
         &mut self,
         _screen: ScreenState,
@@ -57,6 +61,7 @@ pub trait CursorObject {
         _pos: Point2<f32>,
     ) {
     }
+
     fn drag_start(
         &mut self,
         _screen: ScreenState,
@@ -68,6 +73,7 @@ pub trait CursorObject {
         _pos: Point2<f32>,
     ) {
     }
+
     fn update(&mut self, tick: u32, tick_f: f64, lane: f32, pos: Point2<f32>);
     fn draw(&self, state: &MainState, painter: &Painter) -> Result<()>;
     fn draw_ui(&mut self, _ctx: &CtxRef, _actions: &mut ActionStack<Chart>) {}
@@ -245,6 +251,60 @@ impl CursorObject for ButtonInterval {
         self.interval.y = tick;
     }
 
+    fn middle_click(
+        &mut self,
+        _screen: ScreenState,
+        tick: u32,
+        _tick_f: f64,
+        lane: f32,
+        chart: &Chart,
+        actions: &mut ActionStack<Chart>,
+        _pos: Point2<f32>,
+    ) {
+        if self.pressed {
+            return;
+        }
+
+        let lane = if self.fx {
+            if lane < 3.0 {
+                0
+            } else {
+                1
+            }
+        } else {
+            (lane as usize).max(1).min(4) - 1
+        };
+
+        //hit test
+        let lane_data = if self.fx {
+            &chart.note.fx[lane]
+        } else {
+            &chart.note.bt[lane]
+        };
+
+        let index = lane_data
+            .iter()
+            .enumerate()
+            .find(|(_, n)| (n.y..=n.y + n.l).contains(&tick))
+            .map(|(i, _)| i);
+
+        if let Some(index) = index {
+            // remove found index
+            let new_action = actions.new_action();
+            let fx = self.fx;
+            new_action.description = format!("Remove {} note", if fx { "FX" } else { "BT" });
+            new_action.action = Box::new(move |chart: &mut Chart| {
+                if fx {
+                    chart.note.fx[lane].remove(index);
+                } else {
+                    chart.note.bt[lane].remove(index);
+                }
+
+                Ok(())
+            });
+        }
+    }
+
     fn drag_end(
         &mut self,
         _screen: ScreenState,
@@ -255,6 +315,10 @@ impl CursorObject for ButtonInterval {
         actions: &mut ActionStack<Chart>,
         _pos: Point2<f32>,
     ) {
+        if !self.pressed {
+            return;
+        }
+
         if self.interval.y >= tick {
             self.interval.l = 0;
         } else {
