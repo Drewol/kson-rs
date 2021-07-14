@@ -19,6 +19,7 @@ anyhow = "1"
 nalgebra = "0.28"
 log = "0.4.14"
 simple_logger = "1.11.0"
+emath = "0.13"
 
 [dependencies.eframe]
 version = "0.13"

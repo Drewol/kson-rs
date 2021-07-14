@@ -999,6 +999,7 @@ dependencies = [
  "anyhow",
  "directories-next",
  "eframe",
+ "emath",
  "kson",
  "libmath",
  "log",

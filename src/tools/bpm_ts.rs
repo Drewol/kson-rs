@@ -80,7 +80,7 @@ impl CursorObject for BpmTool {
 
                         new_action.description = String::from("Add BPM Change");
                         new_action.action = Box::new(move |c| {
-                            c.beat.bpm.push(kson::ByPulse { v, y });
+                            c.beat.bpm.push(kson::ByPulse { y, v });
                             c.beat.bpm.sort_by(|a, b| a.y.cmp(&b.y));
                             Ok(())
                         });

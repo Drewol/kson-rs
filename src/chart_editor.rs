@@ -4,7 +4,9 @@ use crate::tools::*;
 use crate::*;
 use anyhow::Result;
 
-use eframe::egui::{Color32, CtxRef, PointerButton, Pos2, Rect, Response, Sense, Shape, Stroke};
+use eframe::egui::{
+    pos2, Align2, Color32, CtxRef, PointerButton, Pos2, Rect, Response, Sense, Shape, Stroke,
+};
 use eframe::egui::{Painter, Rgba};
 
 use egui::Ui;
@@ -235,7 +237,7 @@ impl MainState {
         profile_scope!("Section");
         let y_base = section.y;
         let wide = section.wide == 2;
-        let slam_height = 6.0 as f32;
+        let slam_height = 6.0_f32;
         let half_lane = self.screen.lane_width() / 2.0;
         let half_track = self.screen.track_width / 2.0;
         let track_lane_diff = self.screen.track_width - self.screen.lane_width();
@@ -255,7 +257,7 @@ impl MainState {
             }
 
             let mut start_value = s.v as f32;
-            let mut syoff = 0.0 as f32;
+            let mut syoff = 0.0_f32;
 
             if let Some(value) = s.vf {
                 profile_scope!("Slam");
@@ -269,18 +271,18 @@ impl MainState {
                 }
 
                 //draw slam
-                let (x, y) = self.screen.tick_to_pos(interval.y);
-                let sx = x + sv * track_lane_diff + half_track + half_lane;
-                let ex = x + ev * track_lane_diff + half_track + half_lane;
+                let (pos_x, pos_y) = self.screen.tick_to_pos(interval.y);
+                let sx = pos_x + sv * track_lane_diff + half_track + half_lane;
+                let ex = pos_x + ev * track_lane_diff + half_track + half_lane;
 
-                let (x, w): (f32, f32) = if sx > ex {
+                let (x, width): (f32, f32) = if sx > ex {
                     (sx + half_lane, (ex - half_lane) - (sx + half_lane))
                 } else {
                     (sx - half_lane, (ex + half_lane) - (sx - half_lane))
                 };
 
                 mb.push(Shape::rect_filled(
-                    rect_xy_wh([x, y, w, -slam_height]),
+                    rect_xy_wh([x, pos_y, width, -slam_height]),
                     0.0,
                     color,
                 ));
@@ -491,7 +493,7 @@ impl MainState {
                     });
                     self.save_path = if let Some(save_path) = chart_folder {
                         //copy audio file
-                        let mut audio_new_path = std::path::PathBuf::from(save_path.clone());
+                        let mut audio_new_path = save_path.clone();
                         audio_new_path.push(audio_pathbuf.file_name().unwrap());
                         if !audio_new_path.exists() {
                             std::fs::copy(audio_pathbuf, audio_new_path).unwrap();
@@ -856,17 +858,20 @@ impl MainState {
         //BPM & Time Signatures
         {
             profile_scope!("BPM & Time Signatures");
-            let mut changes: Vec<(u32, Vec<(String, (u8, u8, u8, u8))>)> = Vec::new();
+            let mut changes: Vec<(u32, Vec<(String, Color32)>)> = Vec::new();
             {
                 profile_scope!("Build BPM & Time signature change list");
                 for bpm_change in &self.chart.beat.bpm {
-                    let color = (0, 128, 255, 255).into();
-                    let entry = (format!("{:.2}", bpm_change.v), color);
+                    let color = Color32::from_rgba_unmultiplied(0, 128, 255, 255);
+
+                    let entry = (
+                        emath::format_with_decimals_in_range(bpm_change.v, 0..=3),
+                        color,
+                    );
                     match changes.binary_search_by(|c| c.0.cmp(&bpm_change.y)) {
                         Ok(idx) => changes.get_mut(idx).unwrap().1.push(entry),
                         Err(new_idx) => {
-                            let mut new_vec = Vec::new();
-                            new_vec.push(entry);
+                            let new_vec = vec![entry];
                             changes.insert(new_idx, (bpm_change.y, new_vec));
                         }
                     }
@@ -875,63 +880,43 @@ impl MainState {
                 for ts_change in &self.chart.beat.time_sig {
                     let tick = self.chart.measure_to_tick(ts_change.idx);
 
-                    let color = (255, 255, 0, 255);
-                    let entry = (
-                        format!("{}/{}", ts_change.v.n, ts_change.v.d),
-                        color.clone(),
-                    );
+                    let color = Color32::from_rgba_premultiplied(255, 255, 0, 255);
+                    let entry = (format!("{}/{}", ts_change.v.n, ts_change.v.d), color);
 
                     match changes.binary_search_by(|c| c.0.cmp(&tick)) {
                         Ok(idx) => changes.get_mut(idx).unwrap().1.push(entry),
                         Err(new_idx) => {
-                            let mut new_vec = Vec::new();
-                            new_vec.push(entry);
+                            let new_vec = vec![entry];
                             changes.insert(new_idx, (tick, new_vec));
                         }
                     }
                 }
             }
-            let mut any_texts = false;
-            //TODO
-            // {
-            //     //TODO: Cache text, it renders very slow but it will have to do for now
-            //     profile_scope!("Build Text");
-            //     for c in changes {
-            //         if c.0 < min_tick_render {
-            //             continue;
-            //         } else if c.0 > max_tick_render {
-            //             break;
-            //         }
-            //         let (x, y) = self.screen.tick_to_pos(c.0);
-            //         let line_height = 12.0;
 
-            //         for (i, l) in c.1.iter().enumerate() {
-            //             let text = graphics::Text::new(graphics::TextFragment {
-            //                 text: l.0.clone(),
-            //                 color: Some(l.1),
-            //                 font: Some(graphics::Font::default()),
-            //                 scale: Some(graphics::Scale::uniform(line_height)),
-            //                 ..Default::default()
-            //             });
-            //             graphics::queue_text(
-            //                 ctx,
-            //                 &text,
-            //                 [x, y - i as f32 * line_height - self.screen.bottom_margin],
-            //                 Some(graphics::WHITE),
-            //             );
-            //             any_texts = true;
-            //         }
-            //     }
-            // }
-            // if any_texts {
-            //     profile_scope!("Draw Text");
-            //     graphics::draw_queued_text(
-            //         ctx,
-            //         graphics::DrawParam::new().dest([-self.screen.x_offset, 0.0]),
-            //         Some(graphics::BlendMode::Alpha),
-            //         graphics::FilterMode::Linear,
-            //     )?;
-            // }
+            {
+                //TODO: Cache text, it renders very slow but it will have to do for now
+                profile_scope!("Build Text");
+                for c in changes {
+                    if c.0 < min_tick_render {
+                        continue;
+                    } else if c.0 > max_tick_render {
+                        break;
+                    }
+                    let (x, y) = self.screen.tick_to_pos(c.0);
+                    let x = x + self.screen.track_width * 1.5;
+                    let line_height = 12.0;
+
+                    for (i, (text, color)) in c.1.iter().enumerate() {
+                        painter.text(
+                            pos2(x, y - i as f32 * line_height),
+                            Align2::RIGHT_BOTTOM,
+                            text,
+                            egui::TextStyle::Monospace,
+                            *color,
+                        );
+                    }
+                }
+            }
         }
 
         Ok(ui.interact(ui.max_rect_finite(), ui.id(), Sense::click_and_drag()))

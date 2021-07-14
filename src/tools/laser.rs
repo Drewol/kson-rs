@@ -191,7 +191,7 @@ impl CursorObject for LaserTool {
                             wide: 1,
                         },
                     );
-                    let v = std::rc::Rc::new(v.clone()); //Can't capture by clone so use RC
+                    let v = std::rc::Rc::new(v); //Can't capture by clone so use RC
                     let i = if self.right { 1 } else { 0 };
                     let new_action = actions.new_action();
                     new_action.description =
@@ -294,10 +294,7 @@ impl CursorObject for LaserTool {
             LaserEditMode::New => {
                 let ry = self.calc_ry(tick);
                 let v = LaserTool::lane_to_pos(lane);
-                let second_last: Option<GraphSectionPoint> = match self.get_second_to_last() {
-                    Some(sl) => Some(*sl),
-                    None => None,
-                };
+                let second_last: Option<GraphSectionPoint> = self.get_second_to_last().copied();
                 if let Some(last) = self.section.v.last_mut() {
                     (*last).ry = ry;
                     (*last).v = v;

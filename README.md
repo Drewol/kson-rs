@@ -13,6 +13,7 @@ Editor program for the Sound Voltex simulator format [KSON](https://github.com/m
 * Curved lasers
 * BPM editing
 * Time signature editing
+* Hotkeys
 
 ## TODO
 * Effecting
@@ -20,6 +21,6 @@ Editor program for the Sound Voltex simulator format [KSON](https://github.com/m
 * Camera editing
 * Full metadata editing
 * Key sound editing
-* Hotkeys
+* Ability to edit hotkeys
 * Improve editing tools
 * Automatically save backups periodically
