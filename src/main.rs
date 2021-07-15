@@ -4,7 +4,8 @@ use std::path::PathBuf;
 use anyhow::Result;
 use chart_editor::MainState;
 use eframe::egui::{
-    self, menu, warn_if_debug_build, Button, Color32, Frame, Key, Pos2, Rect, Vec2,
+    self, menu, warn_if_debug_build, Button, Color32, CtxRef, Frame, Key, Label, Pos2, Rect, Ui,
+    Vec2,
 };
 use eframe::epi::App;
 use serde::{Deserialize, Serialize};
@@ -16,24 +17,35 @@ mod playback;
 mod tools;
 mod utils;
 
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq, PartialOrd, Ord)]
 pub enum GuiEvent {
+    #[serde(skip_serializing)]
     New(String, String, Option<PathBuf>), //(Audio, Filename, Destination)
     Open,
     Save,
+    SaveAs,
     ToolChanged(ChartTool),
+    Play,
     Undo,
     Redo,
-    SaveAs,
-    ExportKsh,
-    Play,
     Home,
     End,
     Next,
     Previous,
+    ExportKsh,
 }
 
-#[derive(Debug, PartialEq, Copy, Clone, Serialize, Deserialize)]
+impl std::fmt::Display for GuiEvent {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        if let GuiEvent::ToolChanged(tool) = self {
+            write!(f, "{:?}", tool)
+        } else {
+            write!(f, "{:?}", self)
+        }
+    }
+}
+
+#[derive(Debug, PartialEq, Copy, Clone, Serialize, Deserialize, Eq, PartialOrd, Ord)]
 pub enum ChartTool {
     None,
     BT,
@@ -62,6 +74,7 @@ pub struct Modifiers {
 struct AppState {
     editor: chart_editor::MainState,
     key_bindings: HashMap<KeyCombo, GuiEvent>,
+    show_preferences: bool,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -93,6 +106,52 @@ impl From<egui::Modifiers> for Modifiers {
 impl KeyCombo {
     fn new(key: egui::Key, modifiers: Modifiers) -> Self {
         Self { key, modifiers }
+    }
+}
+
+impl std::fmt::Display for Modifiers {
+    #[cfg(not(target_os = "macos"))]
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let mut keys = Vec::new();
+        if self.ctrl {
+            keys.push("ctrl");
+        }
+        if self.alt {
+            keys.push("alt");
+        }
+        if self.shift {
+            keys.push("shift");
+        }
+
+        write!(f, "{}", keys.join(" + "))
+    }
+    #[cfg(target_os = "macos")]
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let mut keys = Vec::new();
+        if self.ctrl {
+            keys.push("ctrl");
+        }
+        if self.alt {
+            keys.push("opt")
+        }
+        if self.shift {
+            keys.push("shift")
+        }
+        if self.command {
+            keys.push("cmd")
+        }
+
+        write!(f, "{}", keys.join(" + "))
+    }
+}
+
+impl std::fmt::Display for KeyCombo {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        if self.modifiers.any() {
+            write!(f, "{} + {:?}", self.modifiers, self.key)
+        } else {
+            write!(f, "{:?}", self.key)
+        }
     }
 }
 
@@ -133,6 +192,10 @@ impl Modifiers {
     fn shift(mut self) -> Self {
         self.shift = true;
         self
+    }
+
+    fn any(self) -> bool {
+        self.alt || self.command || self.ctrl || self.mac_cmd || self.shift
     }
 }
 
@@ -230,6 +293,20 @@ const TOOLS: [(&str, ChartTool); 6] = [
     ("TS", ChartTool::TimeSig),
 ];
 
+impl AppState {
+    fn preferences(&mut self, ui: &mut Ui) {
+        let mut binding_vec: Vec<(&KeyCombo, &GuiEvent)> = self.key_bindings.iter().collect();
+        binding_vec.sort_by_key(|f| f.1);
+
+        for (key, event) in binding_vec {
+            ui.columns(2, |columns| {
+                columns[0].label(format!("{}", event));
+                columns[1].add(Label::new(format!("{}", key)).wrap(false));
+            })
+        }
+    }
+}
+
 impl App for AppState {
     fn setup(
         &mut self,
@@ -276,7 +353,7 @@ impl App for AppState {
                     pressed,
                     modifiers,
                 } => {
-                    if *pressed {
+                    if *pressed && ctx.memory().focus().is_none() {
                         let key_combo = KeyCombo {
                             key: *key,
                             modifiers: (*modifiers).into(),
@@ -307,6 +384,9 @@ impl App for AppState {
                     menu::menu(ui, "File", |ui| {
                         if ui.button("Open").clicked() {
                             self.editor.gui_event_queue.push_back(GuiEvent::Open);
+                        }
+                        if ui.button("Preferences").clicked() {
+                            self.show_preferences = true;
                         }
                     });
                     menu::menu(ui, "Edit", |ui| {
@@ -359,6 +439,17 @@ impl App for AppState {
                     }
                 })
             });
+        }
+
+        //stuff
+        {
+            let mut open = self.show_preferences;
+            egui::Window::new("Preferences")
+                .open(&mut open)
+                .show(ctx, |ui| {
+                    self.preferences(ui);
+                });
+            self.show_preferences = open;
         }
 
         //main
@@ -433,6 +524,7 @@ fn main() -> Result<()> {
         Box::new(AppState {
             editor: MainState::new()?,
             key_bindings: HashMap::new(),
+            show_preferences: false,
         }),
         options,
     );

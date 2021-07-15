@@ -7,7 +7,6 @@ Editor program for the Sound Voltex simulator format [KSON](https://github.com/m
 * Chart loading
 * Chart rendering
 * Note & Laser placing
-* Basic metadata editing
 * Basic laser effects
 * Undo/Redo
 * Curved lasers
@@ -16,6 +15,7 @@ Editor program for the Sound Voltex simulator format [KSON](https://github.com/m
 * Hotkeys
 
 ## TODO
+* Basic metadata editing
 * Effecting
 * Modifying existing objects
 * Camera editing
