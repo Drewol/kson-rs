@@ -472,7 +472,7 @@ impl MainState {
                 }
                 GuiEvent::Undo => self.actions.undo(),
                 GuiEvent::Redo => self.actions.redo(),
-                GuiEvent::New(audio_file, filename, chart_folder) => {
+                GuiEvent::New(new_chart_opts) => {
                     let mut new_chart = kson::Chart::new();
                     new_chart.beat.bpm.push(kson::ByPulse { y: 0, v: 120.0 });
                     new_chart.beat.time_sig.push(kson::ByMeasureIndex {
@@ -480,7 +480,7 @@ impl MainState {
                         v: kson::TimeSignature { d: 4, n: 4 },
                     });
 
-                    let audio_pathbuf = std::path::PathBuf::from(audio_file);
+                    let audio_pathbuf = std::path::PathBuf::from(new_chart_opts.audio);
                     new_chart.audio.bgm = Some(kson::BgmInfo {
                         filename: Some(String::from(
                             audio_pathbuf.file_name().unwrap().to_str().unwrap(),
@@ -491,7 +491,7 @@ impl MainState {
                         preview_filename: None,
                         preview_offset: 0,
                     });
-                    self.save_path = if let Some(save_path) = chart_folder {
+                    self.save_path = if let Some(save_path) = new_chart_opts.destination {
                         //copy audio file
                         let mut audio_new_path = save_path.clone();
                         audio_new_path.push(audio_pathbuf.file_name().unwrap());
@@ -504,7 +504,7 @@ impl MainState {
                     };
 
                     let mut kson_path = self.save_path.clone().unwrap();
-                    kson_path.push(filename);
+                    kson_path.push(new_chart_opts.filename);
                     kson_path.set_extension("kson");
                     self.save_path = Some(kson_path.clone());
                     if let Ok(mut file) = File::create(kson_path) {

@@ -1,10 +1,11 @@
 use std::collections::HashMap;
 use std::path::PathBuf;
+use std::str::FromStr;
 
 use anyhow::Result;
 use chart_editor::MainState;
 use eframe::egui::{
-    self, menu, warn_if_debug_build, Button, Color32, CtxRef, Frame, Key, Label, Pos2, Rect, Ui,
+    self, menu, warn_if_debug_build, Button, Color32, Frame, Key, Label, Pos2, Rect, Response, Ui,
     Vec2,
 };
 use eframe::epi::App;
@@ -17,10 +18,57 @@ mod playback;
 mod tools;
 mod utils;
 
+#[derive(Default, Clone, Debug, Serialize, Deserialize, PartialEq, Eq, PartialOrd, Ord)]
+pub struct NewChartOptions {
+    audio: String,
+    filename: String,
+    destination: Option<PathBuf>,
+}
+
+impl NewChartOptions {
+    fn ui(&mut self, ui: &mut Ui) -> Response {
+        ui.horizontal(|ui| {
+            ui.label("Filename:");
+            ui.text_edit_singleline(&mut self.filename);
+        });
+
+        ui.separator();
+        ui.label("Audio File:");
+        ui.label(&self.audio);
+        if ui.button("...").clicked() {
+            let picked_file =
+                nfd::open_file_dialog(Some("mp3,flac,wav,ogg"), None).map(|res| match res {
+                    nfd::Response::Okay(s) => Some(s),
+                    _ => None,
+                });
+
+            if let Ok(Some(picked_file)) = picked_file {
+                self.audio = picked_file;
+            }
+        }
+
+        ui.separator();
+        ui.label("Destination folder (audio folder will be used if empty):");
+        if ui.button("...").clicked() {
+            let picked_folder = nfd::open_pick_folder(None).map(|res| match res {
+                nfd::Response::Okay(s) => Some(PathBuf::from_str(&s)),
+                _ => None,
+            });
+
+            if let Ok(Some(Ok(picked_folder))) = picked_folder {
+                self.destination = Some(picked_folder);
+            }
+        }
+        ui.separator();
+
+        ui.add(Button::new("Ok").enabled(!self.audio.is_empty() && !self.filename.is_empty()))
+    }
+}
+
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq, PartialOrd, Ord)]
 pub enum GuiEvent {
     #[serde(skip_serializing)]
-    New(String, String, Option<PathBuf>), //(Audio, Filename, Destination)
+    New(NewChartOptions), //(Audio, Filename, Destination)
     Open,
     Save,
     SaveAs,
@@ -75,6 +123,7 @@ struct AppState {
     editor: chart_editor::MainState,
     key_bindings: HashMap<KeyCombo, GuiEvent>,
     show_preferences: bool,
+    new_chart: Option<NewChartOptions>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -295,6 +344,8 @@ const TOOLS: [(&str, ChartTool); 6] = [
 
 impl AppState {
     fn preferences(&mut self, ui: &mut Ui) {
+        warn_if_debug_build(ui);
+
         let mut binding_vec: Vec<(&KeyCombo, &GuiEvent)> = self.key_bindings.iter().collect();
         binding_vec.sort_by_key(|f| f.1);
 
@@ -382,6 +433,9 @@ impl App for AppState {
             egui::TopBottomPanel::top("menubar").show(ctx, |ui| {
                 menu::bar(ui, |ui| {
                     menu::menu(ui, "File", |ui| {
+                        if ui.button("New").clicked() {
+                            self.new_chart = Some(Default::default());
+                        }
                         if ui.button("Open").clicked() {
                             self.editor.gui_event_queue.push_back(GuiEvent::Open);
                         }
@@ -450,6 +504,26 @@ impl App for AppState {
                     self.preferences(ui);
                 });
             self.show_preferences = open;
+
+            //New chart dialog
+            if let Some(new_chart) = &mut self.new_chart {
+                let mut open = true;
+                let mut event = None;
+                egui::Window::new("New").open(&mut open).show(ctx, |ui| {
+                    if new_chart.ui(ui).clicked() {
+                        event = Some(GuiEvent::New(new_chart.clone()));
+                    }
+                });
+
+                if let Some(event) = event {
+                    self.editor.gui_event_queue.push_back(event);
+                    self.new_chart = None;
+                }
+
+                if !open {
+                    self.new_chart = None;
+                }
+            }
         }
 
         //main
@@ -525,6 +599,7 @@ fn main() -> Result<()> {
             editor: MainState::new()?,
             key_bindings: HashMap::new(),
             show_preferences: false,
+            new_chart: None,
         }),
         options,
     );
