@@ -87,7 +87,7 @@ impl LaserTool {
             let x = 1.0 / 10.0 + x * 8.0 / 10.0;
             let x = x * screen.track_width + interv.0 + screen.track_width / 2.0;
             let y = interv.1 + interv.2 * (start.a.unwrap() as f32 - (interv.3).0) / (interv.3).1;
-            Some(Pos2::new(x - screen.x_offset, y))
+            Some(Pos2::new(x, y))
         } else {
             panic!("Curve `a` was not in any interval");
         }
@@ -357,7 +357,7 @@ impl CursorObject for LaserTool {
                         Some(Rgba::from_rgba_premultiplied(0.0, 0.45 * b, 0.565 * b, 1.0))
                     }
                 }
-                LaserEditMode::Edit(_) => Some(Rgba::from_rgba_premultiplied(0.0, 0.76, 0.0, 1.0)),
+                LaserEditMode::Edit(_) => Some(Rgba::from_rgba_premultiplied(0.0, 0.76, 0.0, 0.25)),
             } {
                 let mut mb = Vec::new();
                 state.draw_laser_section(&self.section, &mut mb, color.into())?;

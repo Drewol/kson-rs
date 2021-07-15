@@ -4,6 +4,7 @@ use crate::tools::*;
 use crate::*;
 use anyhow::Result;
 
+use eframe::egui::epaint::{Mesh, Vertex};
 use eframe::egui::{
     pos2, Align2, Color32, CtxRef, PointerButton, Pos2, Rect, Response, Sense, Shape, Stroke,
 };
@@ -272,6 +273,7 @@ impl MainState {
 
                 //draw slam
                 let (pos_x, pos_y) = self.screen.tick_to_pos(interval.y);
+
                 let sx = pos_x + sv * track_lane_diff + half_track + half_lane;
                 let ex = pos_x + ev * track_lane_diff + half_track + half_lane;
 
@@ -332,6 +334,8 @@ impl MainState {
                     // let interval_start_value = start_value + sv * value_width;
                     // let interval_value_width =
                     //     (start_value + ev * value_width) - interval_start_value;
+                    let mut vertices = Vec::new();
+                    let mut indices = Vec::new();
                     for i in 0..curve_segments {
                         let cssv = sv + curve_segment_progress_h * i as f32;
                         let csev = sv + curve_segment_progress_h * (i + 1) as f32;
@@ -348,19 +352,43 @@ impl MainState {
                             + half_lane;
 
                         let csy = sy + curve_segment_h * i as f32;
-                        let cey = sy + curve_segment_h * (i + 1) as f32;
+                        let cey = sy + curve_segment_h * i as f32 + curve_segment_h;
 
                         let xoff = half_lane;
-                        let points = vec![
-                            [ex - xoff, cey].into(),
-                            [ex + xoff, cey].into(),
-                            [sx + xoff, csy].into(),
-                            [sx - xoff, csy].into(),
-                        ];
 
-                        let segment = Shape::convex_polygon(points, color, Stroke::none());
-                        mb.push(segment);
+                        let make_vert = |p: &[f32; 2]| Vertex {
+                            pos: [p[0], p[1]].into(),
+                            color,
+                            ..Default::default()
+                        };
+
+                        let mut points: Vec<Vertex> = vec![
+                            [ex - xoff, cey],
+                            [ex + xoff, cey],
+                            [sx + xoff, csy],
+                            [sx - xoff, csy],
+                        ]
+                        .iter()
+                        .map(make_vert)
+                        .collect();
+                        vertices.append(&mut points);
+                        let i_off = i as u32 * 4;
+                        indices.append(&mut vec![
+                            i_off,
+                            1 + i_off,
+                            2 + i_off,
+                            i_off,
+                            2 + i_off,
+                            3 + i_off,
+                        ]);
                     }
+
+                    let segment = Shape::mesh(Mesh {
+                        indices,
+                        vertices,
+                        ..Default::default()
+                    });
+                    mb.push(segment);
                 }
             }
         }
@@ -468,6 +496,7 @@ impl MainState {
                             ChartTool::TimeSig => Some(Box::new(TimeSigTool::new())),
                         };
                         self.current_tool = new_tool;
+                        ctx.request_repaint();
                     }
                 }
                 GuiEvent::Undo => self.actions.undo(),
@@ -630,8 +659,8 @@ impl MainState {
         let mut long_fx_builder = Vec::new();
         let mut laser_builder = Vec::new();
         let laser_color = [
-            Color32::from_rgba_unmultiplied(0, 115, 144, 255),
-            Color32::from_rgba_unmultiplied(194, 6, 140, 255),
+            Color32::from_rgba_unmultiplied(0, 115, 144, 127),
+            Color32::from_rgba_unmultiplied(194, 6, 140, 127),
         ];
         let min_tick_render = self.screen.pos_to_tick(-100.0, self.screen.h);
         let max_tick_render = self.screen.pos_to_tick(self.screen.w + 50.0, 0.0);
