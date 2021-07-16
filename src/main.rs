@@ -5,8 +5,8 @@ use std::str::FromStr;
 use anyhow::Result;
 use chart_editor::MainState;
 use eframe::egui::{
-    self, menu, warn_if_debug_build, Button, Color32, Frame, Key, Label, Pos2, Rect, Response, Ui,
-    Vec2,
+    self, menu, warn_if_debug_build, Button, Color32, DragValue, Frame, Key, Label, Pos2, Rect,
+    Response, Separator, Slider, Ui, Vec2,
 };
 use eframe::epi::App;
 use serde::{Deserialize, Serialize};
@@ -129,6 +129,8 @@ struct AppState {
 #[derive(Debug, Serialize, Deserialize)]
 struct Config {
     key_bindings: HashMap<KeyCombo, GuiEvent>,
+    track_width: f32,
+    beats_per_column: u32,
 }
 
 //TODO: ehhhhhhhhh
@@ -314,6 +316,8 @@ impl Default for Config {
 
         Self {
             key_bindings: default_bindings,
+            track_width: 72.0,
+            beats_per_column: 16,
         }
     }
 }
@@ -346,9 +350,22 @@ impl AppState {
     fn preferences(&mut self, ui: &mut Ui) {
         warn_if_debug_build(ui);
 
+        ui.add(
+            Slider::new(&mut self.editor.screen.track_width, 50.0..=300.0)
+                .clamp_to_range(true)
+                .text("Track Width"),
+        );
+
+        ui.add(
+            Slider::new(&mut self.editor.screen.beats_per_col, 4..=32)
+                .clamp_to_range(true)
+                .text("Beats per column"),
+        );
+
         let mut binding_vec: Vec<(&KeyCombo, &GuiEvent)> = self.key_bindings.iter().collect();
         binding_vec.sort_by_key(|f| f.1);
-
+        ui.separator();
+        ui.label("Hotkeys");
         for (key, event) in binding_vec {
             ui.columns(2, |columns| {
                 columns[0].label(format!("{}", event));
@@ -373,6 +390,8 @@ impl App for AppState {
         };
 
         self.key_bindings = config.key_bindings;
+        self.editor.screen.track_width = config.track_width;
+        self.editor.screen.beats_per_col = config.beats_per_column;
     }
 
     fn warm_up_enabled(&self) -> bool {
@@ -382,6 +401,8 @@ impl App for AppState {
     fn save(&mut self, storage: &mut dyn eframe::epi::Storage) {
         let new_config = Config {
             key_bindings: self.key_bindings.clone(),
+            beats_per_column: self.editor.screen.beats_per_col,
+            track_width: self.editor.screen.track_width,
         };
 
         eframe::epi::set_value(storage, "CONFIG", &new_config)
@@ -576,8 +597,6 @@ impl App for AppState {
                 Err(e) => panic!("{}", e),
             }
         }
-
-        frame.set_window_size(ctx.used_size());
     }
 
     fn name(&self) -> &str {

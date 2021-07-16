@@ -74,6 +74,10 @@ impl ScreenState {
         self.track_width * 2.0
     }
 
+    pub fn note_height_mult(&self) -> f32 {
+        self.track_width / 72.0
+    }
+
     pub fn tick_to_pos(&self, in_y: u32) -> (f32, f32) {
         let h = self.chart_draw_height();
         let x = (in_y / self.ticks_per_col()) as f32 * self.track_spacing() + self.left_margin
@@ -235,10 +239,11 @@ impl MainState {
         mb: &mut Vec<Shape>,
         color: Color32,
     ) -> Result<()> {
+        //TODO: Draw sections as a single `Mesh`
         profile_scope!("Section");
         let y_base = section.y;
         let wide = section.wide == 2;
-        let slam_height = 6.0_f32;
+        let slam_height = 6.0_f32 * self.screen.note_height_mult();
         let half_lane = self.screen.lane_width() / 2.0;
         let half_track = self.screen.track_width / 2.0;
         let track_lane_diff = self.screen.track_width - self.screen.lane_width();
@@ -735,7 +740,7 @@ impl MainState {
                                 + self.screen.track_width / 2.0;
                             let y = y as f32;
                             let w = self.screen.track_width as f32 / 6.0 - 2.0;
-                            let h = -2.0;
+                            let h = -2.0 * self.screen.note_height_mult();
 
                             bt_builder.push(Shape::rect_filled(
                                 rect_xy_wh([x, y, w, h]),
@@ -783,7 +788,7 @@ impl MainState {
                                 + 2.0 * i as f32
                                 + self.screen.lane_width();
                             let w = self.screen.lane_width() * 2.0 - 1.0;
-                            let h = -2.0;
+                            let h = -2.0 * self.screen.note_height_mult();
                             let color = Color32::from_rgb(255, 77, 0);
 
                             fx_builder.push(Shape::rect_filled(
