@@ -129,6 +129,26 @@ impl CursorObject for BpmTool {
                 });
         }
     }
+
+    fn middle_click(
+        &mut self,
+        _screen: ScreenState,
+        tick: u32,
+        _tick_f: f64,
+        _lane: f32,
+        chart: &Chart,
+        actions: &mut ActionStack<Chart>,
+        _pos: Point2<f32>,
+    ) {
+        if let Ok(index) = chart.beat.bpm.binary_search_by_key(&tick, |f| f.y) {
+            let new_action = actions.new_action();
+            new_action.description = "Remove BPM Change".into();
+            new_action.action = Box::new(move |chart: &mut Chart| {
+                chart.beat.bpm.remove(index);
+                Ok(())
+            })
+        }
+    }
 }
 
 pub struct TimeSigTool {
@@ -172,6 +192,31 @@ impl CursorObject for TimeSigTool {
                 self.state = CursorToolStates::Add(measure);
                 self.ts = kson::TimeSignature { d: 4, n: 4 };
             }
+        }
+    }
+
+    fn middle_click(
+        &mut self,
+        _screen: ScreenState,
+        tick: u32,
+        _tick_f: f64,
+        _lane: f32,
+        chart: &Chart,
+        actions: &mut ActionStack<Chart>,
+        _pos: Point2<f32>,
+    ) {
+        let measure = chart.tick_to_measure(tick);
+        if let Ok(index) = chart
+            .beat
+            .time_sig
+            .binary_search_by_key(&measure, |f| f.idx)
+        {
+            let new_action = actions.new_action();
+            new_action.description = "Remove Time Signature Change".into();
+            new_action.action = Box::new(move |chart: &mut Chart| {
+                chart.beat.time_sig.remove(index);
+                Ok(())
+            })
         }
     }
 
