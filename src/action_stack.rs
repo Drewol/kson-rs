@@ -64,19 +64,11 @@ where
     }
 
     pub fn next_action_desc(&self) -> Option<String> {
-        if let Some(next) = self.redo_stack.last() {
-            Some(next.description.clone())
-        } else {
-            None
-        }
+        self.redo_stack.last().map(|next| next.description.clone())
     }
 
     pub fn prev_action_desc(&self) -> Option<String> {
-        if let Some(next) = self.undo_stack.last() {
-            Some(next.description.clone())
-        } else {
-            None
-        }
+        self.undo_stack.last().map(|next| next.description.clone())
     }
 
     pub fn get_current(&mut self) -> Result<T> {
@@ -94,7 +86,7 @@ where
         }
     }
 
-    pub fn is_saved(self) -> bool {
+    pub fn saved(&self) -> bool {
         match (self.undo_stack.last(), self.saved) {
             (Some(a), Some(saved)) => a.id == saved,
             (Some(_), None) => false,

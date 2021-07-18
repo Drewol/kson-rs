@@ -2,7 +2,7 @@
 
 use crate::tools::*;
 use crate::*;
-use anyhow::Result;
+use anyhow::{bail, Result};
 
 use eframe::egui::epaint::{Mesh, Vertex};
 use eframe::egui::{
@@ -218,19 +218,13 @@ impl MainState {
         self.screen.pos_to_lane(self.mouse_x)
     }
 
-    pub fn draw_cursor_line(&self, painter: &Painter, tick: u32, (r, g, b, a): (u8, u8, u8, u8)) {
+    pub fn draw_cursor_line(&self, painter: &Painter, tick: u32, color: Color32) {
         let (x, y) = self.screen.tick_to_pos(tick as u32);
         let x = x + self.screen.track_width / 2.0;
         let p1 = egui::pos2(x, y);
         let p2 = egui::pos2(x + self.screen.track_width, y);
 
-        painter.line_segment(
-            [p1, p2],
-            Stroke {
-                color: Color32::from_rgba_unmultiplied(r, g, b, a),
-                width: 1.5,
-            },
-        );
+        painter.line_segment([p1, p2], Stroke { color, width: 1.5 });
     }
 
     pub fn draw_laser_section(
@@ -477,15 +471,34 @@ impl MainState {
                         self.save_path = Some(new_chart.1);
                     }
                 }
-                GuiEvent::SaveAs | GuiEvent::Save => {
-                    if let Ok(mut chart) = self.actions.get_current() {
-                        chart.meta = self.chart.meta.clone();
+                GuiEvent::Save => match (&self.save_path, self.actions.get_current()) {
+                    (None, Ok(chart)) => {
                         if let Some(new_path) = save_chart_as(&chart).unwrap_or_else(|e| {
                             println!("Failed to save chart:");
                             println!("\t{}", e);
                             None
                         }) {
                             self.save_path = Some(new_path);
+                            self.actions.save();
+                        }
+                    }
+                    (Some(path), Ok(chart)) => {
+                        let mut file = File::create(&path).unwrap();
+                        profile_scope!("Write kson");
+                        file.write_all(serde_json::to_string(&chart)?.as_bytes())?;
+                        self.actions.save();
+                    }
+                    _ => bail!("Could not save chart."),
+                },
+                GuiEvent::SaveAs => {
+                    if let Ok(chart) = self.actions.get_current() {
+                        if let Some(new_path) = save_chart_as(&chart).unwrap_or_else(|e| {
+                            println!("Failed to save chart:");
+                            println!("\t{}", e);
+                            None
+                        }) {
+                            self.save_path = Some(new_path);
+                            self.actions.save();
                         }
                     }
                 }
@@ -506,7 +519,7 @@ impl MainState {
                 }
                 GuiEvent::Undo => self.actions.undo(),
                 GuiEvent::Redo => self.actions.redo(),
-                GuiEvent::New(new_chart_opts) => {
+                GuiEvent::NewChart(new_chart_opts) => {
                     let mut new_chart = kson::Chart::new();
                     new_chart.beat.bpm.push(kson::ByPulse { y: 0, v: 120.0 });
                     new_chart.beat.time_sig.push(kson::ByMeasureIndex {
@@ -553,7 +566,9 @@ impl MainState {
                         let dialog_result = nfd::open_save_dialog(Some("ksh"), None);
 
                         if let Ok(nfd::Response::Okay(file_path)) = dialog_result {
-                            let file = File::create(&file_path).unwrap();
+                            let mut path = PathBuf::from(file_path);
+                            path.set_extension("ksh");
+                            let file = File::create(&path).unwrap();
                             profile_scope!("Write KSH");
                             chart.to_ksh(file)?;
                         }
@@ -632,12 +647,11 @@ impl MainState {
                     self.screen.x_offset_target +=
                         self.screen.w - (self.screen.w % self.screen.track_spacing())
                 }
+                _ => (),
             }
         }
         if let Ok(current_chart) = self.actions.get_current() {
-            let tempmeta = self.chart.meta.clone(); //metadata editing not covered by action stack
             self.chart = current_chart;
-            self.chart.meta = tempmeta;
         }
 
         let delta_time = (10.0 * ctx.input().unstable_dt).min(1.0);
@@ -886,7 +900,7 @@ impl MainState {
                 self.cursor_line
             };
 
-            self.draw_cursor_line(&painter, tick, (255u8, 0u8, 0u8, 255u8));
+            self.draw_cursor_line(&painter, tick, Color32::from_rgb(255u8, 0u8, 0u8));
         }
 
         //BPM & Time Signatures
@@ -1119,11 +1133,13 @@ fn save_chart_as(chart: &kson::Chart) -> Result<Option<PathBuf>> {
 
     match dialog_result {
         nfd::Response::Okay(file_path) => {
-            let mut file = File::create(&file_path).unwrap();
+            let mut path = PathBuf::from(&file_path);
+            path.set_extension("kson");
+            let mut file = File::create(&path).unwrap();
             profile_scope!("Write kson");
             file.write_all(serde_json::to_string(&chart)?.as_bytes())?;
-            Ok(Some(PathBuf::from(&file_path)))
+            Ok(Some(path))
         }
-        _ => return Ok(None),
+        _ => Ok(None),
     }
 }

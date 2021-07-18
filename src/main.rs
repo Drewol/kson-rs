@@ -5,10 +5,11 @@ use std::str::FromStr;
 use anyhow::Result;
 use chart_editor::MainState;
 use eframe::egui::{
-    self, menu, warn_if_debug_build, Button, Color32, DragValue, Frame, Key, Label, Pos2, Rect,
-    Response, Separator, Slider, Ui, Vec2,
+    self, menu, warn_if_debug_build, Button, Color32, DragValue, Frame, Grid, Key, Label, Layout,
+    Pos2, Rect, Response, Sense, SidePanel, Slider, Ui, Vec2,
 };
 use eframe::epi::App;
+use kson::{Chart, MetaInfo};
 use serde::{Deserialize, Serialize};
 
 mod action_stack;
@@ -18,6 +19,10 @@ mod playback;
 mod tools;
 mod utils;
 
+pub trait Widget {
+    fn ui(self, ui: &mut Ui) -> Response;
+}
+
 #[derive(Default, Clone, Debug, Serialize, Deserialize, PartialEq, Eq, PartialOrd, Ord)]
 pub struct NewChartOptions {
     audio: String,
@@ -25,8 +30,54 @@ pub struct NewChartOptions {
     destination: Option<PathBuf>,
 }
 
-impl NewChartOptions {
-    fn ui(&mut self, ui: &mut Ui) -> Response {
+impl Widget for &mut kson::MetaInfo {
+    fn ui(self, ui: &mut Ui) -> Response {
+        let edit_row = |ui: &mut Ui, label: &str, data: &mut String| {
+            ui.label(label);
+            ui.text_edit_singleline(data);
+            ui.end_row();
+        };
+
+        egui::Grid::new("metadata_editor")
+            .show(ui, |ui| {
+                edit_row(ui, "Title", &mut self.title);
+                edit_row(ui, "Artist", &mut self.artist);
+                edit_row(ui, "Effector", &mut self.chart_author);
+                edit_row(ui, "Jacket", &mut self.jacket_filename);
+                edit_row(ui, "Jacket Artist", &mut self.jacket_author);
+
+                ui.label("Difficulty:");
+                ui.end_row();
+
+                ui.label("Level");
+                ui.add(DragValue::new(&mut self.level).clamp_range(1..=20));
+                ui.end_row();
+
+                if self.difficulty.name.is_none() {
+                    self.difficulty.name = Some(Default::default());
+                }
+                edit_row(ui, "Name", self.difficulty.name.as_mut().unwrap());
+
+                if self.difficulty.short_name.is_none() {
+                    self.difficulty.short_name = Some(Default::default());
+                }
+                edit_row(
+                    ui,
+                    "Short Name",
+                    self.difficulty.short_name.as_mut().unwrap(),
+                );
+
+                self.difficulty.short_name.as_mut().unwrap().truncate(3);
+
+                ui.label("Index");
+                ui.add(DragValue::new(&mut self.difficulty.idx));
+            })
+            .response
+    }
+}
+
+impl Widget for &mut NewChartOptions {
+    fn ui(self, ui: &mut Ui) -> Response {
         ui.horizontal(|ui| {
             ui.label("Filename:");
             ui.text_edit_singleline(&mut self.filename);
@@ -68,10 +119,12 @@ impl NewChartOptions {
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq, PartialOrd, Ord)]
 pub enum GuiEvent {
     #[serde(skip_serializing)]
-    New(NewChartOptions), //(Audio, Filename, Destination)
+    NewChart(NewChartOptions), //(Audio, Filename, Destination)
+    New,
     Open,
     Save,
     SaveAs,
+    Metadata,
     ToolChanged(ChartTool),
     Play,
     Undo,
@@ -81,6 +134,7 @@ pub enum GuiEvent {
     Next,
     Previous,
     ExportKsh,
+    Preferences,
 }
 
 impl std::fmt::Display for GuiEvent {
@@ -124,6 +178,7 @@ struct AppState {
     key_bindings: HashMap<KeyCombo, GuiEvent>,
     show_preferences: bool,
     new_chart: Option<NewChartOptions>,
+    meta_edit: Option<MetaInfo>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -260,6 +315,18 @@ impl Default for Config {
             GuiEvent::Save,
         );
         default_bindings.insert(
+            KeyCombo::new(Key::N, Modifiers::new().ctrl()),
+            GuiEvent::New,
+        );
+        default_bindings.insert(
+            KeyCombo::new(Key::P, Modifiers::new().ctrl()),
+            GuiEvent::Preferences,
+        );
+        default_bindings.insert(
+            KeyCombo::new(Key::T, Modifiers::new().ctrl()),
+            GuiEvent::Metadata,
+        );
+        default_bindings.insert(
             KeyCombo::new(Key::S, Modifiers::new().ctrl().shift()),
             GuiEvent::SaveAs,
         );
@@ -366,13 +433,25 @@ impl AppState {
         binding_vec.sort_by_key(|f| f.1);
         ui.separator();
         ui.label("Hotkeys");
-        for (key, event) in binding_vec {
-            ui.columns(2, |columns| {
-                columns[0].label(format!("{}", event));
-                columns[1].add(Label::new(format!("{}", key)).wrap(false));
-            })
-        }
+        Grid::new("hotkey_grid").striped(true).show(ui, |ui| {
+            for (key, event) in binding_vec {
+                ui.label(format!("{}", event));
+                ui.add(Label::new(format!("{}", key)).wrap(false));
+                ui.end_row();
+            }
+        });
     }
+}
+
+const CONFIG_KEY: &str = "CONFIG_1";
+
+fn menu_ui(ui: &mut Ui, title: impl ToString, min_width: f32, add_contents: impl FnOnce(&mut Ui)) {
+    menu::menu(ui, title, |ui| {
+        ui.with_layout(Layout::top_down_justified(egui::Align::Min), |ui| {
+            ui.allocate_exact_size(Vec2::new(min_width, 0.0), Sense::hover());
+            add_contents(ui)
+        });
+    })
 }
 
 impl App for AppState {
@@ -383,7 +462,7 @@ impl App for AppState {
         storage: Option<&dyn eframe::epi::Storage>,
     ) {
         let config = if let Some(storage) = storage {
-            let c: Option<Config> = eframe::epi::get_value(storage, "CONFIG");
+            let c: Option<Config> = eframe::epi::get_value(storage, CONFIG_KEY);
             c.unwrap_or_default()
         } else {
             Config::default()
@@ -405,7 +484,7 @@ impl App for AppState {
             track_width: self.editor.screen.track_width,
         };
 
-        eframe::epi::set_value(storage, "CONFIG", &new_config)
+        eframe::epi::set_value(storage, CONFIG_KEY, &new_config)
     }
 
     fn on_exit(&mut self) {}
@@ -431,8 +510,19 @@ impl App for AppState {
                             modifiers: (*modifiers).into(),
                         };
 
-                        if let Some(action) = self.key_bindings.get(&key_combo) {
-                            self.editor.gui_event_queue.push_back(action.clone())
+                        match self.key_bindings.get(&key_combo) {
+                            Some(GuiEvent::New) => {
+                                if self.new_chart.is_none() {
+                                    self.new_chart = Some(Default::default())
+                                }
+                            }
+                            Some(GuiEvent::Preferences) => self.show_preferences = true,
+                            Some(GuiEvent::Metadata) => {
+                                self.meta_edit = Some(self.editor.chart.meta.clone())
+                            }
+
+                            Some(action) => self.editor.gui_event_queue.push_back(action.clone()),
+                            None => (),
                         }
                     }
                 }
@@ -447,24 +537,36 @@ impl App for AppState {
         }
 
         //draw
-        let dt = ctx.input().unstable_dt;
-
         //menu
         {
             egui::TopBottomPanel::top("menubar").show(ctx, |ui| {
                 menu::bar(ui, |ui| {
-                    menu::menu(ui, "File", |ui| {
+                    menu_ui(ui, "File", 100.0, |ui| {
                         if ui.button("New").clicked() {
                             self.new_chart = Some(Default::default());
                         }
                         if ui.button("Open").clicked() {
                             self.editor.gui_event_queue.push_back(GuiEvent::Open);
                         }
+                        if ui.button("Save").clicked() {
+                            self.editor.gui_event_queue.push_back(GuiEvent::Save)
+                        }
+                        if ui.button("Save As").clicked() {
+                            self.editor.gui_event_queue.push_back(GuiEvent::SaveAs)
+                        }
+                        if ui.button("Export Ksh").clicked() {
+                            self.editor.gui_event_queue.push_back(GuiEvent::ExportKsh)
+                        }
+                        ui.separator();
                         if ui.button("Preferences").clicked() {
                             self.show_preferences = true;
                         }
+                        ui.separator();
+                        if ui.button("Exit").clicked() {
+                            frame.quit();
+                        }
                     });
-                    menu::menu(ui, "Edit", |ui| {
+                    menu_ui(ui, "Edit", 70.0, |ui| {
                         let undo_desc = self.editor.actions.prev_action_desc();
                         let redo_desc = self.editor.actions.next_action_desc();
 
@@ -492,7 +594,19 @@ impl App for AppState {
                         {
                             self.editor.gui_event_queue.push_back(GuiEvent::Redo);
                         }
-                    })
+
+                        ui.separator();
+                        if ui.button("Metadata").clicked() && self.meta_edit.is_none() {
+                            self.meta_edit = Some(self.editor.chart.meta.clone());
+                        }
+                    });
+
+                    if !self.editor.actions.saved() {
+                        ui.with_layout(Layout::right_to_left(), |ui| {
+                            ui.add(egui::Label::new("*").text_color(Color32::RED))
+                                .on_hover_text("Unsaved Changes")
+                        });
+                    }
                 });
                 ui.separator();
                 menu::bar(ui, |ui| {
@@ -522,7 +636,9 @@ impl App for AppState {
             egui::Window::new("Preferences")
                 .open(&mut open)
                 .show(ctx, |ui| {
-                    self.preferences(ui);
+                    ui.with_layout(Layout::top_down_justified(egui::Align::Min), |ui| {
+                        self.preferences(ui);
+                    });
                 });
             self.show_preferences = open;
 
@@ -532,7 +648,7 @@ impl App for AppState {
                 let mut event = None;
                 egui::Window::new("New").open(&mut open).show(ctx, |ui| {
                     if new_chart.ui(ui).clicked() {
-                        event = Some(GuiEvent::New(new_chart.clone()));
+                        event = Some(GuiEvent::NewChart(new_chart.clone()));
                     }
                 });
 
@@ -543,6 +659,29 @@ impl App for AppState {
 
                 if !open {
                     self.new_chart = None;
+                }
+            }
+
+            //Metadata dialog
+            if self.meta_edit.is_some() {
+                let mut open = true;
+                egui::Window::new("Metadata")
+                    .open(&mut open)
+                    .show(ctx, |ui| {
+                        self.meta_edit.as_mut().unwrap().ui(ui);
+                        ui.add_space(10.0);
+                        if ui.button("Ok").clicked() {
+                            let new_action = self.editor.actions.new_action();
+                            let new_meta = self.meta_edit.take().unwrap();
+                            new_action.action = Box::new(move |chart: &mut Chart| {
+                                chart.meta = new_meta.clone();
+                                Ok(())
+                            });
+                            new_action.description = String::from("Update Metadata");
+                        }
+                    });
+                if !open {
+                    self.meta_edit = None;
                 }
             }
         }
@@ -619,6 +758,7 @@ fn main() -> Result<()> {
             key_bindings: HashMap::new(),
             show_preferences: false,
             new_chart: None,
+            meta_edit: None,
         }),
         options,
     );

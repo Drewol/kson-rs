@@ -15,8 +15,8 @@ pub struct AudioFile {
     size: usize,
     pos: Arc<AtomicUsize>,
     stopped: Arc<AtomicBool>,
-    laser_dsp: Arc<Mutex<dyn dsp::DSP>>,
-    fx_dsp: [Option<Arc<Mutex<dyn dsp::DSP>>>; 2],
+    laser_dsp: Arc<Mutex<dyn dsp::Dsp>>,
+    fx_dsp: [Option<Arc<Mutex<dyn dsp::Dsp>>>; 2],
     fx_enable: [Arc<AtomicBool>; 2],
 }
 

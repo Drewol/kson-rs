@@ -4,7 +4,7 @@ use crate::{
     chart_editor::{MainState, ScreenState},
 };
 use anyhow::{bail, Result};
-use eframe::egui::{self, CtxRef, DragValue, Label, Painter, Window};
+use eframe::egui::{self, Color32, CtxRef, DragValue, Label, Painter, Window};
 use kson::Chart;
 use na::Point2;
 use nalgebra as na;
@@ -63,46 +63,45 @@ impl CursorObject for BpmTool {
     }
 
     fn draw(&self, state: &MainState, painter: &Painter) -> Result<()> {
-        state.draw_cursor_line(painter, self.cursor_tick, (0, 128, 255, 255));
+        state.draw_cursor_line(painter, self.cursor_tick, Color32::from_rgb(0, 128, 255));
         Ok(())
     }
 
     fn draw_ui(&mut self, ctx: &CtxRef, actions: &mut ActionStack<Chart>) {
-        let complete_func: Option<Box<dyn Fn(&mut ActionStack<Chart>, f64) -> ()>> =
-            match self.state {
-                CursorToolStates::None => None,
-                CursorToolStates::Add(tick) => {
-                    Some(Box::new(move |a: &mut ActionStack<Chart>, bpm: f64| {
-                        let v = bpm;
-                        let y = tick;
+        let complete_func: Option<Box<dyn Fn(&mut ActionStack<Chart>, f64)>> = match self.state {
+            CursorToolStates::None => None,
+            CursorToolStates::Add(tick) => {
+                Some(Box::new(move |a: &mut ActionStack<Chart>, bpm: f64| {
+                    let v = bpm;
+                    let y = tick;
 
-                        let new_action = a.new_action();
+                    let new_action = a.new_action();
 
-                        new_action.description = String::from("Add BPM Change");
-                        new_action.action = Box::new(move |c| {
-                            c.beat.bpm.push(kson::ByPulse { y, v });
-                            c.beat.bpm.sort_by(|a, b| a.y.cmp(&b.y));
+                    new_action.description = String::from("Add BPM Change");
+                    new_action.action = Box::new(move |c| {
+                        c.beat.bpm.push(kson::ByPulse { y, v });
+                        c.beat.bpm.sort_by(|a, b| a.y.cmp(&b.y));
+                        Ok(())
+                    });
+                }))
+            }
+            CursorToolStates::Edit(index) => {
+                Some(Box::new(move |a: &mut ActionStack<Chart>, bpm: f64| {
+                    let v = bpm;
+
+                    let new_action = a.new_action();
+                    new_action.description = String::from("Edit BPM Change");
+                    new_action.action = Box::new(move |c| {
+                        if let Some(change) = c.beat.bpm.get_mut(index) {
+                            change.v = v;
                             Ok(())
-                        });
-                    }))
-                }
-                CursorToolStates::Edit(index) => {
-                    Some(Box::new(move |a: &mut ActionStack<Chart>, bpm: f64| {
-                        let v = bpm;
-
-                        let new_action = a.new_action();
-                        new_action.description = String::from("Edit BPM Change");
-                        new_action.action = Box::new(move |c| {
-                            if let Some(change) = c.beat.bpm.get_mut(index) {
-                                change.v = v;
-                                Ok(())
-                            } else {
-                                bail!("Tried to edit non existing BPM Change")
-                            }
-                        });
-                    }))
-                }
-            };
+                        } else {
+                            bail!("Tried to edit non existing BPM Change")
+                        }
+                    });
+                }))
+            }
+        };
 
         if let Some(complete) = complete_func {
             let mut bpm = self.bpm as f32;
@@ -186,43 +185,43 @@ impl CursorObject for TimeSigTool {
         let tick = state
             .chart
             .measure_to_tick(state.chart.tick_to_measure(self.cursor_tick));
-        state.draw_cursor_line(painter, tick, (255, 255, 0, 255));
+        state.draw_cursor_line(painter, tick, Color32::from_rgb(255, 255, 0));
         Ok(())
     }
 
     fn draw_ui(&mut self, ctx: &CtxRef, actions: &mut ActionStack<Chart>) {
-        let complete_func: Option<Box<dyn Fn(&mut ActionStack<Chart>, [i32; 2]) -> ()>> =
-            match self.state {
-                CursorToolStates::None => None,
-                CursorToolStates::Add(measure) => Some(Box::new(move |a, ts| {
-                    let v = kson::TimeSignature {
-                        n: ts[0] as u32,
-                        d: ts[1] as u32,
-                    };
-                    let idx = measure;
+        let complete_func: Option<Box<dyn Fn(&mut ActionStack<Chart>, [i32; 2])>> = match self.state
+        {
+            CursorToolStates::None => None,
+            CursorToolStates::Add(measure) => Some(Box::new(move |a, ts| {
+                let v = kson::TimeSignature {
+                    n: ts[0] as u32,
+                    d: ts[1] as u32,
+                };
+                let idx = measure;
 
-                    let new_action = a.new_action();
-                    new_action.description = String::from("Add Time Signature Change");
-                    new_action.action = Box::new(move |c| {
-                        c.beat.time_sig.push(kson::ByMeasureIndex { idx, v });
-                        c.beat.time_sig.sort_by(|a, b| a.idx.cmp(&b.idx));
+                let new_action = a.new_action();
+                new_action.description = String::from("Add Time Signature Change");
+                new_action.action = Box::new(move |c| {
+                    c.beat.time_sig.push(kson::ByMeasureIndex { idx, v });
+                    c.beat.time_sig.sort_by(|a, b| a.idx.cmp(&b.idx));
+                    Ok(())
+                });
+            })),
+            CursorToolStates::Edit(index) => Some(Box::new(move |a, ts| {
+                let new_action = a.new_action();
+                new_action.description = String::from("Edit Time Signature Change");
+                new_action.action = Box::new(move |c| {
+                    if let Some(change) = c.beat.time_sig.get_mut(index) {
+                        change.v.n = ts[0] as u32;
+                        change.v.d = ts[1] as u32;
                         Ok(())
-                    });
-                })),
-                CursorToolStates::Edit(index) => Some(Box::new(move |a, ts| {
-                    let new_action = a.new_action();
-                    new_action.description = String::from("Edit Time Signature Change");
-                    new_action.action = Box::new(move |c| {
-                        if let Some(change) = c.beat.time_sig.get_mut(index) {
-                            change.v.n = ts[0] as u32;
-                            change.v.d = ts[1] as u32;
-                            Ok(())
-                        } else {
-                            bail!("Tried to edit non existing Time Signature Change")
-                        }
-                    });
-                })),
-            };
+                    } else {
+                        bail!("Tried to edit non existing Time Signature Change")
+                    }
+                });
+            })),
+        };
 
         if let Some(complete) = complete_func {
             egui::Window::new("Change Time Signature")
