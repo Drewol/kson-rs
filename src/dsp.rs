@@ -1,4 +1,4 @@
-pub trait DSP: Send + Sync {
+pub trait Dsp: Send + Sync {
     fn process(&mut self, sample: &mut f32, c: usize);
     fn set_mix(&mut self, mix: f32);
     fn set_bypass(&mut self, bypass: bool);
@@ -112,7 +112,7 @@ impl BiQuad {
     }
 }
 
-impl DSP for BiQuad {
+impl Dsp for BiQuad {
     fn process(&mut self, sample: &mut f32, c: usize) {
         if self.bypass {
             return;

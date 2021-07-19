@@ -1,1194 +1,838 @@
-#![windows_subsystem = "windows"]
+use std::collections::HashMap;
+use std::path::PathBuf;
+use std::str::FromStr;
+
+use anyhow::Result;
+use chart_editor::MainState;
+use eframe::egui::{
+    self, menu, warn_if_debug_build, Button, Color32, DragValue, Frame, Grid, Key, Label, Layout,
+    Pos2, Rect, Response, Sense, SidePanel, Slider, Ui, Vec2,
+};
+use eframe::epi::App;
+use kson::{BgmInfo, Chart, MetaInfo};
+use serde::{Deserialize, Serialize};
+
 mod action_stack;
-mod custom_loop;
+mod chart_editor;
 mod dsp;
-mod gui;
 mod playback;
 mod tools;
+mod utils;
 
-use crate::gui::{ChartTool, GuiEvent, ImGuiWrapper};
-use ggez::event::{EventHandler, KeyCode, KeyMods, MouseButton};
-use ggez::{graphics, nalgebra as na};
-use ggez::{Context, GameResult};
-use kson::Ksh;
-use std::collections::VecDeque;
-use std::error::Error;
-use std::ffi::OsStr;
-use std::fs::File;
-use std::io::prelude::*;
-use std::io::BufReader;
-use std::path::Path;
-use tools::*;
-
-macro_rules! profile_scope {
-    ($string:expr) => {
-        //let _profile_scope =
-        //    thread_profiler::ProfileScope::new(format!("{}: {}", module_path!(), $string));
-    };
+pub trait Widget {
+    fn ui(self, ui: &mut Ui) -> Response;
 }
 
-pub struct MainState {
-    chart: kson::Chart,
-    redraw: bool,
-    save_path: Option<String>,
-    mouse_x: f32,
-    mouse_y: f32,
-
-    cursor_line: u32,
-    cursor_object: Option<Box<dyn CursorObject>>,
-    actions: action_stack::ActionStack<kson::Chart>,
-    pub screen: ScreenState,
-    pub audio_playback: playback::AudioPlayback,
-    pub gui_event_queue: VecDeque<GuiEvent>,
+#[derive(Default, Clone, Debug, Serialize, Deserialize, PartialEq, Eq, PartialOrd, Ord)]
+pub struct NewChartOptions {
+    audio: String,
+    filename: String,
+    destination: Option<PathBuf>,
 }
 
-#[derive(Copy, Clone)]
-pub struct ScreenState {
-    w: f32,
-    h: f32,
-    tick_height: f32,
-    track_width: f32,
-    top_margin: f32,
-    bottom_margin: f32,
-    beats_per_col: u32,
-    x_offset: f32,
-    x_offset_target: f32,
-    beat_res: u32,
-}
+impl Widget for &mut kson::MetaInfo {
+    fn ui(self, ui: &mut Ui) -> Response {
+        let edit_row = |ui: &mut Ui, label: &str, data: &mut String| {
+            ui.label(label);
+            ui.text_edit_singleline(data);
+            ui.end_row();
+        };
 
-impl ScreenState {
-    fn lane_width(&self) -> f32 {
-        self.track_width / 6.0
-    }
+        egui::Grid::new("metadata_editor")
+            .show(ui, |ui| {
+                edit_row(ui, "Title", &mut self.title);
+                edit_row(ui, "Artist", &mut self.artist);
+                edit_row(ui, "Effector", &mut self.chart_author);
+                edit_row(ui, "Jacket", &mut self.jacket_filename);
+                edit_row(ui, "Jacket Artist", &mut self.jacket_author);
 
-    fn ticks_per_col(&self) -> u32 {
-        self.beats_per_col * self.beat_res
-    }
+                ui.label("Difficulty:");
+                ui.end_row();
 
-    fn track_spacing(&self) -> f32 {
-        self.track_width * 2.0
-    }
+                ui.label("Level");
+                ui.add(DragValue::new(&mut self.level).clamp_range(1..=20));
+                ui.end_row();
 
-    fn tick_to_pos(&self, in_y: u32) -> (f32, f32) {
-        let h = self.chart_draw_height();
-        let x = (in_y / self.ticks_per_col()) as f32 * self.track_spacing();
-        let y = (in_y % self.ticks_per_col()) as f32 * self.tick_height;
-        let y = h - y + self.top_margin;
-        (x, y)
-    }
+                if self.difficulty.name.is_none() {
+                    self.difficulty.name = Some(Default::default());
+                }
+                edit_row(ui, "Name", self.difficulty.name.as_mut().unwrap());
 
-    fn chart_draw_height(&self) -> f32 {
-        self.h - (self.bottom_margin + self.top_margin)
-    }
+                if self.difficulty.short_name.is_none() {
+                    self.difficulty.short_name = Some(Default::default());
+                }
+                edit_row(
+                    ui,
+                    "Short Name",
+                    self.difficulty.short_name.as_mut().unwrap(),
+                );
 
-    fn pos_to_tick(&self, in_x: f32, in_y: f32) -> u32 {
-        self.pos_to_tick_f(in_x, in_y).floor() as u32
-    }
+                self.difficulty.short_name.as_mut().unwrap().truncate(3);
 
-    fn pos_to_tick_f(&self, in_x: f32, in_y: f32) -> f64 {
-        let h = self.chart_draw_height() as f64;
-        let y: f64 = 1.0 - ((in_y - self.top_margin).max(0.0) / h as f32).min(1.0) as f64;
-        let x = (in_x + self.x_offset) as f64;
-        let x = math::round::floor(x as f64 / self.track_spacing() as f64, 0);
-        ((y + x) * self.beats_per_col as f64 * self.beat_res as f64).max(0.0)
-    }
-
-    fn pos_to_lane(&self, in_x: f32) -> f32 {
-        let mut x = (in_x + self.x_offset) % self.track_spacing();
-        x = ((x - self.track_width as f32 / 2.0).max(0.0) / self.track_width as f32).min(1.0);
-        (x * 6.0).min(6.0) as f32
-    }
-
-    fn update(&mut self, delta_time: f32) {
-        self.x_offset = self.x_offset + (self.x_offset_target - self.x_offset) * delta_time;
-    }
-
-    fn interval_to_ranges(&self, in_interval: &kson::Interval) -> Vec<(f32, f32, f32, (f32, f32))> // (x,y,h, (start,end))
-    {
-        let mut res: Vec<(f32, f32, f32, (f32, f32))> = Vec::new();
-        let mut ranges: Vec<(u32, u32)> = Vec::new();
-        let ticks_per_col = self.beats_per_col * self.beat_res;
-        let mut start = in_interval.y;
-        let end = start + in_interval.l;
-        while start / ticks_per_col < end / ticks_per_col {
-            ranges.push((start, ticks_per_col * (1 + start / ticks_per_col)));
-            start = ticks_per_col * (1 + start / ticks_per_col);
-        }
-        ranges.push((start, end));
-
-        for (s, e) in ranges {
-            let in_l = in_interval.l;
-            let prog_s = (s - in_interval.y) as f32 / in_l as f32;
-            let prog_e = (e - in_interval.y) as f32 / in_l as f32;
-            let start_pos = self.tick_to_pos(s);
-            let end_pos = self.tick_to_pos(e);
-            if (start_pos.0 - end_pos.0).abs() > f32::EPSILON {
-                res.push((
-                    start_pos.0,
-                    start_pos.1,
-                    self.top_margin - start_pos.1,
-                    (prog_s, prog_e),
-                ));
-            } else {
-                res.push((
-                    start_pos.0,
-                    start_pos.1,
-                    end_pos.1 - start_pos.1,
-                    (prog_s, prog_e),
-                ))
-            }
-        }
-        res
+                ui.label("Index");
+                ui.add(DragValue::new(&mut self.difficulty.idx));
+            })
+            .response
     }
 }
 
-impl MainState {
-    fn new(ctx: &ggez::Context) -> GameResult<MainState> {
-        let mut new_chart = kson::Chart::new();
-        new_chart.beat.bpm.push(kson::ByPulse { y: 0, v: 120.0 });
-        new_chart.beat.time_sig.push(kson::ByMeasureIndex {
-            idx: 0,
-            v: kson::TimeSignature { d: 4, n: 4 },
+impl Widget for &mut NewChartOptions {
+    fn ui(self, ui: &mut Ui) -> Response {
+        ui.horizontal(|ui| {
+            ui.label("Filename:");
+            ui.text_edit_singleline(&mut self.filename);
         });
 
-        let s = MainState {
-            chart: new_chart.clone(),
-            screen: ScreenState {
-                w: 800.0,
-                h: 600.0,
-                tick_height: 1.0,
-                track_width: 72.0,
-                top_margin: 60.0,
-                bottom_margin: 10.0,
-                beats_per_col: 16,
-                x_offset: 0.0,
-                x_offset_target: 0.0,
-                beat_res: 48,
-            },
-            redraw: false,
-            save_path: None,
-            mouse_x: 0.0,
-            mouse_y: 0.0,
+        ui.separator();
+        ui.label("Audio File:");
+        ui.label(&self.audio);
+        if ui.button("...").clicked() {
+            let picked_file =
+                nfd::open_file_dialog(Some("mp3,flac,wav,ogg"), None).map(|res| match res {
+                    nfd::Response::Okay(s) => Some(s),
+                    _ => None,
+                });
 
-            cursor_object: None,
-            audio_playback: playback::AudioPlayback::new(ctx),
-            gui_event_queue: VecDeque::new(),
-            cursor_line: 0,
-            actions: action_stack::ActionStack::new(new_chart),
-        };
-        Ok(s)
-    }
-
-    pub fn get_cursor_ms(&self) -> f64 {
-        let tick = self.screen.pos_to_tick(self.mouse_x, self.mouse_y);
-        let tick = tick - (tick % (self.chart.beat.resolution / 2));
-        self.chart.tick_to_ms(tick)
-    }
-
-    pub fn get_cursor_tick(&self) -> u32 {
-        self.screen.pos_to_tick(self.mouse_x, self.mouse_y)
-    }
-
-    pub fn get_cursor_tick_f(&self) -> f64 {
-        self.screen.pos_to_tick_f(self.mouse_x, self.mouse_y)
-    }
-
-    pub fn get_cursor_lane(&self) -> f32 {
-        self.screen.pos_to_lane(self.mouse_x)
-    }
-
-    pub fn draw_cursor_line(
-        &self,
-        ctx: &mut Context,
-        tick: u32,
-        color: (u8, u8, u8, u8),
-    ) -> GameResult {
-        graphics::set_blend_mode(ctx, graphics::BlendMode::Alpha)?;
-        let (x, y) = self.screen.tick_to_pos(tick as u32);
-        let x = x + self.screen.track_width / 2.0 - self.screen.x_offset;
-        let p1: na::Point2<f32> = [x, y].into();
-        let p2: na::Point2<f32> = [x + self.screen.track_width, y].into();
-        let m = graphics::Mesh::new_line(ctx, &[p1, p2], 1.5, color.into())?;
-        graphics::draw(ctx, &m, (na::Point2::new(0.0, 0.0),))
-    }
-
-    fn draw_laser_section(
-        &self,
-        section: &kson::LaserSection,
-        mb: &mut graphics::MeshBuilder,
-        color: graphics::Color,
-    ) -> GameResult {
-        profile_scope!("Section");
-        let y_base = section.y;
-        let wide = section.wide == 2;
-        let slam_height = 6.0 as f32;
-        let half_lane = self.screen.lane_width() / 2.0;
-        let half_track = self.screen.track_width / 2.0;
-        let track_lane_diff = self.screen.track_width - self.screen.lane_width();
-
-        for se in section.v.windows(2) {
-            profile_scope!("Window");
-            let s = &se[0];
-            let e = &se[1];
-            let l = e.ry - s.ry;
-            let interval = kson::Interval {
-                y: s.ry + y_base,
-                l,
-            };
-
-            if interval.l == 0 {
-                continue;
-            }
-
-            let mut start_value = s.v as f32;
-            let mut syoff = 0.0 as f32;
-
-            if let Some(value) = s.vf {
-                profile_scope!("Slam");
-                start_value = value as f32;
-                syoff = slam_height;
-                let mut sv: f32 = s.v as f32;
-                let mut ev: f32 = value as f32;
-                if wide {
-                    ev = ev * 2.0 - 0.5;
-                    sv = sv * 2.0 - 0.5;
-                }
-
-                //draw slam
-                let (x, y) = self.screen.tick_to_pos(interval.y);
-                let sx = x + sv * track_lane_diff + half_track + half_lane;
-                let ex = x + ev * track_lane_diff + half_track + half_lane;
-
-                let (x, w): (f32, f32) = if sx > ex {
-                    (sx + half_lane, (ex - half_lane) - (sx + half_lane))
-                } else {
-                    (sx - half_lane, (ex + half_lane) - (sx - half_lane))
-                };
-                mb.rectangle(
-                    graphics::DrawMode::fill(),
-                    [x, y, w, -slam_height].into(),
-                    color,
-                );
-            }
-
-            let mut value_width = (e.v as f32 - start_value) as f32;
-            if wide {
-                value_width *= 2.0;
-                start_value = start_value * 2.0 - 0.5;
-            }
-
-            let curve_points = (s.a.unwrap_or(0.5), s.b.unwrap_or(0.5));
-
-            for (x, y, h, (sv, ev)) in self.screen.interval_to_ranges(&interval) {
-                if (curve_points.0 - curve_points.1).abs() < std::f64::EPSILON {
-                    profile_scope!("Range - Linear");
-                    let sx = x
-                        + (start_value + (sv * value_width)) * track_lane_diff
-                        + half_track
-                        + half_lane;
-                    let ex = x
-                        + (start_value + (ev * value_width)) * track_lane_diff
-                        + half_track
-                        + half_lane;
-
-                    let sy = y;
-                    let ey = y + h;
-
-                    let xoff = half_lane;
-                    let (tr, tl, br, bl): (
-                        na::Point2<f32>,
-                        na::Point2<f32>,
-                        na::Point2<f32>,
-                        na::Point2<f32>,
-                    ) = (
-                        [ex - xoff, ey].into(),
-                        [ex + xoff, ey].into(),
-                        [sx - xoff, sy - syoff].into(),
-                        [sx + xoff, sy - syoff].into(),
-                    );
-                    syoff = 0.0; //only first section after slam needs this
-                    let points = [tl, tr, br, br, bl, tl];
-                    mb.triangles(&points, color)?;
-                } else {
-                    profile_scope!("Range - Curved");
-                    let sy = y - syoff;
-                    syoff = 0.0; //only first section after slam needs this
-                    let ey = y + h;
-                    let curve_segments = ((ey - sy).abs() / 3.0) as i32;
-                    let curve_segment_h = (ey - sy) / curve_segments as f32;
-                    let curve_segment_progress_h = (ev - sv) / curve_segments as f32;
-                    // let interval_start_value = start_value + sv * value_width;
-                    // let interval_value_width =
-                    //     (start_value + ev * value_width) - interval_start_value;
-                    for i in 0..curve_segments {
-                        let cssv = sv + curve_segment_progress_h * i as f32;
-                        let csev = sv + curve_segment_progress_h * (i + 1) as f32;
-                        let csv = do_curve(cssv as f64, curve_points.0, curve_points.1) as f32;
-                        let cev = do_curve(csev as f64, curve_points.0, curve_points.1) as f32;
-
-                        let sx = x
-                            + (start_value + (csv * value_width)) * track_lane_diff
-                            + half_track
-                            + half_lane;
-                        let ex = x
-                            + (start_value + (cev * value_width)) * track_lane_diff
-                            + half_track
-                            + half_lane;
-
-                        let csy = sy + curve_segment_h * i as f32;
-                        let cey = sy + curve_segment_h * (i + 1) as f32;
-
-                        let xoff = half_lane;
-                        let (tr, tl, br, bl): (
-                            na::Point2<f32>,
-                            na::Point2<f32>,
-                            na::Point2<f32>,
-                            na::Point2<f32>,
-                        ) = (
-                            [ex - xoff, cey].into(),
-                            [ex + xoff, cey].into(),
-                            [sx - xoff, csy].into(),
-                            [sx + xoff, csy].into(),
-                        );
-                        let points = [tl, tr, br, br, bl, tl];
-                        mb.triangles(&points, color)?;
-                    }
-                }
+            if let Ok(Some(picked_file)) = picked_file {
+                self.audio = picked_file;
             }
         }
 
-        if let Some(l) = section.v.last() {
-            if let Some(vf) = l.vf {
-                profile_scope!("End Slam");
-                //draw slam
-                let mut sv: f32 = l.v as f32;
-                let mut ev: f32 = vf as f32;
-                if wide {
-                    sv = sv * 2.0 - 0.5;
-                    ev = ev * 2.0 - 0.5;
-                }
+        ui.separator();
+        ui.label("Destination folder (audio folder will be used if empty):");
+        if ui.button("...").clicked() {
+            let picked_folder = nfd::open_pick_folder(None).map(|res| match res {
+                nfd::Response::Okay(s) => Some(PathBuf::from_str(&s)),
+                _ => None,
+            });
 
-                let (x, y) = self.screen.tick_to_pos(l.ry + y_base);
-                let sx = x + sv * track_lane_diff + half_track + half_lane;
-                let ex = x + ev as f32 * track_lane_diff + half_track + half_lane;
-
-                let (x, w): (f32, f32) = if sx > ex {
-                    (sx + half_lane, (ex - half_lane) - (sx + half_lane))
-                } else {
-                    (sx - half_lane, (ex + half_lane) - (sx - half_lane))
-                };
-
-                mb.rectangle(
-                    graphics::DrawMode::fill(),
-                    [x, y, w, -slam_height].into(),
-                    color,
-                );
-                let end_rect_x = if sx > ex {
-                    0.0
-                } else {
-                    self.screen.lane_width()
-                };
-                mb.rectangle(
-                    graphics::DrawMode::fill(),
-                    [
-                        x + w - end_rect_x,
-                        y - slam_height,
-                        self.screen.lane_width(),
-                        -slam_height,
-                    ]
-                    .into(),
-                    color,
-                );
+            if let Ok(Some(Ok(picked_folder))) = picked_folder {
+                self.destination = Some(picked_folder);
             }
         }
+        ui.separator();
 
-        if let Some(l) = section.v.first() {
-            if l.vf.is_some() {
-                let mut sv: f32 = l.v as f32;
-                if wide {
-                    sv = sv * 2.0 - 0.5;
-                }
-
-                let (x, y) = self.screen.tick_to_pos(l.ry + y_base);
-                let x = x + sv * track_lane_diff + half_track;
-                mb.rectangle(
-                    graphics::DrawMode::fill(),
-                    [x, y, self.screen.lane_width(), slam_height].into(),
-                    color,
-                );
-            }
-        }
-        Ok(())
+        ui.add(Button::new("Ok").enabled(!self.audio.is_empty() && !self.filename.is_empty()))
     }
 }
 
-impl EventHandler for MainState {
-    fn update(&mut self, ctx: &mut Context) -> GameResult {
-        while let Some(e) = self.gui_event_queue.pop_front() {
-            match e {
-                GuiEvent::Open => {
-                    if let Some(new_chart) = open_chart().unwrap_or_else(|e| {
-                        println!("Failed to open chart:");
-                        println!("\t{}", e);
-                        None
-                    }) {
-                        self.chart = new_chart.0.clone();
-                        self.actions.reset(new_chart.0);
-                        self.save_path = Some(new_chart.1);
-                    }
-                }
-                GuiEvent::SaveAs | GuiEvent::Save => {
-                    if let Ok(mut chart) = self.actions.get_current() {
-                        chart.meta = self.chart.meta.clone();
-                        if let Some(new_path) = save_chart_as(&chart).unwrap_or_else(|e| {
-                            println!("Failed to save chart:");
-                            println!("\t{}", e);
-                            None
-                        }) {
-                            self.save_path = Some(new_path);
-                        }
-                    }
-                }
-                GuiEvent::Exit => ctx.continuing = false,
-                GuiEvent::ToolChanged(new_tool) => match new_tool {
-                    ChartTool::None => self.cursor_object = None,
-                    ChartTool::BT => {
-                        self.cursor_object = Some(Box::new(ButtonInterval::new(false)))
-                    }
-                    ChartTool::FX => self.cursor_object = Some(Box::new(ButtonInterval::new(true))),
-                    ChartTool::LLaser => self.cursor_object = Some(Box::new(LaserTool::new(false))),
-                    ChartTool::RLaser => self.cursor_object = Some(Box::new(LaserTool::new(true))),
-                    ChartTool::BPM => self.cursor_object = Some(Box::new(BpmTool::new())),
-                    ChartTool::TimeSig => self.cursor_object = Some(Box::new(TimeSigTool::new())),
-                },
-                GuiEvent::Undo => self.actions.undo(),
-                GuiEvent::Redo => self.actions.redo(),
-                GuiEvent::New(audio_file, filename, chart_folder) => {
-                    let mut new_chart = kson::Chart::new();
-                    new_chart.beat.bpm.push(kson::ByPulse { y: 0, v: 120.0 });
-                    new_chart.beat.time_sig.push(kson::ByMeasureIndex {
-                        idx: 0,
-                        v: kson::TimeSignature { d: 4, n: 4 },
-                    });
-
-                    let audio_pathbuf = std::path::PathBuf::from(audio_file);
-                    new_chart.audio.bgm = Some(kson::BgmInfo {
-                        filename: Some(String::from(
-                            audio_pathbuf.file_name().unwrap().to_str().unwrap(),
-                        )),
-                        offset: 0,
-                        vol: 1.0,
-                        preview_duration: 15000,
-                        preview_filename: None,
-                        preview_offset: 0,
-                    });
-                    self.save_path = if let Some(save_path) = chart_folder {
-                        //copy audio file
-                        let mut audio_new_path = std::path::PathBuf::from(save_path.clone());
-                        audio_new_path.push(audio_pathbuf.file_name().unwrap());
-                        if !audio_new_path.exists() {
-                            std::fs::copy(audio_pathbuf, audio_new_path).unwrap();
-                        }
-                        Some(save_path)
-                    } else {
-                        Some(String::from(
-                            audio_pathbuf.parent().unwrap().to_str().unwrap(),
-                        ))
-                    };
-
-                    let mut kson_path = std::path::PathBuf::from(self.save_path.clone().unwrap());
-                    kson_path.push(filename);
-                    kson_path.set_extension("kson");
-                    self.save_path = Some(String::from(kson_path.to_str().unwrap()));
-                    if let Ok(mut file) = File::create(kson_path) {
-                        file.write_all(serde_json::to_string(&new_chart).unwrap().as_bytes())
-                            .unwrap();
-                    }
-                    self.actions.reset(new_chart.clone());
-                    self.chart = new_chart;
-                }
-                GuiEvent::ExportKsh => {
-                    if let Ok(mut chart) = self.actions.get_current() {
-                        let dialog_result = nfd::open_save_dialog(Some("ksh"), None);
-
-                        if let Ok(nfd::Response::Okay(file_path)) = dialog_result {
-                            let mut file = File::create(&file_path).unwrap();
-                            profile_scope!("Write KSH");
-                            chart.to_ksh(file);
-                        }
-                    }
-                }
-            }
+impl Widget for &mut kson::BgmInfo {
+    fn ui(self, ui: &mut Ui) -> Response {
+        if self.filename.is_none() {
+            self.filename = Some(Default::default());
         }
-        if let Ok(current_chart) = self.actions.get_current() {
-            let tempmeta = self.chart.meta.clone(); //metadata editing not covered by action stack
-            self.chart = current_chart;
-            self.chart.meta = tempmeta;
+
+        Grid::new("bgm_info")
+            .show(ui, |ui| {
+                ui.label("Audio File");
+                ui.text_edit_singleline(self.filename.as_mut().unwrap());
+                ui.end_row();
+
+                ui.label("Offset");
+                ui.add(DragValue::new(&mut self.offset).suffix("ms"));
+                ui.end_row();
+
+                ui.label("Volume");
+                ui.add(Slider::new(&mut self.vol, 0.0..=1.0).clamp_to_range(true));
+                ui.end_row();
+
+                ui.separator();
+                ui.end_row();
+
+                ui.label("Preview Offset");
+                ui.add(DragValue::new(&mut self.preview_offset).suffix("ms"));
+                ui.end_row();
+
+                ui.label("Preview Duration");
+                ui.add(DragValue::new(&mut self.preview_duration).suffix("ms"));
+                ui.end_row();
+            })
+            .response
+    }
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq, PartialOrd, Ord)]
+pub enum GuiEvent {
+    #[serde(skip_serializing)]
+    NewChart(NewChartOptions), //(Audio, Filename, Destination)
+    New,
+    Open,
+    Save,
+    SaveAs,
+    Metadata,
+    MusicInfo,
+    ToolChanged(ChartTool),
+    Play,
+    Undo,
+    Redo,
+    Home,
+    End,
+    Next,
+    Previous,
+    ExportKsh,
+    Preferences,
+}
+
+impl std::fmt::Display for GuiEvent {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        if let GuiEvent::ToolChanged(tool) = self {
+            write!(f, "{:?}", tool)
+        } else {
+            write!(f, "{:?}", self)
         }
-        let delta_time = (10.0 * ggez::timer::delta(ctx).as_secs_f32()).min(1.0);
-        self.screen.update(delta_time);
-        let tick = self.audio_playback.get_tick(&self.chart);
-        self.audio_playback.update(tick);
-        Ok(())
+    }
+}
+
+#[derive(Debug, PartialEq, Copy, Clone, Serialize, Deserialize, Eq, PartialOrd, Ord)]
+pub enum ChartTool {
+    None,
+    BT,
+    FX,
+    RLaser,
+    LLaser,
+    BPM,
+    TimeSig,
+}
+
+#[derive(Debug, Serialize, Deserialize, Hash, PartialEq, Eq, Clone)]
+pub struct KeyCombo {
+    key: egui::Key,
+    modifiers: Modifiers,
+}
+
+#[derive(Debug, Serialize, Deserialize, Hash, PartialEq, Eq, Copy, Clone)]
+pub struct Modifiers {
+    pub alt: bool,
+    pub ctrl: bool,
+    pub shift: bool,
+    pub mac_cmd: bool,
+    pub command: bool,
+}
+
+struct AppState {
+    editor: chart_editor::MainState,
+    key_bindings: HashMap<KeyCombo, GuiEvent>,
+    show_preferences: bool,
+    new_chart: Option<NewChartOptions>,
+    meta_edit: Option<MetaInfo>,
+    bgm_edit: Option<BgmInfo>,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+struct Config {
+    key_bindings: HashMap<KeyCombo, GuiEvent>,
+    track_width: f32,
+    beats_per_column: u32,
+}
+
+//TODO: ehhhhhhhhh
+impl From<egui::Modifiers> for Modifiers {
+    fn from(
+        egui::Modifiers {
+            alt,
+            ctrl,
+            shift,
+            mac_cmd,
+            command,
+        }: egui::Modifiers,
+    ) -> Self {
+        Self {
+            alt,
+            ctrl,
+            shift,
+            mac_cmd,
+            command,
+        }
+    }
+}
+
+impl KeyCombo {
+    fn new(key: egui::Key, modifiers: Modifiers) -> Self {
+        Self { key, modifiers }
+    }
+}
+
+impl std::fmt::Display for Modifiers {
+    #[cfg(not(target_os = "macos"))]
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let mut keys = Vec::new();
+        if self.ctrl {
+            keys.push("ctrl");
+        }
+        if self.alt {
+            keys.push("alt");
+        }
+        if self.shift {
+            keys.push("shift");
+        }
+
+        write!(f, "{}", keys.join(" + "))
+    }
+    #[cfg(target_os = "macos")]
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let mut keys = Vec::new();
+        if self.ctrl {
+            keys.push("ctrl");
+        }
+        if self.alt {
+            keys.push("opt")
+        }
+        if self.shift {
+            keys.push("shift")
+        }
+        if self.command {
+            keys.push("cmd")
+        }
+
+        write!(f, "{}", keys.join(" + "))
+    }
+}
+
+impl std::fmt::Display for KeyCombo {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        if self.modifiers.any() {
+            write!(f, "{} + {:?}", self.modifiers, self.key)
+        } else {
+            write!(f, "{:?}", self.key)
+        }
+    }
+}
+
+impl Modifiers {
+    fn new() -> Self {
+        Self {
+            alt: false,
+            command: false,
+            ctrl: false,
+            mac_cmd: false,
+            shift: false,
+        }
     }
 
-    fn draw(&mut self, ctx: &mut Context) -> GameResult {
-        profile_scope!("Draw Chart");
-        //draw notes
-        let track_line_builder = &mut graphics::MeshBuilder::new();
-        let track_measure_builder = &mut graphics::MeshBuilder::new();
-        let bt_builder = &mut graphics::MeshBuilder::new();
-        let long_bt_builder = &mut graphics::MeshBuilder::new();
-        let fx_builder = &mut graphics::MeshBuilder::new();
-        let long_fx_builder = &mut graphics::MeshBuilder::new();
-        let laser_builder = &mut graphics::MeshBuilder::new();
-        let laser_color: [graphics::Color; 2] = [
-            graphics::Color::from_rgba(0, 115, 144, 255),
-            graphics::Color::from_rgba(194, 6, 140, 255),
-        ];
-        let min_tick_render = self.screen.pos_to_tick(-100.0, self.screen.h);
-        let max_tick_render = self.screen.pos_to_tick(self.screen.w + 50.0, 0.0);
-        graphics::clear(ctx, graphics::BLACK);
-        let chart_draw_height = self.screen.chart_draw_height();
-        let lane_width = self.screen.lane_width();
-        let track_spacing = self.screen.track_spacing();
+    fn alt(mut self) -> Self {
+        self.alt = true;
+        self
+    }
+    fn command(mut self) -> Self {
+        self.command = true;
+        self
+    }
+    #[cfg(target_os = "macos")]
+    fn ctrl(mut self) -> Self {
+        self.ctrl = true;
+        self
+    }
+    #[cfg(not(target_os = "macos"))]
+    fn ctrl(mut self) -> Self {
+        self.ctrl = true;
+        self.command = true;
+        self
+    }
+    fn mac_cmd(mut self) -> Self {
+        self.mac_cmd = true;
+        self
+    }
+    fn shift(mut self) -> Self {
+        self.shift = true;
+        self
+    }
+
+    fn any(self) -> bool {
+        self.alt || self.command || self.ctrl || self.mac_cmd || self.shift
+    }
+}
+
+impl Default for Config {
+    fn default() -> Self {
+        let mut default_bindings = HashMap::new();
+        let nomod = Modifiers::new();
+
+        default_bindings.insert(
+            KeyCombo::new(Key::S, Modifiers::new().ctrl()),
+            GuiEvent::Save,
+        );
+        default_bindings.insert(
+            KeyCombo::new(Key::N, Modifiers::new().ctrl()),
+            GuiEvent::New,
+        );
+        default_bindings.insert(
+            KeyCombo::new(Key::P, Modifiers::new().ctrl()),
+            GuiEvent::Preferences,
+        );
+        default_bindings.insert(
+            KeyCombo::new(Key::T, Modifiers::new().ctrl()),
+            GuiEvent::Metadata,
+        );
+        default_bindings.insert(
+            KeyCombo::new(Key::M, Modifiers::new().ctrl()),
+            GuiEvent::MusicInfo,
+        );
+        default_bindings.insert(
+            KeyCombo::new(Key::S, Modifiers::new().ctrl().shift()),
+            GuiEvent::SaveAs,
+        );
+        default_bindings.insert(
+            KeyCombo::new(Key::O, Modifiers::new().ctrl()),
+            GuiEvent::Open,
+        );
+        default_bindings.insert(
+            KeyCombo::new(Key::Z, Modifiers::new().ctrl()),
+            GuiEvent::Undo,
+        );
+        default_bindings.insert(
+            KeyCombo::new(Key::Y, Modifiers::new().ctrl()),
+            GuiEvent::Redo,
+        );
+
+        //Tools
         {
-            profile_scope!("Build components");
-            //draw track
-            {
-                let track_count = 2 + (self.screen.w / self.screen.track_spacing()) as u32;
-                profile_scope!("Track Components");
-                let x = self.screen.track_width / 2.0 + lane_width;
-                for i in 0..track_count {
-                    let x = x + i as f32 * track_spacing;
-                    for j in 0..5 {
-                        let x = x + j as f32 * lane_width;
-                        track_line_builder.rectangle(
-                            graphics::DrawMode::fill(),
-                            [x, self.screen.top_margin, 0.5, chart_draw_height].into(),
-                            graphics::WHITE,
-                        );
-                    }
-                }
-
-                //measure & beat lines
-                let x = self.screen.track_width / 2.0 + self.screen.lane_width();
-                let w = self.screen.lane_width() * 4.0;
-                for (tick, is_measure) in self.chart.beat_line_iter() {
-                    if tick < min_tick_render {
-                        continue;
-                    } else if tick > max_tick_render {
-                        break;
-                    }
-
-                    let (tx, y) = self.screen.tick_to_pos(tick);
-                    let x = tx + x;
-                    let color = if is_measure {
-                        ggez::graphics::Color {
-                            r: 1.0,
-                            g: 1.0,
-                            b: 0.0,
-                            a: 1.0,
-                        }
-                    } else {
-                        ggez::graphics::Color {
-                            r: 0.5,
-                            g: 0.5,
-                            b: 0.5,
-                            a: 1.0,
-                        }
-                    };
-                    track_measure_builder.rectangle(
-                        graphics::DrawMode::fill(),
-                        [x, y, w, -0.5].into(),
-                        color,
-                    );
-                }
-            }
-
-            //bt
-            {
-                profile_scope!("BT Components");
-                for i in 0..4 {
-                    for n in &self.chart.note.bt[i] {
-                        if n.y + n.l < min_tick_render {
-                            continue;
-                        }
-                        if n.y > max_tick_render {
-                            break;
-                        }
-
-                        if n.l == 0 {
-                            let (x, y) = self.screen.tick_to_pos(n.y);
-
-                            let x = x
-                                + i as f32 * self.screen.lane_width()
-                                + 1.0 * i as f32
-                                + self.screen.lane_width()
-                                + self.screen.track_width / 2.0;
-                            let y = y as f32;
-                            let w = self.screen.track_width as f32 / 6.0 - 2.0;
-                            let h = -2.0;
-
-                            bt_builder.rectangle(
-                                graphics::DrawMode::fill(),
-                                [x, y, w, h].into(),
-                                graphics::WHITE,
-                            );
-                        } else {
-                            for (x, y, h, _) in self.screen.interval_to_ranges(n) {
-                                let x = x
-                                    + i as f32 * self.screen.lane_width()
-                                    + 1.0 * i as f32
-                                    + self.screen.lane_width()
-                                    + self.screen.track_width / 2.0;
-                                let w = self.screen.track_width as f32 / 6.0 - 2.0;
-
-                                long_bt_builder.rectangle(
-                                    graphics::DrawMode::fill(),
-                                    [x, y, w, h].into(),
-                                    graphics::WHITE,
-                                );
-                            }
-                        }
-                    }
-                }
-            }
-
-            //fx
-            {
-                profile_scope!("FX Components");
-                for i in 0..2 {
-                    for n in &self.chart.note.fx[i] {
-                        if n.y + n.l < min_tick_render {
-                            continue;
-                        }
-                        if n.y > max_tick_render {
-                            break;
-                        }
-
-                        if n.l == 0 {
-                            let (x, y) = self.screen.tick_to_pos(n.y);
-
-                            let x = x
-                                + (i as f32 * self.screen.lane_width() * 2.0)
-                                + self.screen.track_width / 2.0
-                                + 2.0 * i as f32
-                                + self.screen.lane_width();
-                            let w = self.screen.lane_width() * 2.0 - 1.0;
-                            let h = -2.0;
-
-                            fx_builder.rectangle(
-                                graphics::DrawMode::fill(),
-                                [x, y, w, h].into(),
-                                [1.0, 0.3, 0.0, 1.0].into(),
-                            );
-                        } else {
-                            for (x, y, h, _) in self.screen.interval_to_ranges(n) {
-                                let x = x
-                                    + (i as f32 * self.screen.lane_width() * 2.0)
-                                    + self.screen.track_width / 2.0
-                                    + 2.0 * i as f32
-                                    + self.screen.lane_width();
-                                let w = self.screen.lane_width() * 2.0 - 1.0;
-
-                                long_fx_builder.rectangle(
-                                    graphics::DrawMode::fill(),
-                                    [x, y, w, h].into(),
-                                    [1.0, 0.3, 0.0, 0.7].into(),
-                                );
-                            }
-                        }
-                    }
-                }
-            }
-
-            //laser
-            {
-                profile_scope!("Laser Components");
-                for i in 0..2 {
-                    for section in &self.chart.note.laser[i] {
-                        let y_base = section.y;
-                        if section.v.last().unwrap().ry + y_base < min_tick_render {
-                            continue;
-                        }
-                        if y_base > max_tick_render {
-                            break;
-                        }
-
-                        self.draw_laser_section(section, laser_builder, laser_color[i])?;
-                    }
-                }
-            }
-        }
-        //meshses
-        {
-            profile_scope!("Build Meshes");
-            let mod_params = (na::Point2::new(-self.screen.x_offset % track_spacing, 0.0),);
-            let params = (na::Point2::new(-self.screen.x_offset, 0.0),);
-            graphics::set_blend_mode(ctx, graphics::BlendMode::Alpha)?;
-            //draw built meshes
-            //track
-            {
-                profile_scope!("Track Mesh");
-                let track_line_mesh = track_line_builder.build(ctx)?;
-                let track_measure_mesh = track_measure_builder.build(ctx)?;
-                graphics::draw(ctx, &track_line_mesh, mod_params)?;
-                graphics::draw(ctx, &track_measure_mesh, params)?;
-            }
-            //long fx
-            {
-                profile_scope!("Long FX Mesh");
-                let note_mesh = long_fx_builder.build(ctx);
-                if let Ok(mesh) = note_mesh {
-                    graphics::draw(ctx, &mesh, params)?;
-                }
-            }
-            //long bt
-            {
-                profile_scope!("Long BT Mesh");
-                let note_mesh = long_bt_builder.build(ctx);
-                if let Ok(mesh) = note_mesh {
-                    graphics::draw(ctx, &mesh, params)?;
-                }
-            }
-            //fx
-            {
-                profile_scope!("FX Mesh");
-                let note_mesh = fx_builder.build(ctx);
-                if let Ok(mesh) = note_mesh {
-                    graphics::draw(ctx, &mesh, params)?;
-                }
-            }
-            //bt
-            {
-                profile_scope!("BT Mesh");
-                let note_mesh = bt_builder.build(ctx);
-                if let Ok(mesh) = note_mesh {
-                    graphics::draw(ctx, &mesh, params)?;
-                }
-            }
-            //laser
-            {
-                profile_scope!("Laser Mesh");
-                graphics::set_blend_mode(ctx, graphics::BlendMode::Add)?;
-                let note_mesh = laser_builder.build(ctx);
-                if let Ok(mesh) = note_mesh {
-                    graphics::draw(ctx, &mesh, params)?;
-                }
-            }
+            default_bindings.insert(
+                KeyCombo::new(Key::Num0, nomod),
+                GuiEvent::ToolChanged(ChartTool::None),
+            );
+            default_bindings.insert(
+                KeyCombo::new(Key::Num1, nomod),
+                GuiEvent::ToolChanged(ChartTool::BT),
+            );
+            default_bindings.insert(
+                KeyCombo::new(Key::Num2, nomod),
+                GuiEvent::ToolChanged(ChartTool::FX),
+            );
+            default_bindings.insert(
+                KeyCombo::new(Key::Num3, nomod),
+                GuiEvent::ToolChanged(ChartTool::LLaser),
+            );
+            default_bindings.insert(
+                KeyCombo::new(Key::Num4, nomod),
+                GuiEvent::ToolChanged(ChartTool::RLaser),
+            );
+            default_bindings.insert(
+                KeyCombo::new(Key::Num5, nomod),
+                GuiEvent::ToolChanged(ChartTool::BPM),
+            );
+            default_bindings.insert(
+                KeyCombo::new(Key::Num6, nomod),
+                GuiEvent::ToolChanged(ChartTool::TimeSig),
+            );
         }
 
-        if let Some(cursor) = &self.cursor_object {
-            cursor.draw(self, ctx).unwrap_or_else(|e| println!("{}", e));
-        }
+        default_bindings.insert(KeyCombo::new(Key::Space, nomod), GuiEvent::Play);
+        default_bindings.insert(KeyCombo::new(Key::Home, nomod), GuiEvent::Home);
+        default_bindings.insert(KeyCombo::new(Key::End, nomod), GuiEvent::End);
+        default_bindings.insert(KeyCombo::new(Key::PageDown, nomod), GuiEvent::Next);
+        default_bindings.insert(KeyCombo::new(Key::PageUp, nomod), GuiEvent::Previous);
 
-        {
-            let tick = if self.audio_playback.is_playing() {
-                self.audio_playback.get_tick(&self.chart) as u32
-            } else {
-                self.cursor_line
-            };
-
-            self.draw_cursor_line(ctx, tick, (255u8, 0u8, 0u8, 255u8))?;
-        }
-
-        //BPM & Time Signatures
-        {
-            profile_scope!("BPM & Time Signatures");
-            let mut changes: Vec<(u32, Vec<(String, graphics::Color)>)> = Vec::new();
-            {
-                profile_scope!("Build BPM & Time signature change list");
-                for bpm_change in &self.chart.beat.bpm {
-                    let color: graphics::Color = (0, 128, 255, 255).into();
-                    let entry = (format!("{:.2}", bpm_change.v), color);
-                    match changes.binary_search_by(|c| c.0.cmp(&bpm_change.y)) {
-                        Ok(idx) => changes.get_mut(idx).unwrap().1.push(entry),
-                        Err(new_idx) => {
-                            let mut new_vec: Vec<(String, graphics::Color)> = Vec::new();
-                            new_vec.push(entry);
-                            changes.insert(new_idx, (bpm_change.y, new_vec));
-                        }
-                    }
-                }
-
-                for ts_change in &self.chart.beat.time_sig {
-                    let tick = self.chart.measure_to_tick(ts_change.idx);
-
-                    let color: graphics::Color = (255, 255, 0, 255).into();
-                    let entry = (
-                        format!("{}/{}", ts_change.v.n, ts_change.v.d),
-                        color.clone(),
-                    );
-
-                    match changes.binary_search_by(|c| c.0.cmp(&tick)) {
-                        Ok(idx) => changes.get_mut(idx).unwrap().1.push(entry),
-                        Err(new_idx) => {
-                            let mut new_vec: Vec<(String, graphics::Color)> = Vec::new();
-                            new_vec.push(entry);
-                            changes.insert(new_idx, (tick, new_vec));
-                        }
-                    }
-                }
-            }
-            let mut any_texts = false;
-            {
-                //TODO: Cache text, it renders very slow but it will have to do for now
-                profile_scope!("Build Text");
-                for c in changes {
-                    if c.0 < min_tick_render {
-                        continue;
-                    } else if c.0 > max_tick_render {
-                        break;
-                    }
-                    let (x, y) = self.screen.tick_to_pos(c.0);
-                    let line_height = 12.0;
-
-                    for (i, l) in c.1.iter().enumerate() {
-                        let text = graphics::Text::new(graphics::TextFragment {
-                            text: l.0.clone(),
-                            color: Some(l.1),
-                            font: Some(graphics::Font::default()),
-                            scale: Some(graphics::Scale::uniform(line_height)),
-                            ..Default::default()
-                        });
-                        graphics::queue_text(
-                            ctx,
-                            &text,
-                            [x, y - i as f32 * line_height - self.screen.bottom_margin],
-                            Some(graphics::WHITE),
-                        );
-                        any_texts = true;
-                    }
-                }
-            }
-            if any_texts {
-                profile_scope!("Draw Text");
-                graphics::draw_queued_text(
-                    ctx,
-                    graphics::DrawParam::new().dest([-self.screen.x_offset, 0.0]),
-                    Some(graphics::BlendMode::Alpha),
-                    graphics::FilterMode::Linear,
-                )?;
-            }
-        }
-
-        self.redraw = false;
-        Ok(())
-    }
-    fn mouse_button_down_event(&mut self, _ctx: &mut Context, button: MouseButton, x: f32, y: f32) {
-        if button == MouseButton::Left {
-            let res = self.chart.beat.resolution;
-            let lane = self.screen.pos_to_lane(x);
-            let tick = self.screen.pos_to_tick(x, y);
-            let tick = tick - (tick % (res / 2));
-            let tick_f = self.screen.pos_to_tick_f(x, y);
-            match self.cursor_object {
-                Some(ref mut cursor) => cursor.mouse_down(
-                    self.screen,
-                    tick,
-                    tick_f,
-                    lane,
-                    &self.chart,
-                    &mut self.actions,
-                    na::Point2::new(x, y),
-                ),
-                None => self.cursor_line = tick,
-            }
+        Self {
+            key_bindings: default_bindings,
+            track_width: 72.0,
+            beats_per_column: 16,
         }
     }
+}
 
-    fn mouse_button_up_event(&mut self, _ctx: &mut Context, button: MouseButton, x: f32, y: f32) {
-        if button == MouseButton::Left {
-            let lane = self.screen.pos_to_lane(x);
-            let tick = self.screen.pos_to_tick(x, y);
-            let tick_f = self.screen.pos_to_tick_f(x, y);
-            let tick = tick - (tick % (self.chart.beat.resolution / 2));
-            if let Some(cursor) = &mut self.cursor_object {
-                cursor.mouse_up(
-                    self.screen,
-                    tick,
-                    tick_f,
-                    lane,
-                    &self.chart,
-                    &mut self.actions,
-                    na::Point2::new(x, y),
-                );
+pub fn rect_xy_wh(rect: [f32; 4]) -> Rect {
+    let (mut x, mut y, mut w, mut h) = (rect[0], rect[1], rect[2], rect[3]);
+    if w < 0.0 {
+        x += w;
+        w = w.abs();
+    }
+
+    if h < 0.0 {
+        y += h;
+        h = h.abs();
+    }
+
+    Rect::from_x_y_ranges(x..=x + w, y..=y + h)
+}
+
+const TOOLS: [(&str, ChartTool); 6] = [
+    ("BT", ChartTool::BT),
+    ("FX", ChartTool::FX),
+    ("LL", ChartTool::LLaser),
+    ("RL", ChartTool::RLaser),
+    ("BPM", ChartTool::BPM),
+    ("TS", ChartTool::TimeSig),
+];
+
+impl AppState {
+    fn preferences(&mut self, ui: &mut Ui) {
+        warn_if_debug_build(ui);
+
+        ui.add(
+            Slider::new(&mut self.editor.screen.track_width, 50.0..=300.0)
+                .clamp_to_range(true)
+                .text("Track Width"),
+        );
+
+        ui.add(
+            Slider::new(&mut self.editor.screen.beats_per_col, 4..=32)
+                .clamp_to_range(true)
+                .text("Beats per column"),
+        );
+
+        let mut binding_vec: Vec<(&KeyCombo, &GuiEvent)> = self.key_bindings.iter().collect();
+        binding_vec.sort_by_key(|f| f.1);
+        ui.separator();
+        ui.label("Hotkeys");
+        Grid::new("hotkey_grid").striped(true).show(ui, |ui| {
+            for (key, event) in binding_vec {
+                ui.label(format!("{}", event));
+                ui.add(Label::new(format!("{}", key)).wrap(false));
+                ui.end_row();
             }
-        }
+        });
     }
+}
 
-    fn resize_event(&mut self, ctx: &mut Context, w: f32, h: f32) {
-        self.redraw = true;
-        graphics::set_screen_coordinates(
-            ctx,
-            graphics::Rect {
-                x: 0.0,
-                y: 0.0,
-                w,
-                h,
-            },
-        )
-        .unwrap_or_else(|e| println!("{}", e));
-        self.screen.w = w;
-        self.screen.h = h;
-        self.screen.tick_height = self.screen.chart_draw_height()
-            / (self.chart.beat.resolution * self.screen.beats_per_col) as f32;
-    }
+const CONFIG_KEY: &str = "CONFIG_2";
 
-    fn key_down_event(
+fn menu_ui(ui: &mut Ui, title: impl ToString, min_width: f32, add_contents: impl FnOnce(&mut Ui)) {
+    menu::menu(ui, title, |ui| {
+        ui.with_layout(Layout::top_down_justified(egui::Align::Min), |ui| {
+            ui.allocate_exact_size(Vec2::new(min_width, 0.0), Sense::hover());
+            add_contents(ui)
+        });
+    })
+}
+
+impl App for AppState {
+    fn setup(
         &mut self,
-        _ctx: &mut Context,
-        keycode: KeyCode,
-        keymods: KeyMods,
-        _repeat: bool,
+        _ctx: &egui::CtxRef,
+        _frame: &mut eframe::epi::Frame<'_>,
+        storage: Option<&dyn eframe::epi::Storage>,
     ) {
-        match keycode {
-            KeyCode::Home => self.screen.x_offset_target = 0.0,
-            KeyCode::PageUp => {
-                self.screen.x_offset_target +=
-                    self.screen.w - (self.screen.w % self.screen.track_spacing())
-            }
-            KeyCode::PageDown => {
-                self.screen.x_offset_target = (self.screen.x_offset_target
-                    - (self.screen.w - (self.screen.w % self.screen.track_spacing())))
-                .max(0.0)
-            }
-            KeyCode::End => {
-                let mut target: f32 = 0.0;
+        let config = if let Some(storage) = storage {
+            let c: Option<Config> = eframe::epi::get_value(storage, CONFIG_KEY);
+            c.unwrap_or_default()
+        } else {
+            Config::default()
+        };
 
-                //check pos of last bt
-                for i in 0..4 {
-                    if let Some(note) = self.chart.note.bt[i].last() {
-                        target = target
-                            .max(self.screen.tick_to_pos(note.y + note.l).0 + self.screen.x_offset)
-                    }
-                }
+        self.key_bindings = config.key_bindings;
+        self.editor.screen.track_width = config.track_width;
+        self.editor.screen.beats_per_col = config.beats_per_column;
+    }
 
-                //check pos of last fx
-                for i in 0..2 {
-                    if let Some(note) = self.chart.note.fx[i].last() {
-                        target = target
-                            .max(self.screen.tick_to_pos(note.y + note.l).0 + self.screen.x_offset)
-                    }
-                }
+    fn warm_up_enabled(&self) -> bool {
+        false
+    }
 
-                //check pos of last lasers
-                for i in 0..2 {
-                    if let Some(section) = self.chart.note.laser[i].last() {
-                        if let Some(segment) = section.v.last() {
-                            target = target.max(
-                                self.screen.tick_to_pos(segment.ry + section.y).0
-                                    + self.screen.x_offset,
-                            )
+    fn save(&mut self, storage: &mut dyn eframe::epi::Storage) {
+        let new_config = Config {
+            key_bindings: self.key_bindings.clone(),
+            beats_per_column: self.editor.screen.beats_per_col,
+            track_width: self.editor.screen.track_width,
+        };
+
+        eframe::epi::set_value(storage, CONFIG_KEY, &new_config)
+    }
+
+    fn on_exit(&mut self) {}
+
+    fn auto_save_interval(&self) -> std::time::Duration {
+        std::time::Duration::from_secs(300)
+    }
+
+    fn update(&mut self, ctx: &egui::CtxRef, frame: &mut eframe::epi::Frame<'_>) {
+        //input checking
+        for e in &ctx.input().events {
+            match e {
+                egui::Event::Copy => {}
+                egui::Event::Cut => {}
+                egui::Event::Key {
+                    key,
+                    pressed,
+                    modifiers,
+                } => {
+                    if *pressed && ctx.memory().focus().is_none() {
+                        let key_combo = KeyCombo {
+                            key: *key,
+                            modifiers: (*modifiers).into(),
+                        };
+
+                        match self.key_bindings.get(&key_combo) {
+                            Some(GuiEvent::New) => {
+                                if self.new_chart.is_none() {
+                                    self.new_chart = Some(Default::default())
+                                }
+                            }
+                            Some(GuiEvent::Preferences) => self.show_preferences = true,
+                            Some(GuiEvent::Metadata) => {
+                                self.meta_edit = Some(self.editor.chart.meta.clone())
+                            }
+                            Some(GuiEvent::MusicInfo) => {
+                                self.bgm_edit =
+                                    Some(self.editor.chart.audio.bgm.clone().unwrap_or_default())
+                            }
+
+                            Some(action) => self.editor.gui_event_queue.push_back(action.clone()),
+                            None => (),
                         }
                     }
                 }
+                egui::Event::PointerMoved(pos) => self.editor.mouse_motion_event(*pos),
 
-                self.screen.x_offset_target = target - (target % self.screen.track_spacing())
+                _ => {}
             }
-            KeyCode::Space => {
-                if self.audio_playback.is_playing() {
-                    self.audio_playback.stop()
-                } else if let Some(path) = &self.save_path {
-                    let path = Path::new(path).parent().unwrap();
-                    if let Some(bgm) = &self.chart.audio.bgm {
-                        if let Some(filename) = &bgm.filename {
-                            let filename = &filename.split(';').next().unwrap();
-                            let path = path.join(Path::new(filename));
-                            println!("Playing file: {}", path.display());
-                            let path = path.to_str().unwrap();
-                            match self.audio_playback.open(path) {
-                                Ok(_) => {
-                                    let ms =
-                                        self.chart.tick_to_ms(self.cursor_line) + bgm.offset as f64;
-                                    let ms = ms.max(0.0);
-                                    self.audio_playback.build_effects(&self.chart);
-                                    self.audio_playback.set_poistion(ms);
-                                    self.audio_playback.play();
-                                }
-                                Err(msg) => {
-                                    println!("{}", msg);
-                                }
+        }
+
+        if let Err(e) = self.editor.update(ctx) {
+            panic!("{}", e);
+        }
+
+        //draw
+        //menu
+        {
+            egui::TopBottomPanel::top("menubar").show(ctx, |ui| {
+                menu::bar(ui, |ui| {
+                    menu_ui(ui, "File", 100.0, |ui| {
+                        if ui.button("New").clicked() {
+                            self.new_chart = Some(Default::default());
+                        }
+                        if ui.button("Open").clicked() {
+                            self.editor.gui_event_queue.push_back(GuiEvent::Open);
+                        }
+                        if ui.button("Save").clicked() {
+                            self.editor.gui_event_queue.push_back(GuiEvent::Save)
+                        }
+                        if ui.button("Save As").clicked() {
+                            self.editor.gui_event_queue.push_back(GuiEvent::SaveAs)
+                        }
+                        if ui.button("Export Ksh").clicked() {
+                            self.editor.gui_event_queue.push_back(GuiEvent::ExportKsh)
+                        }
+                        ui.separator();
+                        if ui.button("Preferences").clicked() {
+                            self.show_preferences = true;
+                        }
+                        ui.separator();
+                        if ui.button("Exit").clicked() {
+                            frame.quit();
+                        }
+                    });
+                    menu_ui(ui, "Edit", 70.0, |ui| {
+                        let undo_desc = self.editor.actions.prev_action_desc();
+                        let redo_desc = self.editor.actions.next_action_desc();
+
+                        if ui
+                            .add(
+                                Button::new(format!(
+                                    "Undo: {}",
+                                    undo_desc.as_ref().unwrap_or(&String::new())
+                                ))
+                                .enabled(undo_desc.is_some()),
+                            )
+                            .clicked()
+                        {
+                            self.editor.gui_event_queue.push_back(GuiEvent::Undo);
+                        }
+                        if ui
+                            .add(
+                                Button::new(format!(
+                                    "Redo: {}",
+                                    redo_desc.as_ref().unwrap_or(&String::new())
+                                ))
+                                .enabled(redo_desc.is_some()),
+                            )
+                            .clicked()
+                        {
+                            self.editor.gui_event_queue.push_back(GuiEvent::Redo);
+                        }
+
+                        ui.separator();
+                        if ui.button("Metadata").clicked() && self.meta_edit.is_none() {
+                            self.meta_edit = Some(self.editor.chart.meta.clone());
+                        }
+                        if ui.button("Music Info").clicked() && self.meta_edit.is_none() {
+                            self.bgm_edit =
+                                Some(self.editor.chart.audio.bgm.clone().unwrap_or_default());
+                        }
+                    });
+
+                    if !self.editor.actions.saved() {
+                        ui.with_layout(Layout::right_to_left(), |ui| {
+                            ui.add(egui::Label::new("*").text_color(Color32::RED))
+                                .on_hover_text("Unsaved Changes")
+                        });
+                    }
+                });
+                ui.separator();
+                menu::bar(ui, |ui| {
+                    for (name, tool) in &TOOLS {
+                        if ui
+                            .selectable_label(self.editor.current_tool == *tool, name)
+                            .clicked()
+                        {
+                            if *tool == self.editor.current_tool {
+                                self.editor
+                                    .gui_event_queue
+                                    .push_back(GuiEvent::ToolChanged(ChartTool::None))
+                            } else {
+                                self.editor
+                                    .gui_event_queue
+                                    .push_back(GuiEvent::ToolChanged(*tool));
                             }
                         }
                     }
+                })
+            });
+        }
+
+        //stuff
+        {
+            let mut open = self.show_preferences;
+            egui::Window::new("Preferences")
+                .open(&mut open)
+                .show(ctx, |ui| {
+                    ui.with_layout(Layout::top_down_justified(egui::Align::Min), |ui| {
+                        self.preferences(ui);
+                    });
+                });
+            self.show_preferences = open;
+
+            //New chart dialog
+            if let Some(new_chart) = &mut self.new_chart {
+                let mut open = true;
+                let mut event = None;
+                egui::Window::new("New").open(&mut open).show(ctx, |ui| {
+                    if new_chart.ui(ui).clicked() {
+                        event = Some(GuiEvent::NewChart(new_chart.clone()));
+                    }
+                });
+
+                if let Some(event) = event {
+                    self.editor.gui_event_queue.push_back(event);
+                    self.new_chart = None;
+                }
+
+                if !open {
+                    self.new_chart = None;
                 }
             }
-            KeyCode::Z => {
-                if keymods & KeyMods::CTRL != KeyMods::NONE {
-                    self.actions.undo();
+
+            //Metadata dialog
+            if self.meta_edit.is_some() {
+                let mut open = true;
+                egui::Window::new("Metadata")
+                    .open(&mut open)
+                    .show(ctx, |ui| {
+                        self.meta_edit.as_mut().unwrap().ui(ui);
+                        ui.add_space(10.0);
+                        if ui.button("Ok").clicked() {
+                            let new_action = self.editor.actions.new_action();
+                            let new_meta = self.meta_edit.take().unwrap();
+                            new_action.action = Box::new(move |chart: &mut Chart| {
+                                chart.meta = new_meta.clone();
+                                Ok(())
+                            });
+                            new_action.description = String::from("Update Metadata");
+                        }
+                    });
+                if !open {
+                    self.meta_edit = None;
                 }
             }
-            KeyCode::Y => {
-                if keymods & KeyMods::CTRL != KeyMods::NONE {
-                    self.actions.redo();
+
+            //Music data dialog
+            if self.bgm_edit.is_some() {
+                let mut open = true;
+                egui::Window::new("Music Info")
+                    .open(&mut open)
+                    .show(ctx, |ui| {
+                        self.bgm_edit.as_mut().unwrap().ui(ui);
+                        ui.add_space(10.0);
+                        if ui.button("Ok").clicked() {
+                            let new_action = self.editor.actions.new_action();
+                            let new_bgm = self.bgm_edit.take().unwrap();
+                            new_action.description = "Update Music Info".into();
+                            new_action.action = Box::new(move |chart: &mut Chart| {
+                                chart.audio.bgm = Some(new_bgm.clone());
+                                Ok(())
+                            });
+                        }
+                    });
+                if !open {
+                    self.bgm_edit = None;
                 }
             }
-            _ => (),
-        }
-    }
-
-    fn mouse_motion_event(&mut self, _ctx: &mut Context, x: f32, y: f32, _dx: f32, _dy: f32) {
-        self.mouse_x = x;
-        self.mouse_y = y;
-
-        let lane = self.screen.pos_to_lane(x);
-        let tick = self.screen.pos_to_tick(x, y);
-        let tick_f: f64 = self.screen.pos_to_tick_f(x, y);
-        let tick = tick - (tick % (self.chart.beat.resolution / 2));
-        if let Some(cursor) = &mut self.cursor_object {
-            cursor.update(tick, tick_f, lane, na::Point2::new(x, y));
-        }
-    }
-
-    fn mouse_wheel_event(&mut self, _ctx: &mut Context, _x: f32, y: f32) {
-        self.screen.x_offset_target += y * self.screen.track_width;
-        self.screen.x_offset_target = self.screen.x_offset_target.max(0.0);
-    }
-}
-
-fn get_extension_from_filename(filename: &str) -> Option<&str> {
-    Path::new(filename).extension().and_then(OsStr::to_str)
-}
-
-//https://github.com/m4saka/ksh2kson/issues/4#issuecomment-573343229
-pub fn do_curve(x: f64, a: f64, b: f64) -> f64 {
-    let t = if x < std::f64::EPSILON || a < std::f64::EPSILON {
-        (a - (a * a + x - 2.0 * a * x).sqrt()) / (-1.0 + 2.0 * a)
-    } else {
-        x / (a + (a * a + (1.0 - 2.0 * a) * x).sqrt())
-    };
-    2.0 * (1.0 - t) * t * b + t * t
-}
-
-fn open_chart_file(path: String) -> Result<Option<(kson::Chart, String)>, Box<dyn Error>> {
-    match get_extension_from_filename(&path)
-        .unwrap_or("")
-        .to_lowercase()
-        .as_ref()
-    {
-        "ksh" => {
-            let mut data = String::from("");
-            File::open(&path).unwrap().read_to_string(&mut data)?;
-            Ok(Some((kson::Chart::from_ksh(&data)?, path)))
-        }
-        "kson" => {
-            let file = File::open(&path)?;
-            let reader = BufReader::new(file);
-            profile_scope!("kson parse");
-            Ok(Some((serde_json::from_reader(reader)?, path)))
         }
 
-        _ => Ok(None),
-    }
-}
+        //main
+        {
+            let main_frame = Frame {
+                margin: Vec2::new(0.0, 0.0),
+                fill: Color32::BLACK,
+                ..Default::default()
+            };
 
-fn open_chart() -> Result<Option<(kson::Chart, String)>, Box<dyn Error>> {
-    let path: String;
-    let dialog_result = nfd::dialog().filter("ksh,kson").open()?;
+            if let Some(tool) = &mut self.editor.cursor_object {
+                tool.draw_ui(ctx, &mut self.editor.actions);
+            }
 
-    match dialog_result {
-        nfd::Response::Okay(file_path) => {
-            path = String::from(&file_path);
-            open_chart_file(path)
-        }
-        _ => Ok(None),
-    }
-}
+            let main_response = egui::CentralPanel::default()
+                .frame(main_frame)
+                .show(ctx, |ui| self.editor.draw(ui))
+                .inner;
 
-fn save_chart_as(chart: &kson::Chart) -> Result<Option<String>, Box<dyn Error>> {
-    let path: String;
-    let dialog_result = nfd::open_save_dialog(Some("kson"), None)?;
+            match main_response {
+                Ok(response) => {
+                    let pos = ctx.input().pointer.hover_pos().unwrap_or(Pos2::ZERO);
+                    if response.hovered() && ctx.input().scroll_delta != Vec2::ZERO {
+                        self.editor.mouse_wheel_event(ctx.input().scroll_delta.y);
+                    }
 
-    match dialog_result {
-        nfd::Response::Okay(file_path) => {
-            path = file_path;
-            let mut file = File::create(&path).unwrap();
-            profile_scope!("Write kson");
-            file.write_all(serde_json::to_string(&chart)?.as_bytes())?;
-        }
-        _ => return Ok(None),
-    }
+                    if response.clicked() {
+                        self.editor.primary_clicked(pos)
+                    }
 
-    Ok(Some(path))
-}
+                    if response.middle_clicked() {
+                        self.editor.middle_clicked(pos)
+                    }
 
-fn get_config_path() -> std::path::PathBuf {
-    let mut dir = dirs::config_dir().unwrap_or_else(std::env::temp_dir);
-    dir.push("Drewol");
-    dir.push("kson-editor");
-    dir
-}
+                    if response.drag_started()
+                        && ctx
+                            .input()
+                            .pointer
+                            .button_down(egui::PointerButton::Primary)
+                    {
+                        self.editor
+                            .drag_start(egui::PointerButton::Primary, pos.x, pos.y)
+                    }
 
-pub fn main() {
-    thread_profiler::register_thread_with_profiler();
-    std::fs::create_dir_all(get_config_path()).unwrap();
-
-    let win_setup = ggez::conf::WindowSetup {
-        title: "KSON Editor".to_owned(),
-        samples: ggez::conf::NumSamples::Four,
-        vsync: true,
-        icon: "".to_owned(),
-        srgb: true,
-    };
-
-    let mode = ggez::conf::WindowMode {
-        width: 800.0,
-        height: 600.0,
-        maximized: false,
-        fullscreen_type: ggez::conf::FullscreenType::Windowed,
-        borderless: false,
-        min_width: 0.0,
-        max_width: 0.0,
-        min_height: 0.0,
-        max_height: 0.0,
-        resizable: true,
-    };
-
-    let modules = ggez::conf::ModuleConf {
-        gamepad: false,
-        audio: false,
-    };
-
-    let cb = ggez::ContextBuilder::new("usc-editor", "Drewol")
-        .window_setup(win_setup)
-        .window_mode(mode)
-        .modules(modules);
-
-    let (ctx, event_loop) = &mut cb.build().unwrap_or_else(|e| {
-        println!("{}", e);
-        panic!(e);
-    });
-
-    let state = &mut MainState::new(&ctx).unwrap_or_else(|e| {
-        println!("{}", e);
-        panic!(e);
-    });
-
-    let mut args = std::env::args();
-    if args.len() > 1 {
-        args.next();
-        if let Some(input_filename) = args.next() {
-            if let Ok(Some(loaded_chart)) = open_chart_file(input_filename) {
-                state.chart = loaded_chart.0;
-                state.actions.reset(state.chart.clone());
+                    if response.drag_released() {
+                        self.editor
+                            .drag_end(egui::PointerButton::Primary, pos.x, pos.y)
+                    }
+                }
+                Err(e) => panic!("{}", e),
             }
         }
     }
 
-    let imgui_wrapper = &mut ImGuiWrapper::new(ctx).unwrap_or_else(|e| {
-        println!("{}", e);
-        panic!();
-    });
-
-    match custom_loop::run(ctx, event_loop, state, imgui_wrapper) {
-        Ok(_) => (),
-        Err(e) => println!("Program exited with error: {}", e),
+    fn name(&self) -> &str {
+        "KSON Editor"
     }
-    state.audio_playback.release();
-    let mut profiling_path = get_config_path();
-    profiling_path.push("profiling");
-    profiling_path.set_extension("json");
-    thread_profiler::write_profile(profiling_path.to_str().unwrap());
+}
+
+fn main() -> Result<()> {
+    simple_logger::SimpleLogger::new()
+        .with_level(log::LevelFilter::Debug)
+        .init()?;
+    let options = eframe::NativeOptions {
+        drag_and_drop_support: false,
+        ..Default::default()
+    };
+
+    eframe::run_native(
+        Box::new(AppState {
+            editor: MainState::new()?,
+            key_bindings: HashMap::new(),
+            show_preferences: false,
+            new_chart: None,
+            meta_edit: None,
+            bgm_edit: None,
+        }),
+        options,
+    );
 }
