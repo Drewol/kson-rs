@@ -9,7 +9,7 @@ use eframe::egui::{
     Pos2, Rect, Response, Sense, SidePanel, Slider, Ui, Vec2,
 };
 use eframe::epi::App;
-use kson::{Chart, MetaInfo};
+use kson::{BgmInfo, Chart, MetaInfo};
 use serde::{Deserialize, Serialize};
 
 mod action_stack;
@@ -116,6 +116,41 @@ impl Widget for &mut NewChartOptions {
     }
 }
 
+impl Widget for &mut kson::BgmInfo {
+    fn ui(self, ui: &mut Ui) -> Response {
+        if self.filename.is_none() {
+            self.filename = Some(Default::default());
+        }
+
+        Grid::new("bgm_info")
+            .show(ui, |ui| {
+                ui.label("Audio File");
+                ui.text_edit_singleline(self.filename.as_mut().unwrap());
+                ui.end_row();
+
+                ui.label("Offset");
+                ui.add(DragValue::new(&mut self.offset).suffix("ms"));
+                ui.end_row();
+
+                ui.label("Volume");
+                ui.add(Slider::new(&mut self.vol, 0.0..=1.0).clamp_to_range(true));
+                ui.end_row();
+
+                ui.separator();
+                ui.end_row();
+
+                ui.label("Preview Offset");
+                ui.add(DragValue::new(&mut self.preview_offset).suffix("ms"));
+                ui.end_row();
+
+                ui.label("Preview Duration");
+                ui.add(DragValue::new(&mut self.preview_duration).suffix("ms"));
+                ui.end_row();
+            })
+            .response
+    }
+}
+
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq, PartialOrd, Ord)]
 pub enum GuiEvent {
     #[serde(skip_serializing)]
@@ -125,6 +160,7 @@ pub enum GuiEvent {
     Save,
     SaveAs,
     Metadata,
+    MusicInfo,
     ToolChanged(ChartTool),
     Play,
     Undo,
@@ -179,6 +215,7 @@ struct AppState {
     show_preferences: bool,
     new_chart: Option<NewChartOptions>,
     meta_edit: Option<MetaInfo>,
+    bgm_edit: Option<BgmInfo>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -327,6 +364,10 @@ impl Default for Config {
             GuiEvent::Metadata,
         );
         default_bindings.insert(
+            KeyCombo::new(Key::M, Modifiers::new().ctrl()),
+            GuiEvent::MusicInfo,
+        );
+        default_bindings.insert(
             KeyCombo::new(Key::S, Modifiers::new().ctrl().shift()),
             GuiEvent::SaveAs,
         );
@@ -443,7 +484,7 @@ impl AppState {
     }
 }
 
-const CONFIG_KEY: &str = "CONFIG_1";
+const CONFIG_KEY: &str = "CONFIG_2";
 
 fn menu_ui(ui: &mut Ui, title: impl ToString, min_width: f32, add_contents: impl FnOnce(&mut Ui)) {
     menu::menu(ui, title, |ui| {
@@ -519,6 +560,10 @@ impl App for AppState {
                             Some(GuiEvent::Preferences) => self.show_preferences = true,
                             Some(GuiEvent::Metadata) => {
                                 self.meta_edit = Some(self.editor.chart.meta.clone())
+                            }
+                            Some(GuiEvent::MusicInfo) => {
+                                self.bgm_edit =
+                                    Some(self.editor.chart.audio.bgm.clone().unwrap_or_default())
                             }
 
                             Some(action) => self.editor.gui_event_queue.push_back(action.clone()),
@@ -598,6 +643,10 @@ impl App for AppState {
                         ui.separator();
                         if ui.button("Metadata").clicked() && self.meta_edit.is_none() {
                             self.meta_edit = Some(self.editor.chart.meta.clone());
+                        }
+                        if ui.button("Music Info").clicked() && self.meta_edit.is_none() {
+                            self.bgm_edit =
+                                Some(self.editor.chart.audio.bgm.clone().unwrap_or_default());
                         }
                     });
 
@@ -684,6 +733,29 @@ impl App for AppState {
                     self.meta_edit = None;
                 }
             }
+
+            //Music data dialog
+            if self.bgm_edit.is_some() {
+                let mut open = true;
+                egui::Window::new("Music Info")
+                    .open(&mut open)
+                    .show(ctx, |ui| {
+                        self.bgm_edit.as_mut().unwrap().ui(ui);
+                        ui.add_space(10.0);
+                        if ui.button("Ok").clicked() {
+                            let new_action = self.editor.actions.new_action();
+                            let new_bgm = self.bgm_edit.take().unwrap();
+                            new_action.description = "Update Music Info".into();
+                            new_action.action = Box::new(move |chart: &mut Chart| {
+                                chart.audio.bgm = Some(new_bgm.clone());
+                                Ok(())
+                            });
+                        }
+                    });
+                if !open {
+                    self.bgm_edit = None;
+                }
+            }
         }
 
         //main
@@ -759,6 +831,7 @@ fn main() -> Result<()> {
             show_preferences: false,
             new_chart: None,
             meta_edit: None,
+            bgm_edit: None,
         }),
         options,
     );
