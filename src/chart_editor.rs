@@ -163,12 +163,20 @@ impl ScreenState {
 
 impl MainState {
     pub fn new() -> Result<MainState> {
-        let mut new_chart = kson::Chart::new();
-        new_chart.beat.bpm.push(kson::ByPulse { y: 0, v: 120.0 });
-        new_chart.beat.time_sig.push(kson::ByMeasureIndex {
-            idx: 0,
-            v: kson::TimeSignature { d: 4, n: 4 },
-        });
+        let (new_chart, save_path) = if let Some(Ok(Some((chart, path)))) = std::env::args()
+            .nth(1)
+            .map(|p| open_chart_file(PathBuf::from(p)))
+        {
+            (chart, Some(path))
+        } else {
+            let mut c = kson::Chart::new();
+            c.beat.bpm.push(kson::ByPulse { y: 0, v: 120.0 });
+            c.beat.time_sig.push(kson::ByMeasureIndex {
+                idx: 0,
+                v: kson::TimeSignature { d: 4, n: 4 },
+            });
+            (c, None)
+        };
 
         let s = MainState {
             chart: new_chart.clone(),
@@ -187,7 +195,7 @@ impl MainState {
                 beat_res: 48,
             },
             gui_event_queue: VecDeque::new(),
-            save_path: None,
+            save_path,
             mouse_x: 0.0,
             mouse_y: 0.0,
             current_tool: ChartTool::None,
