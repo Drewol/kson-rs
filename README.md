@@ -13,9 +13,9 @@ Editor program for the Sound Voltex simulator format [KSON](https://github.com/m
 * BPM editing
 * Time signature editing
 * Hotkeys
+* Basic metadata editing
 
 ## TODO
-* Basic metadata editing
 * Effecting
 * Modifying existing objects
 * Camera editing
