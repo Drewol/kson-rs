@@ -1,9 +1,28 @@
 #![allow(dead_code)]
 use crate::parameter::{BoolParameter, EffectParameter};
 use serde::{Deserialize, Serialize};
-use serde_json::Value;
+
 use std::f32;
 
+#[derive(Deserialize, Serialize, Clone)]
+pub enum AudioEffect {
+    ReTrigger(ReTrigger),
+    Gate(Gate),
+    Flanger(Flanger),
+    PitchShift(PitchShift),
+    BitCrusher(BitCrusher),
+    Phaser(Phaser),
+    Wobble(Wobble),
+    TapeStop(TapeStop),
+    Echo(Echo),
+    SideChain(SideChain),
+    AudioSwap(AudioSwap),
+    HighPassFilter(HighPassFilter),
+    LowPassFilter(LowPassFilter),
+    PeakingFilter(PeakingFilter),
+}
+
+#[derive(Deserialize, Serialize, Clone, Default)]
 pub struct ReTrigger {
     update_period: EffectParameter<f32>,
     update_period_tempo_sync: BoolParameter,
@@ -14,6 +33,7 @@ pub struct ReTrigger {
     mix: EffectParameter<f32>,
 }
 
+#[derive(Deserialize, Serialize, Clone, Default)]
 pub struct Gate {
     wave_length: EffectParameter<f32>,
     wave_length_tempo_sync: BoolParameter,
@@ -21,6 +41,7 @@ pub struct Gate {
     mix: EffectParameter<f32>,
 }
 
+#[derive(Deserialize, Serialize, Clone, Default)]
 pub struct Flanger {
     period: EffectParameter<f32>,
     period_tempo_sync: BoolParameter,
@@ -32,6 +53,7 @@ pub struct Flanger {
     mix: EffectParameter<f32>,
 }
 
+#[derive(Deserialize, Serialize, Clone, Default)]
 pub struct PitchShift {
     pitch: EffectParameter<f32>,
     pitch_quantize: BoolParameter,
@@ -40,11 +62,13 @@ pub struct PitchShift {
     mix: EffectParameter<f32>,
 }
 
+#[derive(Deserialize, Serialize, Clone, Default)]
 pub struct BitCrusher {
     reduction: EffectParameter<i64>,
     mix: EffectParameter<f32>,
 }
 
+#[derive(Deserialize, Serialize, Clone, Default)]
 pub struct Phaser {
     period: EffectParameter<f32>,
     period_tempo_sync: BoolParameter,
@@ -57,6 +81,7 @@ pub struct Phaser {
     mix: EffectParameter<f32>,
 }
 
+#[derive(Deserialize, Serialize, Clone, Default)]
 pub struct Wobble {
     wave_length: EffectParameter<f32>,
     wave_length_tempo_sync: BoolParameter,
@@ -66,12 +91,14 @@ pub struct Wobble {
     mix: EffectParameter<f32>,
 }
 
+#[derive(Deserialize, Serialize, Clone, Default)]
 pub struct TapeStop {
     speed: EffectParameter<f32>,
     trigger: BoolParameter,
     mix: EffectParameter<f32>,
 }
 
+#[derive(Deserialize, Serialize, Clone, Default)]
 pub struct Echo {
     update_period: EffectParameter<f32>,
     update_period_tempo_sync: BoolParameter,
@@ -82,6 +109,7 @@ pub struct Echo {
     mix: EffectParameter<f32>,
 }
 
+#[derive(Deserialize, Serialize, Clone, Default)]
 pub struct SideChain {
     period: EffectParameter<f32>,
     period_tempo_sync: BoolParameter,
@@ -94,6 +122,7 @@ pub struct SideChain {
     ratio: EffectParameter<f32>,
 }
 
+#[derive(Deserialize, Serialize, Clone, Default)]
 pub struct AudioSwap;
 
 #[derive(Copy, Clone)]
@@ -110,7 +139,7 @@ impl Default for BiQuadType {
     }
 }
 
-#[derive(Default)]
+#[derive(Default, Clone)]
 pub struct BiQuad {
     a0: f32,
     a1: f32,
@@ -125,6 +154,7 @@ pub struct BiQuad {
     mix: f32,
 }
 
+#[derive(Deserialize, Serialize, Clone, Default)]
 pub struct HighPassFilter {
     env: EffectParameter<f32>,
     lo_freq: EffectParameter<f32>,
@@ -132,9 +162,11 @@ pub struct HighPassFilter {
     q: EffectParameter<f32>,
     delay: EffectParameter<f32>,
     mix: EffectParameter<f32>,
+    #[serde(skip_deserializing, skip_serializing)]
     filter: BiQuad,
 }
 
+#[derive(Deserialize, Serialize, Clone, Default)]
 pub struct LowPassFilter {
     env: EffectParameter<f32>,
     lo_freq: EffectParameter<f32>,
@@ -142,10 +174,11 @@ pub struct LowPassFilter {
     q: EffectParameter<f32>,
     delay: EffectParameter<f32>,
     mix: EffectParameter<f32>,
+    #[serde(skip_deserializing, skip_serializing)]
     filter: BiQuad,
 }
 
-#[derive(Deserialize, Serialize)]
+#[derive(Deserialize, Serialize, Clone, Default)]
 pub struct PeakingFilter {
     env: EffectParameter<f32>,
     lo_freq: EffectParameter<f32>,
@@ -160,7 +193,7 @@ pub struct PeakingFilter {
 pub trait Dsp: Send + Sync {
     fn process(&mut self, sample: &mut f32, c: usize);
     fn set_param_transition(&mut self, v: f32, on: bool);
-    fn update_params(&mut self, v: &Value);
+    fn update_params(&mut self, v: &Self);
 }
 
 impl BiQuad {
@@ -277,7 +310,7 @@ impl Dsp for PeakingFilter {
 
         self.filter.set_peaking(freq, self.q.v);
     }
-    fn update_params(&mut self, _v: &Value) {}
+    fn update_params(&mut self, _v: &Self) {}
 }
 
 impl Dsp for LowPassFilter {
@@ -297,7 +330,7 @@ impl Dsp for LowPassFilter {
         self.filter.q = self.q.v;
         self.filter.set_lowpass(freq);
     }
-    fn update_params(&mut self, _v: &Value) {}
+    fn update_params(&mut self, _v: &Self) {}
 }
 
 impl Dsp for HighPassFilter {
@@ -317,5 +350,12 @@ impl Dsp for HighPassFilter {
         self.filter.q = self.q.v;
         self.filter.set_highpass(freq);
     }
-    fn update_params(&mut self, _v: &Value) {}
+    fn update_params(&mut self, v: &Self) {
+        self.env.update(&v.env);
+        self.delay.update(&v.env);
+        self.hi_freq.update(&v.env);
+        self.lo_freq.update(&v.env);
+        self.mix.update(&v.env);
+        self.q.update(&v.q);
+    }
 }

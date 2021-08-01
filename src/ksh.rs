@@ -1,12 +1,34 @@
+use std::io;
 use std::io::BufWriter;
 use std::io::Write;
 
 use crate::*;
-use anyhow::ensure;
-use anyhow::Result;
+
+use thiserror::Error;
+
+#[derive(Debug, Error)]
+pub enum KshReadError {
+    #[error("Laser value out of range: '{0}'")]
+    OutOfRangeLaserValue(char),
+    #[error("Failed to parse value: '{0}'")]
+    ParseError(#[from] std::string::ParseError),
+    #[error("Failed to parse value: '{0}'")]
+    ParseFloatError(#[from] std::num::ParseFloatError),
+    #[error("Failed to parse value: '{0}'")]
+    ParseIntError(#[from] std::num::ParseIntError),
+}
+
+#[derive(Debug, Error)]
+pub enum KshWriteError {
+    #[error("Laser value out of range: '{0}'")]
+    OutOfRangeLaserValue(f64),
+    #[error("IO Error")]
+    FileWriteError(#[from] io::Error),
+}
+
 pub trait Ksh {
-    fn from_ksh(data: &str) -> Result<crate::Chart>;
-    fn to_ksh<W>(&self, out: W) -> Result<()>
+    fn from_ksh(data: &str) -> Result<crate::Chart, KshReadError>;
+    fn to_ksh<W>(&self, out: W) -> Result<(), KshWriteError>
     where
         W: std::io::Write;
 }
@@ -25,13 +47,16 @@ const fn find_laser_char(value: u8) -> u8 {
 }
 
 #[inline]
-fn laser_char_to_value(value: u8) -> Result<f64> {
+fn laser_char_to_value(value: u8) -> Result<f64, KshReadError> {
     let v = find_laser_char(value);
-    ensure!(v != u8::MAX, "Invalid laser char: '{}'", value as char);
-    Ok(v as f64 / 50.0)
+    if v == u8::MAX {
+        Err(KshReadError::OutOfRangeLaserValue(v as char))
+    } else {
+        Ok(v as f64 / 50.0)
+    }
 }
 
-fn parse_ksh_zoom_values(data: &str) -> Result<(f64, Option<f64>)> {
+fn parse_ksh_zoom_values(data: &str) -> Result<(f64, Option<f64>), KshReadError> {
     let (v, vf): (f64, Option<f64>) = {
         if data.contains(';') {
             let mut values = data.split(';');
@@ -64,16 +89,17 @@ const fn is_beat_line(s: &&str) -> bool {
 const LASER_CHARS: &str = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmno";
 
 #[inline]
-fn laser_value_to_char(v: f64) -> Result<char> {
-    ensure!((0.0..=1.0).contains(&v), "Out of range value");
-
-    let i = (v * (LASER_CHARS.len() - 1) as f64).round() as usize;
-
-    Ok(LASER_CHARS.chars().nth(i).unwrap())
+fn laser_value_to_char(v: f64) -> Result<char, KshWriteError> {
+    if !(0.0..=1.0).contains(&v) {
+        Err(KshWriteError::OutOfRangeLaserValue(v))
+    } else {
+        let i = (v * (LASER_CHARS.len() - 1) as f64).round() as usize;
+        Ok(LASER_CHARS.chars().nth(i).unwrap())
+    }
 }
 
 impl Ksh for crate::Chart {
-    fn from_ksh(data: &str) -> Result<crate::Chart> {
+    fn from_ksh(data: &str) -> Result<crate::Chart, KshReadError> {
         let mut new_chart = Chart::new();
         let mut num = 4;
         let mut den = 4;
@@ -328,7 +354,7 @@ impl Ksh for crate::Chart {
     }
 
     //TODO: Write optimized charts using lcm, also ksm doesn't seem to like resolution > 48
-    fn to_ksh<W>(&self, out: W) -> Result<()>
+    fn to_ksh<W>(&self, out: W) -> Result<(), KshWriteError>
     where
         W: std::io::Write,
     {

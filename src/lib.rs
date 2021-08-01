@@ -6,10 +6,10 @@ pub mod parameter;
 pub mod score_ticks;
 
 use camera::CameraInfo;
+use effects::AudioEffect;
 pub use graph::*;
 pub use ksh::*;
 use serde::{Deserialize, Serialize};
-use serde_json::Value;
 use std::collections::HashMap;
 use std::collections::HashSet;
 use std::str;
@@ -282,16 +282,16 @@ impl BgmInfo {
 pub struct KeySoundInfo;
 
 #[derive(Serialize, Deserialize, Clone)]
-pub struct AudioEffect {
+pub struct AudioEffectDef {
     #[serde(rename = "type")]
     effect_type: String,
-    v: Value,
+    v: AudioEffect,
     filename: Option<String>,
 }
 
 #[derive(Serialize, Deserialize, Clone)]
 pub struct AudioEffectInfo {
-    def: Option<HashMap<String, AudioEffect>>,
+    def: Option<HashMap<String, AudioEffectDef>>,
     pulse_event: Option<HashMap<String, ByPulse<AudioEffect>>>,
     note_event: Option<HashMap<String, ByNotes<AudioEffect>>>,
 }
