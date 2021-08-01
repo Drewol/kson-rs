@@ -2,7 +2,11 @@ use std::ops::{Add, Mul, Sub};
 
 use serde::{Deserialize, Serialize};
 
+#[cfg(feature = "schema")]
+use schemars::JsonSchema;
+
 #[derive(Serialize, Deserialize, Clone)]
+#[cfg_attr(feature = "schema", derive(JsonSchema))]
 pub enum InterpolationShape {
     Linear,
     Logarithmic,
@@ -16,6 +20,7 @@ impl Default for InterpolationShape {
 }
 
 #[derive(Deserialize, Serialize, Clone, Default)]
+#[cfg_attr(feature = "schema", derive(JsonSchema))]
 pub struct EffectParameter<T> {
     off: Option<T>,
     min: Option<T>,
@@ -76,6 +81,7 @@ pub trait Parameter<T> {
 }
 
 #[derive(Deserialize, Serialize, Clone, Default)]
+#[cfg_attr(feature = "schema", derive(JsonSchema))]
 pub struct BoolParameter(EffectParameter<f32>);
 
 impl Parameter<bool> for BoolParameter {

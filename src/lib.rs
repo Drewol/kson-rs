@@ -14,6 +14,14 @@ use std::collections::HashMap;
 use std::collections::HashSet;
 use std::str;
 
+#[cfg(feature = "schema")]
+use schemars::{schema_for, JsonSchema};
+
+#[cfg(feature = "schema")]
+pub fn schema() -> schemars::schema::RootSchema {
+    schema_for!(Chart)
+}
+
 #[inline]
 pub fn beat_in_ms(bpm: f64) -> f64 {
     60_000.0 / bpm
@@ -35,6 +43,7 @@ pub fn ms_from_ticks(ticks: i64, bpm: f64, tpqn: u32) -> f64 {
 }
 
 #[derive(Serialize, Deserialize, Copy, Clone, Default)]
+#[cfg_attr(feature = "schema", derive(JsonSchema))]
 pub struct GraphPoint {
     pub y: u32,
     pub v: f64,
@@ -44,6 +53,7 @@ pub struct GraphPoint {
 }
 
 #[derive(Serialize, Deserialize, Copy, Clone)]
+#[cfg_attr(feature = "schema", derive(JsonSchema))]
 pub struct GraphSectionPoint {
     pub ry: u32,
     pub v: f64,
@@ -65,10 +75,11 @@ impl GraphSectionPoint {
 }
 
 #[derive(Serialize, Deserialize, Copy, Clone)]
+#[cfg_attr(feature = "schema", derive(JsonSchema))]
 pub struct Interval {
     pub y: u32,
 
-    #[serde(default = "default_zero")]
+    #[serde(default = "default_zero::<u32>")]
     pub l: u32,
 }
 
@@ -85,10 +96,11 @@ fn default_true<T: From<bool>>() -> T {
 // }
 
 #[derive(Serialize, Deserialize, Clone)]
+#[cfg_attr(feature = "schema", derive(JsonSchema))]
 pub struct LaserSection {
     pub y: u32,
     pub v: Vec<GraphSectionPoint>,
-    #[serde(default = "default_one")]
+    #[serde(default = "default_one::<u8>")]
     pub wide: u8,
 }
 
@@ -107,6 +119,7 @@ fn default_one<T: From<u8>>() -> T {
 }
 
 #[derive(Serialize, Deserialize, Clone)]
+#[cfg_attr(feature = "schema", derive(JsonSchema))]
 pub struct NoteInfo {
     pub bt: [Vec<Interval>; 4],
     pub fx: [Vec<Interval>; 2],
@@ -124,6 +137,7 @@ impl NoteInfo {
 }
 
 #[derive(Serialize, Deserialize, Clone)]
+#[cfg_attr(feature = "schema", derive(JsonSchema))]
 pub struct DifficultyInfo {
     pub name: Option<String>,
     pub short_name: Option<String>,
@@ -131,6 +145,7 @@ pub struct DifficultyInfo {
 }
 
 #[derive(Serialize, Deserialize, Clone)]
+#[cfg_attr(feature = "schema", derive(JsonSchema))]
 pub struct MetaInfo {
     pub title: String,
     pub title_translit: Option<String>,
@@ -178,31 +193,35 @@ impl MetaInfo {
 }
 
 #[derive(Serialize, Deserialize, Copy, Clone)]
+#[cfg_attr(feature = "schema", derive(JsonSchema))]
 pub struct ByPulse<T> {
     pub y: u32,
     pub v: T,
 }
 
 #[derive(Serialize, Deserialize, Copy, Clone)]
+#[cfg_attr(feature = "schema", derive(JsonSchema))]
 pub struct ByBtnNote<T> {
     lane: u64,
     idx: u64,
     v: Option<T>,
-    #[serde(default = "default_true")]
+    #[serde(default = "default_true::<bool>")]
     dom: bool,
 }
 
 #[derive(Serialize, Deserialize, Copy, Clone)]
+#[cfg_attr(feature = "schema", derive(JsonSchema))]
 pub struct ByLaserNote<T> {
     lane: u64,
     sec: u64,
     idx: u64,
     v: Option<T>,
-    #[serde(default = "default_true")]
+    #[serde(default = "default_true::<bool>")]
     dom: bool,
 }
 
 #[derive(Serialize, Deserialize, Clone)]
+#[cfg_attr(feature = "schema", derive(JsonSchema))]
 pub struct ByNotes<T> {
     bt: Option<Vec<ByBtnNote<T>>>,
     fx: Option<Vec<ByBtnNote<T>>>,
@@ -210,6 +229,7 @@ pub struct ByNotes<T> {
 }
 
 #[derive(Serialize, Deserialize, Copy, Clone)]
+#[cfg_attr(feature = "schema", derive(JsonSchema))]
 pub struct TimeSignature {
     pub n: u32,
     pub d: u32,
@@ -227,12 +247,14 @@ impl TimeSignature {
 }
 
 #[derive(Serialize, Deserialize, Copy, Clone)]
+#[cfg_attr(feature = "schema", derive(JsonSchema))]
 pub struct ByMeasureIndex<T> {
     pub idx: u32,
     pub v: T,
 }
 
 #[derive(Serialize, Deserialize, Clone)]
+#[cfg_attr(feature = "schema", derive(JsonSchema))]
 pub struct BeatInfo {
     pub bpm: Vec<ByPulse<f64>>,
     pub time_sig: Vec<ByMeasureIndex<TimeSignature>>,
@@ -250,17 +272,18 @@ impl BeatInfo {
 }
 
 #[derive(Serialize, Deserialize, Clone, Default)]
+#[cfg_attr(feature = "schema", derive(JsonSchema))]
 pub struct BgmInfo {
     pub filename: Option<String>,
-    #[serde(default = "default_one")]
+    #[serde(default = "default_one::<f64>")]
     pub vol: f64,
-    #[serde(default = "default_zero")]
+    #[serde(default = "default_zero::<i32>")]
     pub offset: i32,
 
     pub preview_filename: Option<String>,
-    #[serde(default = "default_zero")]
+    #[serde(default = "default_zero::<u32>")]
     pub preview_offset: u32,
-    #[serde(default = "default_zero")]
+    #[serde(default = "default_zero::<u32>")]
     pub preview_duration: u32,
 }
 
@@ -279,9 +302,11 @@ impl BgmInfo {
 }
 
 #[derive(Serialize, Deserialize, Clone)]
+#[cfg_attr(feature = "schema", derive(JsonSchema))]
 pub struct KeySoundInfo;
 
 #[derive(Serialize, Deserialize, Clone)]
+#[cfg_attr(feature = "schema", derive(JsonSchema))]
 pub struct AudioEffectDef {
     #[serde(rename = "type")]
     effect_type: String,
@@ -290,6 +315,7 @@ pub struct AudioEffectDef {
 }
 
 #[derive(Serialize, Deserialize, Clone)]
+#[cfg_attr(feature = "schema", derive(JsonSchema))]
 pub struct AudioEffectInfo {
     def: Option<HashMap<String, AudioEffectDef>>,
     pulse_event: Option<HashMap<String, ByPulse<AudioEffect>>>,
@@ -297,6 +323,7 @@ pub struct AudioEffectInfo {
 }
 
 #[derive(Serialize, Deserialize, Clone)]
+#[cfg_attr(feature = "schema", derive(JsonSchema))]
 pub struct AudioInfo {
     pub bgm: Option<BgmInfo>,
     pub audio_effect: Option<AudioEffectInfo>,
@@ -315,6 +342,7 @@ impl AudioInfo {
 }
 
 #[derive(Serialize, Deserialize, Clone)]
+#[cfg_attr(feature = "schema", derive(JsonSchema))]
 pub struct Chart {
     pub meta: MetaInfo,
     pub note: NoteInfo,
@@ -532,5 +560,17 @@ impl Chart {
             }
         }
         last_tick
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    #[cfg(feature = "schema")]
+    #[test]
+    fn schema() {
+        println!(
+            "{}",
+            serde_json::to_string_pretty(&crate::schema()).unwrap()
+        );
     }
 }

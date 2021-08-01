@@ -4,7 +4,11 @@ use serde::{Deserialize, Serialize};
 
 use std::f32;
 
+#[cfg(feature = "schema")]
+use schemars::JsonSchema;
+
 #[derive(Deserialize, Serialize, Clone)]
+#[cfg_attr(feature = "schema", derive(JsonSchema))]
 pub enum AudioEffect {
     ReTrigger(ReTrigger),
     Gate(Gate),
@@ -23,6 +27,7 @@ pub enum AudioEffect {
 }
 
 #[derive(Deserialize, Serialize, Clone, Default)]
+#[cfg_attr(feature = "schema", derive(JsonSchema))]
 pub struct ReTrigger {
     update_period: EffectParameter<f32>,
     update_period_tempo_sync: BoolParameter,
@@ -34,6 +39,7 @@ pub struct ReTrigger {
 }
 
 #[derive(Deserialize, Serialize, Clone, Default)]
+#[cfg_attr(feature = "schema", derive(JsonSchema))]
 pub struct Gate {
     wave_length: EffectParameter<f32>,
     wave_length_tempo_sync: BoolParameter,
@@ -42,6 +48,7 @@ pub struct Gate {
 }
 
 #[derive(Deserialize, Serialize, Clone, Default)]
+#[cfg_attr(feature = "schema", derive(JsonSchema))]
 pub struct Flanger {
     period: EffectParameter<f32>,
     period_tempo_sync: BoolParameter,
@@ -54,6 +61,7 @@ pub struct Flanger {
 }
 
 #[derive(Deserialize, Serialize, Clone, Default)]
+#[cfg_attr(feature = "schema", derive(JsonSchema))]
 pub struct PitchShift {
     pitch: EffectParameter<f32>,
     pitch_quantize: BoolParameter,
@@ -63,12 +71,14 @@ pub struct PitchShift {
 }
 
 #[derive(Deserialize, Serialize, Clone, Default)]
+#[cfg_attr(feature = "schema", derive(JsonSchema))]
 pub struct BitCrusher {
     reduction: EffectParameter<i64>,
     mix: EffectParameter<f32>,
 }
 
 #[derive(Deserialize, Serialize, Clone, Default)]
+#[cfg_attr(feature = "schema", derive(JsonSchema))]
 pub struct Phaser {
     period: EffectParameter<f32>,
     period_tempo_sync: BoolParameter,
@@ -82,6 +92,7 @@ pub struct Phaser {
 }
 
 #[derive(Deserialize, Serialize, Clone, Default)]
+#[cfg_attr(feature = "schema", derive(JsonSchema))]
 pub struct Wobble {
     wave_length: EffectParameter<f32>,
     wave_length_tempo_sync: BoolParameter,
@@ -92,6 +103,7 @@ pub struct Wobble {
 }
 
 #[derive(Deserialize, Serialize, Clone, Default)]
+#[cfg_attr(feature = "schema", derive(JsonSchema))]
 pub struct TapeStop {
     speed: EffectParameter<f32>,
     trigger: BoolParameter,
@@ -99,6 +111,7 @@ pub struct TapeStop {
 }
 
 #[derive(Deserialize, Serialize, Clone, Default)]
+#[cfg_attr(feature = "schema", derive(JsonSchema))]
 pub struct Echo {
     update_period: EffectParameter<f32>,
     update_period_tempo_sync: BoolParameter,
@@ -110,6 +123,7 @@ pub struct Echo {
 }
 
 #[derive(Deserialize, Serialize, Clone, Default)]
+#[cfg_attr(feature = "schema", derive(JsonSchema))]
 pub struct SideChain {
     period: EffectParameter<f32>,
     period_tempo_sync: BoolParameter,
@@ -123,6 +137,7 @@ pub struct SideChain {
 }
 
 #[derive(Deserialize, Serialize, Clone, Default)]
+#[cfg_attr(feature = "schema", derive(JsonSchema))]
 pub struct AudioSwap;
 
 #[derive(Copy, Clone)]
@@ -155,6 +170,7 @@ pub struct BiQuad {
 }
 
 #[derive(Deserialize, Serialize, Clone, Default)]
+#[cfg_attr(feature = "schema", derive(JsonSchema))]
 pub struct HighPassFilter {
     env: EffectParameter<f32>,
     lo_freq: EffectParameter<f32>,
@@ -167,6 +183,7 @@ pub struct HighPassFilter {
 }
 
 #[derive(Deserialize, Serialize, Clone, Default)]
+#[cfg_attr(feature = "schema", derive(JsonSchema))]
 pub struct LowPassFilter {
     env: EffectParameter<f32>,
     lo_freq: EffectParameter<f32>,
@@ -179,6 +196,7 @@ pub struct LowPassFilter {
 }
 
 #[derive(Deserialize, Serialize, Clone, Default)]
+#[cfg_attr(feature = "schema", derive(JsonSchema))]
 pub struct PeakingFilter {
     env: EffectParameter<f32>,
     lo_freq: EffectParameter<f32>,

@@ -1,8 +1,12 @@
 use crate::{ByPulse, GraphPoint, GraphSectionPoint, Interval};
 use serde::{Deserialize, Serialize};
 
+#[cfg(feature = "schema")]
+use schemars::JsonSchema;
+
 #[derive(Serialize, Deserialize, Clone, Default)]
 #[serde(default)]
+#[cfg_attr(feature = "schema", derive(JsonSchema))]
 pub struct CameraInfo {
     pub tilt: TiltInfo,
     pub cam: CamInfo,
@@ -10,6 +14,7 @@ pub struct CameraInfo {
 
 #[derive(Serialize, Deserialize, Clone, Default)]
 #[serde(default)]
+#[cfg_attr(feature = "schema", derive(JsonSchema))]
 pub struct TiltInfo {
     pub manual: Vec<ByPulse<Vec<GraphSectionPoint>>>,
     pub keep: Vec<Interval>,
@@ -17,6 +22,7 @@ pub struct TiltInfo {
 
 #[derive(Serialize, Deserialize, Clone, Default)]
 #[serde(default)]
+#[cfg_attr(feature = "schema", derive(JsonSchema))]
 pub struct CamInfo {
     pub body: CamGraphs,
     pub tilt_assign: Option<CamGraphs>,
@@ -24,12 +30,14 @@ pub struct CamInfo {
 }
 
 #[derive(Serialize, Deserialize, Copy, Clone, Default)]
+#[cfg_attr(feature = "schema", derive(JsonSchema))]
 pub struct CamPatternInfo;
 
 type GraphVec = Vec<GraphPoint>;
 
 #[derive(Serialize, Deserialize, Clone, Default)]
 #[serde(default)]
+#[cfg_attr(feature = "schema", derive(JsonSchema))]
 pub struct CamGraphs {
     pub zoom: GraphVec,
     pub shift_x: GraphVec,
