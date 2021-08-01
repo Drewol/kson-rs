@@ -17,4 +17,4 @@ jobs:
     steps:
     - uses: actions/checkout@v2
     - name: Check
-      run: cargo check --verbose
+      run: cargo check --features schema
