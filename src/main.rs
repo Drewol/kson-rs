@@ -492,7 +492,7 @@ fn menu_ui(ui: &mut Ui, title: impl ToString, min_width: f32, add_contents: impl
             ui.allocate_exact_size(Vec2::new(min_width, 0.0), Sense::hover());
             add_contents(ui)
         });
-    })
+    });
 }
 
 impl App for AppState {
@@ -835,4 +835,6 @@ fn main() -> Result<()> {
         }),
         options,
     );
+
+    Ok(())
 }
