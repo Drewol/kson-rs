@@ -8,6 +8,8 @@ use std::f32;
 use schemars::JsonSchema;
 
 #[derive(Deserialize, Serialize, Clone)]
+#[serde(tag = "type", content = "v")]
+#[serde(rename_all = "snake_case")]
 #[cfg_attr(feature = "schema", derive(JsonSchema))]
 pub enum AudioEffect {
     ReTrigger(ReTrigger),
@@ -20,7 +22,7 @@ pub enum AudioEffect {
     TapeStop(TapeStop),
     Echo(Echo),
     SideChain(SideChain),
-    AudioSwap(AudioSwap),
+    AudioSwap(String),
     HighPassFilter(HighPassFilter),
     LowPassFilter(LowPassFilter),
     PeakingFilter(PeakingFilter),
@@ -135,10 +137,6 @@ pub struct SideChain {
     release_time_tempo_sync: BoolParameter,
     ratio: EffectParameter<f32>,
 }
-
-#[derive(Deserialize, Serialize, Clone, Default)]
-#[cfg_attr(feature = "schema", derive(JsonSchema))]
-pub struct AudioSwap;
 
 #[derive(Copy, Clone)]
 pub enum BiQuadType {

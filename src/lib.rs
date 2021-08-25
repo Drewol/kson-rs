@@ -307,17 +307,8 @@ pub struct KeySoundInfo;
 
 #[derive(Serialize, Deserialize, Clone)]
 #[cfg_attr(feature = "schema", derive(JsonSchema))]
-pub struct AudioEffectDef {
-    #[serde(rename = "type")]
-    effect_type: String,
-    v: AudioEffect,
-    filename: Option<String>,
-}
-
-#[derive(Serialize, Deserialize, Clone)]
-#[cfg_attr(feature = "schema", derive(JsonSchema))]
 pub struct AudioEffectInfo {
-    def: Option<HashMap<String, AudioEffectDef>>,
+    def: Option<HashMap<String, AudioEffect>>,
     pulse_event: Option<HashMap<String, ByPulse<AudioEffect>>>,
     note_event: Option<HashMap<String, ByNotes<AudioEffect>>>,
 }
