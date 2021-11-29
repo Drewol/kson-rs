@@ -19,11 +19,14 @@ anyhow = "1"
 nalgebra = "0.29"
 log = "0.4.14"
 simple_logger = "1.11.0"
-emath = "0.14"
+emath = "0.15"
 
 [dependencies.eframe]
-version = "0.14"
-features = ["persistence"]
+git = "https://github.com/Drewol/egui.git"
+branch = "drewol/multisample"
+default_features = false
+features = ["persistence","default_fonts", "egui_glow"]
+
 
 [features]
 profiler = ["thread_profiler/thread_profiler"]

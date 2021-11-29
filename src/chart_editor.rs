@@ -1,10 +1,8 @@
-#![windows_subsystem = "windows"]
-
 use crate::tools::*;
 use crate::*;
 use anyhow::{bail, Result};
 
-use eframe::egui::epaint::{Mesh, Vertex};
+use eframe::egui::epaint::{Mesh, Vertex, WHITE_UV};
 use eframe::egui::{
     pos2, Align2, Color32, CtxRef, PointerButton, Pos2, Rect, Response, Sense, Shape, Stroke,
 };
@@ -24,8 +22,11 @@ use std::path::PathBuf;
 
 macro_rules! profile_scope {
     ($string:expr) => {
-        //let _profile_scope =
-        //    thread_profiler::ProfileScope::new(format!("{}: {}", module_path!(), $string));
+        #[cfg(feature = "profiling")]
+        {
+            let _profile_scope =
+                thread_profiler::ProfileScope::new(format!("{}: {}", module_path!(), $string));
+        }
     };
 }
 
@@ -250,6 +251,13 @@ impl MainState {
         let half_track = self.screen.track_width / 2.0;
         let track_lane_diff = self.screen.track_width - self.screen.lane_width();
 
+        let mut mesh = Mesh::with_texture(egui::TextureId::Egui);
+        let make_vert = |p: &[f32; 2]| Vertex {
+            pos: [p[0], p[1]].into(),
+            color,
+            uv: WHITE_UV,
+        };
+
         for se in section.v.windows(2) {
             profile_scope!("Window");
             let s = &se[0];
@@ -290,11 +298,7 @@ impl MainState {
                     (sx - half_lane, (ex + half_lane) - (sx - half_lane))
                 };
 
-                mb.push(Shape::rect_filled(
-                    rect_xy_wh([x, pos_y, width, -slam_height]),
-                    0.0,
-                    color,
-                ));
+                mesh.add_colored_rect(rect_xy_wh([x, pos_y, width, -slam_height]), color);
             }
 
             let mut value_width = (e.v as f32 - start_value) as f32;
@@ -321,15 +325,26 @@ impl MainState {
                     let ey = y + h;
 
                     let xoff = half_lane;
-                    let points = vec![
-                        [ex - xoff, ey].into(),
-                        [ex + xoff, ey].into(),
-                        [sx + xoff, sy - syoff].into(),
-                        [sx - xoff, sy - syoff].into(),
-                    ];
+                    let mut points = vec![
+                        [ex - xoff, ey],
+                        [ex + xoff, ey],
+                        [sx + xoff, sy - syoff],
+                        [sx - xoff, sy - syoff],
+                    ]
+                    .iter()
+                    .map(make_vert)
+                    .collect();
 
-                    let segment = Shape::convex_polygon(points, color, Stroke::none());
-                    mb.push(segment);
+                    let i_off = mesh.vertices.len() as u32;
+                    mesh.vertices.append(&mut points);
+                    mesh.indices.append(&mut vec![
+                        i_off,
+                        1 + i_off,
+                        2 + i_off,
+                        i_off,
+                        2 + i_off,
+                        3 + i_off,
+                    ]);
                 } else {
                     profile_scope!("Range - Curved");
                     let sy = y - syoff;
@@ -341,8 +356,7 @@ impl MainState {
                     // let interval_start_value = start_value + sv * value_width;
                     // let interval_value_width =
                     //     (start_value + ev * value_width) - interval_start_value;
-                    let mut vertices = Vec::new();
-                    let mut indices = Vec::new();
+
                     for i in 0..curve_segments {
                         let cssv = sv + curve_segment_progress_h * i as f32;
                         let csev = sv + curve_segment_progress_h * (i + 1) as f32;
@@ -362,12 +376,7 @@ impl MainState {
                         let cey = sy + curve_segment_h * i as f32 + curve_segment_h;
 
                         let xoff = half_lane;
-
-                        let make_vert = |p: &[f32; 2]| Vertex {
-                            pos: [p[0], p[1]].into(),
-                            color,
-                            ..Default::default()
-                        };
+                        let i_off = mesh.vertices.len() as u32;
 
                         let mut points: Vec<Vertex> = vec![
                             [ex - xoff, cey],
@@ -378,9 +387,8 @@ impl MainState {
                         .iter()
                         .map(make_vert)
                         .collect();
-                        vertices.append(&mut points);
-                        let i_off = i as u32 * 4;
-                        indices.append(&mut vec![
+                        mesh.vertices.append(&mut points);
+                        mesh.indices.append(&mut vec![
                             i_off,
                             1 + i_off,
                             2 + i_off,
@@ -389,13 +397,6 @@ impl MainState {
                             3 + i_off,
                         ]);
                     }
-
-                    let segment = Shape::mesh(Mesh {
-                        indices,
-                        vertices,
-                        ..Default::default()
-                    });
-                    mb.push(segment);
                 }
             }
         }
@@ -421,11 +422,7 @@ impl MainState {
                     (sx - half_lane, (ex + half_lane) - (sx - half_lane))
                 };
 
-                mb.push(Shape::rect_filled(
-                    rect_xy_wh([x, y, w, -slam_height]),
-                    0.0,
-                    color,
-                ));
+                mesh.add_colored_rect(rect_xy_wh([x, y, w, -slam_height]), color);
 
                 let end_rect_x = if sx > ex {
                     0.0
@@ -433,16 +430,15 @@ impl MainState {
                     self.screen.lane_width()
                 };
 
-                mb.push(Shape::rect_filled(
+                mesh.add_colored_rect(
                     rect_xy_wh([
                         x + w - end_rect_x,
                         y - slam_height,
                         self.screen.lane_width(),
                         -slam_height,
                     ]),
-                    0.0,
                     color,
-                ));
+                );
             }
         }
 
@@ -455,13 +451,20 @@ impl MainState {
 
                 let (x, y) = self.screen.tick_to_pos(l.ry + y_base);
                 let x = x + sv * track_lane_diff + half_track;
-                mb.push(Shape::rect_filled(
+                mesh.add_colored_rect(
                     rect_xy_wh([x, y, self.screen.lane_width(), slam_height]),
-                    0.0,
                     color,
-                ));
+                );
             }
         }
+
+        let segment = Shape::mesh(Mesh {
+            indices: mesh.indices,
+            vertices: mesh.vertices,
+            ..Default::default()
+        });
+        mb.push(segment);
+
         Ok(())
     }
 
@@ -673,10 +676,10 @@ impl MainState {
 
     pub fn draw(&mut self, ui: &Ui) -> Result<Response> {
         ui.make_persistent_id(EGUI_ID);
-        self.resize_event(ui.max_rect_finite());
+        self.resize_event(ui.max_rect());
 
         profile_scope!("Draw Chart");
-        let painter = ui.painter_at(ui.max_rect_finite());
+        let painter = ui.painter_at(ui.max_rect());
         //draw notes
         let mut track_line_builder = Vec::new();
         let mut track_measure_builder = Vec::new();
@@ -975,7 +978,7 @@ impl MainState {
             }
         }
 
-        Ok(ui.interact(ui.max_rect_finite(), ui.id(), Sense::click_and_drag()))
+        Ok(ui.interact(ui.max_rect(), ui.id(), Sense::click_and_drag()))
     }
 
     pub fn drag_start(&mut self, button: PointerButton, x: f32, y: f32) {

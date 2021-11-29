@@ -1,3 +1,5 @@
+#![windows_subsystem = "windows"]
+
 use std::collections::HashMap;
 use std::path::PathBuf;
 use std::str::FromStr;
@@ -112,7 +114,10 @@ impl Widget for &mut NewChartOptions {
         }
         ui.separator();
 
-        ui.add(Button::new("Ok").enabled(!self.audio.is_empty() && !self.filename.is_empty()))
+        ui.add_enabled(
+            !self.audio.is_empty() && !self.filename.is_empty(),
+            Button::new("Ok"),
+        )
     }
 }
 
@@ -487,10 +492,10 @@ impl AppState {
 const CONFIG_KEY: &str = "CONFIG_2";
 
 fn menu_ui(ui: &mut Ui, title: impl ToString, min_width: f32, add_contents: impl FnOnce(&mut Ui)) {
-    menu::menu(ui, title, |ui| {
+    menu::menu_button(ui, title.to_string(), |ui| {
         ui.with_layout(Layout::top_down_justified(egui::Align::Min), |ui| {
             ui.allocate_exact_size(Vec2::new(min_width, 0.0), Sense::hover());
-            add_contents(ui)
+            add_contents(ui);
         });
     });
 }
@@ -508,7 +513,6 @@ impl App for AppState {
         } else {
             Config::default()
         };
-
         self.key_bindings = config.key_bindings;
         self.editor.screen.track_width = config.track_width;
         self.editor.screen.beats_per_col = config.beats_per_column;
@@ -616,24 +620,24 @@ impl App for AppState {
                         let redo_desc = self.editor.actions.next_action_desc();
 
                         if ui
-                            .add(
+                            .add_enabled(
+                                undo_desc.is_some(),
                                 Button::new(format!(
                                     "Undo: {}",
                                     undo_desc.as_ref().unwrap_or(&String::new())
-                                ))
-                                .enabled(undo_desc.is_some()),
+                                )),
                             )
                             .clicked()
                         {
                             self.editor.gui_event_queue.push_back(GuiEvent::Undo);
                         }
                         if ui
-                            .add(
+                            .add_enabled(
+                                redo_desc.is_some(),
                                 Button::new(format!(
                                     "Redo: {}",
                                     redo_desc.as_ref().unwrap_or(&String::new())
-                                ))
-                                .enabled(redo_desc.is_some()),
+                                )),
                             )
                             .clicked()
                         {
@@ -661,7 +665,7 @@ impl App for AppState {
                 menu::bar(ui, |ui| {
                     for (name, tool) in &TOOLS {
                         if ui
-                            .selectable_label(self.editor.current_tool == *tool, name)
+                            .selectable_label(self.editor.current_tool == *tool, *name)
                             .clicked()
                         {
                             if *tool == self.editor.current_tool {
@@ -821,6 +825,7 @@ fn main() -> Result<()> {
         .init()?;
     let options = eframe::NativeOptions {
         drag_and_drop_support: false,
+        multisample: 8,
         ..Default::default()
     };
 
