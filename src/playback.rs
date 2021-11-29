@@ -3,7 +3,7 @@ use anyhow::Result;
 use kson::{Chart, GraphSectionPoint};
 use rodio::*;
 use std::fs::File;
-use std::io::{sink, BufReader};
+use std::io::BufReader;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 
@@ -30,7 +30,7 @@ impl<T> EventList<T> {
         //or if multiple ticks passed since the last update.
         while let Some((event_tick, value)) = self.events.first() {
             if event_tick <= tick {
-                f(&value);
+                f(value);
                 self.events.remove(0);
             } else {
                 return;

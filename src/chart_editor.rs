@@ -845,8 +845,8 @@ impl MainState {
             //laser
             {
                 profile_scope!("Laser Components");
-                for i in 0..2 {
-                    for section in &self.chart.note.laser[i] {
+                for (lane, color) in self.chart.note.laser.iter().zip(laser_color.iter()) {
+                    for section in lane {
                         let y_base = section.y;
                         if section.v.last().unwrap().ry + y_base < min_tick_render {
                             continue;
@@ -855,7 +855,7 @@ impl MainState {
                             break;
                         }
 
-                        self.draw_laser_section(section, &mut laser_builder, laser_color[i])?;
+                        self.draw_laser_section(section, &mut laser_builder, *color)?;
                     }
                 }
             }
@@ -1072,7 +1072,7 @@ impl MainState {
                 tick,
                 tick_f,
                 lane,
-                &mut self.chart,
+                &self.chart,
                 &mut self.actions,
                 na::point![pos.x, pos.y],
             )

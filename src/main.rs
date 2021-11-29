@@ -8,7 +8,7 @@ use anyhow::Result;
 use chart_editor::MainState;
 use eframe::egui::{
     self, menu, warn_if_debug_build, Button, Color32, DragValue, Frame, Grid, Key, Label, Layout,
-    Pos2, Rect, Response, Sense, SidePanel, Slider, Ui, Vec2,
+    Pos2, Rect, Response, RichText, Sense, Slider, Ui, Vec2,
 };
 use eframe::epi::App;
 use kson::{BgmInfo, Chart, MetaInfo};
@@ -656,7 +656,7 @@ impl App for AppState {
 
                     if !self.editor.actions.saved() {
                         ui.with_layout(Layout::right_to_left(), |ui| {
-                            ui.add(egui::Label::new("*").text_color(Color32::RED))
+                            ui.add(egui::Label::new(RichText::new("*").color(Color32::RED)))
                                 .on_hover_text("Unsaved Changes")
                         });
                     }
@@ -840,6 +840,4 @@ fn main() -> Result<()> {
         }),
         options,
     );
-
-    Ok(())
 }
