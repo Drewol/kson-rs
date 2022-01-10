@@ -328,7 +328,7 @@ impl Ksh for crate::Chart {
                 let mut iter = section.v.iter_mut();
                 let mut for_removal: HashSet<u32> = HashSet::new();
                 let mut prev = iter.next().unwrap();
-                while let Some(next) = iter.next() {
+                for next in iter {
                     if (next.ry - prev.ry) <= (new_chart.beat.resolution / 8) {
                         prev.vf = Some(next.v);
                         for_removal.insert(next.ry);

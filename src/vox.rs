@@ -273,7 +273,7 @@ impl Vox for crate::Chart {
         Ok(chart)
     }
 
-    fn to_vox<W>(&self, out: W) -> Result<(), VoxWriteError>
+    fn to_vox<W>(&self, _out: W) -> Result<(), VoxWriteError>
     where
         W: std::io::Write,
     {
