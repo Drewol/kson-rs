@@ -4,6 +4,7 @@ mod graph;
 mod ksh;
 pub mod parameter;
 pub mod score_ticks;
+mod vox;
 
 use camera::CameraInfo;
 use effects::AudioEffect;
@@ -13,6 +14,7 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::collections::HashSet;
 use std::str;
+pub use vox::*;
 
 #[cfg(feature = "schema")]
 use schemars::{schema_for, JsonSchema};
