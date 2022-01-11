@@ -540,7 +540,8 @@ impl App for AppState {
 
     fn update(&mut self, ctx: &egui::Context, frame: &eframe::epi::Frame) {
         //input checking
-        for e in &ctx.input().events {
+        let events = { ctx.input().events.clone() };
+        for e in events {
             match e {
                 egui::Event::Copy => {}
                 egui::Event::Cut => {}
@@ -549,10 +550,10 @@ impl App for AppState {
                     pressed,
                     modifiers,
                 } => {
-                    if *pressed && ctx.memory().focus().is_none() {
+                    if pressed && !ctx.wants_keyboard_input() {
                         let key_combo = KeyCombo {
-                            key: *key,
-                            modifiers: (*modifiers).into(),
+                            key,
+                            modifiers: modifiers.into(),
                         };
 
                         match self.key_bindings.get(&key_combo) {
@@ -575,7 +576,7 @@ impl App for AppState {
                         }
                     }
                 }
-                egui::Event::PointerMoved(pos) => self.editor.mouse_motion_event(*pos),
+                egui::Event::PointerMoved(pos) => self.editor.mouse_motion_event(pos),
 
                 _ => {}
             }
