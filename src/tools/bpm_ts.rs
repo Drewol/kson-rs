@@ -4,7 +4,7 @@ use crate::{
     chart_editor::{MainState, ScreenState},
 };
 use anyhow::{bail, Result};
-use eframe::egui::{self, Color32, CtxRef, DragValue, Label, Painter, Window};
+use eframe::egui::{self, Color32, Context, DragValue, Label, Painter, Window};
 use kson::Chart;
 use na::Point2;
 use nalgebra as na;
@@ -67,7 +67,7 @@ impl CursorObject for BpmTool {
         Ok(())
     }
 
-    fn draw_ui(&mut self, ctx: &CtxRef, actions: &mut ActionStack<Chart>) {
+    fn draw_ui(&mut self, ctx: &Context, actions: &mut ActionStack<Chart>) {
         let complete_func: Option<Box<dyn Fn(&mut ActionStack<Chart>, f64)>> = match self.state {
             CursorToolStates::None => None,
             CursorToolStates::Add(tick) => {
@@ -234,7 +234,7 @@ impl CursorObject for TimeSigTool {
         Ok(())
     }
 
-    fn draw_ui(&mut self, ctx: &CtxRef, actions: &mut ActionStack<Chart>) {
+    fn draw_ui(&mut self, ctx: &Context, actions: &mut ActionStack<Chart>) {
         let complete_func: Option<Box<dyn Fn(&mut ActionStack<Chart>, [i32; 2])>> = match self.state
         {
             CursorToolStates::None => None,

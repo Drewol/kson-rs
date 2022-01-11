@@ -5,7 +5,7 @@ use crate::{
     utils::Overlaps,
 };
 use anyhow::Result;
-use eframe::egui::{CtxRef, Painter, Pos2, Rgba, Stroke};
+use eframe::egui::{Context, Painter, Pos2, Rgba, Stroke};
 use kson::{Chart, GraphSectionPoint, Interval, LaserSection};
 use na::point;
 use na::Point2;
@@ -383,5 +383,5 @@ impl CursorObject for LaserTool {
         }
         Ok(())
     }
-    fn draw_ui(&mut self, _ctx: &CtxRef, _actions: &mut ActionStack<Chart>) {}
+    fn draw_ui(&mut self, _ctx: &Context, _actions: &mut ActionStack<Chart>) {}
 }

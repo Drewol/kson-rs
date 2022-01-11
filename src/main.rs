@@ -503,8 +503,8 @@ fn menu_ui(ui: &mut Ui, title: impl ToString, min_width: f32, add_contents: impl
 impl App for AppState {
     fn setup(
         &mut self,
-        _ctx: &egui::CtxRef,
-        _frame: &mut eframe::epi::Frame<'_>,
+        _ctx: &egui::Context,
+        _frame: &eframe::epi::Frame,
         storage: Option<&dyn eframe::epi::Storage>,
     ) {
         let config = if let Some(storage) = storage {
@@ -538,7 +538,7 @@ impl App for AppState {
         std::time::Duration::from_secs(300)
     }
 
-    fn update(&mut self, ctx: &egui::CtxRef, frame: &mut eframe::epi::Frame<'_>) {
+    fn update(&mut self, ctx: &egui::Context, frame: &eframe::epi::Frame) {
         //input checking
         for e in &ctx.input().events {
             match e {

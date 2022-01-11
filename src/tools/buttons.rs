@@ -6,7 +6,7 @@ use crate::{
     rect_xy_wh,
 };
 use anyhow::Result;
-use eframe::egui::{CtxRef, Painter, Rgba, Shape};
+use eframe::egui::{Context, Painter, Rgba, Shape};
 use kson::{Chart, Interval};
 use na::Point2;
 use nalgebra as na;
@@ -231,5 +231,5 @@ impl CursorObject for ButtonInterval {
         }
     }
 
-    fn draw_ui(&mut self, _ctx: &CtxRef, _actions: &mut ActionStack<Chart>) {}
+    fn draw_ui(&mut self, _ctx: &Context, _actions: &mut ActionStack<Chart>) {}
 }

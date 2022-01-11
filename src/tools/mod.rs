@@ -3,7 +3,7 @@ use crate::{
     chart_editor::{MainState, ScreenState},
 };
 use anyhow::Result;
-use eframe::egui::{CtxRef, Painter};
+use eframe::egui::{Context, Painter};
 use kson::Chart;
 use na::Point2;
 use nalgebra as na;
@@ -79,5 +79,5 @@ pub trait CursorObject {
 
     fn update(&mut self, tick: u32, tick_f: f64, lane: f32, pos: Point2<f32>);
     fn draw(&self, state: &MainState, painter: &Painter) -> Result<()>;
-    fn draw_ui(&mut self, _ctx: &CtxRef, _actions: &mut ActionStack<Chart>) {}
+    fn draw_ui(&mut self, _ctx: &Context, _actions: &mut ActionStack<Chart>) {}
 }

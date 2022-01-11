@@ -4,12 +4,12 @@ use anyhow::{bail, Result};
 
 use eframe::egui::epaint::{Mesh, Vertex, WHITE_UV};
 use eframe::egui::{
-    pos2, Align2, Color32, CtxRef, PointerButton, Pos2, Rect, Response, Sense, Shape, Stroke,
+    pos2, Align2, Color32, Context, PointerButton, Pos2, Rect, Response, Sense, Shape, Stroke,
 };
 use eframe::egui::{Painter, Rgba};
 
 use egui::Ui;
-use kson::Ksh;
+use kson::{Ksh, Vox};
 use log::debug;
 use nalgebra as na;
 use std::collections::VecDeque;
@@ -20,14 +20,17 @@ use std::io::BufReader;
 use std::path::Path;
 use std::path::PathBuf;
 
+#[cfg(feature = "profiling")]
 macro_rules! profile_scope {
     ($string:expr) => {
-        #[cfg(feature = "profiling")]
-        {
-            let _profile_scope =
-                thread_profiler::ProfileScope::new(format!("{}: {}", module_path!(), $string));
-        }
+        let _profile_scope =
+            thread_profiler::ProfileScope::new(format!("{}: {}", module_path!(), $string));
     };
+}
+
+#[cfg(not(feature = "profiling"))]
+macro_rules! profile_scope {
+    ($string:expr) => {};
 }
 
 pub const EGUI_ID: &str = "chart_editor";
@@ -468,7 +471,7 @@ impl MainState {
         Ok(())
     }
 
-    pub fn update(&mut self, ctx: &CtxRef) -> Result<()> {
+    pub fn update(&mut self, ctx: &Context) -> Result<()> {
         while let Some(e) = self.gui_event_queue.pop_front() {
             match e {
                 GuiEvent::Open => {
@@ -1121,6 +1124,11 @@ fn open_chart_file(path: PathBuf) -> Result<Option<(kson::Chart, PathBuf)>> {
             let reader = BufReader::new(file);
             profile_scope!("kson parse");
             Ok(Some((serde_json::from_reader(reader)?, path)))
+        }
+        "vox" => {
+            let mut data = String::from("");
+            File::open(&path).unwrap().read_to_string(&mut data)?;
+            Ok(Some((kson::Chart::from_vox(&data)?, path)))
         }
 
         _ => Ok(None),
