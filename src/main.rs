@@ -221,6 +221,7 @@ struct AppState {
     new_chart: Option<NewChartOptions>,
     meta_edit: Option<MetaInfo>,
     bgm_edit: Option<BgmInfo>,
+    exiting: bool,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -518,6 +519,15 @@ impl App for AppState {
         self.editor.screen.beats_per_col = config.beats_per_column;
     }
 
+    fn on_exit_event(&mut self) -> bool {
+        let at_save = self.editor.actions.saved();
+        if !at_save {
+            self.exiting = true;
+        }
+
+        at_save
+    }
+
     fn warm_up_enabled(&self) -> bool {
         false
     }
@@ -540,6 +550,7 @@ impl App for AppState {
 
     fn update(&mut self, ctx: &egui::Context, frame: &eframe::epi::Frame) {
         //input checking
+        //TODO: Block events when exiting?
         let events = { ctx.input().events.clone() };
         for e in events {
             match e {
@@ -813,6 +824,32 @@ impl App for AppState {
                 Err(e) => panic!("{}", e),
             }
         }
+        //exiting
+        {
+            if self.exiting {
+                egui::Window::new("There are unsaved changes, save changes before closing?")
+                    .collapsible(false)
+                    .resizable(false)
+                    .show(ctx, |ui| {
+                        ui.horizontal(|ui| {
+                            if ui.button("Yes").clicked() {
+                                self.exiting = false;
+                                if matches!(self.editor.save(), Ok(true)) {
+                                    frame.quit();
+                                }
+                            }
+                            if ui.button("No").clicked() {
+                                self.exiting = false;
+                                self.editor.actions.save(); //marks as saved but doesn't actually save
+                                frame.quit();
+                            }
+                            if ui.button("Cancel").clicked() {
+                                self.exiting = false;
+                            }
+                        });
+                    });
+            }
+        }
     }
 
     fn name(&self) -> &str {
@@ -838,6 +875,7 @@ fn main() -> Result<()> {
             new_chart: None,
             meta_edit: None,
             bgm_edit: None,
+            exiting: false,
         }),
         options,
     );

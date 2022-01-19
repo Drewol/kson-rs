@@ -471,6 +471,32 @@ impl MainState {
         Ok(())
     }
 
+    pub fn save(&mut self) -> Result<bool> {
+        match (&self.save_path, self.actions.get_current()) {
+            (None, Ok(chart)) => {
+                if let Some(new_path) = save_chart_as(&chart).unwrap_or_else(|e| {
+                    println!("Failed to save chart:");
+                    println!("\t{}", e);
+                    None
+                }) {
+                    self.save_path = Some(new_path);
+                    self.actions.save();
+                    Ok(true)
+                } else {
+                    Ok(false)
+                }
+            }
+            (Some(path), Ok(chart)) => {
+                let mut file = File::create(&path).unwrap();
+                profile_scope!("Write kson");
+                file.write_all(serde_json::to_string(&chart)?.as_bytes())?;
+                self.actions.save();
+                Ok(true)
+            }
+            _ => bail!("Could not save chart."),
+        }
+    }
+
     pub fn update(&mut self, ctx: &Context) -> Result<()> {
         while let Some(e) = self.gui_event_queue.pop_front() {
             match e {
@@ -485,25 +511,9 @@ impl MainState {
                         self.save_path = Some(new_chart.1);
                     }
                 }
-                GuiEvent::Save => match (&self.save_path, self.actions.get_current()) {
-                    (None, Ok(chart)) => {
-                        if let Some(new_path) = save_chart_as(&chart).unwrap_or_else(|e| {
-                            println!("Failed to save chart:");
-                            println!("\t{}", e);
-                            None
-                        }) {
-                            self.save_path = Some(new_path);
-                            self.actions.save();
-                        }
-                    }
-                    (Some(path), Ok(chart)) => {
-                        let mut file = File::create(&path).unwrap();
-                        profile_scope!("Write kson");
-                        file.write_all(serde_json::to_string(&chart)?.as_bytes())?;
-                        self.actions.save();
-                    }
-                    _ => bail!("Could not save chart."),
-                },
+                GuiEvent::Save => {
+                    self.save()?;
+                }
                 GuiEvent::SaveAs => {
                     if let Ok(chart) = self.actions.get_current() {
                         if let Some(new_path) = save_chart_as(&chart).unwrap_or_else(|e| {
