@@ -153,6 +153,20 @@ name = "bytemuck"
 version = "1.7.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "439989e6b8c38d1b6570a384ef1e49c8848128f5a97f3914baef02920842712f"
+dependencies = [
+ "bytemuck_derive",
+]
+
+[[package]]
+name = "bytemuck_derive"
+version = "1.0.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "8e215f8c2f9f79cb53c8335e687ffd07d5bfcb6fe5fc80723762d0be46e7cc54"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn",
+]
 
 [[package]]
 name = "byteorder"
@@ -292,9 +306,9 @@ dependencies = [
 
 [[package]]
 name = "combine"
-version = "4.6.2"
+version = "4.6.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b2b2f5d0ee456f3928812dfc8c6d9a1d592b98678f6d56db9b0cd2b7bc6c8db5"
+checksum = "50b727aacc797f9fc28e355d21f34709ac4fc9adecfe470ad07b8f4464f53062"
 dependencies = [
  "bytes",
  "memchr",
@@ -561,7 +575,7 @@ checksum = "9ea835d29036a4087793836fa931b08837ad5e957da9e23886b29586fb9b6650"
 [[package]]
 name = "eframe"
 version = "0.16.0"
-source = "git+https://github.com/Drewol/egui.git?branch=drewol/multisample#26904947360d263505cab0bb21275a83383d5207"
+source = "git+https://github.com/Drewol/egui.git?branch=drewol/multisample#8dd729c3d3560fbe8c08ef8863a98dc81f02f472"
 dependencies = [
  "egui",
  "egui-winit",
@@ -573,7 +587,7 @@ dependencies = [
 [[package]]
 name = "egui"
 version = "0.16.1"
-source = "git+https://github.com/Drewol/egui.git?branch=drewol/multisample#26904947360d263505cab0bb21275a83383d5207"
+source = "git+https://github.com/Drewol/egui.git?branch=drewol/multisample#8dd729c3d3560fbe8c08ef8863a98dc81f02f472"
 dependencies = [
  "ahash",
  "epaint",
@@ -585,7 +599,7 @@ dependencies = [
 [[package]]
 name = "egui-winit"
 version = "0.16.0"
-source = "git+https://github.com/Drewol/egui.git?branch=drewol/multisample#26904947360d263505cab0bb21275a83383d5207"
+source = "git+https://github.com/Drewol/egui.git?branch=drewol/multisample#8dd729c3d3560fbe8c08ef8863a98dc81f02f472"
 dependencies = [
  "copypasta",
  "egui",
@@ -599,8 +613,9 @@ dependencies = [
 [[package]]
 name = "egui_glow"
 version = "0.16.0"
-source = "git+https://github.com/Drewol/egui.git?branch=drewol/multisample#26904947360d263505cab0bb21275a83383d5207"
+source = "git+https://github.com/Drewol/egui.git?branch=drewol/multisample#8dd729c3d3560fbe8c08ef8863a98dc81f02f472"
 dependencies = [
+ "bytemuck",
  "egui",
  "egui-winit",
  "epi",
@@ -614,8 +629,9 @@ dependencies = [
 [[package]]
 name = "egui_web"
 version = "0.16.0"
-source = "git+https://github.com/Drewol/egui.git?branch=drewol/multisample#26904947360d263505cab0bb21275a83383d5207"
+source = "git+https://github.com/Drewol/egui.git?branch=drewol/multisample#8dd729c3d3560fbe8c08ef8863a98dc81f02f472"
 dependencies = [
+ "bytemuck",
  "egui",
  "egui_glow",
  "epi",
@@ -634,19 +650,21 @@ checksum = "24a1aaa922d55da6a2bf32957c3d153e7fb9d52ed8d69777a75092240172eb6e"
 [[package]]
 name = "emath"
 version = "0.16.0"
-source = "git+https://github.com/Drewol/egui.git?branch=drewol/multisample#26904947360d263505cab0bb21275a83383d5207"
+source = "git+https://github.com/Drewol/egui.git?branch=drewol/multisample#8dd729c3d3560fbe8c08ef8863a98dc81f02f472"
 dependencies = [
+ "bytemuck",
  "serde",
 ]
 
 [[package]]
 name = "epaint"
 version = "0.16.0"
-source = "git+https://github.com/Drewol/egui.git?branch=drewol/multisample#26904947360d263505cab0bb21275a83383d5207"
+source = "git+https://github.com/Drewol/egui.git?branch=drewol/multisample#8dd729c3d3560fbe8c08ef8863a98dc81f02f472"
 dependencies = [
  "ab_glyph",
  "ahash",
  "atomic_refcell",
+ "bytemuck",
  "emath 0.16.0",
  "nohash-hasher",
  "serde",
@@ -655,7 +673,7 @@ dependencies = [
 [[package]]
 name = "epi"
 version = "0.16.0"
-source = "git+https://github.com/Drewol/egui.git?branch=drewol/multisample#26904947360d263505cab0bb21275a83383d5207"
+source = "git+https://github.com/Drewol/egui.git?branch=drewol/multisample#8dd729c3d3560fbe8c08ef8863a98dc81f02f472"
 dependencies = [
  "directories-next",
  "egui",
@@ -692,9 +710,9 @@ checksum = "a06f77d526c1a601b7c4cdd98f54b5eaabffc14d5f2f0296febdc7f357c6d3ba"
 
 [[package]]
 name = "getrandom"
-version = "0.2.3"
+version = "0.2.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "7fcd999463524c52659517fe2cea98493cfe485d10565e7b0fb07dbba7ad2753"
+checksum = "418d37c8b1d42553c93648be529cb70f920d3baf8ef469b74b9638df426e0b4c"
 dependencies = [
  "cfg-if 1.0.0",
  "libc",
@@ -965,9 +983,9 @@ checksum = "1b03d17f364a3a042d5e5d46b053bbbf82c92c9430c592dd4c064dc6ee997125"
 
 [[package]]
 name = "libloading"
-version = "0.7.2"
+version = "0.7.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "afe203d669ec979b7128619bae5a63b7b42e9203c1b29146079ee05e2f604b52"
+checksum = "efbc0f03f9a775e9f6aed295c6a1ba2253c5757a9e03d55c6caa46a681abcddd"
 dependencies = [
  "cfg-if 1.0.0",
  "winapi",
@@ -1763,9 +1781,9 @@ dependencies = [
 
 [[package]]
 name = "serde_json"
-version = "1.0.74"
+version = "1.0.75"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ee2bb9cd061c5865d345bb02ca49fcef1391741b672b54a0bf7b679badec3142"
+checksum = "c059c05b48c5c0067d4b4b2b4f0732dd65feb52daf7e0ea09cd87e7dadc1af79"
 dependencies = [
  "itoa 1.0.1",
  "ryu",
@@ -1836,9 +1854,9 @@ dependencies = [
 
 [[package]]
 name = "smallvec"
-version = "1.7.0"
+version = "1.8.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "1ecab6c735a6bb4139c0caafd0cc3635748bbb3acf4550e8138122099251f309"
+checksum = "f2dd574626839106c320a323308629dcb1acfc96e32a8cba364ddc61ac23ee83"
 
 [[package]]
 name = "smithay-client-toolkit"

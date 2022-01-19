@@ -254,7 +254,7 @@ impl MainState {
         let half_track = self.screen.track_width / 2.0;
         let track_lane_diff = self.screen.track_width - self.screen.lane_width();
 
-        let mut mesh = Mesh::with_texture(egui::TextureId::Egui);
+        let mut mesh = Mesh::with_texture(Default::default());
         let make_vert = |p: &[f32; 2]| Vertex {
             pos: [p[0], p[1]].into(),
             color,
