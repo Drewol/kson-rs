@@ -395,6 +395,7 @@ impl Ksh for crate::Chart {
         let mut last_laser_write_y = [u32::MAX, u32::MAX];
         let mut last_laser_write_v = [char::MAX, char::MAX];
         let last_tick = self.get_last_tick();
+        let mut slam_pending = [None; 2];
         loop {
             let measure_tick = self.measure_to_tick(measure);
             if measure_tick > last_tick {
@@ -505,6 +506,7 @@ impl Ksh for crate::Chart {
                                 let ksh_v = laser_value_to_char(s.v)?;
                                 w.write_all(&[ksh_v as u8])?;
                                 last_laser_write_y[li] = y;
+                                slam_pending[li] = s.vf;
                             }
                         }
                         Err(i) => {
@@ -521,27 +523,24 @@ impl Ksh for crate::Chart {
                                         w.write_all(&[ksh_v as u8])?;
                                         last_laser_write_v[li] = ksh_v;
                                         last_laser_write_y[li] = y;
+                                        slam_pending[li] = point.vf;
                                     }
                                     Err(point_i) => {
                                         if point_i == 0 {
-                                            w.write_all(b":")?;
-                                        } else if point_i >= s.v.len() {
-                                            let point = s.v.get(point_i - 1).unwrap();
-                                            if let Some(v) = point.vf {
-                                                if last_laser_write_y[li] == s.y + point.ry
-                                                    && y == last_laser_write_y[li] + slam_distance
-                                                {
+                                            //before laser
+                                            if let Some(v) = slam_pending[li] {
+                                                if y == last_laser_write_y[li] + slam_distance {
                                                     let ksh_v = laser_value_to_char(v)?;
                                                     w.write_all(&[ksh_v as u8])?;
                                                     last_laser_write_v[li] = ksh_v;
-                                                    last_laser_write_y[li] = y
+                                                    last_laser_write_y[li] = y;
+                                                    slam_pending[li] = None;
                                                 } else {
-                                                    w.write_all(b"-")?;
+                                                    w.write_all(b":")?;
                                                 }
-                                            } else {
-                                                w.write_all(b"-")?;
                                             }
-                                        } else {
+                                        } else if point_i < s.v.len() {
+                                            //on laser
                                             let point = s.v.get(point_i - 1).unwrap();
                                             // Slam
                                             if let Some(v) = point.vf {
@@ -552,13 +551,16 @@ impl Ksh for crate::Chart {
                                                     w.write_all(&[ksh_v as u8])?;
                                                     last_laser_write_v[li] = ksh_v;
                                                     last_laser_write_y[li] = y;
+                                                    slam_pending[li] = None;
                                                 } else {
                                                     w.write_all(b":")?;
                                                 }
                                             } else {
                                                 //interpolate curve
                                                 match (point.a, point.b) {
-                                                    (Some(a), Some(b)) => {
+                                                    (Some(a), Some(b))
+                                                        if (a - b).abs() > f64::EPSILON =>
+                                                    {
                                                         let delta = (y - last_laser_write_y[li])
                                                             .min(
                                                                 s.v.get(point_i)
@@ -584,6 +586,28 @@ impl Ksh for crate::Chart {
                                                     }
                                                     _ => w.write_all(b":")?,
                                                 }
+                                            }
+                                        } else {
+                                            //after laser
+                                            let point = s.v.get(point_i - 1).unwrap();
+                                            if let Some(v) = point.vf {
+                                                if last_laser_write_y[li] == s.y + point.ry
+                                                    && y == last_laser_write_y[li] + slam_distance
+                                                {
+                                                    let ksh_v = laser_value_to_char(v)?;
+                                                    w.write_all(&[ksh_v as u8])?;
+                                                    last_laser_write_v[li] = ksh_v;
+                                                    last_laser_write_y[li] = y;
+                                                    slam_pending[li] = None;
+                                                } else if last_laser_write_y[li] == s.y + point.ry
+                                                    && y < last_laser_write_y[li] + slam_distance
+                                                {
+                                                    w.write_all(b":")?;
+                                                } else {
+                                                    w.write_all(b"-")?;
+                                                }
+                                            } else {
+                                                w.write_all(b"-")?;
                                             }
                                         }
                                     }
