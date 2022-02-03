@@ -1,3 +1,4 @@
+use std::cmp::Ordering;
 use std::io;
 use std::io::BufWriter;
 use std::io::Write;
@@ -381,6 +382,21 @@ impl Ksh for crate::Chart {
             writeln!(&mut w, "m={}\r", bgm.filename.unwrap_or_default())?;
             writeln!(&mut w, "o={}\r", bgm.offset)?;
             writeln!(&mut w, "po={}\r", bgm.preview_offset)?;
+            if self.beat.bpm.len() == 1 {
+                writeln!(&mut w, "t={}\r", self.beat.bpm.first().unwrap().v)?;
+            } else {
+                let bpm_cmp = |a: &&ByPulse<f64>, b: &&ByPulse<f64>| match a.v.partial_cmp(&b.v) {
+                    Some(ord) => ord,
+                    None => Ordering::Equal,
+                };
+
+                writeln!(
+                    &mut w,
+                    "t={:.1}-{:.1}\r",
+                    self.beat.bpm.iter().min_by(bpm_cmp).unwrap().v,
+                    self.beat.bpm.iter().max_by(bpm_cmp).unwrap().v
+                )?;
+            }
             writeln!(&mut w, "plength={}\r", bgm.preview_duration)?;
             writeln!(
                 &mut w,
@@ -415,8 +431,10 @@ impl Ksh for crate::Chart {
                 {
                     //BPM
                     if let Ok(b) = self.beat.bpm.binary_search_by(|f| f.y.cmp(&y)) {
-                        let bpm = self.beat.bpm.get(b).unwrap();
-                        writeln!(&mut w, "t={}\r", bpm.v)?;
+                        if (y > 0 && self.beat.bpm.len() == 1) || self.beat.bpm.len() > 1 {
+                            let bpm = self.beat.bpm.get(b).unwrap();
+                            writeln!(&mut w, "t={}\r", bpm.v)?;
+                        }
                     }
 
                     //Laser width
