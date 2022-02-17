@@ -812,8 +812,12 @@ impl App for AppState {
                             .pointer
                             .button_down(egui::PointerButton::Primary)
                     {
-                        self.editor
-                            .drag_start(egui::PointerButton::Primary, pos.x, pos.y)
+                        self.editor.drag_start(
+                            egui::PointerButton::Primary,
+                            pos.x,
+                            pos.y,
+                            &Modifiers::from(ctx.input().modifiers),
+                        )
                     }
 
                     if response.drag_released() {

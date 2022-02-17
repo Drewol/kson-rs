@@ -1,4 +1,5 @@
 use crate::tools::CursorObject;
+use crate::Modifiers;
 use crate::{
     action_stack::ActionStack,
     chart_editor::{MainState, ScreenState},
@@ -93,8 +94,8 @@ impl LaserTool {
         }
     }
 
-    fn lane_to_pos(lane: f32) -> f64 {
-        let resolution: f64 = 10.0;
+    fn lane_to_pos(lane: f32, wide: u8) -> f64 {
+        let resolution: f64 = 10.0 * wide as f64;
         math::round::floor(resolution * lane as f64 / 6.0, 0) / resolution
     }
 
@@ -148,8 +149,10 @@ impl CursorObject for LaserTool {
         chart: &Chart,
         actions: &mut ActionStack<Chart>,
         pos: Point2<f32>,
+        modifiers: &Modifiers,
     ) {
-        let v = LaserTool::lane_to_pos(lane);
+        let wide = modifiers.shift;
+        let v = LaserTool::lane_to_pos(lane, if wide { 2 } else { 1 });
         let ry = self.calc_ry(tick);
         let mut finalize = false;
 
@@ -169,7 +172,7 @@ impl CursorObject for LaserTool {
                     self.section.y = tick;
                     self.section.v.push(LaserTool::gsp(0, v));
                     self.section.v.push(LaserTool::gsp(0, v));
-                    self.section.wide = 1;
+                    self.section.wide = if wide { 2 } else { 1 };
                     self.mode = LaserEditMode::New;
                 }
             }
@@ -205,9 +208,10 @@ impl CursorObject for LaserTool {
                     return;
                 }
 
-                self.section
-                    .v
-                    .push(LaserTool::gsp(ry, LaserTool::lane_to_pos(lane)));
+                self.section.v.push(LaserTool::gsp(
+                    ry,
+                    LaserTool::lane_to_pos(lane, self.section.wide),
+                ));
             }
             LaserEditMode::Edit(edit_state) => {
                 if self.hit_test(chart, tick) == Some(edit_state.section_index) {
@@ -293,7 +297,7 @@ impl CursorObject for LaserTool {
         match self.mode {
             LaserEditMode::New => {
                 let ry = self.calc_ry(tick);
-                let v = LaserTool::lane_to_pos(lane);
+                let v = LaserTool::lane_to_pos(lane, self.section.wide);
                 let second_last: Option<GraphSectionPoint> = self.get_second_to_last().copied();
                 if let Some(last) = self.section.v.last_mut() {
                     (*last).ry = ry;

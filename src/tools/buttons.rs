@@ -1,5 +1,6 @@
 use crate::tools::CursorObject;
 use crate::utils::Overlaps;
+use crate::Modifiers;
 use crate::{
     action_stack::ActionStack,
     chart_editor::{MainState, ScreenState},
@@ -40,6 +41,7 @@ impl CursorObject for ButtonInterval {
         _chart: &Chart,
         _actions: &mut ActionStack<Chart>,
         _pos: Point2<f32>,
+        _modifiers: &Modifiers,
     ) {
         self.pressed = true;
         if self.fx {

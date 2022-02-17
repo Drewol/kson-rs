@@ -1,6 +1,7 @@
 use crate::{
     action_stack::ActionStack,
     chart_editor::{MainState, ScreenState},
+    Modifiers,
 };
 use anyhow::Result;
 use eframe::egui::{Context, Painter};
@@ -74,6 +75,7 @@ pub trait CursorObject {
         _chart: &Chart,
         _actions: &mut ActionStack<Chart>,
         _pos: Point2<f32>,
+        _modifiers: &Modifiers,
     ) {
     }
 

@@ -994,7 +994,7 @@ impl MainState {
         Ok(ui.interact(ui.max_rect(), ui.id(), Sense::click_and_drag()))
     }
 
-    pub fn drag_start(&mut self, button: PointerButton, x: f32, y: f32) {
+    pub fn drag_start(&mut self, button: PointerButton, x: f32, y: f32, modifiers: &Modifiers) {
         if let PointerButton::Primary = button {
             let res = self.chart.beat.resolution;
             let lane = self.screen.pos_to_lane(x);
@@ -1010,6 +1010,7 @@ impl MainState {
                     &self.chart,
                     &mut self.actions,
                     na::point![x, y],
+                    modifiers,
                 ),
                 None => self.cursor_line = tick,
             }
