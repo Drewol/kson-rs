@@ -104,7 +104,12 @@ impl Ksh for crate::Chart {
         let mut new_chart = Chart::new();
         let mut num = 4;
         let mut den = 4;
-        let data = &data[3..]; //Something about BOM(?)
+        //BOM check
+        let data = if data.starts_with(&String::from_utf8_lossy(&[0xEF, 0xBB, 0xBF]).to_string()) {
+            &data[3..]
+        } else {
+            data
+        };
         let mut parts: Vec<&str> = data.split("\n--").collect();
         let meta = parts.first().unwrap_or(&"").lines();
         let mut bgm = BgmInfo::new();
