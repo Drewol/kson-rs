@@ -387,5 +387,4 @@ impl CursorObject for LaserTool {
         }
         Ok(())
     }
-    fn draw_ui(&mut self, _ctx: &Context, _actions: &mut ActionStack<Chart>) {}
 }

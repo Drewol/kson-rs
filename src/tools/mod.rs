@@ -11,9 +11,11 @@ use nalgebra as na;
 
 mod bpm_ts;
 mod buttons;
+mod camera;
 mod laser;
 pub use bpm_ts::*;
 pub use buttons::*;
+pub use camera::*;
 pub use laser::*;
 
 pub trait CursorObject {
@@ -81,5 +83,5 @@ pub trait CursorObject {
 
     fn update(&mut self, tick: u32, tick_f: f64, lane: f32, pos: Point2<f32>);
     fn draw(&self, state: &MainState, painter: &Painter) -> Result<()>;
-    fn draw_ui(&mut self, _ctx: &Context, _actions: &mut ActionStack<Chart>) {}
+    fn draw_ui(&mut self, _state: &mut MainState, _ctx: &Context) {}
 }

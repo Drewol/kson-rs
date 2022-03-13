@@ -232,6 +232,4 @@ impl CursorObject for ButtonInterval {
             Ok(())
         }
     }
-
-    fn draw_ui(&mut self, _ctx: &Context, _actions: &mut ActionStack<Chart>) {}
 }

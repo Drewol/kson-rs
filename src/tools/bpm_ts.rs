@@ -67,7 +67,7 @@ impl CursorObject for BpmTool {
         Ok(())
     }
 
-    fn draw_ui(&mut self, ctx: &Context, actions: &mut ActionStack<Chart>) {
+    fn draw_ui(&mut self, state: &mut MainState, ctx: &Context) {
         let complete_func: Option<Box<dyn Fn(&mut ActionStack<Chart>, f64)>> = match self.state {
             CursorToolStates::None => None,
             CursorToolStates::Add(tick) => {
@@ -122,7 +122,7 @@ impl CursorObject for BpmTool {
                             self.state = CursorToolStates::None;
                         }
                         if ui.button("Ok").clicked() {
-                            complete(actions, bpm as f64);
+                            complete(&mut state.actions, bpm as f64);
                             self.state = CursorToolStates::None;
                         }
                     });
@@ -234,7 +234,7 @@ impl CursorObject for TimeSigTool {
         Ok(())
     }
 
-    fn draw_ui(&mut self, ctx: &Context, actions: &mut ActionStack<Chart>) {
+    fn draw_ui(&mut self, state: &mut MainState, ctx: &Context) {
         let complete_func: Option<Box<dyn Fn(&mut ActionStack<Chart>, [i32; 2])>> = match self.state
         {
             CursorToolStates::None => None,
@@ -287,7 +287,7 @@ impl CursorObject for TimeSigTool {
                         self.ts.d = ts_d;
 
                         if ui.button("Ok").clicked() {
-                            complete(actions, [ts_n as i32, ts_d as i32]);
+                            complete(&mut state.actions, [ts_n as i32, ts_d as i32]);
                             self.state = CursorToolStates::None;
                         }
                         if ui.button("Cancel").clicked() {

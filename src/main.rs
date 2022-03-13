@@ -15,6 +15,7 @@ use kson::{BgmInfo, Chart, MetaInfo};
 use serde::{Deserialize, Serialize};
 
 mod action_stack;
+mod chart_camera;
 mod chart_editor;
 mod dsp;
 mod playback;
@@ -197,6 +198,7 @@ pub enum ChartTool {
     LLaser,
     BPM,
     TimeSig,
+    Camera,
 }
 
 #[derive(Debug, Serialize, Deserialize, Hash, PartialEq, Eq, Clone)]
@@ -420,6 +422,10 @@ impl Default for Config {
                 KeyCombo::new(Key::Num6, nomod),
                 GuiEvent::ToolChanged(ChartTool::TimeSig),
             );
+            default_bindings.insert(
+                KeyCombo::new(Key::Num7, nomod),
+                GuiEvent::ToolChanged(ChartTool::Camera),
+            );
         }
 
         default_bindings.insert(KeyCombo::new(Key::Space, nomod), GuiEvent::Play);
@@ -487,6 +493,10 @@ impl AppState {
                 ui.end_row();
             }
         });
+
+        if ui.button("Reset to defaults").clicked() {
+            self.key_bindings = Config::default().key_bindings;
+        }
     }
 }
 
@@ -781,9 +791,13 @@ impl App for AppState {
                 fill: Color32::BLACK,
                 ..Default::default()
             };
-
-            if let Some(tool) = &mut self.editor.cursor_object {
-                tool.draw_ui(ctx, &mut self.editor.actions);
+            {
+                // Move the tool out of the editor state so it can't modify itself in unexpected ways. Pleases borrow checker.
+                let mut borrowed_tool = self.editor.cursor_object.take();
+                if let Some(tool) = borrowed_tool.as_mut() {
+                    tool.draw_ui(&mut self.editor, ctx);
+                }
+                self.editor.cursor_object = borrowed_tool;
             }
 
             let main_response = egui::CentralPanel::default()

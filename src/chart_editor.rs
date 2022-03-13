@@ -212,22 +212,30 @@ impl MainState {
         Ok(s)
     }
 
-    pub fn get_cursor_ms(&self) -> f64 {
+    pub fn get_cursor_ms_from_mouse(&self) -> f64 {
         let tick = self.screen.pos_to_tick(self.mouse_x, self.mouse_y);
         let tick = tick - (tick % (self.chart.beat.resolution / 2));
         self.chart.tick_to_ms(tick)
     }
 
-    pub fn get_cursor_tick(&self) -> u32 {
+    pub fn get_cursor_tick_from_mouse(&self) -> u32 {
         self.screen.pos_to_tick(self.mouse_x, self.mouse_y)
     }
 
-    pub fn get_cursor_tick_f(&self) -> f64 {
+    pub fn get_cursor_tick_from_mouse_f(&self) -> f64 {
         self.screen.pos_to_tick_f(self.mouse_x, self.mouse_y)
     }
 
-    pub fn get_cursor_lane(&self) -> f32 {
+    pub fn get_cursor_lane_from_mouse(&self) -> f32 {
         self.screen.pos_to_lane(self.mouse_x)
+    }
+
+    pub fn get_current_cursor_tick(&self) -> f32 {
+        if self.audio_playback.is_playing() {
+            self.audio_playback.get_tick(&self.chart) as f32
+        } else {
+            self.cursor_line as f32
+        }
     }
 
     pub fn draw_cursor_line(&self, painter: &Painter, tick: u32, color: Color32) {
@@ -536,6 +544,7 @@ impl MainState {
                             ChartTool::RLaser => Some(Box::new(LaserTool::new(true))),
                             ChartTool::BPM => Some(Box::new(BpmTool::new())),
                             ChartTool::TimeSig => Some(Box::new(TimeSigTool::new())),
+                            ChartTool::Camera => Some(Box::new(CameraTool::default())),
                         };
                         self.current_tool = new_tool;
                         ctx.request_repaint();
@@ -918,13 +927,11 @@ impl MainState {
         }
 
         {
-            let tick = if self.audio_playback.is_playing() {
-                self.audio_playback.get_tick(&self.chart) as u32
-            } else {
-                self.cursor_line
-            };
-
-            self.draw_cursor_line(&painter, tick, Color32::from_rgb(255u8, 0u8, 0u8));
+            self.draw_cursor_line(
+                &painter,
+                self.get_current_cursor_tick() as u32,
+                Color32::from_rgb(255u8, 0u8, 0u8),
+            );
         }
 
         //BPM & Time Signatures
@@ -1001,8 +1008,8 @@ impl MainState {
             let tick = self.screen.pos_to_tick(x, y);
             let tick = tick - (tick % (res / 2));
             let tick_f = self.screen.pos_to_tick_f(x, y);
-            match self.cursor_object {
-                Some(ref mut cursor) => cursor.drag_start(
+            if let Some(ref mut cursor) = self.cursor_object {
+                cursor.drag_start(
                     self.screen,
                     tick,
                     tick_f,
@@ -1011,8 +1018,7 @@ impl MainState {
                     &mut self.actions,
                     na::point![x, y],
                     modifiers,
-                ),
-                None => self.cursor_line = tick,
+                )
             }
         }
     }
@@ -1061,6 +1067,7 @@ impl MainState {
         self.mouse_x = pos.x;
         self.mouse_y = pos.y;
         let (lane, tick, tick_f) = self.get_clicked_data(pos);
+        self.cursor_line = tick;
 
         if let Some(cursor) = &mut self.cursor_object {
             cursor.primary_click(
