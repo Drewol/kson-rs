@@ -24,7 +24,10 @@ struct CamreaView {
 
 impl Widget for CamreaView {
     fn ui(self, ui: &mut eframe::egui::Ui) -> eframe::egui::Response {
-        let (response, painter) = ui.allocate_painter(self.desired_size, Sense::click());
+        let width = ui.available_size_before_wrap().x.max(self.desired_size.x);
+        let height = width / (16.0 / 9.0); //16:9 aspect ratio, potentially allow toggle to 9:16
+
+        let (response, painter) = ui.allocate_painter(vec2(width, height), Sense::click());
         let view_rect = response.rect;
         let size = view_rect.size();
         let (projection, camera_transform) = self.camera.matrix(size);
@@ -96,7 +99,7 @@ impl CursorObject for CameraTool {
             center: vec3(0.0, 0.0, 0.0),
             angle: -45.0 - 14.0 * self.angle,
             fov: 70.0,
-            radius: 3.1 - self.radius,
+            radius: (-self.radius + 3.1) / 2.0,
             tilt: 0.0,
             track_length: 16.0,
         };

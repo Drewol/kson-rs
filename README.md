@@ -18,7 +18,7 @@ Editor program for the Sound Voltex simulator format [KSON](https://github.com/m
 ## TODO
 * Effecting
 * Modifying existing objects
-* Camera editing
+* Camera editing **(in progress)**
 * Full metadata editing
 * Key sound editing
 * Ability to edit hotkeys
