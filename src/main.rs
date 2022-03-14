@@ -7,11 +7,12 @@ use std::str::FromStr;
 use anyhow::Result;
 use chart_editor::MainState;
 use eframe::egui::{
-    self, menu, warn_if_debug_build, Button, Color32, DragValue, Frame, Grid, Key, Label, Layout,
-    Pos2, Rect, Response, RichText, Sense, Slider, Ui, Vec2,
+    self, menu, warn_if_debug_build, Button, Color32, ColorImage, DragValue, Frame, Grid, Image,
+    ImageData, Key, Label, Layout, Pos2, Rect, Response, RichText, Sense, Slider, Ui, Vec2,
 };
 use eframe::epi::App;
 use kson::{BgmInfo, Chart, MetaInfo};
+use once_cell::sync::OnceCell;
 use serde::{Deserialize, Serialize};
 
 mod action_stack;
@@ -514,7 +515,7 @@ fn menu_ui(ui: &mut Ui, title: impl ToString, min_width: f32, add_contents: impl
 impl App for AppState {
     fn setup(
         &mut self,
-        _ctx: &egui::Context,
+        ctx: &egui::Context,
         _frame: &eframe::epi::Frame,
         storage: Option<&dyn eframe::epi::Storage>,
     ) {
@@ -876,9 +877,7 @@ impl App for AppState {
 }
 
 fn main() -> Result<()> {
-    simple_logger::SimpleLogger::new()
-        .with_level(log::LevelFilter::Debug)
-        .init()?;
+    env_logger::init();
     let options = eframe::NativeOptions {
         drag_and_drop_support: false,
         multisample: 8,

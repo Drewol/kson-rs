@@ -1,9 +1,11 @@
-use std::{f32::EPSILON, ops::Sub};
+use std::{default::Default, f32::EPSILON, ops::Sub};
 
-use eframe::egui::{pos2, vec2, Color32, Sense, Slider, Stroke, Vec2, Widget};
-use glam::{vec3, vec4, Mat4};
+use eframe::egui::{
+    epaint::{Mesh, Vertex},
+    pos2, vec2, Color32, Rect, Sense, Shape, Slider, Stroke, TextureId, Vec2, Widget,
+};
+use glam::{vec3, Mat4};
 use kson::Graph;
-use nalgebra::ComplexField;
 
 use crate::chart_camera::ChartCamera;
 
@@ -20,6 +22,76 @@ pub struct CameraTool {
 struct CamreaView {
     desired_size: Vec2,
     camera: ChartCamera,
+    meshes: Vec<Mesh>,
+}
+
+impl CamreaView {
+    const TRACK_LENGH: f32 = 16.0;
+    const TRACK_WIDTH: f32 = 1.0;
+
+    pub fn new(desired_size: Vec2, camera: ChartCamera) -> Self {
+        Self {
+            desired_size,
+            camera,
+            meshes: Default::default(),
+        }
+    }
+
+    pub fn add_track(&mut self) {
+        let left = -(Self::TRACK_WIDTH / 2.0);
+        let right = Self::TRACK_WIDTH / 2.0;
+
+        let mut track_mesh = Mesh::with_texture(Default::default());
+
+        track_mesh.add_colored_rect(
+            Rect {
+                min: pos2(left, 0.0),
+                max: pos2(right, Self::TRACK_LENGH),
+            },
+            Color32::from_gray(50),
+        );
+
+        for i in 0..5 {
+            let x = left + (i as f32 + 1.0) * Self::TRACK_WIDTH / 6.0;
+
+            track_mesh.add_colored_rect(
+                Rect {
+                    min: pos2(x - 0.01, 0.0),
+                    max: pos2(x + 0.01, Self::TRACK_LENGH),
+                },
+                Color32::from_gray(100),
+            );
+        }
+
+        track_mesh.add_colored_rect(
+            Rect {
+                min: pos2(left, 0.0),
+                max: pos2(left + Self::TRACK_WIDTH / 6.0, Self::TRACK_LENGH),
+            },
+            Color32::from_rgb(255, 0, 100),
+        );
+
+        track_mesh.add_colored_rect(
+            Rect {
+                min: pos2(right - Self::TRACK_WIDTH / 6.0, 0.0),
+                max: pos2(right, Self::TRACK_LENGH),
+            },
+            Color32::from_rgb(0, 100, 255),
+        );
+
+        track_mesh.add_colored_rect(
+            Rect {
+                min: pos2(left, -0.01),
+                max: pos2(right, 0.01),
+            },
+            Color32::RED,
+        );
+
+        self.meshes.push(track_mesh);
+    }
+    pub fn add_mesh(&mut self, mesh: Mesh) {
+        self.meshes.push(mesh)
+    }
 }
 
 impl Widget for CamreaView {
@@ -38,26 +110,32 @@ impl Widget for CamreaView {
             Stroke::none(),
         );
 
-        let points = [
-            vec3(-0.5, 0.0, 0.0),
-            vec3(-0.5, 0.0, 10.0),
-            vec3(0.5, 0.0, 10.0),
-            vec3(0.5, 0.0, 0.0),
-            vec3(-0.5, 0.0, 0.0),
-        ]
-        .map(|p| Mat4::from_rotation_y(90_f32.to_radians()).transform_point3(p))
-        .map(|p| projection.project_point3(camera_transform.transform_point3(p)))
-        .map(|p| p * vec3(1.0, -1.0, 1.0))
-        .map(|p| p + vec3(1.0, 1.0, 1.0))
-        .map(|p| p / vec3(2.0, 2.0, 2.0))
-        .map(|p| p);
+        for mesh in self.meshes {
+            let new_vert_pos = mesh
+                .vertices
+                .iter()
+                .map(|p| vec3(p.pos.x, 0.0, p.pos.y))
+                .map(|p| Mat4::from_rotation_y(90_f32.to_radians()).transform_point3(p))
+                .map(|p| projection.project_point3(camera_transform.transform_point3(p)))
+                .map(|p| p * vec3(1.0, -1.0, 1.0))
+                .map(|p| p + vec3(1.0, 1.0, 1.0))
+                .map(|p| p / vec3(2.0, 2.0, 2.0))
+                .map(|p| pos2(p.x * size.x, p.y * size.y) + view_rect.left_top().to_vec2())
+                .collect::<Vec<_>>();
 
-        for segment in points.windows(2) {
-            let pos = [
-                pos2(segment[0].x * size.x, segment[0].y * size.y) + view_rect.left_top().to_vec2(),
-                pos2(segment[1].x * size.x, segment[1].y * size.y) + view_rect.left_top().to_vec2(),
-            ];
-            painter.line_segment(pos, Stroke::new(2.0, Color32::from_rgb(255, 0, 0)))
+            painter.add(Shape::mesh(Mesh {
+                indices: mesh.indices,
+                vertices: new_vert_pos
+                    .iter()
+                    .zip(mesh.vertices)
+                    .map(|(new_pos, old_vert)| Vertex {
+                        pos: *new_pos,
+                        uv: old_vert.uv,
+                        color: old_vert.color,
+                    })
+                    .collect(),
+                texture_id: mesh.texture_id,
+            }));
         }
 
         response
@@ -109,11 +187,9 @@ impl CursorObject for CameraTool {
             .open(&mut true)
             .resizable(true)
             .show(ctx, |ui| {
-                ui.add(CamreaView {
-                    camera,
-                    desired_size: vec2(300.0, 200.0),
-                });
-
+                let mut camera_view = CamreaView::new(vec2(300.0, 200.0), camera);
+                camera_view.add_track();
+                ui.add(camera_view);
                 ui.add(Slider::new(&mut self.radius, -3.0..=3.0).text("Radius"));
                 ui.add(Slider::new(&mut self.angle, -3.0..=3.0).text("Angle"));
 
