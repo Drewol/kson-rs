@@ -6,9 +6,11 @@ use std::str::FromStr;
 
 use anyhow::Result;
 use chart_editor::MainState;
+use eframe::egui::style::Margin;
 use eframe::egui::{
     self, menu, warn_if_debug_build, Button, Color32, ColorImage, DragValue, Frame, Grid, Image,
     ImageData, Key, Label, Layout, Pos2, Rect, Response, RichText, Sense, Slider, Ui, Vec2,
+    Visuals,
 };
 use eframe::epi::App;
 use kson::{BgmInfo, Chart, MetaInfo};
@@ -528,6 +530,7 @@ impl App for AppState {
         self.key_bindings = config.key_bindings;
         self.editor.screen.track_width = config.track_width;
         self.editor.screen.beats_per_col = config.beats_per_column;
+        ctx.set_visuals(Visuals::dark());
     }
 
     fn on_exit_event(&mut self) -> bool {
@@ -788,7 +791,7 @@ impl App for AppState {
         //main
         {
             let main_frame = Frame {
-                margin: Vec2::new(0.0, 0.0),
+                margin: Margin::same(0.0),
                 fill: Color32::BLACK,
                 ..Default::default()
             };

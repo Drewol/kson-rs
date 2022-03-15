@@ -27,7 +27,7 @@ once_cell = "1.10.0"
 git = "https://github.com/Drewol/egui.git"
 branch = "drewol/multisample"
 default_features = false
-features = ["persistence","default_fonts", "egui_glow"]
+features = ["persistence","default_fonts"]
 
 
 [features]

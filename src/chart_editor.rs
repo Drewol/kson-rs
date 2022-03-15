@@ -8,6 +8,7 @@ use eframe::egui::{
 };
 use eframe::egui::{Painter, Rgba};
 
+use eframe::epaint::FontId;
 use egui::Ui;
 use kson::{Ksh, Vox};
 use log::debug;
@@ -990,7 +991,7 @@ impl MainState {
                             pos2(x, y - i as f32 * line_height),
                             Align2::RIGHT_BOTTOM,
                             text,
-                            egui::TextStyle::Monospace,
+                            FontId::monospace(12.0),
                             *color,
                         );
                     }
