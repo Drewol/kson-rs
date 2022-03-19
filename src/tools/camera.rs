@@ -1,8 +1,14 @@
+//TODO: Curving
+
 use std::{default::Default, f32::EPSILON, ops::Sub};
 
-use eframe::egui::{
-    epaint::{Mesh, Vertex},
-    pos2, vec2, Color32, Rect, Sense, Shape, Slider, Stroke, TextureId, Vec2, Widget,
+use eframe::{
+    egui::{
+        epaint::{Mesh, Vertex},
+        pos2, vec2, widgets, Color32, ComboBox, Rect, Sense, Shape, Slider, Stroke, TextureId,
+        Vec2, Widget,
+    },
+    epaint::Rgba,
 };
 use glam::{vec3, Mat4};
 use kson::Graph;
@@ -11,12 +17,34 @@ use crate::chart_camera::ChartCamera;
 
 use super::CursorObject;
 
+#[derive(Debug, PartialEq)]
+enum CameraPaths {
+    Zoom,
+    RotationX,
+}
+
+impl Default for CameraPaths {
+    fn default() -> Self {
+        Self::Zoom
+    }
+}
+
+impl ToString for CameraPaths {
+    fn to_string(&self) -> String {
+        match self {
+            CameraPaths::Zoom => "Radius".to_string(),
+            CameraPaths::RotationX => "Angle".to_string(),
+        }
+    }
+}
+
 #[derive(Debug, Default)]
 pub struct CameraTool {
     radius: f32,
     angle: f32,
     angle_dirty: bool,
     radius_dirty: bool,
+    display_line: CameraPaths,
 }
 
 struct CamreaView {
@@ -147,10 +175,21 @@ impl CursorObject for CameraTool {
 
     fn draw(
         &self,
-        _state: &crate::chart_editor::MainState,
-        _painter: &eframe::egui::Painter,
+        state: &crate::chart_editor::MainState,
+        painter: &eframe::egui::Painter,
     ) -> anyhow::Result<()> {
-        //TODO: Visualize camera values on track
+        let (graph, stroke) = match self.display_line {
+            CameraPaths::Zoom => (
+                &state.chart.camera.cam.body.zoom,
+                Stroke::new(1.0, Rgba::from_rgb(1.0, 1.0, 0.0)),
+            ),
+            CameraPaths::RotationX => (
+                &state.chart.camera.cam.body.rotation_x,
+                Stroke::new(1.0, Rgba::from_rgb(0.0, 1.0, 1.0)),
+            ),
+        };
+
+        state.draw_graph(graph, painter, (-3.0, 3.0), stroke);
         Ok(())
     }
 
@@ -201,6 +240,21 @@ impl CursorObject for CameraTool {
                     self.radius_dirty = true;
                 }
 
+                ComboBox::from_label("Display Line")
+                    .selected_text(self.display_line.to_string())
+                    .show_ui(ui, |ui| {
+                        ui.selectable_value(
+                            &mut self.display_line,
+                            CameraPaths::Zoom,
+                            CameraPaths::Zoom.to_string(),
+                        );
+                        ui.selectable_value(
+                            &mut self.display_line,
+                            CameraPaths::RotationX,
+                            CameraPaths::RotationX.to_string(),
+                        );
+                    });
+
                 if ui.button("Add Control Point").clicked() {
                     let new_action = state.actions.new_action();
                     new_action.description = "Added camera control point".to_string();
@@ -209,6 +263,7 @@ impl CursorObject for CameraTool {
                         radius,
                         radius_dirty,
                         angle_dirty,
+                        display_line: _,
                     } = *self;
                     let y = state.cursor_line;
                     new_action.action = Box::new(move |c| {

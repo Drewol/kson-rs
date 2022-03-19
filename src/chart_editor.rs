@@ -13,11 +13,13 @@ use egui::Ui;
 use kson::{Ksh, Vox};
 use log::debug;
 use nalgebra as na;
+use std::collections::btree_map::Range;
 use std::collections::VecDeque;
 use std::ffi::OsStr;
 use std::fs::File;
 use std::io::prelude::*;
 use std::io::BufReader;
+use std::ops::RangeBounds;
 use std::path::Path;
 use std::path::PathBuf;
 
@@ -478,6 +480,46 @@ impl MainState {
         mb.push(segment);
 
         Ok(())
+    }
+
+    pub fn draw_graph(
+        &self,
+        graph: &impl kson::Graph<f64>,
+        painter: &Painter,
+        bounds: (f32, f32),
+        stroke: Stroke,
+    ) {
+        let transform_value = |v: f32| (v - bounds.0) / (bounds.1 - bounds.0);
+
+        let ticks_per_col = self.screen.beats_per_col * self.chart.beat.resolution;
+        let min_tick_render = self.screen.pos_to_tick(-100.0, self.screen.h);
+        let max_tick_render = self.screen.pos_to_tick(self.screen.w + 50.0, 0.0);
+
+        let min_tick_render = min_tick_render - min_tick_render % ticks_per_col;
+
+        let max_tick_render = max_tick_render - max_tick_render % ticks_per_col;
+
+        let resolution = 3;
+        for col in (min_tick_render..max_tick_render)
+            .collect::<Vec<_>>()
+            .chunks(ticks_per_col as usize)
+        {
+            for segment_ticks in col.windows(resolution).step_by(resolution - 1) {
+                //could miss end of column with bad resolutions
+                let s = segment_ticks[0];
+                let e = segment_ticks[resolution - 1];
+                let sv = transform_value(graph.value_at(s as f64) as f32);
+                let ev = transform_value(graph.value_at(e as f64) as f32);
+
+                let (sx, sy) = self.screen.tick_to_pos(s);
+                let (ex, ey) = self.screen.tick_to_pos(e);
+
+                let sx = sx + sv * self.screen.track_width + self.screen.track_width / 2.0;
+                let ex = ex + ev * self.screen.track_width + self.screen.track_width / 2.0;
+
+                painter.line_segment([pos2(sx, sy), pos2(ex, ey)], stroke);
+            }
+        }
     }
 
     pub fn save(&mut self) -> Result<bool> {
