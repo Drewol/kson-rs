@@ -6,11 +6,8 @@ use crate::{
     utils::Overlaps,
 };
 use anyhow::Result;
-use eframe::egui::{Context, Painter, Pos2, Rgba, Stroke};
-use kson::{Chart, GraphSectionPoint, Interval, LaserSection};
-use na::point;
-use na::Point2;
-use nalgebra as na;
+use eframe::egui::{Painter, Pos2, Rgba, Stroke};
+use kson::{Chart, GraphSectionPoint, LaserSection};
 
 pub struct LaserTool {
     right: bool,
@@ -50,47 +47,6 @@ impl LaserTool {
             vf: None,
             a: Some(0.5),
             b: Some(0.5),
-        }
-    }
-
-    fn get_control_point_pos(
-        screen: ScreenState,
-        points: &[GraphSectionPoint],
-        start_y: u32,
-    ) -> Option<Pos2> {
-        let start = points.get(0).unwrap();
-        //TODO: (a,b) should not be optional
-        if start.a == None || start.b == None {
-            return None;
-        }
-        let start_value = if let Some(vf) = start.vf { vf } else { start.v };
-        let end = points.get(1).unwrap();
-        let start_tick = start_y + start.ry;
-        let end_tick = start_y + end.ry;
-        match start_tick.cmp(&end_tick) {
-            std::cmp::Ordering::Greater => panic!("Laser section start later than end."),
-            std::cmp::Ordering::Equal => return None,
-            _ => {}
-        };
-        let intervals = screen.interval_to_ranges(&Interval {
-            y: start_tick,
-            l: end_tick - start_tick,
-        });
-
-        if let Some(&interv) = intervals.iter().find(|&&v| {
-            let a = start.a.unwrap();
-            let s = (v.3).0 as f64;
-            let e = (v.3).1 as f64;
-            a >= s && a <= e
-        }) {
-            let value_width = end.v - start_value;
-            let x = (start_value + start.b.unwrap() * value_width) as f32;
-            let x = 1.0 / 10.0 + x * 8.0 / 10.0;
-            let x = x * screen.track_width + interv.0 + screen.track_width / 2.0;
-            let y = interv.1 + interv.2 * (start.a.unwrap() as f32 - (interv.3).0) / (interv.3).1;
-            Some(Pos2::new(x, y))
-        } else {
-            panic!("Curve `a` was not in any interval");
         }
     }
 
@@ -148,7 +104,7 @@ impl CursorObject for LaserTool {
         lane: f32,
         chart: &Chart,
         actions: &mut ActionStack<Chart>,
-        pos: Point2<f32>,
+        pos: Pos2,
         modifiers: &Modifiers,
     ) {
         let wide = modifiers.shift;
@@ -216,10 +172,13 @@ impl CursorObject for LaserTool {
             LaserEditMode::Edit(edit_state) => {
                 if self.hit_test(chart, tick) == Some(edit_state.section_index) {
                     for (i, points) in self.section.v.windows(2).enumerate() {
-                        if let Some(control_point) =
-                            LaserTool::get_control_point_pos(screen, points, self.section.y)
-                        {
-                            if na::distance(&point![control_point.x, control_point.y], &pos) < 5.0 {
+                        if let Some(control_point) = screen.get_control_point_pos_section(
+                            points,
+                            self.section.y,
+                            (0.0, 1.0),
+                            Some((0.5 / 6.0, 5.5 / 6.0)),
+                        ) {
+                            if control_point.distance(pos) < 5.0 {
                                 self.mode = LaserEditMode::Edit(LaserEditState {
                                     section_index: edit_state.section_index,
                                     curving_index: Some(i),
@@ -247,7 +206,7 @@ impl CursorObject for LaserTool {
         _lane: f32,
         _chart: &Chart,
         actions: &mut ActionStack<Chart>,
-        _pos: Point2<f32>,
+        _pos: Pos2,
     ) {
         if let LaserEditMode::Edit(edit_state) = self.mode {
             if let Some(curving_index) = edit_state.curving_index {
@@ -279,7 +238,7 @@ impl CursorObject for LaserTool {
         _lane: f32,
         chart: &Chart,
         actions: &mut ActionStack<Chart>,
-        _pos: Point2<f32>,
+        _pos: Pos2,
     ) {
         if let Some(index) = self.hit_test(chart, tick) {
             let laser_i = if self.right { 1 } else { 0 };
@@ -293,7 +252,7 @@ impl CursorObject for LaserTool {
         }
     }
 
-    fn update(&mut self, tick: u32, tick_f: f64, lane: f32, _pos: Point2<f32>) {
+    fn update(&mut self, tick: u32, tick_f: f64, lane: f32, _pos: Pos2, _chart: &Chart) {
         match self.mode {
             LaserEditMode::New => {
                 let ry = self.calc_ry(tick);
@@ -335,7 +294,7 @@ impl CursorObject for LaserTool {
                     );
 
                     let start_value = point.vf.unwrap_or(point.v);
-                    let in_value = lane as f64 / 6.0;
+                    let in_value = lane as f64 / 5.0 - 0.5 / 6.0;
                     let value = (in_value - start_value) / (end_point.v - start_value);
 
                     self.section.v[curving_index].b = Some(value.min(1.0).max(0.0));
@@ -377,9 +336,12 @@ impl CursorObject for LaserTool {
                         Rgba::from_rgba_premultiplied(0.0, 0.0, 1.0, 1.0)
                     };
 
-                    if let Some(pos) =
-                        LaserTool::get_control_point_pos(state.screen, start_end, self.section.y)
-                    {
+                    if let Some(pos) = state.screen.get_control_point_pos_section(
+                        start_end,
+                        self.section.y,
+                        (0.0, 1.0),
+                        Some((0.5 / 6.0, 5.5 / 6.0)),
+                    ) {
                         painter.circle(pos, 5.0, color, Stroke::none());
                     }
                 }

@@ -1,23 +1,20 @@
-//TODO: Curving
-
 use std::{default::Default, f32::EPSILON, ops::Sub};
 
 use eframe::{
     egui::{
         epaint::{Mesh, Vertex},
-        pos2, vec2, widgets, Color32, ComboBox, Rect, Sense, Shape, Slider, Stroke, TextureId,
-        Vec2, Widget,
+        pos2, vec2, Color32, ComboBox, Pos2, Rect, Sense, Shape, Slider, Stroke, Vec2, Widget,
     },
     epaint::Rgba,
 };
 use glam::{vec3, Mat4};
-use kson::Graph;
+use kson::{Chart, Graph, GraphPoint, GraphSectionPoint};
 
 use crate::chart_camera::ChartCamera;
 
 use super::CursorObject;
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Clone, Copy)]
 enum CameraPaths {
     Zoom,
     RotationX,
@@ -45,6 +42,16 @@ pub struct CameraTool {
     angle_dirty: bool,
     radius_dirty: bool,
     display_line: CameraPaths,
+    curving_index: Option<(usize, f64, f64)>,
+}
+
+impl CameraTool {
+    fn current_graph<'a>(&mut self, chart: &'a kson::Chart) -> &'a Vec<kson::GraphPoint> {
+        match self.display_line {
+            CameraPaths::Zoom => &chart.camera.cam.body.zoom,
+            CameraPaths::RotationX => &chart.camera.cam.body.rotation_x,
+        }
+    }
 }
 
 struct CamreaView {
@@ -171,7 +178,25 @@ impl Widget for CamreaView {
 }
 
 impl CursorObject for CameraTool {
-    fn update(&mut self, _tick: u32, _tick_f: f64, _lane: f32, _pos: nalgebra::Point2<f32>) {}
+    fn update(&mut self, _tick: u32, tick_f: f64, lane: f32, _pos: Pos2, chart: &Chart) {
+        if let Some((c_idx, _, _)) = self.curving_index {
+            let transform_value = |v: f64| (v + 3.0) / 6.0;
+
+            if let Some(section) = self.current_graph(chart).windows(2).nth(c_idx) {
+                let a = tick_f - section[0].y as f64;
+                let a = a / (section[1].y - section[0].y) as f64;
+
+                //TODO: map b value to match mouse position better
+                let point = &section[0];
+                let end_point = &section[1];
+                let start_value = transform_value(point.vf.unwrap_or(point.v));
+                let in_value = lane as f64 / 6.0;
+                let value = (in_value - start_value) / (transform_value(end_point.v) - start_value);
+
+                self.curving_index = Some((c_idx, a.max(0.0).min(1.0), value.max(0.0).min(1.0)));
+            }
+        }
+    }
 
     fn draw(
         &self,
@@ -190,7 +215,126 @@ impl CursorObject for CameraTool {
         };
 
         state.draw_graph(graph, painter, (-3.0, 3.0), stroke);
+
+        for (i, start_end) in graph.windows(2).enumerate() {
+            let (color, points) = if matches!(self.curving_index, Some((ci, _, _)) if ci == i) {
+                let new_start = if let Some((_, a, b)) = self.curving_index {
+                    GraphPoint {
+                        y: start_end[0].y,
+                        v: start_end[0].v,
+                        vf: start_end[0].vf,
+                        a: Some(a),
+                        b: Some(b),
+                    }
+                } else {
+                    start_end[0]
+                };
+
+                (
+                    Rgba::from_rgba_premultiplied(0.0, 1.0, 0.0, 1.0),
+                    [new_start, start_end[1]],
+                )
+            } else {
+                (
+                    Rgba::from_rgba_premultiplied(0.0, 0.0, 1.0, 1.0),
+                    [start_end[0], start_end[1]],
+                )
+            };
+
+            if let Some(pos) = state
+                .screen
+                .get_control_point_pos(&points, (-3.0, 3.0), None)
+            {
+                painter.circle(pos, 5.0, color, Stroke::none());
+            }
+        }
+
+        if let Some((c_idx, a, b)) = self.curving_index {
+            if let Some(points) = graph.windows(2).nth(c_idx) {
+                state.draw_graph_segmented(
+                    &points
+                        .iter()
+                        .map(|p| GraphSectionPoint {
+                            ry: p.y,
+                            v: p.v,
+                            vf: p.vf,
+                            a: Some(a),
+                            b: Some(b),
+                        })
+                        .collect::<Vec<_>>(),
+                    painter,
+                    (-3.0, 3.0),
+                    Stroke {
+                        width: 1.0,
+                        color: Color32::GREEN,
+                    },
+                );
+            }
+        }
+
         Ok(())
+    }
+
+    fn drag_start(
+        &mut self,
+        screen: crate::chart_editor::ScreenState,
+        _tick: u32,
+        _tick_f: f64,
+        _lane: f32,
+        chart: &kson::Chart,
+        _actions: &mut crate::action_stack::ActionStack<kson::Chart>,
+        pos: Pos2,
+        _modifiers: &crate::Modifiers,
+    ) {
+        let graph = self.current_graph(chart);
+
+        for (i, points) in graph.windows(2).enumerate() {
+            if let Some(control_point) = screen.get_control_point_pos(points, (-3.0, 3.0), None) {
+                if control_point.distance(pos) < 5.0 {
+                    self.curving_index =
+                        Some((i, points[0].a.unwrap_or(0.5), points[0].b.unwrap_or(0.5)));
+                }
+            }
+        }
+    }
+
+    fn drag_end(
+        &mut self,
+        _screen: crate::chart_editor::ScreenState,
+        _tick: u32,
+        _tick_f: f64,
+        _lane: f32,
+        _chart: &kson::Chart,
+        actions: &mut crate::action_stack::ActionStack<kson::Chart>,
+        _pos: Pos2,
+    ) {
+        if let Some((ci, a, b)) = self.curving_index {
+            let new_action = actions.new_action();
+            let active_line = self.display_line;
+            new_action.action = Box::new(move |chart| {
+                let graph = match active_line {
+                    CameraPaths::Zoom => &mut chart.camera.cam.body.zoom,
+                    CameraPaths::RotationX => &mut chart.camera.cam.body.rotation_x,
+                };
+
+                if let Some(point) = graph.get_mut(ci) {
+                    point.a = Some(a);
+                    point.b = Some(b);
+                }
+
+                Ok(())
+            });
+
+            new_action.description = format!(
+                "Edit curve for camera {}.",
+                match self.display_line {
+                    CameraPaths::Zoom => "radius",
+                    CameraPaths::RotationX => "angle",
+                }
+            )
+        }
+
+        self.curving_index = None
     }
 
     fn draw_ui(&mut self, state: &mut crate::chart_editor::MainState, ctx: &eframe::egui::Context) {
@@ -264,6 +408,7 @@ impl CursorObject for CameraTool {
                         radius_dirty,
                         angle_dirty,
                         display_line: _,
+                        curving_index: _,
                     } = *self;
                     let y = state.cursor_line;
                     new_action.action = Box::new(move |c| {
@@ -272,8 +417,8 @@ impl CursorObject for CameraTool {
                                 y,
                                 v: angle as f64,
                                 vf: None,
-                                a: None,
-                                b: None,
+                                a: Some(0.5),
+                                b: Some(0.5),
                             })
                         }
                         if radius_dirty {
@@ -281,8 +426,8 @@ impl CursorObject for CameraTool {
                                 y,
                                 v: radius as f64,
                                 vf: None,
-                                a: None,
-                                b: None,
+                                a: Some(0.5),
+                                b: Some(0.5),
                             });
                         }
 

@@ -4,10 +4,8 @@ use crate::{
     chart_editor::{MainState, ScreenState},
 };
 use anyhow::{bail, Result};
-use eframe::egui::{self, Color32, Context, DragValue, Label, Painter, Window};
+use eframe::egui::{self, Color32, Context, DragValue, Label, Painter, Pos2, Window};
 use kson::Chart;
-use na::Point2;
-use nalgebra as na;
 
 enum CursorToolStates {
     None,
@@ -40,7 +38,7 @@ impl CursorObject for BpmTool {
         _lane: f32,
         chart: &Chart,
         _actions: &mut ActionStack<Chart>,
-        _pos: Point2<f32>,
+        _pos: Pos2,
     ) {
         if let CursorToolStates::None = self.state {
             //check for bpm changes on selected tick
@@ -56,7 +54,7 @@ impl CursorObject for BpmTool {
         }
     }
 
-    fn update(&mut self, tick: u32, _tick_f: f64, _lane: f32, _pos: Point2<f32>) {
+    fn update(&mut self, tick: u32, _tick_f: f64, _lane: f32, _pos: Pos2, _chart: &Chart) {
         if let CursorToolStates::None = self.state {
             self.cursor_tick = tick;
         }
@@ -138,7 +136,7 @@ impl CursorObject for BpmTool {
         _lane: f32,
         chart: &Chart,
         actions: &mut ActionStack<Chart>,
-        _pos: Point2<f32>,
+        _pos: Pos2,
     ) {
         if let Ok(index) = chart.beat.bpm.binary_search_by_key(&tick, |f| f.y) {
             let new_action = actions.new_action();
@@ -176,7 +174,7 @@ impl CursorObject for TimeSigTool {
         _lane: f32,
         chart: &Chart,
         _actions: &mut ActionStack<Chart>,
-        _pos: Point2<f32>,
+        _pos: Pos2,
     ) {
         let measure = chart.tick_to_measure(tick);
         if let CursorToolStates::None = self.state {
@@ -203,7 +201,7 @@ impl CursorObject for TimeSigTool {
         _lane: f32,
         chart: &Chart,
         actions: &mut ActionStack<Chart>,
-        _pos: Point2<f32>,
+        _pos: Pos2,
     ) {
         let measure = chart.tick_to_measure(tick);
         if let Ok(index) = chart
@@ -220,7 +218,7 @@ impl CursorObject for TimeSigTool {
         }
     }
 
-    fn update(&mut self, tick: u32, _tick_f: f64, _lane: f32, _pos: Point2<f32>) {
+    fn update(&mut self, tick: u32, _tick_f: f64, _lane: f32, _pos: Pos2, _chart: &Chart) {
         if let CursorToolStates::None = self.state {
             self.cursor_tick = tick;
         }

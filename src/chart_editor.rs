@@ -10,16 +10,13 @@ use eframe::egui::{Painter, Rgba};
 
 use eframe::epaint::FontId;
 use egui::Ui;
-use kson::{Ksh, Vox};
+use kson::{GraphPoint, GraphSectionPoint, Interval, Ksh, Vox};
 use log::debug;
-use nalgebra as na;
-use std::collections::btree_map::Range;
 use std::collections::VecDeque;
 use std::ffi::OsStr;
 use std::fs::File;
 use std::io::prelude::*;
 use std::io::BufReader;
-use std::ops::RangeBounds;
 use std::path::Path;
 use std::path::PathBuf;
 
@@ -126,11 +123,92 @@ impl ScreenState {
         }
     }
 
+    pub fn get_control_point_pos_section(
+        &self,
+        points: &[GraphSectionPoint],
+        start_y: u32,
+        bounds: (f32, f32),
+        track_bounds: Option<(f32, f32)>,
+    ) -> Option<Pos2> {
+        self.get_control_point_pos(
+            &points
+                .iter()
+                .map(|p| GraphPoint {
+                    y: p.ry + start_y,
+                    v: p.v,
+                    vf: p.vf,
+                    a: p.a,
+                    b: p.b,
+                })
+                .collect::<Vec<_>>(),
+            bounds,
+            track_bounds,
+        )
+    }
+
+    pub fn get_control_point_pos(
+        &self,
+        points: &[GraphPoint],
+        bounds: (f32, f32),
+        track_bounds: Option<(f32, f32)>,
+    ) -> Option<Pos2> {
+        if let (None, None) = (points.get(0), points.get(1)) {
+            return None;
+        }
+
+        let track_bounds = track_bounds.unwrap_or((0.0, 1.0));
+
+        let start = points.get(0).unwrap();
+
+        let (a, b) = if let (Some(a), Some(b)) = (start.a, start.b) {
+            (a, b)
+        } else {
+            (0.5, 0.5)
+        };
+
+        let transform_value = |v: f64| (v - bounds.0 as f64) / (bounds.1 - bounds.0) as f64;
+
+        let start_value = if let Some(vf) = start.vf {
+            transform_value(vf)
+        } else {
+            transform_value(start.v)
+        };
+        let end = points.get(1).unwrap();
+        let start_tick = start.y;
+        let end_tick = end.y;
+        match start_tick.cmp(&end_tick) {
+            std::cmp::Ordering::Greater => panic!("Laser section start later than end."),
+            std::cmp::Ordering::Equal => return None,
+            _ => {}
+        };
+        let intervals = self.interval_to_ranges(&Interval {
+            y: start_tick,
+            l: end_tick - start_tick,
+        });
+
+        if let Some(&(interval_x, interval_y, interval_h, (interval_start, interval_end))) =
+            intervals.iter().find(|&&v| {
+                let s = (v.3).0 as f64;
+                let e = (v.3).1 as f64;
+                a >= s && a <= e
+            })
+        {
+            let value_width = transform_value(end.v) - start_value;
+            let x = (start_value + b * value_width) as f32;
+            let x = track_bounds.0 + x * (track_bounds.1 - track_bounds.0);
+            let x = x * self.track_width + interval_x + self.track_width / 2.0;
+            let y = interval_y
+                + interval_h * (a as f32 - interval_start) / (interval_end - interval_start);
+            Some(Pos2::new(x, y))
+        } else {
+            panic!("Curve `a` was not in any interval");
+        }
+    }
+    /// Returns (x,y,h, (start,end))
     pub fn interval_to_ranges(
         &self,
         in_interval: &kson::Interval,
-    ) -> Vec<(f32, f32, f32, (f32, f32))> // (x,y,h, (start,end))
-    {
+    ) -> Vec<(f32, f32, f32, (f32, f32))> {
         let mut res: Vec<(f32, f32, f32, (f32, f32))> = Vec::new();
         let mut ranges: Vec<(u32, u32)> = Vec::new();
         let ticks_per_col = self.beats_per_col * self.beat_res;
@@ -510,6 +588,55 @@ impl MainState {
                 let e = segment_ticks[resolution - 1];
                 let sv = transform_value(graph.value_at(s as f64) as f32);
                 let ev = transform_value(graph.value_at(e as f64) as f32);
+
+                let (sx, sy) = self.screen.tick_to_pos(s);
+                let (ex, ey) = self.screen.tick_to_pos(e);
+
+                let sx = sx + sv * self.screen.track_width + self.screen.track_width / 2.0;
+                let ex = ex + ev * self.screen.track_width + self.screen.track_width / 2.0;
+
+                painter.line_segment([pos2(sx, sy), pos2(ex, ey)], stroke);
+            }
+        }
+    }
+    //TODO: Shares most code with draw_graph, combine somehow?
+    pub fn draw_graph_segmented(
+        &self,
+        graph: &impl kson::Graph<Option<f64>>,
+        painter: &Painter,
+        bounds: (f32, f32),
+        stroke: Stroke,
+    ) {
+        let transform_value = |v: f32| (v - bounds.0) / (bounds.1 - bounds.0);
+
+        let ticks_per_col = self.screen.beats_per_col * self.chart.beat.resolution;
+        let min_tick_render = self.screen.pos_to_tick(-100.0, self.screen.h);
+        let max_tick_render = self.screen.pos_to_tick(self.screen.w + 50.0, 0.0);
+
+        let min_tick_render = min_tick_render - min_tick_render % ticks_per_col;
+
+        let max_tick_render = max_tick_render - max_tick_render % ticks_per_col;
+
+        let resolution = 3;
+        for col in (min_tick_render..max_tick_render)
+            .collect::<Vec<_>>()
+            .chunks(ticks_per_col as usize)
+        {
+            for segment_ticks in col.windows(resolution).step_by(resolution - 1) {
+                //could miss end of column with bad resolutions
+                let s = segment_ticks[0];
+                let e = segment_ticks[resolution - 1];
+
+                let sv = graph.value_at(s as f64);
+                let ev = graph.value_at(e as f64);
+
+                let (sv, ev) = match (sv, ev) {
+                    (Some(sv), Some(ev)) => (sv, ev),
+                    _ => continue,
+                };
+
+                let sv = transform_value(sv as f32);
+                let ev = transform_value(ev as f32);
 
                 let (sx, sy) = self.screen.tick_to_pos(s);
                 let (ex, ey) = self.screen.tick_to_pos(e);
@@ -1059,7 +1186,7 @@ impl MainState {
                     lane,
                     &self.chart,
                     &mut self.actions,
-                    na::point![x, y],
+                    pos2(x, y),
                     modifiers,
                 )
             }
@@ -1080,7 +1207,7 @@ impl MainState {
                     lane,
                     &self.chart,
                     &mut self.actions,
-                    na::point![x, y],
+                    pos2(x, y),
                 );
             }
         }
@@ -1120,7 +1247,7 @@ impl MainState {
                 lane,
                 &self.chart,
                 &mut self.actions,
-                na::point![pos.x, pos.y],
+                pos2(pos.x, pos.y),
             );
         }
     }
@@ -1138,7 +1265,7 @@ impl MainState {
                 lane,
                 &self.chart,
                 &mut self.actions,
-                na::point![pos.x, pos.y],
+                pos2(pos.x, pos.y),
             )
         }
     }
@@ -1149,7 +1276,7 @@ impl MainState {
         let (lane, tick, tick_f) = self.get_clicked_data(pos);
 
         if let Some(cursor) = &mut self.cursor_object {
-            cursor.update(tick, tick_f, lane, na::point![pos.x, pos.y]);
+            cursor.update(tick, tick_f, lane, pos2(pos.x, pos.y), &self.chart);
         }
     }
 

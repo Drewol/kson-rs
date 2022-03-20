@@ -5,6 +5,7 @@ pub struct Action<T> {
     pub description: String,
     pub action: Box<dyn Fn(&mut T) -> Result<()>>,
 }
+
 pub struct ActionStack<T: Clone> {
     original: T,
     undo_stack: Vec<Action<T>>,

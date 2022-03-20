@@ -4,10 +4,9 @@ use crate::{
     Modifiers,
 };
 use anyhow::Result;
+use eframe::egui::Pos2;
 use eframe::egui::{Context, Painter};
 use kson::Chart;
-use na::Point2;
-use nalgebra as na;
 
 mod bpm_ts;
 mod buttons;
@@ -27,7 +26,7 @@ pub trait CursorObject {
         _lane: f32,
         _chart: &Chart,
         _actions: &mut ActionStack<Chart>,
-        _pos: Point2<f32>,
+        _pos: Pos2,
     ) {
     }
 
@@ -39,7 +38,7 @@ pub trait CursorObject {
         _lane: f32,
         _chart: &Chart,
         _actions: &mut ActionStack<Chart>,
-        _pos: Point2<f32>,
+        _pos: Pos2,
     ) {
     }
 
@@ -52,7 +51,7 @@ pub trait CursorObject {
         _lane: f32,
         _chart: &Chart,
         _actions: &mut ActionStack<Chart>,
-        _pos: Point2<f32>,
+        _pos: Pos2,
     ) {
     }
 
@@ -64,7 +63,7 @@ pub trait CursorObject {
         _lane: f32,
         _chart: &Chart,
         _actions: &mut ActionStack<Chart>,
-        _pos: Point2<f32>,
+        _pos: Pos2,
     ) {
     }
 
@@ -76,12 +75,12 @@ pub trait CursorObject {
         _lane: f32,
         _chart: &Chart,
         _actions: &mut ActionStack<Chart>,
-        _pos: Point2<f32>,
+        _pos: Pos2,
         _modifiers: &Modifiers,
     ) {
     }
 
-    fn update(&mut self, tick: u32, tick_f: f64, lane: f32, pos: Point2<f32>);
+    fn update(&mut self, tick: u32, tick_f: f64, lane: f32, pos: Pos2, chart: &Chart);
     fn draw(&self, state: &MainState, painter: &Painter) -> Result<()>;
     fn draw_ui(&mut self, _state: &mut MainState, _ctx: &Context) {}
 }

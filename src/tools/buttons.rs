@@ -7,10 +7,8 @@ use crate::{
     rect_xy_wh,
 };
 use anyhow::Result;
-use eframe::egui::{Context, Painter, Rgba, Shape};
+use eframe::egui::{Painter, Pos2, Rgba, Shape};
 use kson::{Chart, Interval};
-use na::Point2;
-use nalgebra as na;
 
 //structs for cursor objects
 pub struct ButtonInterval {
@@ -40,7 +38,7 @@ impl CursorObject for ButtonInterval {
         lane: f32,
         _chart: &Chart,
         _actions: &mut ActionStack<Chart>,
-        _pos: Point2<f32>,
+        _pos: Pos2,
         _modifiers: &Modifiers,
     ) {
         self.pressed = true;
@@ -60,7 +58,7 @@ impl CursorObject for ButtonInterval {
         lane: f32,
         chart: &Chart,
         actions: &mut ActionStack<Chart>,
-        _pos: Point2<f32>,
+        _pos: Pos2,
     ) {
         if self.pressed {
             return;
@@ -114,7 +112,7 @@ impl CursorObject for ButtonInterval {
         _lane: f32,
         _chart: &Chart,
         actions: &mut ActionStack<Chart>,
-        _pos: Point2<f32>,
+        _pos: Pos2,
     ) {
         if !self.pressed {
             return;
@@ -157,7 +155,7 @@ impl CursorObject for ButtonInterval {
         self.lane = 0;
     }
 
-    fn update(&mut self, tick: u32, _tick_f: f64, lane: f32, _pos: Point2<f32>) {
+    fn update(&mut self, tick: u32, _tick_f: f64, lane: f32, _pos: Pos2, _chart: &Chart) {
         if !self.pressed {
             self.interval.y = tick;
             if self.fx {

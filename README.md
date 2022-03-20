@@ -14,11 +14,11 @@ Editor program for the Sound Voltex simulator format [KSON](https://github.com/m
 * Time signature editing
 * Hotkeys
 * Basic metadata editing
+* Camera editing *(mostly)*
 
 ## TODO
 * Effecting
 * Modifying existing objects
-* Camera editing **(in progress)**
 * Full metadata editing
 * Key sound editing
 * Ability to edit hotkeys

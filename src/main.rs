@@ -8,13 +8,11 @@ use anyhow::Result;
 use chart_editor::MainState;
 use eframe::egui::style::Margin;
 use eframe::egui::{
-    self, menu, warn_if_debug_build, Button, Color32, ColorImage, DragValue, Frame, Grid, Image,
-    ImageData, Key, Label, Layout, Pos2, Rect, Response, RichText, Sense, Slider, Ui, Vec2,
-    Visuals,
+    self, menu, warn_if_debug_build, Button, Color32, DragValue, Frame, Grid, Key, Label, Layout,
+    Pos2, Rect, Response, RichText, Sense, Slider, Ui, Vec2, Visuals,
 };
 use eframe::epi::App;
 use kson::{BgmInfo, Chart, MetaInfo};
-use once_cell::sync::OnceCell;
 use serde::{Deserialize, Serialize};
 
 mod action_stack;
