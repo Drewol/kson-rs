@@ -21,13 +21,7 @@ env_logger = "0.9"
 emath = "0.17"
 glam = "0.20"
 once_cell = "1.10.0"
-
-[dependencies.eframe]
-git = "https://github.com/Drewol/egui.git"
-branch = "drewol/multisample"
-default_features = false
-features = ["persistence","default_fonts"]
-
+eframe = {git = "https://github.com/emilk/egui", features = ["persistence"]}
 
 [features]
 profiler = ["thread_profiler/thread_profiler"]

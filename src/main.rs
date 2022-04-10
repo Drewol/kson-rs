@@ -513,24 +513,6 @@ fn menu_ui(ui: &mut Ui, title: impl ToString, min_width: f32, add_contents: impl
 }
 
 impl App for AppState {
-    fn setup(
-        &mut self,
-        ctx: &egui::Context,
-        _frame: &eframe::epi::Frame,
-        storage: Option<&dyn eframe::epi::Storage>,
-    ) {
-        let config = if let Some(storage) = storage {
-            let c: Option<Config> = eframe::epi::get_value(storage, CONFIG_KEY);
-            c.unwrap_or_default()
-        } else {
-            Config::default()
-        };
-        self.key_bindings = config.key_bindings;
-        self.editor.screen.track_width = config.track_width;
-        self.editor.screen.beats_per_col = config.beats_per_column;
-        ctx.set_visuals(Visuals::dark());
-    }
-
     fn on_exit_event(&mut self) -> bool {
         let at_save = self.editor.actions.saved();
         if !at_save {
@@ -554,13 +536,13 @@ impl App for AppState {
         eframe::epi::set_value(storage, CONFIG_KEY, &new_config)
     }
 
-    fn on_exit(&mut self) {}
+    fn on_exit(&mut self, _ctx: &eframe::glow::Context) {}
 
     fn auto_save_interval(&self) -> std::time::Duration {
         std::time::Duration::from_secs(300)
     }
 
-    fn update(&mut self, ctx: &egui::Context, frame: &eframe::epi::Frame) {
+    fn update(&mut self, ctx: &egui::Context, frame: &mut eframe::Frame) {
         //input checking
         //TODO: Block events when exiting?
         let events = { ctx.input().events.clone() };
@@ -789,7 +771,8 @@ impl App for AppState {
         //main
         {
             let main_frame = Frame {
-                margin: Margin::same(0.0),
+                outer_margin: 0.0.into(),
+                inner_margin: 0.0.into(),
                 fill: Color32::BLACK,
                 ..Default::default()
             };
@@ -871,30 +854,43 @@ impl App for AppState {
             }
         }
     }
-
-    fn name(&self) -> &str {
-        "KSON Editor"
-    }
 }
 
 fn main() -> Result<()> {
     env_logger::init();
     let options = eframe::NativeOptions {
         drag_and_drop_support: false,
-        multisample: 8,
+        multisampling: 4,
+        vsync: true,
         ..Default::default()
     };
 
     eframe::run_native(
-        Box::new(AppState {
-            editor: MainState::new()?,
-            key_bindings: HashMap::new(),
-            show_preferences: false,
-            new_chart: None,
-            meta_edit: None,
-            bgm_edit: None,
-            exiting: false,
-        }),
+        "KSON Editor",
         options,
+        Box::new(|cc| {
+            let mut app = AppState {
+                editor: MainState::new().unwrap_or_else(|_| todo!()),
+                key_bindings: HashMap::new(),
+                show_preferences: false,
+                new_chart: None,
+                meta_edit: None,
+                bgm_edit: None,
+                exiting: false,
+            };
+
+            let config = if let Some(storage) = cc.storage {
+                let c: Option<Config> = eframe::epi::get_value(storage, CONFIG_KEY);
+                c.unwrap_or_default()
+            } else {
+                Config::default()
+            };
+            app.key_bindings = config.key_bindings;
+            app.editor.screen.track_width = config.track_width;
+            app.editor.screen.beats_per_col = config.beats_per_column;
+            cc.egui_ctx.set_visuals(Visuals::dark());
+
+            Box::new(app)
+        }),
     );
 }
