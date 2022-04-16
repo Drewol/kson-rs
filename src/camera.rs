@@ -17,7 +17,7 @@ pub struct CameraInfo {
 #[cfg_attr(feature = "schema", derive(JsonSchema))]
 pub struct TiltInfo {
     pub manual: Vec<ByPulse<Vec<GraphSectionPoint>>>,
-    pub keep: Vec<Interval>,
+    pub keep: Vec<ByPulse<bool>>,
 }
 
 #[derive(Serialize, Deserialize, Clone, Default)]

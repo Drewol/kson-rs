@@ -102,7 +102,7 @@ fn default_true<T: From<bool>>() -> T {
 pub struct LaserSection {
     pub y: u32,
     pub v: Vec<GraphSectionPoint>,
-    #[serde(default = "default_one::<u8>")]
+    #[serde(default = "default_one::<u8>", rename = "w", alias = "wide")]
     pub wide: u8,
 }
 
@@ -203,20 +203,8 @@ pub struct ByPulse<T> {
 
 #[derive(Serialize, Deserialize, Copy, Clone)]
 #[cfg_attr(feature = "schema", derive(JsonSchema))]
-pub struct ByBtnNote<T> {
-    lane: u64,
-    idx: u64,
-    v: Option<T>,
-    #[serde(default = "default_true::<bool>")]
-    dom: bool,
-}
-
-#[derive(Serialize, Deserialize, Copy, Clone)]
-#[cfg_attr(feature = "schema", derive(JsonSchema))]
-pub struct ByLaserNote<T> {
-    lane: u64,
-    sec: u64,
-    idx: u64,
+pub struct ByNote<T> {
+    y: u64,
     v: Option<T>,
     #[serde(default = "default_true::<bool>")]
     dom: bool,
@@ -225,9 +213,9 @@ pub struct ByLaserNote<T> {
 #[derive(Serialize, Deserialize, Clone)]
 #[cfg_attr(feature = "schema", derive(JsonSchema))]
 pub struct ByNotes<T> {
-    bt: Option<Vec<ByBtnNote<T>>>,
-    fx: Option<Vec<ByBtnNote<T>>>,
-    laser: Option<Vec<ByLaserNote<T>>>,
+    bt: Option<[Vec<ByNote<T>>; 4]>,
+    fx: Option<[Vec<ByNote<T>>; 2]>,
+    laser: Option<[Vec<ByNote<T>>; 2]>,
 }
 
 #[derive(Serialize, Deserialize, Copy, Clone)]
