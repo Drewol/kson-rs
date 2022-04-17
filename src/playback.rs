@@ -1,6 +1,10 @@
-use crate::dsp;
 use anyhow::Result;
+use kson::effects::*;
+use kson::parameter::EffectParameter;
+use kson::parameter::*;
 use kson::{Chart, GraphSectionPoint};
+use kson_audio::Dsp;
+use kson_audio::*;
 use rodio::*;
 use std::fs::File;
 use std::io::BufReader;
@@ -15,8 +19,8 @@ pub struct AudioFile {
     size: usize,
     pos: Arc<AtomicUsize>,
     stopped: Arc<AtomicBool>,
-    laser_dsp: Arc<Mutex<dyn dsp::Dsp>>,
-    fx_dsp: [Option<Arc<Mutex<dyn dsp::Dsp>>>; 2],
+    laser_dsp: Arc<Mutex<Box<dyn Dsp>>>,
+    fx_dsp: [Option<Arc<Mutex<dyn Dsp>>>; 2],
     fx_enable: [Arc<AtomicBool>; 2],
 }
 
@@ -282,11 +286,10 @@ impl AudioPlayback {
             if let Some(file) = &mut self.file {
                 if let Some(dsp_value) = dsp_value {
                     let mut laser = file.laser_dsp.lock().unwrap();
-                    laser.set_mix(1.0);
-                    laser.set_param_transition(dsp_value);
+                    laser.set_param_transition(dsp_value, true);
                 } else {
                     let mut laser = file.laser_dsp.lock().unwrap();
-                    laser.set_mix(0.0);
+                    laser.set_param_transition(0.0, false);
                 }
             }
         }
@@ -327,6 +330,21 @@ impl AudioPlayback {
             Arc::new(Mutex::new(source.convert_samples().collect()));
         let data = dataref.lock().unwrap();
 
+        let laser_dsp = kson_audio::dsp_from_definition(AudioEffect::PeakingFilter(
+            kson::effects::PeakingFilter {
+                env: 0.0_f32.into(),
+                lo_freq: 100.0_f32.into(),
+                hi_freq: 16000.0_f32.into(),
+                q: 1.0_f32.into(),
+                delay: 0.0_f32.into(),
+                mix: EffectParameter {
+                    off: 0.0_f32.into(),
+                    min: 1.0_f32.into(),
+                    ..Default::default()
+                },
+            },
+        ));
+
         self.file = Some(AudioFile {
             size: (*data).len(),
             samples: dataref.clone(),
@@ -339,14 +357,7 @@ impl AudioPlayback {
                 Arc::new(AtomicBool::new(false)),
             ],
             fx_dsp: [None, None],
-            laser_dsp: Arc::new(Mutex::new(dsp::BiQuad::new(
-                dsp::BiQuadType::Peaking(10.0),
-                rate,
-                200.0,
-                16000.0,
-                1.0,
-                channels as usize,
-            ))),
+            laser_dsp: Arc::new(Mutex::new(laser_dsp)),
         });
         self.last_file = new_file;
         Ok(())

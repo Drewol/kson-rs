@@ -18,7 +18,6 @@ use serde::{Deserialize, Serialize};
 mod action_stack;
 mod chart_camera;
 mod chart_editor;
-mod dsp;
 mod playback;
 mod tools;
 mod utils;
