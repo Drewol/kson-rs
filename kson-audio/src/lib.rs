@@ -1,4 +1,4 @@
-mod biquad;
+pub mod biquad;
 
 pub trait Dsp: Send + Sync {
     fn process(&mut self, sample: &mut f32, c: usize);
