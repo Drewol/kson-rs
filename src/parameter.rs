@@ -31,11 +31,14 @@ pub struct EffectParameter<T> {
     pub v: T,
 }
 
-impl<T: Default> From<T> for EffectParameter<T> {
+impl<T: Copy> From<T> for EffectParameter<T> {
     fn from(v: T) -> Self {
         EffectParameter {
             min: Some(v),
-            ..Default::default()
+            v,
+            max: None,
+            off: None,
+            shape: InterpolationShape::Linear,
         }
     }
 }
