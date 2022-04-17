@@ -1,4 +1,4 @@
-use crate::{ByPulse, GraphPoint, GraphSectionPoint, Interval};
+use crate::{ByPulse, GraphPoint, GraphSectionPoint};
 use serde::{Deserialize, Serialize};
 
 #[cfg(feature = "schema")]

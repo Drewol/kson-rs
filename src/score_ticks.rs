@@ -161,8 +161,7 @@ pub fn generate_score_ticks(chart: &Chart) -> ScoreTicks {
             .bt
             .iter()
             .enumerate()
-            .map(|(lane, l)| l.iter().map(move |i| ticks_from_interval(i, lane, chart)))
-            .flatten()
+            .flat_map(|(lane, l)| l.iter().map(move |i| ticks_from_interval(i, lane, chart)))
             .flatten()
             .collect(),
     );
@@ -172,11 +171,10 @@ pub fn generate_score_ticks(chart: &Chart) -> ScoreTicks {
             .fx
             .iter()
             .enumerate()
-            .map(|(lane, l)| {
+            .flat_map(|(lane, l)| {
                 l.iter()
                     .map(move |i| ticks_from_interval(i, lane + 4, chart))
             })
-            .flatten()
             .flatten()
             .collect(),
     );
@@ -186,11 +184,10 @@ pub fn generate_score_ticks(chart: &Chart) -> ScoreTicks {
             .laser
             .iter()
             .enumerate()
-            .map(|(lane, l)| {
+            .flat_map(|(lane, l)| {
                 l.iter()
                     .map(move |s| ticks_from_laser_section(s, lane, chart))
             })
-            .flatten()
             .flatten()
             .collect(),
     );

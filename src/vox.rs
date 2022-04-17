@@ -39,11 +39,6 @@ pub trait Vox {
 }
 
 #[inline]
-fn is_end(line: &&str) -> bool {
-    *line == "#END"
-}
-
-#[inline]
 fn is_not_end(line: &&str) -> bool {
     *line != "#END"
 }
@@ -55,7 +50,7 @@ fn is_not_comment(line: &&str) -> bool {
 
 #[inline]
 fn split_data_line(line: &str) -> Vec<&str> {
-    let comment_idx = line.find("//").unwrap_or_else(|| line.len());
+    let comment_idx = line.find("//").unwrap_or(line.len());
     let uncommented = &line[0..comment_idx];
     uncommented.split('\t').filter(|s| !s.is_empty()).collect()
 }
@@ -66,9 +61,7 @@ fn time_sig_accumulator(
     line_data: Vec<&str>,
 ) -> Result<Vec<ByMeasureIndex<TimeSignature>>, VoxReadError> {
     let measure = line_data
-        .get(0)
-        .map(|v| v.split(',').next().map(|i| i.parse::<u32>()))
-        .flatten();
+        .get(0).and_then(|v| v.split(',').next().map(|i| i.parse::<u32>()));
     if let Some(Ok(m)) = measure {
         let ts = TimeSignature {
             n: line_data.get(1).unwrap_or(&"").parse()?,
