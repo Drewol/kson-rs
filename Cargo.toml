@@ -15,3 +15,6 @@ schemars = {version = "0.8", optional = true}
 [features]
 default = []
 schema = ["schemars", "serde_json"]
+
+[workspace]
+members = ["kson-audio"]
