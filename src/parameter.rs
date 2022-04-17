@@ -22,13 +22,22 @@ impl Default for InterpolationShape {
 #[derive(Deserialize, Serialize, Clone, Default)]
 #[cfg_attr(feature = "schema", derive(JsonSchema))]
 pub struct EffectParameter<T> {
-    off: Option<T>,
-    min: Option<T>,
-    max: Option<T>,
+    pub off: Option<T>,
+    pub min: Option<T>,
+    pub max: Option<T>,
     #[serde(default)]
-    shape: InterpolationShape,
+    pub shape: InterpolationShape,
     #[serde(skip_deserializing, skip_serializing)]
     pub v: T,
+}
+
+impl<T: Default> From<T> for EffectParameter<T> {
+    fn from(v: T) -> Self {
+        EffectParameter {
+            min: Some(v),
+            ..Default::default()
+        }
+    }
 }
 
 impl<T: From<f32> + Into<f32> + Sub<Output = T> + Mul<Output = T> + Add<Output = T> + Copy>
