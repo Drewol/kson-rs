@@ -12,6 +12,7 @@ use eframe::epaint::FontId;
 use egui::Ui;
 use kson::{GraphPoint, GraphSectionPoint, Interval, Ksh, Vox};
 use log::debug;
+use puffin::profile_scope;
 use std::collections::VecDeque;
 use std::ffi::OsStr;
 use std::fs::File;
@@ -19,19 +20,6 @@ use std::io::prelude::*;
 use std::io::BufReader;
 use std::path::Path;
 use std::path::PathBuf;
-
-#[cfg(feature = "profiling")]
-macro_rules! profile_scope {
-    ($string:expr) => {
-        let _profile_scope =
-            thread_profiler::ProfileScope::new(format!("{}: {}", module_path!(), $string));
-    };
-}
-
-#[cfg(not(feature = "profiling"))]
-macro_rules! profile_scope {
-    ($string:expr) => {};
-}
 
 pub const EGUI_ID: &str = "chart_editor";
 
@@ -867,10 +855,11 @@ impl MainState {
     }
 
     pub fn draw(&mut self, ui: &Ui) -> Result<Response> {
+        puffin::profile_function!();
+
         ui.make_persistent_id(EGUI_ID);
         self.resize_event(ui.max_rect());
 
-        profile_scope!("Draw Chart");
         let painter = ui.painter_at(ui.max_rect());
         //draw notes
         let mut track_line_builder = Vec::new();
@@ -1091,6 +1080,7 @@ impl MainState {
         }
 
         if let Some(cursor) = &self.cursor_object {
+            profile_scope!("Tool");
             cursor
                 .draw(self, &painter)
                 .unwrap_or_else(|e| println!("{}", e));
