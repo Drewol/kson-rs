@@ -1,5 +1,4 @@
-use std::ops::{Add, Mul, Sub};
-
+use num_traits::{NumCast, NumOps};
 use serde::{Deserialize, Serialize};
 
 #[cfg(feature = "schema")]
@@ -46,12 +45,26 @@ impl<T: Copy> From<T> for EffectParameter<T> {
 pub trait Parameter<T>: Sized {
     fn interpolate(&self, p: f32, on: bool) -> T;
     fn update(&mut self, other: &Self);
+}
+
+pub trait DeriveParameter: Sized {
     fn derive(&self, other: &Self) -> Self;
+}
+
+impl<T> DeriveParameter for EffectParameter<T>
+where
+    EffectParameter<T>: Parameter<T> + Clone,
+{
+    fn derive(&self, other: &Self) -> Self {
+        let mut new_param = self.clone();
+        new_param.update(other);
+        new_param
+    }
 }
 
 impl<T> Parameter<T> for EffectParameter<T>
 where
-    T: From<f32> + Into<f32> + Sub<Output = T> + Mul<Output = T> + Add<Output = T> + Copy,
+    T: NumCast + Copy + NumOps + Default,
 {
     fn interpolate(&self, p: f32, on: bool) -> T {
         if on {
@@ -59,15 +72,19 @@ where
                 (Some(min), None) => min,
                 (Some(min), Some(max)) => match self.shape {
                     InterpolationShape::Logarithmic => {
-                        let end: f32 = max.into().ln();
-                        let start: f32 = min.into().ln();
+                        let end: f32 = max.to_f32().unwrap_or(1.0).ln();
+                        let start: f32 = min.to_f32().unwrap_or(1.0).ln();
                         let width: f32 = end - start;
-                        (start + width * p).exp().into()
+                        num_traits::cast((start + width * p).exp()).unwrap_or_default()
                     }
-                    InterpolationShape::Linear => ((min + (max - min)).into() * p).into(),
+                    InterpolationShape::Linear => {
+                        num_traits::cast((min + (max - min)).to_f32().unwrap_or(1.0) * p)
+                            .unwrap_or_default()
+                    }
                     InterpolationShape::Smooth => {
                         let smooth_p = p * p * p * (p * (p * 6.0 - 15.0) + 10.0);
-                        ((min + (max - min)).into() * smooth_p).into()
+                        num_traits::cast((min + (max - min)).to_f32().unwrap_or(1.0) * smooth_p)
+                            .unwrap_or_default()
                     }
                 },
                 (None, _) => unreachable!(),
@@ -93,11 +110,11 @@ where
             self.off = other.off;
         }
     }
+}
 
+impl DeriveParameter for String {
     fn derive(&self, other: &Self) -> Self {
-        let mut new_param = self.clone();
-        new_param.update(other);
-        new_param
+        other.clone()
     }
 }
 
@@ -113,7 +130,9 @@ impl Parameter<bool> for BoolParameter {
     fn update(&mut self, other: &Self) {
         self.0.update(&other.0);
     }
+}
 
+impl DeriveParameter for BoolParameter {
     fn derive(&self, other: &Self) -> Self {
         Self(self.0.derive(&other.0))
     }

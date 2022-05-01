@@ -1,8 +1,9 @@
 #![allow(dead_code)]
 use crate::{
-    parameter::{BoolParameter, EffectParameter, Parameter},
+    parameter::{BoolParameter, DeriveParameter, EffectParameter},
     Chart, Interval, Track,
 };
+use kson_effect_param_macro::DeriveParameter;
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
@@ -11,7 +12,7 @@ use std::f32;
 #[cfg(feature = "schema")]
 use schemars::JsonSchema;
 
-#[derive(Deserialize, Serialize, Clone)]
+#[derive(Deserialize, Serialize, Clone, DeriveParameter)]
 #[serde(tag = "type", content = "v")]
 #[serde(rename_all = "snake_case")]
 #[cfg_attr(feature = "schema", derive(JsonSchema))]
@@ -37,44 +38,7 @@ pub enum EffectError {
     EffectTypeMismatchError,
 }
 
-impl AudioEffect {
-    fn apply_effect_event(&self, other: Self) -> Result<Self, EffectError> {
-        //TODO: Proc macro maybe
-        match (self, other) {
-            (AudioEffect::ReTrigger(a), AudioEffect::ReTrigger(b)) => Ok({
-                AudioEffect::ReTrigger(ReTrigger {
-                    mix: a.mix.derive(&b.mix),
-                    update_period: a.update_period.derive(&b.update_period),
-                    update_period_tempo_sync: a
-                        .update_period_tempo_sync
-                        .derive(&b.update_period_tempo_sync),
-                    wave_length: a.wave_length.derive(&b.wave_length),
-                    wave_length_tempo_sync: a
-                        .wave_length_tempo_sync
-                        .derive(&b.wave_length_tempo_sync),
-                    rate: a.rate.derive(&b.rate),
-                    update_trigger: a.update_trigger.derive(&b.update_trigger),
-                })
-            }),
-            (AudioEffect::Gate(_), AudioEffect::Gate(_)) => todo!(),
-            (AudioEffect::Flanger(_), AudioEffect::Flanger(_)) => todo!(),
-            (AudioEffect::PitchShift(_), AudioEffect::PitchShift(_)) => todo!(),
-            (AudioEffect::BitCrusher(_), AudioEffect::BitCrusher(_)) => todo!(),
-            (AudioEffect::Phaser(_), AudioEffect::Phaser(_)) => todo!(),
-            (AudioEffect::Wobble(_), AudioEffect::Wobble(_)) => todo!(),
-            (AudioEffect::TapeStop(_), AudioEffect::TapeStop(_)) => todo!(),
-            (AudioEffect::Echo(_), AudioEffect::Echo(_)) => todo!(),
-            (AudioEffect::SideChain(_), AudioEffect::SideChain(_)) => todo!(),
-            (AudioEffect::AudioSwap(_), AudioEffect::AudioSwap(_)) => todo!(),
-            (AudioEffect::HighPassFilter(_), AudioEffect::HighPassFilter(_)) => todo!(),
-            (AudioEffect::LowPassFilter(_), AudioEffect::LowPassFilter(_)) => todo!(),
-            (AudioEffect::PeakingFilter(_), AudioEffect::PeakingFilter(_)) => todo!(),
-            _ => Err(EffectError::EffectTypeMismatchError),
-        }
-    }
-}
-
-#[derive(Deserialize, Serialize, Clone, Default)]
+#[derive(Deserialize, Serialize, Clone, Default, DeriveParameter)]
 #[cfg_attr(feature = "schema", derive(JsonSchema))]
 pub struct ReTrigger {
     pub update_period: EffectParameter<f32>,
@@ -86,7 +50,7 @@ pub struct ReTrigger {
     pub mix: EffectParameter<f32>,
 }
 
-#[derive(Deserialize, Serialize, Clone, Default)]
+#[derive(Deserialize, Serialize, Clone, Default, DeriveParameter)]
 #[cfg_attr(feature = "schema", derive(JsonSchema))]
 pub struct Gate {
     pub wave_length: EffectParameter<f32>,
@@ -95,7 +59,7 @@ pub struct Gate {
     pub mix: EffectParameter<f32>,
 }
 
-#[derive(Deserialize, Serialize, Clone, Default)]
+#[derive(Deserialize, Serialize, Clone, Default, DeriveParameter)]
 #[cfg_attr(feature = "schema", derive(JsonSchema))]
 pub struct Flanger {
     pub period: EffectParameter<f32>,
@@ -108,7 +72,7 @@ pub struct Flanger {
     pub mix: EffectParameter<f32>,
 }
 
-#[derive(Deserialize, Serialize, Clone, Default)]
+#[derive(Deserialize, Serialize, Clone, Default, DeriveParameter)]
 #[cfg_attr(feature = "schema", derive(JsonSchema))]
 pub struct PitchShift {
     pub pitch: EffectParameter<f32>,
@@ -118,14 +82,14 @@ pub struct PitchShift {
     pub mix: EffectParameter<f32>,
 }
 
-#[derive(Deserialize, Serialize, Clone, Default)]
+#[derive(Deserialize, Serialize, Clone, Default, DeriveParameter)]
 #[cfg_attr(feature = "schema", derive(JsonSchema))]
 pub struct BitCrusher {
     pub reduction: EffectParameter<i64>,
     pub mix: EffectParameter<f32>,
 }
 
-#[derive(Deserialize, Serialize, Clone, Default)]
+#[derive(Deserialize, Serialize, Clone, Default, DeriveParameter)]
 #[cfg_attr(feature = "schema", derive(JsonSchema))]
 pub struct Phaser {
     pub period: EffectParameter<f32>,
@@ -139,7 +103,7 @@ pub struct Phaser {
     pub mix: EffectParameter<f32>,
 }
 
-#[derive(Deserialize, Serialize, Clone, Default)]
+#[derive(Deserialize, Serialize, Clone, Default, DeriveParameter)]
 #[cfg_attr(feature = "schema", derive(JsonSchema))]
 pub struct Wobble {
     pub wave_length: EffectParameter<f32>,
@@ -150,7 +114,7 @@ pub struct Wobble {
     pub mix: EffectParameter<f32>,
 }
 
-#[derive(Deserialize, Serialize, Clone, Default)]
+#[derive(Deserialize, Serialize, Clone, Default, DeriveParameter)]
 #[cfg_attr(feature = "schema", derive(JsonSchema))]
 pub struct TapeStop {
     pub speed: EffectParameter<f32>,
@@ -158,7 +122,7 @@ pub struct TapeStop {
     pub mix: EffectParameter<f32>,
 }
 
-#[derive(Deserialize, Serialize, Clone, Default)]
+#[derive(Deserialize, Serialize, Clone, Default, DeriveParameter)]
 #[cfg_attr(feature = "schema", derive(JsonSchema))]
 pub struct Echo {
     pub update_period: EffectParameter<f32>,
@@ -170,7 +134,7 @@ pub struct Echo {
     pub mix: EffectParameter<f32>,
 }
 
-#[derive(Deserialize, Serialize, Clone, Default)]
+#[derive(Deserialize, Serialize, Clone, Default, DeriveParameter)]
 #[cfg_attr(feature = "schema", derive(JsonSchema))]
 pub struct SideChain {
     pub period: EffectParameter<f32>,
@@ -184,7 +148,7 @@ pub struct SideChain {
     pub ratio: EffectParameter<f32>,
 }
 
-#[derive(Deserialize, Serialize, Clone, Default)]
+#[derive(Deserialize, Serialize, Clone, Default, DeriveParameter)]
 #[cfg_attr(feature = "schema", derive(JsonSchema))]
 pub struct HighPassFilter {
     pub env: EffectParameter<f32>,
@@ -195,7 +159,7 @@ pub struct HighPassFilter {
     pub mix: EffectParameter<f32>,
 }
 
-#[derive(Deserialize, Serialize, Clone, Default)]
+#[derive(Deserialize, Serialize, Clone, Default, DeriveParameter)]
 #[cfg_attr(feature = "schema", derive(JsonSchema))]
 pub struct LowPassFilter {
     pub env: EffectParameter<f32>,
@@ -206,7 +170,7 @@ pub struct LowPassFilter {
     pub mix: EffectParameter<f32>,
 }
 
-#[derive(Deserialize, Serialize, Clone, Default)]
+#[derive(Deserialize, Serialize, Clone, Default, DeriveParameter)]
 #[cfg_attr(feature = "schema", derive(JsonSchema))]
 pub struct PeakingFilter {
     pub env: EffectParameter<f32>,
@@ -248,7 +212,6 @@ impl Chart {
             let original_effect = effect_def.get(effect_name).unwrap();
 
             for (effect_event, track) in effect_events {
-                let new_effect = original_effect.clone();
                 let interval = match track {
                     Track::BT(l) => self.note.bt[l as usize]
                         .iter()
@@ -266,6 +229,19 @@ impl Chart {
                             l: s.v.last().map(|p| p.ry).unwrap_or(0),
                         }),
                 };
+                if effect_event.v.is_none() {
+                    if let Some(interval) = interval {
+                        effect_intervals.push(EffectInterval {
+                            interval,
+                            effect: original_effect.clone(),
+                            track: Some(track),
+                            dom: effect_event.dom,
+                        })
+                    }
+                    continue;
+                }
+
+                let new_effect = original_effect.derive(effect_event.v.as_ref().unwrap());
 
                 //TODO: Apply effect_event.v on top of new_effect instead of this
 

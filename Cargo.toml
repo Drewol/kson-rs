@@ -11,10 +11,13 @@ serde = { version = "1.0", features = ["derive"] }
 thiserror = "1"
 serde_json = {version = "1.0", optional = true}
 schemars = {version = "0.8", optional = true}
+kson-effect-param-macro = {path = "./kson-effect-param-macro"}
+num-traits = "0.2"
+
 
 [features]
 default = []
 schema = ["schemars", "serde_json"]
 
 [workspace]
-members = ["kson-audio"]
+members = ["kson-audio", "kson-effect-param-macro"]
