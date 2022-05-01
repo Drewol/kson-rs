@@ -44,6 +44,29 @@ pub fn ms_from_ticks(ticks: i64, bpm: f64, tpqn: u32) -> f64 {
     tick_in_ms(bpm, tpqn) * ticks as f64
 }
 
+#[repr(usize)]
+#[derive(Debug, Hash, PartialEq, Eq, Clone, Copy)]
+pub enum Side {
+    Left = 0,
+    Right,
+}
+
+#[repr(usize)]
+#[derive(Debug, Hash, PartialEq, Eq, Clone, Copy)]
+pub enum BtLane {
+    A = 0,
+    B,
+    C,
+    D,
+}
+
+#[derive(Debug, Hash, PartialEq, Eq, Clone, Copy)]
+pub enum Track {
+    BT(BtLane),
+    FX(Side),
+    Laser(Side),
+}
+
 #[derive(Serialize, Deserialize, Copy, Clone, Default)]
 #[cfg_attr(feature = "schema", derive(JsonSchema))]
 pub struct GraphPoint {
@@ -204,7 +227,7 @@ pub struct ByPulse<T> {
 #[derive(Serialize, Deserialize, Copy, Clone)]
 #[cfg_attr(feature = "schema", derive(JsonSchema))]
 pub struct ByNote<T> {
-    y: u64,
+    y: u32,
     v: Option<T>,
     #[serde(default = "default_true::<bool>")]
     dom: bool,
@@ -216,6 +239,89 @@ pub struct ByNotes<T> {
     bt: Option<[Vec<ByNote<T>>; 4]>,
     fx: Option<[Vec<ByNote<T>>; 2]>,
     laser: Option<[Vec<ByNote<T>>; 2]>,
+}
+
+impl<'a, T> IntoIterator for &'a ByNotes<T> {
+    type Item = (&'a ByNote<T>, Track);
+    type IntoIter = ByNotesIter<'a, T>;
+
+    fn into_iter(self) -> Self::IntoIter {
+        ByNotesIter {
+            by_notes: self,
+            indexes: Default::default(),
+        }
+    }
+}
+
+pub struct ByNotesIter<'a, T> {
+    by_notes: &'a ByNotes<T>,
+    indexes: HashMap<Track, usize>,
+}
+
+impl<'a, T> Iterator for ByNotesIter<'a, T> {
+    type Item = (&'a ByNote<T>, Track);
+
+    fn next(&mut self) -> Option<Self::Item> {
+        let mut current_events = HashMap::new();
+
+        if let Some(bt) = &self.by_notes.bt {
+            for (lane, bt) in bt.iter().enumerate() {
+                let bt_lane = match lane {
+                    0 => BtLane::A,
+                    1 => BtLane::B,
+                    2 => BtLane::C,
+                    3 => BtLane::D,
+                    _ => unreachable!(),
+                };
+
+                let track = Track::BT(bt_lane);
+                let index = self.indexes.entry(track).or_insert(0);
+
+                if let Some(note) = bt.get(*index) {
+                    current_events.insert(track, note);
+                }
+            }
+        }
+
+        if let Some(fx) = &self.by_notes.fx {
+            for (lane, fx) in fx.iter().enumerate() {
+                let fx_lane = match lane {
+                    0 => Side::Left,
+                    1 => Side::Right,
+                    _ => unreachable!(),
+                };
+                let track = Track::FX(fx_lane);
+                let index = self.indexes.entry(track).or_insert(0);
+
+                if let Some(note) = fx.get(*index) {
+                    current_events.insert(track, note);
+                }
+            }
+        }
+
+        if let Some(laser) = &self.by_notes.laser {
+            for (lane, laser) in laser.iter().enumerate() {
+                let laser_lane = match lane {
+                    0 => Side::Left,
+                    1 => Side::Right,
+                    _ => unreachable!(),
+                };
+                let track = Track::Laser(laser_lane);
+                let index = self.indexes.entry(track).or_insert(0);
+
+                if let Some(note) = laser.get(*index) {
+                    current_events.insert(track, note);
+                }
+            }
+        }
+
+        if let Some((track, event)) = current_events.iter().min_by_key(|(_, evt)| evt.y) {
+            self.indexes.entry(*track).and_modify(|i| *i += 1);
+            Some((*event, *track))
+        } else {
+            None
+        }
+    }
 }
 
 #[derive(Serialize, Deserialize, Copy, Clone)]

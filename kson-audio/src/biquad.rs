@@ -1,3 +1,5 @@
+use kson::parameter::Parameter;
+
 use crate::Dsp;
 
 #[derive(Copy, Clone)]

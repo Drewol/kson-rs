@@ -5,7 +5,7 @@ use serde::{Deserialize, Serialize};
 #[cfg(feature = "schema")]
 use schemars::JsonSchema;
 
-#[derive(Serialize, Deserialize, Clone)]
+#[derive(Serialize, Deserialize, Clone, Copy)]
 #[cfg_attr(feature = "schema", derive(JsonSchema))]
 pub enum InterpolationShape {
     Linear,
@@ -43,10 +43,17 @@ impl<T: Copy> From<T> for EffectParameter<T> {
     }
 }
 
-impl<T: From<f32> + Into<f32> + Sub<Output = T> + Mul<Output = T> + Add<Output = T> + Copy>
-    EffectParameter<T>
+pub trait Parameter<T>: Sized {
+    fn interpolate(&self, p: f32, on: bool) -> T;
+    fn update(&mut self, other: &Self);
+    fn derive(&self, other: &Self) -> Self;
+}
+
+impl<T> Parameter<T> for EffectParameter<T>
+where
+    T: From<f32> + Into<f32> + Sub<Output = T> + Mul<Output = T> + Add<Output = T> + Copy,
 {
-    pub fn interpolate(&self, p: f32, on: bool) -> T {
+    fn interpolate(&self, p: f32, on: bool) -> T {
         if on {
             match (self.min, self.max) {
                 (Some(min), None) => min,
@@ -73,7 +80,7 @@ impl<T: From<f32> + Into<f32> + Sub<Output = T> + Mul<Output = T> + Add<Output =
         }
     }
 
-    pub fn update(&mut self, other: &Self) {
+    fn update(&mut self, other: &Self) {
         if other.max.is_some() {
             self.max = other.max;
         }
@@ -86,10 +93,12 @@ impl<T: From<f32> + Into<f32> + Sub<Output = T> + Mul<Output = T> + Add<Output =
             self.off = other.off;
         }
     }
-}
 
-pub trait Parameter<T> {
-    fn interpolate(&self, p: f32, on: bool) -> T;
+    fn derive(&self, other: &Self) -> Self {
+        let mut new_param = self.clone();
+        new_param.update(other);
+        new_param
+    }
 }
 
 #[derive(Deserialize, Serialize, Clone, Default)]
@@ -99,5 +108,13 @@ pub struct BoolParameter(EffectParameter<f32>);
 impl Parameter<bool> for BoolParameter {
     fn interpolate(&self, p: f32, on: bool) -> bool {
         self.0.interpolate(p, on) > 0.0
+    }
+
+    fn update(&mut self, other: &Self) {
+        self.0.update(&other.0);
+    }
+
+    fn derive(&self, other: &Self) -> Self {
+        Self(self.0.derive(&other.0))
     }
 }
