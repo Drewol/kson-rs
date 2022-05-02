@@ -229,8 +229,16 @@ impl Chart {
                             l: s.v.last().map(|p| p.ry).unwrap_or(0),
                         }),
                 };
-                if effect_event.v.is_none() {
-                    if let Some(interval) = interval {
+
+                if let Some(interval) = interval {
+                    if let Some(event_effect_v) = effect_event.v.as_ref() {
+                        effect_intervals.push(EffectInterval {
+                            interval,
+                            effect: original_effect.derive(event_effect_v),
+                            track: Some(track),
+                            dom: effect_event.dom,
+                        })
+                    } else {
                         effect_intervals.push(EffectInterval {
                             interval,
                             effect: original_effect.clone(),
@@ -238,20 +246,6 @@ impl Chart {
                             dom: effect_event.dom,
                         })
                     }
-                    continue;
-                }
-
-                let new_effect = original_effect.derive(effect_event.v.as_ref().unwrap());
-
-                //TODO: Apply effect_event.v on top of new_effect instead of this
-
-                if let Some(interval) = interval {
-                    effect_intervals.push(EffectInterval {
-                        interval,
-                        effect: effect_event.v.as_ref().cloned().unwrap_or(new_effect),
-                        track: Some(track),
-                        dom: effect_event.dom,
-                    })
                 }
             }
         }
