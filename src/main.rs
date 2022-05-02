@@ -6,12 +6,11 @@ use std::str::FromStr;
 
 use anyhow::Result;
 use chart_editor::MainState;
-use eframe::egui::style::Margin;
 use eframe::egui::{
     self, menu, warn_if_debug_build, Button, Color32, DragValue, Frame, Grid, Key, Label, Layout,
     Pos2, Rect, Response, RichText, Sense, Slider, Ui, Vec2, Visuals,
 };
-use eframe::epi::App;
+use eframe::App;
 use kson::{BgmInfo, Chart, MetaInfo};
 use puffin::profile_scope;
 use serde::{Deserialize, Serialize};
@@ -526,14 +525,14 @@ impl App for AppState {
         false
     }
 
-    fn save(&mut self, storage: &mut dyn eframe::epi::Storage) {
+    fn save(&mut self, storage: &mut dyn eframe::Storage) {
         let new_config = Config {
             key_bindings: self.key_bindings.clone(),
             beats_per_column: self.editor.screen.beats_per_col,
             track_width: self.editor.screen.track_width,
         };
 
-        eframe::epi::set_value(storage, CONFIG_KEY, &new_config)
+        eframe::set_value(storage, CONFIG_KEY, &new_config)
     }
 
     fn on_exit(&mut self, _ctx: &eframe::glow::Context) {}
@@ -886,7 +885,7 @@ fn main() -> Result<()> {
             };
 
             let config = if let Some(storage) = cc.storage {
-                let c: Option<Config> = eframe::epi::get_value(storage, CONFIG_KEY);
+                let c: Option<Config> = eframe::get_value(storage, CONFIG_KEY);
                 c.unwrap_or_default()
             } else {
                 Config::default()
