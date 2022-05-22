@@ -18,7 +18,7 @@ impl ChartCamera {
 }
 
 impl ChartCamera {
-    pub fn matrix(&self, view_size: Vec2) -> (Mat4, Mat4) {
+    pub fn matrix(&self, view_size: Vec2) -> Mat4 {
         let camera_rotation_axis: Vec3 = Vec3::ONE - Self::TRACK_DIRECTION - Self::UP;
         let aspect = view_size.x / view_size.y;
         let angle = self.angle.to_radians();
@@ -50,11 +50,9 @@ impl ChartCamera {
             Mat4::from_axis_angle(camera_rotation_axis, -self.fov.to_radians() / 2.2);
 
         let target: Vec3 = self.center + Self::TRACK_DIRECTION;
-        (
-            create_perspective(self.fov, aspect, Self::Z_NEAR, z_far),
-            (Mat4::look_at_rh(self.center, target, Self::UP) * tilt * (base_rotation * position))
-                * (rotation),
-        )
+        Mat4::perspective_rh_gl(self.fov.to_radians(), aspect, Self::Z_NEAR, z_far)
+            * (Mat4::look_at_rh(self.center, target, Self::UP) * tilt * (base_rotation * position))
+            * (rotation)
     }
 }
 

@@ -24,6 +24,10 @@ emath = "0.18"
 glam = "0.20"
 once_cell = "1.10.0"
 eframe = {version = "0.18", features = ["persistence"]}
+egui_glow = "0.18.1"
+image = {version ="0.24", default_features = false, features = ["png"]}
+bytemuck = "1.9.1"
+tracing = {version = "0.1.34", features = ["log-always"]}
 
 [features]
 profiling = ["eframe/puffin"]

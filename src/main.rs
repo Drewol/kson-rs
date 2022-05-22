@@ -1,4 +1,4 @@
-#![windows_subsystem = "windows"]
+#![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 use std::collections::HashMap;
 use std::path::PathBuf;
@@ -16,6 +16,8 @@ use puffin::profile_scope;
 use serde::{Deserialize, Serialize};
 
 mod action_stack;
+mod assets;
+mod camera_widget;
 mod chart_camera;
 mod chart_editor;
 mod playback;
