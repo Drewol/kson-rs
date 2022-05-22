@@ -4,7 +4,7 @@ varying vec2 fsTex;
 varying vec4 uv;
 
 uniform sampler2D mainTex;
-uniform vec3 color;
+varying vec3 color;
 
 // 20Hz flickering. 0 = Miss, 1 = Inactive, 2 & 3 = Active alternating.
 uniform int state;

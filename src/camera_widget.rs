@@ -15,7 +15,7 @@ use puffin::{profile_function, profile_scope};
 use crate::{assets, chart_camera::ChartCamera, rect_xy_wh};
 
 pub enum Material {
-    Track,
+    Track(Color32, Color32),
     ChipBT,
     ChipFX,
     LongBT,
@@ -47,7 +47,7 @@ impl CameraView {
         }
     }
 
-    pub fn add_track(&mut self) {
+    pub fn add_track(&mut self, laser_colors: &[Color32; 2]) {
         let left = -(Self::TRACK_WIDTH / 2.0);
         let right = Self::TRACK_WIDTH / 2.0;
 
@@ -67,14 +67,14 @@ impl CameraView {
 
         self.meshes.push(Mesh {
             mesh: track_mesh,
-            material: Material::Track,
+            material: Material::Track(laser_colors[0], laser_colors[1]),
         });
     }
     pub fn add_mesh(&mut self, mesh: Mesh) {
         self.meshes.push(mesh)
     }
 
-    pub fn add_chart_objects(&mut self, chart: &Chart, tick: f32) {
+    pub fn add_chart_objects(&mut self, chart: &Chart, tick: f32, laser_colors: &[Color32; 2]) {
         profile_function!();
         let tick_height = -0.05;
         let bottom_margin = -tick * tick_height;
@@ -202,12 +202,19 @@ impl CameraView {
             mesh: bt_chip_mesh,
             material: Material::ChipBT,
         });
-
+        let mapped_color = laser_colors
+            .iter()
+            .map(Color32::to_srgba_unmultiplied)
+            .map(Hsva::from_srgba_unmultiplied)
+            .map(|hsva| Hsva::new(hsva.h, 1.0, 1.0, 1.0))
+            .map(Color32::from)
+            .collect::<Vec<_>>();
         for (side, lane) in chart.note.laser.iter().enumerate() {
             let mut laser_meshes = Vec::new();
+
             for section in lane {
                 screen
-                    .draw_laser_section(section, &mut laser_meshes, Color32::WHITE, true)
+                    .draw_laser_section(section, &mut laser_meshes, mapped_color[side], true)
                     .unwrap();
             }
             self.meshes.append(
@@ -308,23 +315,19 @@ unsafe fn paint_mesh_callback(
         let stride = std::mem::size_of::<Vertex>() as i32;
 
         let (program, texture) = match mesh.material {
-            Material::Track => {
+            Material::Track(lcol, rcol) => {
                 gl.use_program(Some(assets.track_shader));
 
                 gl.uniform_4_f32_slice(
                     gl.get_uniform_location(assets.track_shader, "lCol")
                         .as_ref(),
-                    &Hsva::new(0.5, 1.0, 1.0, 1.0)
-                        .to_srgba_premultiplied()
-                        .map(|v| v as f32 / 255.0),
+                    &lcol.to_srgba_unmultiplied().map(|v| v as f32 / 255.0),
                 );
 
                 gl.uniform_4_f32_slice(
                     gl.get_uniform_location(assets.track_shader, "rCol")
                         .as_ref(),
-                    &Hsva::new(0.0, 1.0, 1.0, 1.0)
-                        .to_srgba_premultiplied()
-                        .map(|v| v as f32 / 255.0),
+                    &rcol.to_srgba_unmultiplied().map(|v| v as f32 / 255.0),
                 );
 
                 (assets.track_shader, Some(assets.track_texture))

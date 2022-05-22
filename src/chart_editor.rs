@@ -35,6 +35,7 @@ pub struct MainState {
     pub actions: action_stack::ActionStack<kson::Chart>,
     pub screen: ScreenState,
     pub audio_playback: playback::AudioPlayback,
+    pub laser_colors: [Color32; 2],
 }
 
 #[derive(Copy, Clone)]
@@ -90,6 +91,33 @@ impl ScreenState {
             })
         };
 
+        let add_slam_rect = |mesh: &mut Mesh, slam_rect: Rect| {
+            let i_off = mesh.vertices.len() as u32;
+            mesh.add_triangle(i_off, i_off + 1, i_off + 2);
+            mesh.add_triangle(i_off + 2, i_off + 1, i_off + 3);
+            mesh.reserve_vertices(4);
+            mesh.vertices.push(Vertex {
+                pos: slam_rect.left_top(),
+                uv: [0.0, 0.5].into(),
+                color,
+            });
+            mesh.vertices.push(Vertex {
+                pos: slam_rect.right_top(),
+                uv: [0.0, 0.5].into(),
+                color,
+            });
+            mesh.vertices.push(Vertex {
+                pos: slam_rect.left_bottom(),
+                uv: [1.0, 0.5].into(),
+                color,
+            });
+            mesh.vertices.push(Vertex {
+                pos: slam_rect.right_bottom(),
+                uv: [1.0, 0.5].into(),
+                color,
+            });
+        };
+
         for se in section.v.windows(2) {
             profile_scope!("Window");
             let s = &se[0];
@@ -131,11 +159,7 @@ impl ScreenState {
                 };
 
                 if with_uv {
-                    mesh.add_rect_with_uv(
-                        rect_xy_wh([x, pos_y, width, -slam_height]),
-                        slam_uv,
-                        color,
-                    )
+                    add_slam_rect(&mut mesh, rect_xy_wh([x, pos_y, width, -slam_height]));
                 } else {
                     mesh.add_colored_rect(rect_xy_wh([x, pos_y, width, -slam_height]), color);
                 }
@@ -265,12 +289,12 @@ impl ScreenState {
                 let end_rect_x = if sx > ex { 0.0 } else { self.lane_width() };
 
                 if with_uv {
-                    mesh.add_rect_with_uv(rect_xy_wh([x, y, w, -slam_height]), slam_uv, color);
+                    add_slam_rect(&mut mesh, rect_xy_wh([x, y, w, -slam_height]));
 
                     mesh.add_rect_with_uv(
                         rect_xy_wh([
                             x + w - end_rect_x,
-                            y - slam_height,
+                            y - slam_height * self.tick_height.signum(),
                             self.lane_width(),
                             -slam_height,
                         ]),
@@ -303,11 +327,13 @@ impl ScreenState {
                 let (x, y) = self.tick_to_pos(l.ry + y_base);
                 let x = x + sv * track_lane_diff + half_track;
                 if with_uv {
-                    mesh.add_rect_with_uv(
-                        rect_xy_wh([x, y, self.lane_width(), slam_height]),
-                        slam_uv,
-                        color,
-                    );
+                    let slam_rect = rect_xy_wh([
+                        x,
+                        y - slam_height,
+                        self.lane_width(),
+                        slam_height * self.tick_height.signum(),
+                    ]);
+                    mesh.add_rect_with_uv(slam_rect, slam_uv, color);
                 } else {
                     mesh.add_colored_rect(
                         rect_xy_wh([x, y, self.lane_width(), slam_height]),
@@ -551,6 +577,10 @@ impl MainState {
             audio_playback: playback::AudioPlayback::try_new()?,
             cursor_line: 0,
             actions: action_stack::ActionStack::new(new_chart),
+            laser_colors: [
+                Color32::from_rgba_unmultiplied(0, 115, 144, 127),
+                Color32::from_rgba_unmultiplied(194, 6, 140, 127),
+            ],
         };
         Ok(s)
     }
@@ -911,10 +941,6 @@ impl MainState {
         let mut fx_builder = Vec::new();
         let mut long_fx_builder = Vec::new();
         let mut laser_builder = Vec::new();
-        let laser_color = [
-            Color32::from_rgba_unmultiplied(0, 115, 144, 127),
-            Color32::from_rgba_unmultiplied(194, 6, 140, 127),
-        ];
         let min_tick_render = self.screen.pos_to_tick(-100.0, self.screen.h);
         let max_tick_render = self.screen.pos_to_tick(self.screen.w + 50.0, 0.0);
 
@@ -1068,7 +1094,7 @@ impl MainState {
             //laser
             {
                 profile_scope!("Laser Components");
-                for (lane, color) in self.chart.note.laser.iter().zip(laser_color.iter()) {
+                for (lane, color) in self.chart.note.laser.iter().zip(self.laser_colors.iter()) {
                     for section in lane {
                         let y_base = section.y;
                         if section.v.last().unwrap().ry + y_base < min_tick_render {

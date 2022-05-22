@@ -246,8 +246,12 @@ impl CursorObject for CameraTool {
             .resizable(true)
             .show(ctx, |ui| {
                 let mut camera_view = CameraView::new(vec2(300.0, 200.0), camera);
-                camera_view.add_track();
-                camera_view.add_chart_objects(&state.chart, cursor_tick as f32);
+                camera_view.add_track(&state.laser_colors);
+                camera_view.add_chart_objects(
+                    &state.chart,
+                    cursor_tick as f32,
+                    &state.laser_colors,
+                );
                 camera_view.add_track_overlay();
                 ui.add(camera_view);
                 ui.add(Slider::new(&mut self.radius, -3.0..=3.0).text("Radius"));
