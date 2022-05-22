@@ -51,15 +51,288 @@ pub struct ScreenState {
     pub x_offset: f32,
     pub x_offset_target: f32,
     pub beat_res: u32,
+    pub curve_per_tick: f32,
 }
 
 impl ScreenState {
+    pub fn draw_laser_section(
+        &self,
+        section: &kson::LaserSection,
+        mb: &mut Vec<Mesh>,
+        color: Color32,
+        with_uv: bool,
+    ) -> Result<()> {
+        //TODO: Draw sections as a single `Mesh`
+        profile_scope!("Section");
+        let y_base = section.y;
+        let slam_uv = Rect {
+            min: pos2(0.0, 0.0),
+            max: pos2(1.0, 1.0),
+        };
+        let wide = section.wide == 2;
+        let slam_height = 6.0_f32 * self.note_height_mult();
+        let half_lane = self.lane_width() / 2.0;
+        let half_track = self.track_width / 2.0;
+        let track_lane_diff = self.track_width - self.lane_width();
+
+        let mut mesh = Mesh::with_texture(Default::default());
+        let make_vert: Box<dyn Fn(&[f32; 3]) -> Vertex> = if with_uv {
+            Box::new(|p: &[f32; 3]| Vertex {
+                pos: [p[0], p[1]].into(),
+                color,
+                uv: pos2(p[2], 0.5),
+            })
+        } else {
+            Box::new(|p: &[f32; 3]| Vertex {
+                pos: [p[0], p[1]].into(),
+                color,
+                uv: WHITE_UV,
+            })
+        };
+
+        for se in section.v.windows(2) {
+            profile_scope!("Window");
+            let s = &se[0];
+            let e = &se[1];
+            let l = e.ry - s.ry;
+            let interval = kson::Interval {
+                y: s.ry + y_base,
+                l,
+            };
+
+            if interval.l == 0 {
+                continue;
+            }
+
+            let mut start_value = s.v as f32;
+            let mut syoff = 0.0_f32;
+
+            if let Some(value) = s.vf {
+                profile_scope!("Slam");
+                start_value = value as f32;
+                syoff = slam_height;
+                let mut sv: f32 = s.v as f32;
+                let mut ev: f32 = value as f32;
+                if wide {
+                    ev = ev * 2.0 - 0.5;
+                    sv = sv * 2.0 - 0.5;
+                }
+
+                //draw slam
+                let (pos_x, pos_y) = self.tick_to_pos(interval.y);
+
+                let sx = pos_x + sv * track_lane_diff + half_track + half_lane;
+                let ex = pos_x + ev * track_lane_diff + half_track + half_lane;
+
+                let (x, width): (f32, f32) = if sx > ex {
+                    (sx + half_lane, (ex - half_lane) - (sx + half_lane))
+                } else {
+                    (sx - half_lane, (ex + half_lane) - (sx - half_lane))
+                };
+
+                if with_uv {
+                    mesh.add_rect_with_uv(
+                        rect_xy_wh([x, pos_y, width, -slam_height]),
+                        slam_uv,
+                        color,
+                    )
+                } else {
+                    mesh.add_colored_rect(rect_xy_wh([x, pos_y, width, -slam_height]), color);
+                }
+            }
+
+            let mut value_width = (e.v as f32 - start_value) as f32;
+            if wide {
+                value_width *= 2.0;
+                start_value = start_value * 2.0 - 0.5;
+            }
+
+            let curve_points = (s.a.unwrap_or(0.5), s.b.unwrap_or(0.5));
+
+            for (x, y, h, (sv, ev)) in self.interval_to_ranges(&interval) {
+                if (curve_points.0 - curve_points.1).abs() < std::f64::EPSILON {
+                    profile_scope!("Range - Linear");
+                    let sx = x
+                        + (start_value + (sv * value_width)) * track_lane_diff
+                        + half_track
+                        + half_lane;
+                    let ex = x
+                        + (start_value + (ev * value_width)) * track_lane_diff
+                        + half_track
+                        + half_lane;
+
+                    let sy = y;
+                    let ey = y + h;
+
+                    let xoff = half_lane;
+                    let mut points = vec![
+                        [ex - xoff, ey, 0.0],
+                        [ex + xoff, ey, 1.0],
+                        [sx + xoff, sy - syoff, 1.0],
+                        [sx - xoff, sy - syoff, 0.0],
+                    ]
+                    .iter()
+                    .map(|p| make_vert(p))
+                    .collect();
+
+                    let i_off = mesh.vertices.len() as u32;
+                    mesh.vertices.append(&mut points);
+                    mesh.indices.append(&mut vec![
+                        i_off,
+                        1 + i_off,
+                        2 + i_off,
+                        i_off,
+                        2 + i_off,
+                        3 + i_off,
+                    ]);
+                } else {
+                    profile_scope!("Range - Curved");
+                    let sy = y - syoff;
+                    syoff = 0.0; //only first section after slam needs this
+                    let ey = y + h;
+                    let curve_segments =
+                        ((ey - sy).abs() / (self.tick_height.abs() / self.curve_per_tick)) as i32;
+                    let curve_segment_h = (ey - sy) / curve_segments as f32;
+                    let curve_segment_progress_h = (ev - sv) / curve_segments as f32;
+                    // let interval_start_value = start_value + sv * value_width;
+                    // let interval_value_width =
+                    //     (start_value + ev * value_width) - interval_start_value;
+
+                    for i in 0..curve_segments {
+                        let cssv = sv + curve_segment_progress_h * i as f32;
+                        let csev = sv + curve_segment_progress_h * (i + 1) as f32;
+                        let csv = do_curve(cssv as f64, curve_points.0, curve_points.1) as f32;
+                        let cev = do_curve(csev as f64, curve_points.0, curve_points.1) as f32;
+
+                        let sx = x
+                            + (start_value + (csv * value_width)) * track_lane_diff
+                            + half_track
+                            + half_lane;
+                        let ex = x
+                            + (start_value + (cev * value_width)) * track_lane_diff
+                            + half_track
+                            + half_lane;
+
+                        let csy = sy + curve_segment_h * i as f32;
+                        let cey = sy + curve_segment_h * i as f32 + curve_segment_h;
+
+                        let xoff = half_lane;
+                        let i_off = mesh.vertices.len() as u32;
+
+                        let mut points: Vec<Vertex> = vec![
+                            [ex - xoff, cey, 0.0],
+                            [ex + xoff, cey, 1.0],
+                            [sx + xoff, csy, 1.0],
+                            [sx - xoff, csy, 0.0],
+                        ]
+                        .iter()
+                        .map(|p| make_vert(p))
+                        .collect();
+                        mesh.vertices.append(&mut points);
+                        mesh.indices.append(&mut vec![
+                            i_off,
+                            1 + i_off,
+                            2 + i_off,
+                            i_off,
+                            2 + i_off,
+                            3 + i_off,
+                        ]);
+                    }
+                }
+            }
+        }
+
+        if let Some(l) = section.v.last() {
+            if let Some(vf) = l.vf {
+                profile_scope!("End Slam");
+                //draw slam
+                let mut sv: f32 = l.v as f32;
+                let mut ev: f32 = vf as f32;
+                if wide {
+                    sv = sv * 2.0 - 0.5;
+                    ev = ev * 2.0 - 0.5;
+                }
+
+                let (x, y) = self.tick_to_pos(l.ry + y_base);
+                let sx = x + sv * track_lane_diff + half_track + half_lane;
+                let ex = x + ev as f32 * track_lane_diff + half_track + half_lane;
+
+                let (x, w): (f32, f32) = if sx > ex {
+                    (sx + half_lane, (ex - half_lane) - (sx + half_lane))
+                } else {
+                    (sx - half_lane, (ex + half_lane) - (sx - half_lane))
+                };
+                let end_rect_x = if sx > ex { 0.0 } else { self.lane_width() };
+
+                if with_uv {
+                    mesh.add_rect_with_uv(rect_xy_wh([x, y, w, -slam_height]), slam_uv, color);
+
+                    mesh.add_rect_with_uv(
+                        rect_xy_wh([
+                            x + w - end_rect_x,
+                            y - slam_height,
+                            self.lane_width(),
+                            -slam_height,
+                        ]),
+                        slam_uv,
+                        color,
+                    );
+                } else {
+                    mesh.add_colored_rect(rect_xy_wh([x, y, w, -slam_height]), color);
+
+                    mesh.add_colored_rect(
+                        rect_xy_wh([
+                            x + w - end_rect_x,
+                            y - slam_height,
+                            self.lane_width(),
+                            -slam_height,
+                        ]),
+                        color,
+                    );
+                }
+            }
+        }
+
+        if let Some(l) = section.v.first() {
+            if l.vf.is_some() {
+                let mut sv: f32 = l.v as f32;
+                if wide {
+                    sv = sv * 2.0 - 0.5;
+                }
+
+                let (x, y) = self.tick_to_pos(l.ry + y_base);
+                let x = x + sv * track_lane_diff + half_track;
+                if with_uv {
+                    mesh.add_rect_with_uv(
+                        rect_xy_wh([x, y, self.lane_width(), slam_height]),
+                        slam_uv,
+                        color,
+                    );
+                } else {
+                    mesh.add_colored_rect(
+                        rect_xy_wh([x, y, self.lane_width(), slam_height]),
+                        color,
+                    );
+                }
+            }
+        }
+
+        let segment = Mesh {
+            indices: mesh.indices,
+            vertices: mesh.vertices,
+            ..Default::default()
+        };
+        mb.push(segment);
+
+        Ok(())
+    }
+
     pub fn lane_width(&self) -> f32 {
         self.track_width / 6.0
     }
 
     pub fn ticks_per_col(&self) -> u32 {
-        self.beats_per_col * self.beat_res
+        self.beats_per_col.saturating_mul(self.beat_res)
     }
 
     pub fn track_spacing(&self) -> f32 {
@@ -199,7 +472,7 @@ impl ScreenState {
     ) -> Vec<(f32, f32, f32, (f32, f32))> {
         let mut res: Vec<(f32, f32, f32, (f32, f32))> = Vec::new();
         let mut ranges: Vec<(u32, u32)> = Vec::new();
-        let ticks_per_col = self.beats_per_col * self.beat_res;
+        let ticks_per_col = self.beats_per_col.saturating_mul(self.beat_res);
         let mut start = in_interval.y;
         let end = start + in_interval.l;
         while start / ticks_per_col < end / ticks_per_col {
@@ -266,6 +539,7 @@ impl MainState {
                 x_offset: 0.0,
                 x_offset_target: 0.0,
                 beat_res: 48,
+                curve_per_tick: 1.5,
             },
             gui_event_queue: VecDeque::new(),
             save_path,
@@ -314,238 +588,6 @@ impl MainState {
         let p2 = egui::pos2(x + self.screen.track_width, y);
 
         painter.line_segment([p1, p2], Stroke { color, width: 1.5 });
-    }
-
-    pub fn draw_laser_section(
-        &self,
-        section: &kson::LaserSection,
-        mb: &mut Vec<Shape>,
-        color: Color32,
-    ) -> Result<()> {
-        //TODO: Draw sections as a single `Mesh`
-        profile_scope!("Section");
-        let y_base = section.y;
-        let wide = section.wide == 2;
-        let slam_height = 6.0_f32 * self.screen.note_height_mult();
-        let half_lane = self.screen.lane_width() / 2.0;
-        let half_track = self.screen.track_width / 2.0;
-        let track_lane_diff = self.screen.track_width - self.screen.lane_width();
-
-        let mut mesh = Mesh::with_texture(Default::default());
-        let make_vert = |p: &[f32; 2]| Vertex {
-            pos: [p[0], p[1]].into(),
-            color,
-            uv: WHITE_UV,
-        };
-
-        for se in section.v.windows(2) {
-            profile_scope!("Window");
-            let s = &se[0];
-            let e = &se[1];
-            let l = e.ry - s.ry;
-            let interval = kson::Interval {
-                y: s.ry + y_base,
-                l,
-            };
-
-            if interval.l == 0 {
-                continue;
-            }
-
-            let mut start_value = s.v as f32;
-            let mut syoff = 0.0_f32;
-
-            if let Some(value) = s.vf {
-                profile_scope!("Slam");
-                start_value = value as f32;
-                syoff = slam_height;
-                let mut sv: f32 = s.v as f32;
-                let mut ev: f32 = value as f32;
-                if wide {
-                    ev = ev * 2.0 - 0.5;
-                    sv = sv * 2.0 - 0.5;
-                }
-
-                //draw slam
-                let (pos_x, pos_y) = self.screen.tick_to_pos(interval.y);
-
-                let sx = pos_x + sv * track_lane_diff + half_track + half_lane;
-                let ex = pos_x + ev * track_lane_diff + half_track + half_lane;
-
-                let (x, width): (f32, f32) = if sx > ex {
-                    (sx + half_lane, (ex - half_lane) - (sx + half_lane))
-                } else {
-                    (sx - half_lane, (ex + half_lane) - (sx - half_lane))
-                };
-
-                mesh.add_colored_rect(rect_xy_wh([x, pos_y, width, -slam_height]), color);
-            }
-
-            let mut value_width = (e.v as f32 - start_value) as f32;
-            if wide {
-                value_width *= 2.0;
-                start_value = start_value * 2.0 - 0.5;
-            }
-
-            let curve_points = (s.a.unwrap_or(0.5), s.b.unwrap_or(0.5));
-
-            for (x, y, h, (sv, ev)) in self.screen.interval_to_ranges(&interval) {
-                if (curve_points.0 - curve_points.1).abs() < std::f64::EPSILON {
-                    profile_scope!("Range - Linear");
-                    let sx = x
-                        + (start_value + (sv * value_width)) * track_lane_diff
-                        + half_track
-                        + half_lane;
-                    let ex = x
-                        + (start_value + (ev * value_width)) * track_lane_diff
-                        + half_track
-                        + half_lane;
-
-                    let sy = y;
-                    let ey = y + h;
-
-                    let xoff = half_lane;
-                    let mut points = vec![
-                        [ex - xoff, ey],
-                        [ex + xoff, ey],
-                        [sx + xoff, sy - syoff],
-                        [sx - xoff, sy - syoff],
-                    ]
-                    .iter()
-                    .map(make_vert)
-                    .collect();
-
-                    let i_off = mesh.vertices.len() as u32;
-                    mesh.vertices.append(&mut points);
-                    mesh.indices.append(&mut vec![
-                        i_off,
-                        1 + i_off,
-                        2 + i_off,
-                        i_off,
-                        2 + i_off,
-                        3 + i_off,
-                    ]);
-                } else {
-                    profile_scope!("Range - Curved");
-                    let sy = y - syoff;
-                    syoff = 0.0; //only first section after slam needs this
-                    let ey = y + h;
-                    let curve_segments = ((ey - sy).abs() / 3.0) as i32;
-                    let curve_segment_h = (ey - sy) / curve_segments as f32;
-                    let curve_segment_progress_h = (ev - sv) / curve_segments as f32;
-                    // let interval_start_value = start_value + sv * value_width;
-                    // let interval_value_width =
-                    //     (start_value + ev * value_width) - interval_start_value;
-
-                    for i in 0..curve_segments {
-                        let cssv = sv + curve_segment_progress_h * i as f32;
-                        let csev = sv + curve_segment_progress_h * (i + 1) as f32;
-                        let csv = do_curve(cssv as f64, curve_points.0, curve_points.1) as f32;
-                        let cev = do_curve(csev as f64, curve_points.0, curve_points.1) as f32;
-
-                        let sx = x
-                            + (start_value + (csv * value_width)) * track_lane_diff
-                            + half_track
-                            + half_lane;
-                        let ex = x
-                            + (start_value + (cev * value_width)) * track_lane_diff
-                            + half_track
-                            + half_lane;
-
-                        let csy = sy + curve_segment_h * i as f32;
-                        let cey = sy + curve_segment_h * i as f32 + curve_segment_h;
-
-                        let xoff = half_lane;
-                        let i_off = mesh.vertices.len() as u32;
-
-                        let mut points: Vec<Vertex> = vec![
-                            [ex - xoff, cey],
-                            [ex + xoff, cey],
-                            [sx + xoff, csy],
-                            [sx - xoff, csy],
-                        ]
-                        .iter()
-                        .map(make_vert)
-                        .collect();
-                        mesh.vertices.append(&mut points);
-                        mesh.indices.append(&mut vec![
-                            i_off,
-                            1 + i_off,
-                            2 + i_off,
-                            i_off,
-                            2 + i_off,
-                            3 + i_off,
-                        ]);
-                    }
-                }
-            }
-        }
-
-        if let Some(l) = section.v.last() {
-            if let Some(vf) = l.vf {
-                profile_scope!("End Slam");
-                //draw slam
-                let mut sv: f32 = l.v as f32;
-                let mut ev: f32 = vf as f32;
-                if wide {
-                    sv = sv * 2.0 - 0.5;
-                    ev = ev * 2.0 - 0.5;
-                }
-
-                let (x, y) = self.screen.tick_to_pos(l.ry + y_base);
-                let sx = x + sv * track_lane_diff + half_track + half_lane;
-                let ex = x + ev as f32 * track_lane_diff + half_track + half_lane;
-
-                let (x, w): (f32, f32) = if sx > ex {
-                    (sx + half_lane, (ex - half_lane) - (sx + half_lane))
-                } else {
-                    (sx - half_lane, (ex + half_lane) - (sx - half_lane))
-                };
-
-                mesh.add_colored_rect(rect_xy_wh([x, y, w, -slam_height]), color);
-
-                let end_rect_x = if sx > ex {
-                    0.0
-                } else {
-                    self.screen.lane_width()
-                };
-
-                mesh.add_colored_rect(
-                    rect_xy_wh([
-                        x + w - end_rect_x,
-                        y - slam_height,
-                        self.screen.lane_width(),
-                        -slam_height,
-                    ]),
-                    color,
-                );
-            }
-        }
-
-        if let Some(l) = section.v.first() {
-            if l.vf.is_some() {
-                let mut sv: f32 = l.v as f32;
-                if wide {
-                    sv = sv * 2.0 - 0.5;
-                }
-
-                let (x, y) = self.screen.tick_to_pos(l.ry + y_base);
-                let x = x + sv * track_lane_diff + half_track;
-                mesh.add_colored_rect(
-                    rect_xy_wh([x, y, self.screen.lane_width(), slam_height]),
-                    color,
-                );
-            }
-        }
-
-        let segment = Shape::mesh(Mesh {
-            indices: mesh.indices,
-            vertices: mesh.vertices,
-            ..Default::default()
-        });
-        mb.push(segment);
-
-        Ok(())
     }
 
     pub fn draw_graph(
@@ -1036,7 +1078,12 @@ impl MainState {
                             break;
                         }
 
-                        self.draw_laser_section(section, &mut laser_builder, *color)?;
+                        self.screen.draw_laser_section(
+                            section,
+                            &mut laser_builder,
+                            *color,
+                            false,
+                        )?;
                     }
                 }
             }
@@ -1075,7 +1122,7 @@ impl MainState {
             //laser
             {
                 profile_scope!("Laser Mesh");
-                painter.extend(laser_builder);
+                painter.extend(laser_builder.into_iter().map(Shape::mesh).collect());
             }
         }
 

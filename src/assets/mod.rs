@@ -1,7 +1,5 @@
-use egui_glow::{
-    check_for_gl_error,
-    glow::{Context, HasContext, Program, Texture},
-};
+use egui_glow::glow::{Context, HasContext, Program, Texture};
+use image::DynamicImage;
 use once_cell::sync::OnceCell;
 
 pub mod textures {
@@ -22,7 +20,7 @@ pub struct AssetInstance {
     pub(crate) fx_hold_texture: Texture,
     pub(crate) laser_shader: Program,
     pub(crate) track_shader: Program,
-    pub(crate) lane_light_shader: Program,
+    pub(crate) color_mesh_shader: Program,
     pub(crate) chip_shader: Program,
     pub(crate) hold_shader: Program,
 }
@@ -72,25 +70,16 @@ fn load_texture(gl: &Context, texture: &[u8]) -> Result<Texture, String> {
 
         gl.bind_texture(glow::TEXTURE_2D, Some(tex));
 
-        let (internal_format, format, ty) = match img {
-            image::DynamicImage::ImageLuma8(_) => (glow::R8, glow::RED, glow::UNSIGNED_BYTE),
-            image::DynamicImage::ImageLumaA8(_) => (glow::RGBA8, glow::RG, glow::UNSIGNED_BYTE),
-            image::DynamicImage::ImageRgb8(_) => (glow::RGB8, glow::RGB, glow::UNSIGNED_BYTE),
-            image::DynamicImage::ImageRgba8(_) => (glow::RGBA8, glow::RGBA, glow::UNSIGNED_BYTE),
-            f => {
-                return Err(format!("Unsupported texture format {:?}", f));
-            }
-        };
         gl.tex_image_2d(
             glow::TEXTURE_2D,
             0,
-            internal_format as i32,
+            glow::SRGB8_ALPHA8 as i32,
             img.width() as i32,
             img.height() as i32,
             0,
-            format,
-            ty,
-            Some(img.as_bytes()),
+            glow::RGBA,
+            glow::UNSIGNED_BYTE,
+            Some(&DynamicImage::ImageRgba8(img.into_rgba8()).into_bytes()),
         );
 
         gl.generate_mipmap(glow::TEXTURE_2D);
@@ -134,7 +123,7 @@ pub fn instance(gl: &Context) -> AssetInstance {
                 fx_hold_texture: load_texture(gl, textures::FX_HOLD)?,
                 laser_shader: shaders::laser::load(gl)?,
                 track_shader: shaders::track::load(gl)?,
-                lane_light_shader: shaders::lane_light::load(gl)?,
+                color_mesh_shader: shaders::color_mesh::load(gl)?,
                 chip_shader: shaders::button::load_chip(gl)?,
                 hold_shader: shaders::button::load_hold(gl)?,
             })
@@ -166,11 +155,11 @@ pub mod shaders {
         }
     }
 
-    pub mod lane_light {
+    pub mod color_mesh {
         use egui_glow::glow::{Context, Program};
 
-        pub const FRAGMENT: &str = include_str!("shaders/lane_light_frag.glsl");
-        pub const VERTEX: &str = include_str!("shaders/lane_light_vert.glsl");
+        pub const FRAGMENT: &str = include_str!("shaders/color_mesh_frag.glsl");
+        pub const VERTEX: &str = include_str!("shaders/color_mesh_vert.glsl");
 
         pub fn load(gl: &Context) -> Result<Program, String> {
             super::super::load_shader(gl, VERTEX, FRAGMENT)

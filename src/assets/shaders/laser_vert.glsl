@@ -10,14 +10,9 @@ uniform mat4 Projection;
 uniform float scale;
 
 varying vec2 fsTex;
-varying vec4 realPos;
 
 void main()
 {
 	fsTex = texcoord;
-	float y = (position.x + offset) / scale;
-
-	realPos = vec4(vec3(y, 0, position.x), 1);
-
-	gl_Position = Projection * realPos * Model;
+	gl_Position = Projection * Model * vec4(position.x, 0,  position.y, 1);
 }

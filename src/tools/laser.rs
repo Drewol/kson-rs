@@ -7,6 +7,7 @@ use crate::{
 };
 use anyhow::Result;
 use eframe::egui::{Painter, Pos2, Rgba, Stroke};
+use eframe::epaint::Shape;
 use kson::{Chart, GraphSectionPoint, LaserSection};
 
 pub struct LaserTool {
@@ -323,8 +324,10 @@ impl CursorObject for LaserTool {
                 LaserEditMode::Edit(_) => Some(Rgba::from_rgba_premultiplied(0.0, 0.76, 0.0, 0.25)),
             } {
                 let mut mb = Vec::new();
-                state.draw_laser_section(&self.section, &mut mb, color.into())?;
-                painter.extend(mb);
+                state
+                    .screen
+                    .draw_laser_section(&self.section, &mut mb, color.into(), false)?;
+                painter.extend(mb.into_iter().map(Shape::mesh).collect());
             }
 
             //Draw curve control points

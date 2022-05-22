@@ -8,7 +8,7 @@ uniform int hasSample;
 
 void main()
 {	
-	vec4 mainColor = texture2D(mainTex, uv.yx);
+	vec4 mainColor = texture2D(mainTex, uv.xy);
     float addition = abs(0.5 - uv.x) * - 1.;
     addition += 0.2;
     addition = max(addition,0.);

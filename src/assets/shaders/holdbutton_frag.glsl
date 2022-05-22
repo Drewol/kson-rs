@@ -11,7 +11,7 @@ uniform int hitState;
 
 void main()
 {    
-    vec4 mainColor = texture2D(mainTex, uv.yx);
+    vec4 mainColor = texture2D(mainTex, uv.xy);
 
     vec4 target = mainColor;
 	target.xyz = target.xyz * (1.0 + objectGlow * 0.3);

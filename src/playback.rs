@@ -89,7 +89,7 @@ impl Iterator for AudioFile {
                 //apply Laser DSP
                 {
                     let mut laser = self.laser_dsp.lock().unwrap();
-                    (*laser).process(&mut v, pos % self.channels as usize);
+                    //(*laser).process(&mut v, pos % self.channels as usize);
                 }
                 self.pos.store(pos, Ordering::SeqCst);
                 Some(v)
