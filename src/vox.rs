@@ -1,6 +1,5 @@
 use thiserror::Error;
 
-use crate::ByMeasureIndex;
 use crate::ByPulse;
 use crate::Chart;
 use crate::GraphSectionPoint;
@@ -57,17 +56,18 @@ fn split_data_line(line: &str) -> Vec<&str> {
 
 #[inline]
 fn time_sig_accumulator(
-    mut accu: Vec<ByMeasureIndex<TimeSignature>>,
+    mut accu: Vec<TimeSignature>,
     line_data: Vec<&str>,
-) -> Result<Vec<ByMeasureIndex<TimeSignature>>, VoxReadError> {
+) -> Result<Vec<TimeSignature>, VoxReadError> {
     let measure = line_data
         .get(0).and_then(|v| v.split(',').next().map(|i| i.parse::<u32>()));
     if let Some(Ok(m)) = measure {
         let ts = TimeSignature {
+            idx: m - 1,
             n: line_data.get(1).unwrap_or(&"").parse()?,
             d: line_data.get(2).unwrap_or(&"").parse()?,
         };
-        accu.push(ByMeasureIndex { idx: m - 1, v: ts });
+        accu.push(ts);
         Ok(accu)
     } else {
         Err(VoxReadError::LineParseError(line_data.join(", ")))
@@ -92,7 +92,7 @@ fn tick_from_vox(vox_time: &str, chart: &Chart) -> Result<u32, VoxReadError> {
         Err(i) => chart.beat.time_sig.get(i - 1).unwrap(),
     };
 
-    let tick_per_beat = 192 / current_sig.v.d;
+    let tick_per_beat = 192 / current_sig.d;
     Ok(chart.measure_to_tick(measure - 1) + tick_per_beat * (beat - 1) + ticks)
 }
 

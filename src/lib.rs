@@ -173,10 +173,11 @@ pub struct DifficultyInfo {
 #[cfg_attr(feature = "schema", derive(JsonSchema))]
 pub struct MetaInfo {
     pub title: String,
-    pub title_translit: Option<String>,
+    pub title_img_filename: Option<String>,
     pub subtitle: Option<String>,
     pub artist: String,
-    pub artist_translit: Option<String>,
+    pub gauge: Option<GaugeInfo>,
+    pub artist_img_filename: Option<String>,
     pub chart_author: String,
     pub difficulty: DifficultyInfo,
     pub level: u8,
@@ -197,14 +198,21 @@ impl DifficultyInfo {
     }
 }
 
+#[derive(Serialize, Deserialize, Clone)]
+#[cfg_attr(feature = "schema", derive(JsonSchema))]
+pub struct GaugeInfo {
+    total: u32,
+}
+
 impl MetaInfo {
     fn new() -> MetaInfo {
         MetaInfo {
             title: String::new(),
-            title_translit: None,
+            title_img_filename: None,
             subtitle: None,
+            gauge: None,
             artist: String::new(),
-            artist_translit: None,
+            artist_img_filename: None,
             chart_author: String::new(),
             difficulty: DifficultyInfo::new(),
             level: 1,
@@ -327,33 +335,27 @@ impl<'a, T> Iterator for ByNotesIter<'a, T> {
 #[derive(Serialize, Deserialize, Copy, Clone)]
 #[cfg_attr(feature = "schema", derive(JsonSchema))]
 pub struct TimeSignature {
+    pub idx: u32,
     pub n: u32,
     pub d: u32,
 }
 
 impl TimeSignature {
     //Parse from "n/d" string
-    fn from_str(s: &str) -> Self {
+    fn from_str(s: &str, idx: u32) -> Self {
         let mut data = s.split('/');
         let n: u32 = data.next().unwrap_or("4").parse().unwrap_or(4);
         let d: u32 = data.next().unwrap_or("4").parse().unwrap_or(4);
 
-        TimeSignature { n, d }
+        TimeSignature { idx, n, d }
     }
-}
-
-#[derive(Serialize, Deserialize, Copy, Clone)]
-#[cfg_attr(feature = "schema", derive(JsonSchema))]
-pub struct ByMeasureIndex<T> {
-    pub idx: u32,
-    pub v: T,
 }
 
 #[derive(Serialize, Deserialize, Clone)]
 #[cfg_attr(feature = "schema", derive(JsonSchema))]
 pub struct BeatInfo {
     pub bpm: Vec<ByPulse<f64>>,
-    pub time_sig: Vec<ByMeasureIndex<TimeSignature>>,
+    pub time_sig: Vec<TimeSignature>,
     pub resolution: u32,
 }
 
@@ -399,14 +401,52 @@ impl BgmInfo {
 
 #[derive(Serialize, Deserialize, Clone)]
 #[cfg_attr(feature = "schema", derive(JsonSchema))]
-pub struct KeySoundInfo;
+pub struct KeySoundInfo {
+    pub fx: KeySoundFXInfo,
+    pub laser: KeySoundLaserInfo,
+}
+
+#[derive(Serialize, Deserialize, Clone)]
+#[cfg_attr(feature = "schema", derive(JsonSchema))]
+pub struct KeySoundLaserInfo {
+    vol: ByPulse<f64>,
+}
+
+#[derive(Serialize, Deserialize, Clone)]
+#[cfg_attr(feature = "schema", derive(JsonSchema))]
+pub struct KeySoundFXInfo {
+    chip_event: HashMap<String, [Vec<ByPulse<KeySoundInvokeFX>>; 2]>,
+}
+
+#[derive(Serialize, Deserialize, Clone)]
+#[cfg_attr(feature = "schema", derive(JsonSchema))]
+pub struct KeySoundInvokeFX {
+    vol: f64,
+}
+
+#[derive(Serialize, Deserialize, Clone)]
+#[cfg_attr(feature = "schema", derive(JsonSchema))]
+pub struct AudioEffectFXInfo {
+    def: Option<HashMap<String, AudioEffect>>,
+    param_change: Option<HashMap<String, ByPulse<String>>>,
+    long_event: Option<[HashMap<String, ByPulse<AudioEffect>>; 2]>,
+}
+
+#[derive(Serialize, Deserialize, Clone)]
+#[cfg_attr(feature = "schema", derive(JsonSchema))]
+pub struct AudioEffectLaserInfo {
+    def: Option<HashMap<String, AudioEffect>>,
+    param_change: Option<HashMap<String, ByPulse<String>>>,
+    pulse_event: Option<HashMap<String, ByPulse<()>>>,
+    #[serde(default = "default_zero::<i32>")]
+    peaking_filter_delay: i32,
+}
 
 #[derive(Serialize, Deserialize, Clone)]
 #[cfg_attr(feature = "schema", derive(JsonSchema))]
 pub struct AudioEffectInfo {
-    def: Option<HashMap<String, AudioEffect>>,
-    pulse_event: Option<HashMap<String, ByPulse<AudioEffect>>>,
-    note_event: Option<HashMap<String, ByNotes<AudioEffect>>>,
+    fx: AudioEffectFXInfo,
+    laser: AudioEffectLaserInfo,
 }
 
 #[derive(Serialize, Deserialize, Clone)]
@@ -523,8 +563,7 @@ impl Chart {
         let mut remaining_ticks = tick;
         if let Some(first_sig) = time_sig_iter.next() {
             let mut prev_index = first_sig.idx;
-            let mut prev_ticks_per_measure =
-                self.beat.resolution * 4 * first_sig.v.n / first_sig.v.d;
+            let mut prev_ticks_per_measure = self.beat.resolution * 4 * first_sig.n / first_sig.d;
             if prev_ticks_per_measure == 0 {
                 return ret;
             }
@@ -537,8 +576,7 @@ impl Chart {
                 ret += measure_count;
                 remaining_ticks -= tick_count;
                 prev_index = current_sig.idx;
-                prev_ticks_per_measure =
-                    self.beat.resolution * 4 * current_sig.v.n / current_sig.v.d;
+                prev_ticks_per_measure = self.beat.resolution * 4 * current_sig.n / current_sig.d;
                 if prev_ticks_per_measure == 0 {
                     return ret;
                 }
@@ -555,8 +593,7 @@ impl Chart {
 
         if let Some(first_sig) = time_sig_iter.next() {
             let mut prev_index = first_sig.idx;
-            let mut prev_ticks_per_measure =
-                self.beat.resolution * 4 * first_sig.v.n / first_sig.v.d;
+            let mut prev_ticks_per_measure = self.beat.resolution * 4 * first_sig.n / first_sig.d;
             for current_sig in time_sig_iter {
                 let measure_count = current_sig.idx - prev_index;
                 if measure_count > remaining_measures {
@@ -565,8 +602,7 @@ impl Chart {
                 ret += measure_count * prev_ticks_per_measure;
                 remaining_measures -= measure_count;
                 prev_index = current_sig.idx;
-                prev_ticks_per_measure =
-                    self.beat.resolution * 4 * current_sig.v.n / current_sig.v.d;
+                prev_ticks_per_measure = self.beat.resolution * 4 * current_sig.n / current_sig.d;
             }
             ret += remaining_measures * prev_ticks_per_measure;
         }
@@ -585,16 +621,13 @@ impl Chart {
         let mut prev_start = 0;
         let mut prev_sig = match self.beat.time_sig.get(0) {
             Some(v) => v,
-            None => &ByMeasureIndex {
-                idx: 0,
-                v: TimeSignature { n: 4, d: 4 },
-            },
+            None => &TimeSignature { n: 4, d: 4, idx: 0 },
         };
 
         for time_sig in &self.beat.time_sig {
-            let ticks_per_beat = self.beat.resolution * 4 / time_sig.v.d;
-            let ticks_per_measure = self.beat.resolution * 4 * time_sig.v.n / time_sig.v.d;
-            let prev_ticks_per_measure = self.beat.resolution * 4 * prev_sig.v.n / prev_sig.v.d;
+            let ticks_per_beat = self.beat.resolution * 4 / time_sig.d;
+            let ticks_per_measure = self.beat.resolution * 4 * time_sig.n / time_sig.d;
+            let prev_ticks_per_measure = self.beat.resolution * 4 * prev_sig.n / prev_sig.d;
 
             let new_start = prev_start + (time_sig.idx - prev_sig.idx) * prev_ticks_per_measure;
             if ticks_per_measure > 0 && ticks_per_beat > 0 {

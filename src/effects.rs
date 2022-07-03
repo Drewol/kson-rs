@@ -151,9 +151,9 @@ pub struct SideChain {
 #[derive(Deserialize, Serialize, Clone, Default, DeriveParameter)]
 #[cfg_attr(feature = "schema", derive(JsonSchema))]
 pub struct HighPassFilter {
-    pub env: EffectParameter<f32>,
-    pub lo_freq: EffectParameter<f32>,
-    pub hi_freq: EffectParameter<f32>,
+    pub v: EffectParameter<f32>,
+    pub freq: EffectParameter<f32>,
+    pub freq_max: EffectParameter<f32>,
     pub q: EffectParameter<f32>,
     pub delay: EffectParameter<f32>,
     pub mix: EffectParameter<f32>,
@@ -162,9 +162,9 @@ pub struct HighPassFilter {
 #[derive(Deserialize, Serialize, Clone, Default, DeriveParameter)]
 #[cfg_attr(feature = "schema", derive(JsonSchema))]
 pub struct LowPassFilter {
-    pub env: EffectParameter<f32>,
-    pub lo_freq: EffectParameter<f32>,
-    pub hi_freq: EffectParameter<f32>,
+    pub v: EffectParameter<f32>,
+    pub freq: EffectParameter<f32>,
+    pub freq_max: EffectParameter<f32>,
     pub q: EffectParameter<f32>,
     pub delay: EffectParameter<f32>,
     pub mix: EffectParameter<f32>,
@@ -173,9 +173,9 @@ pub struct LowPassFilter {
 #[derive(Deserialize, Serialize, Clone, Default, DeriveParameter)]
 #[cfg_attr(feature = "schema", derive(JsonSchema))]
 pub struct PeakingFilter {
-    pub env: EffectParameter<f32>,
-    pub lo_freq: EffectParameter<f32>,
-    pub hi_freq: EffectParameter<f32>,
+    pub v: EffectParameter<f32>,
+    pub freq: EffectParameter<f32>,
+    pub freq_max: EffectParameter<f32>,
     pub q: EffectParameter<f32>,
     pub delay: EffectParameter<f32>,
     pub mix: EffectParameter<f32>,
@@ -190,66 +190,6 @@ pub struct EffectInterval {
 
 impl Chart {
     pub fn get_effect_tracks(&self) -> Vec<EffectInterval> {
-        if self.audio.audio_effect.is_none() {
-            return vec![];
-        }
-
-        let audio_effect_info = self.audio.audio_effect.as_ref().unwrap();
-
-        let (effect_def, effect_note_event) =
-            match (&audio_effect_info.def, &audio_effect_info.note_event) {
-                (Some(def), Some(event)) => (def, event),
-                _ => return vec![],
-            };
-
-        let mut effect_intervals = vec![];
-
-        for (effect_name, effect_events) in effect_note_event {
-            if !effect_def.contains_key(effect_name) {
-                continue;
-            }
-
-            let original_effect = effect_def.get(effect_name).unwrap();
-
-            for (effect_event, track) in effect_events {
-                let interval = match track {
-                    Track::BT(l) => self.note.bt[l as usize]
-                        .iter()
-                        .find(|b| b.y == effect_event.y)
-                        .cloned(),
-                    Track::FX(l) => self.note.fx[l as usize]
-                        .iter()
-                        .find(|b| b.y == effect_event.y)
-                        .cloned(),
-                    Track::Laser(l) => self.note.laser[l as usize]
-                        .iter()
-                        .find(|s| s.y == effect_event.y)
-                        .map(|s| Interval {
-                            y: s.y,
-                            l: s.v.last().map(|p| p.ry).unwrap_or(0),
-                        }),
-                };
-
-                if let Some(interval) = interval {
-                    if let Some(event_effect_v) = effect_event.v.as_ref() {
-                        effect_intervals.push(EffectInterval {
-                            interval,
-                            effect: original_effect.derive(event_effect_v),
-                            track: Some(track),
-                            dom: effect_event.dom,
-                        })
-                    } else {
-                        effect_intervals.push(EffectInterval {
-                            interval,
-                            effect: original_effect.clone(),
-                            track: Some(track),
-                            dom: effect_event.dom,
-                        })
-                    }
-                }
-            }
-        }
-
-        effect_intervals
+        todo!()
     }
 }

@@ -12,6 +12,7 @@ pub enum BiQuadType {
 impl Default for BiQuadType {
     fn default() -> BiQuadType {
         let two: f32 = 2.0;
+
         BiQuadType::Peaking(two.sqrt())
     }
 }
@@ -166,15 +167,15 @@ impl Dsp for PeakingInternal {
         self.filter.process(sample, c);
     }
     fn set_param_transition(&mut self, v: f32, on: bool) {
-        self.params.env.v = self.params.env.interpolate(v, on);
+        self.params.v.v = self.params.v.interpolate(v, on);
         self.params.delay.v = self.params.delay.interpolate(v, on);
-        self.params.hi_freq.v = self.params.hi_freq.interpolate(v, on);
-        self.params.lo_freq.v = self.params.lo_freq.interpolate(v, on);
+        self.params.freq_max.v = self.params.freq_max.interpolate(v, on);
+        self.params.freq.v = self.params.freq.interpolate(v, on);
         self.params.mix.v = self.params.mix.interpolate(v, on);
         self.params.q.v = self.params.q.interpolate(v, on);
 
-        let width = self.params.hi_freq.v - self.params.lo_freq.v;
-        let freq = (self.params.lo_freq.v + width * v).exp();
+        let width = self.params.freq_max.v - self.params.freq.v;
+        let freq = (self.params.freq.v + width * v).exp();
 
         self.filter.set_peaking(freq, self.params.q.v);
     }
@@ -185,15 +186,15 @@ impl Dsp for LowPassInternal {
         self.filter.process(sample, c);
     }
     fn set_param_transition(&mut self, v: f32, on: bool) {
-        self.params.env.v = self.params.env.interpolate(v, on);
+        self.params.v.v = self.params.v.interpolate(v, on);
         self.params.delay.v = self.params.delay.interpolate(v, on);
-        self.params.hi_freq.v = self.params.hi_freq.interpolate(v, on);
-        self.params.lo_freq.v = self.params.lo_freq.interpolate(v, on);
+        self.params.freq_max.v = self.params.freq_max.interpolate(v, on);
+        self.params.freq.v = self.params.freq.interpolate(v, on);
         self.params.mix.v = self.params.mix.interpolate(v, on);
         self.params.q.v = self.params.q.interpolate(v, on);
 
-        let width = self.params.hi_freq.v - self.params.lo_freq.v;
-        let freq = (self.params.lo_freq.v + width * v).exp();
+        let width = self.params.freq_max.v - self.params.freq.v;
+        let freq = (self.params.freq.v + width * v).exp();
         self.filter.q = self.params.q.v;
         self.filter.set_lowpass(freq);
     }
@@ -204,15 +205,15 @@ impl Dsp for HighPassInternal {
         self.filter.process(sample, c);
     }
     fn set_param_transition(&mut self, v: f32, on: bool) {
-        self.params.env.v = self.params.env.interpolate(v, on);
+        self.params.v.v = self.params.v.interpolate(v, on);
         self.params.delay.v = self.params.delay.interpolate(v, on);
-        self.params.hi_freq.v = self.params.hi_freq.interpolate(v, on);
-        self.params.lo_freq.v = self.params.lo_freq.interpolate(v, on);
+        self.params.freq_max.v = self.params.freq_max.interpolate(v, on);
+        self.params.freq.v = self.params.freq.interpolate(v, on);
         self.params.mix.v = self.params.mix.interpolate(v, on);
         self.params.q.v = self.params.q.interpolate(v, on);
 
-        let width = self.params.hi_freq.v - self.params.lo_freq.v;
-        let freq = (self.params.lo_freq.v + width * v).exp();
+        let width = self.params.freq_max.v - self.params.freq.v;
+        let freq = (self.params.freq.v + width * v).exp();
         self.filter.q = self.params.q.v;
         self.filter.set_highpass(freq);
     }

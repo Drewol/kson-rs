@@ -266,22 +266,22 @@ impl Ksh for crate::Chart {
 
                     match line_prop.as_ref() {
                         "beat" => {
-                            let new_sig = TimeSignature::from_str(line_value.as_ref());
+                            let new_sig = TimeSignature::from_str(
+                                line_value.as_ref(),
+                                if has_read_notes {
+                                    measure_index + 1
+                                } else {
+                                    measure_index
+                                },
+                            );
+
                             num = new_sig.n;
                             den = new_sig.d;
                             if !has_read_notes {
                                 ticks_per_line =
                                     (new_chart.beat.resolution * 4 * num / den) / line_count;
-                                new_chart.beat.time_sig.push(ByMeasureIndex {
-                                    idx: measure_index,
-                                    v: new_sig,
-                                });
-                            } else {
-                                new_chart.beat.time_sig.push(ByMeasureIndex {
-                                    idx: measure_index + 1,
-                                    v: new_sig,
-                                });
                             }
+                            new_chart.beat.time_sig.push(new_sig);
                         }
                         "t" => new_chart.beat.bpm.push(ByPulse {
                             y,
@@ -426,7 +426,7 @@ impl Ksh for crate::Chart {
             if let Ok(i) = self.beat.time_sig.binary_search_by(|f| f.idx.cmp(&measure)) {
                 let sig = self.beat.time_sig.get(i).unwrap();
 
-                writeln!(&mut w, "beat={}/{}\r", sig.v.n, sig.v.d)?;
+                writeln!(&mut w, "beat={}/{}\r", sig.n, sig.d)?;
             }
 
             let next_measure_tick = self.measure_to_tick(measure + 1);

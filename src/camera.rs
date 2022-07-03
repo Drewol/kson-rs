@@ -43,6 +43,9 @@ pub struct CamGraphs {
     pub shift_x: GraphVec,
     pub rotation_x: GraphVec,
     pub rotation_z: GraphVec,
-    pub rotation_z_lane: GraphVec,
+    #[serde(rename = "rotation_z.highway")]
+    pub rotation_z_highway: GraphVec,
+    #[serde(rename = "rotation_z.jdgline")]
     pub rotation_z_jdgline: GraphVec,
+    pub split: GraphVec,
 }
