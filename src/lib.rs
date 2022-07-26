@@ -10,6 +10,7 @@ use camera::CameraInfo;
 use effects::AudioEffect;
 pub use graph::*;
 pub use ksh::*;
+use serde::de::Visitor;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::collections::HashSet;
@@ -80,18 +81,96 @@ pub struct GraphPoint {
     pub b: Option<f64>,
 }
 
-#[derive(Serialize, Deserialize, Copy, Clone)]
+#[derive(Copy, Clone)]
 #[cfg_attr(feature = "schema", derive(JsonSchema))]
 pub struct GraphSectionPoint {
     pub ry: u32,
     pub v: f64,
-    #[serde(skip_serializing_if = "Option::is_none")]
     pub vf: Option<f64>,
-    #[serde(skip_serializing_if = "Option::is_none")]
     pub a: Option<f64>,
-    #[serde(skip_serializing_if = "Option::is_none")]
     pub b: Option<f64>,
 }
+
+#[derive(Serialize, Deserialize)]
+#[serde(untagged)]
+enum SingleOrPair<T> {
+    Single(T),
+    Pair(T, T),
+}
+
+impl<'de> Deserialize<'de> for GraphSectionPoint {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        struct GspVisitor;
+        impl<'de> Visitor<'de> for GspVisitor {
+            type Value = GraphSectionPoint;
+
+            fn expecting(&self, formatter: &mut std::fmt::Formatter) -> std::fmt::Result {
+                formatter.write_str("[u32, f64 | [f64, f64], none | [f64, f64]]")
+            }
+
+            fn visit_seq<A>(self, mut seq: A) -> Result<Self::Value, A::Error>
+            where
+                A: serde::de::SeqAccess<'de>,
+            {
+                let ry = seq
+                    .next_element()?
+                    .ok_or_else(|| serde::de::Error::custom("No element"))?;
+                let (v, vf) = match seq
+                    .next_element::<SingleOrPair<f64>>()?
+                    .ok_or_else(|| serde::de::Error::custom("Missing 2nd element"))?
+                {
+                    SingleOrPair::Single(v) => (v, None),
+                    SingleOrPair::Pair(v, vf) => (v, Some(vf)),
+                };
+                let (a, b) = if let Some((a, b)) = seq.next_element::<(f64, f64)>()? {
+                    (Some(a), Some(b))
+                } else {
+                    (None, None)
+                };
+
+                Ok(GraphSectionPoint { ry, v, vf, a, b })
+            }
+        }
+
+        deserializer.deserialize_seq(GspVisitor)
+    }
+}
+
+impl Serialize for GraphSectionPoint {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        use serde::ser::SerializeTuple;
+        let point_len = if let (Some(a), Some(b)) = (self.a, self.b) {
+            if (a - b).abs() > f64::EPSILON {
+                3
+            } else {
+                2
+            }
+        } else {
+            2
+        };
+
+        let mut top_tup = serializer.serialize_tuple(point_len)?;
+        top_tup.serialize_element(&self.ry)?;
+        if let Some(vf) = self.vf {
+            top_tup.serialize_element(&(self.v, vf))?;
+        } else {
+            top_tup.serialize_element(&self.v)?;
+        }
+        if point_len == 3 {
+            top_tup.serialize_element(&(self.a.unwrap(), self.b.unwrap()))?;
+        }
+
+        top_tup.end()
+    }
+}
+
+pub type ByMeasureIdx<T> = Vec<(u32, T)>;
 
 impl GraphSectionPoint {
     pub fn new(ry: u32, v: f64) -> Self {
@@ -105,16 +184,79 @@ impl GraphSectionPoint {
     }
 }
 
-#[derive(Serialize, Deserialize, Copy, Clone)]
+#[derive(Copy, Clone)]
 #[cfg_attr(feature = "schema", derive(JsonSchema))]
 pub struct Interval {
     pub y: u32,
-
-    #[serde(
-        default = "default_zero::<u32>",
-        skip_serializing_if = "serde_eq::<_, 0>"
-    )]
     pub l: u32,
+}
+
+impl Serialize for Interval {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        use serde::ser::SerializeTuple;
+        if self.l == 0 {
+            serializer.serialize_u32(self.y)
+        } else {
+            let mut tup = serializer.serialize_tuple(2)?;
+            tup.serialize_element(&self.y)?;
+            tup.serialize_element(&self.l)?;
+            tup.end()
+        }
+    }
+}
+
+struct IntervalVisitor;
+
+impl<'de> Visitor<'de> for IntervalVisitor {
+    type Value = Interval;
+
+    fn expecting(&self, formatter: &mut std::fmt::Formatter) -> std::fmt::Result {
+        formatter.write_str("integer or `y` integer pair [`y`, `l`]")
+    }
+
+    fn visit_i64<E>(self, v: i64) -> Result<Self::Value, E>
+    where
+        E: serde::de::Error,
+    {
+        Ok(Interval { l: 0, y: v as u32 })
+    }
+
+    fn visit_f64<E>(self, v: f64) -> Result<Self::Value, E>
+    where
+        E: serde::de::Error,
+    {
+        Ok(Interval { l: 0, y: v as u32 })
+    }
+
+    fn visit_u64<E>(self, v: u64) -> Result<Self::Value, E>
+    where
+        E: serde::de::Error,
+    {
+        Ok(Interval { l: 0, y: v as u32 })
+    }
+
+    fn visit_seq<A>(self, mut seq: A) -> Result<Self::Value, A::Error>
+    where
+        A: serde::de::SeqAccess<'de>,
+    {
+        let y = seq
+            .next_element()?
+            .ok_or_else(|| serde::de::Error::custom("Empty sequence"))?;
+        let l = seq.next_element()?.unwrap_or(0);
+        Ok(Interval { y, l })
+    }
+}
+
+impl<'de> Deserialize<'de> for Interval {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        deserializer.deserialize_any(IntervalVisitor)
+    }
 }
 
 fn default_zero<T: From<u8>>() -> T {
@@ -129,18 +271,25 @@ fn serde_eq<T: Into<i64> + Copy, const N: i64>(v: &T) -> bool {
     N == (*v).into()
 }
 
+fn serde_def_n<T: From<u32> + Copy, const N: u32>() -> T {
+    N.into()
+}
+
 // fn default_false<T: From<bool>>() -> T {
 //     T::from(false)
 // }
 
 #[derive(Serialize, Deserialize, Clone)]
 #[cfg_attr(feature = "schema", derive(JsonSchema))]
-pub struct LaserSection {
-    pub y: u32,
-    pub v: Vec<GraphSectionPoint>,
-    #[serde(default = "default_one::<u8>", rename = "w", alias = "wide")]
-    pub wide: u8,
-}
+pub struct LaserSection(
+    u32,
+    Vec<GraphSectionPoint>,
+    #[serde(
+        default = "default_one::<u8>",
+        skip_serializing_if = "serde_eq::<_, 1>"
+    )]
+    u8,
+);
 
 //https://github.com/m4saka/ksh2kson/issues/4#issuecomment-573343229
 pub fn do_curve(x: f64, a: f64, b: f64) -> f64 {
@@ -243,12 +392,7 @@ impl MetaInfo {
     }
 }
 
-#[derive(Serialize, Deserialize, Copy, Clone)]
-#[cfg_attr(feature = "schema", derive(JsonSchema))]
-pub struct ByPulse<T> {
-    pub y: u32,
-    pub v: T,
-}
+pub type ByPulse<T> = Vec<(u32, T)>;
 
 #[derive(Serialize, Deserialize, Copy, Clone)]
 #[cfg_attr(feature = "schema", derive(JsonSchema))]
@@ -350,31 +494,31 @@ impl<'a, T> Iterator for ByNotesIter<'a, T> {
     }
 }
 
+/// (Numerator, Denominator)
 #[derive(Serialize, Deserialize, Copy, Clone)]
 #[cfg_attr(feature = "schema", derive(JsonSchema))]
-pub struct TimeSignature {
-    pub idx: u32,
-    pub n: u32,
-    pub d: u32,
-}
+pub struct TimeSignature(u32, u32);
 
 impl TimeSignature {
     //Parse from "n/d" string
-    fn from_str(s: &str, idx: u32) -> Self {
+    fn from_str(s: &str) -> Self {
         let mut data = s.split('/');
         let n: u32 = data.next().unwrap_or("4").parse().unwrap_or(4);
         let d: u32 = data.next().unwrap_or("4").parse().unwrap_or(4);
 
-        TimeSignature { idx, n, d }
+        TimeSignature(n, d)
     }
 }
 
 #[derive(Serialize, Deserialize, Clone)]
 #[cfg_attr(feature = "schema", derive(JsonSchema))]
 pub struct BeatInfo {
-    pub bpm: Vec<ByPulse<f64>>,
-    pub time_sig: Vec<TimeSignature>,
-    #[serde(skip_serializing_if = "serde_eq::<_, 240>")]
+    pub bpm: ByPulse<f64>,
+    pub time_sig: ByMeasureIdx<TimeSignature>,
+    #[serde(
+        skip_serializing_if = "serde_eq::<_, 240>",
+        default = "serde_def_n::<u32, 240>"
+    )]
     pub resolution: u32,
 }
 
@@ -545,7 +689,7 @@ impl Chart {
             beat: BeatInfo::new(),
             audio: AudioInfo::new(),
             camera: CameraInfo::default(),
-            version: "0.4.0".to_string(),
+            version: "0.5.0".to_string(),
         }
     }
 
@@ -557,28 +701,28 @@ impl Chart {
         let bpm = match self
             .beat
             .bpm
-            .binary_search_by(|b| self.tick_to_ms(b.y).partial_cmp(&ms).unwrap())
+            .binary_search_by(|b| self.tick_to_ms(b.0).partial_cmp(&ms).unwrap())
         {
             Ok(i) => self.beat.bpm.get(i).unwrap(),
             Err(i) => self.beat.bpm.get(i - 1).unwrap(),
         };
 
-        let remaining = ms - self.tick_to_ms(bpm.y);
-        bpm.y + ticks_from_ms(remaining, bpm.v, self.beat.resolution) as u32
+        let remaining = ms - self.tick_to_ms(bpm.0);
+        bpm.0 + ticks_from_ms(remaining, bpm.1, self.beat.resolution) as u32
     }
 
     pub fn tick_to_ms(&self, tick: u32) -> f64 {
         let mut ret: f64 = 0.0;
-        let mut prev = self.beat.bpm.first().unwrap_or(&ByPulse { y: 0, v: 120.0 });
+        let mut prev = self.beat.bpm.first().unwrap_or(&(0, 120.0));
 
         for b in &self.beat.bpm {
-            if b.y > tick {
+            if b.0 > tick {
                 break;
             }
-            ret += ms_from_ticks((b.y - prev.y) as i64, prev.v, self.beat.resolution);
+            ret += ms_from_ticks((b.0 - prev.0) as i64, prev.1, self.beat.resolution);
             prev = b;
         }
-        ret + ms_from_ticks((tick - prev.y) as i64, prev.v, self.beat.resolution)
+        ret + ms_from_ticks((tick - prev.0) as i64, prev.1, self.beat.resolution)
     }
 
     pub fn tick_to_measure(&self, tick: u32) -> u32 {
@@ -586,21 +730,23 @@ impl Chart {
         let mut time_sig_iter = self.beat.time_sig.iter();
         let mut remaining_ticks = tick;
         if let Some(first_sig) = time_sig_iter.next() {
-            let mut prev_index = first_sig.idx;
-            let mut prev_ticks_per_measure = self.beat.resolution * 4 * first_sig.n / first_sig.d;
+            let mut prev_index = first_sig.0;
+            let mut prev_ticks_per_measure =
+                self.beat.resolution * 4 * first_sig.1 .0 / first_sig.1 .1;
             if prev_ticks_per_measure == 0 {
                 return ret;
             }
             for current_sig in time_sig_iter {
-                let measure_count = current_sig.idx - prev_index;
+                let measure_count = current_sig.0 - prev_index;
                 let tick_count = measure_count * prev_ticks_per_measure;
                 if tick_count > remaining_ticks {
                     break;
                 }
                 ret += measure_count;
                 remaining_ticks -= tick_count;
-                prev_index = current_sig.idx;
-                prev_ticks_per_measure = self.beat.resolution * 4 * current_sig.n / current_sig.d;
+                prev_index = current_sig.0;
+                prev_ticks_per_measure =
+                    self.beat.resolution * 4 * current_sig.1 .0 / current_sig.1 .1;
                 if prev_ticks_per_measure == 0 {
                     return ret;
                 }
@@ -616,17 +762,19 @@ impl Chart {
         let mut time_sig_iter = self.beat.time_sig.iter();
 
         if let Some(first_sig) = time_sig_iter.next() {
-            let mut prev_index = first_sig.idx;
-            let mut prev_ticks_per_measure = self.beat.resolution * 4 * first_sig.n / first_sig.d;
+            let mut prev_index = first_sig.0;
+            let mut prev_ticks_per_measure =
+                self.beat.resolution * 4 * first_sig.1 .0 / first_sig.1 .1;
             for current_sig in time_sig_iter {
-                let measure_count = current_sig.idx - prev_index;
+                let measure_count = current_sig.0 - prev_index;
                 if measure_count > remaining_measures {
                     break;
                 }
                 ret += measure_count * prev_ticks_per_measure;
                 remaining_measures -= measure_count;
-                prev_index = current_sig.idx;
-                prev_ticks_per_measure = self.beat.resolution * 4 * current_sig.n / current_sig.d;
+                prev_index = current_sig.0;
+                prev_ticks_per_measure =
+                    self.beat.resolution * 4 * current_sig.1 .0 / current_sig.1 .1;
             }
             ret += remaining_measures * prev_ticks_per_measure;
         }
@@ -634,9 +782,9 @@ impl Chart {
     }
 
     pub fn bpm_at_tick(&self, tick: u32) -> f64 {
-        match self.beat.bpm.binary_search_by(|b| b.y.cmp(&tick)) {
-            Ok(i) => self.beat.bpm.get(i).unwrap().v,
-            Err(i) => self.beat.bpm.get(i - 1).unwrap().v,
+        match self.beat.bpm.binary_search_by(|b| b.0.cmp(&tick)) {
+            Ok(i) => self.beat.bpm.get(i).unwrap().1,
+            Err(i) => self.beat.bpm.get(i - 1).unwrap().1,
         }
     }
 
@@ -645,15 +793,15 @@ impl Chart {
         let mut prev_start = 0;
         let mut prev_sig = match self.beat.time_sig.get(0) {
             Some(v) => v,
-            None => &TimeSignature { n: 4, d: 4, idx: 0 },
+            None => &(0, TimeSignature(4, 4)),
         };
 
         for time_sig in &self.beat.time_sig {
-            let ticks_per_beat = self.beat.resolution * 4 / time_sig.d;
-            let ticks_per_measure = self.beat.resolution * 4 * time_sig.n / time_sig.d;
-            let prev_ticks_per_measure = self.beat.resolution * 4 * prev_sig.n / prev_sig.d;
+            let ticks_per_beat = self.beat.resolution * 4 / time_sig.1 .1;
+            let ticks_per_measure = self.beat.resolution * 4 * time_sig.1 .0 / time_sig.1 .1;
+            let prev_ticks_per_measure = self.beat.resolution * 4 * prev_sig.1 .0 / prev_sig.1 .1;
 
-            let new_start = prev_start + (time_sig.idx - prev_sig.idx) * prev_ticks_per_measure;
+            let new_start = prev_start + (time_sig.0 - prev_sig.0) * prev_ticks_per_measure;
             if ticks_per_measure > 0 && ticks_per_beat > 0 {
                 funcs.push((
                     new_start,
@@ -697,8 +845,8 @@ impl Chart {
         //laser
         for i in 0..2 {
             for section in &self.note.laser[i] {
-                let base_y = section.y;
-                if let Some(last) = &section.v.last() {
+                let base_y = section.0;
+                if let Some(last) = &section.1.last() {
                     last_tick = last_tick.max(last.ry + base_y);
                 }
             }

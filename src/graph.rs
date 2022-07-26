@@ -78,14 +78,14 @@ impl Graph<Option<f64>> for Vec<GraphSectionPoint> {
 
 impl Graph<Option<f64>> for LaserSection {
     fn value_at(&self, tick: f64) -> Option<f64> {
-        let r_tick = tick - self.y as f64;
-        self.v.value_at(r_tick)
+        let r_tick = tick - self.0 as f64;
+        self.1.value_at(r_tick)
     }
 }
 
 impl Graph<Option<f64>> for Vec<LaserSection> {
     fn value_at(&self, tick: f64) -> Option<f64> {
-        match self.binary_search_by(|s| s.y.cmp(&(tick as u32))) {
+        match self.binary_search_by(|s| s.0.cmp(&(tick as u32))) {
             Ok(i) => self.get(i).unwrap().value_at(tick),
             Err(i) => {
                 if i > 0 {

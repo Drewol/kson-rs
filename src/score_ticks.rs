@@ -93,20 +93,20 @@ fn ticks_from_laser_section(
     let mut res = Vec::new();
 
     let mut first = true;
-    for se in section.v.windows(2) {
+    for se in section.1.windows(2) {
         let s = se[0];
         let e = se[1];
-        if let Some(t) = get_if_slam(Some(&s), lane, section.y) {
+        if let Some(t) = get_if_slam(Some(&s), lane, section.0) {
             res.push(t)
         }
 
-        let mut y = section.y + s.ry;
+        let mut y = section.0 + s.ry;
         let mut step = get_hold_step_at(y, chart);
         if s.vf.is_some() || first {
             y += step;
         }
         y -= y % step;
-        while y <= section.y + e.ry - step {
+        while y <= section.0 + e.ry - step {
             if match res.last() {
                 Some(s) => s.y == y,
                 None => false,
@@ -129,14 +129,14 @@ fn ticks_from_laser_section(
         first = false;
     }
 
-    if let Some(t) = get_if_slam(section.v.last(), lane, section.y) {
+    if let Some(t) = get_if_slam(section.1.last(), lane, section.0) {
         res.push(t);
     }
 
     //ensure there's always one tick
     if res.is_empty() {
-        assert!(section.v.len() >= 2);
-        let y = section.y + section.v.last().map(|s| s.ry / 2).unwrap_or_default();
+        assert!(section.1.len() >= 2);
+        let y = section.0 + section.1.last().map(|s| s.ry / 2).unwrap_or_default();
 
         res.push(PlacedScoreTick {
             y,

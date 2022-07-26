@@ -1,5 +1,6 @@
 use thiserror::Error;
 
+use crate::ByMeasureIdx;
 use crate::ByPulse;
 use crate::Chart;
 use crate::GraphSectionPoint;
@@ -56,18 +57,13 @@ fn split_data_line(line: &str) -> Vec<&str> {
 
 #[inline]
 fn time_sig_accumulator(
-    mut accu: Vec<TimeSignature>,
+    mut accu: ByMeasureIdx<TimeSignature>,
     line_data: Vec<&str>,
-) -> Result<Vec<TimeSignature>, VoxReadError> {
+) -> Result<ByMeasureIdx<TimeSignature>, VoxReadError> {
     let measure = line_data
         .get(0).and_then(|v| v.split(',').next().map(|i| i.parse::<u32>()));
     if let Some(Ok(m)) = measure {
-        let ts = TimeSignature {
-            idx: m - 1,
-            n: line_data.get(1).unwrap_or(&"").parse()?,
-            d: line_data.get(2).unwrap_or(&"").parse()?,
-        };
-        accu.push(ts);
+        accu.push((m - 1, TimeSignature(line_data.get(1).unwrap_or(&"").parse()?, line_data.get(2).unwrap_or(&"").parse()?)));
         Ok(accu)
     } else {
         Err(VoxReadError::LineParseError(line_data.join(", ")))
@@ -86,13 +82,13 @@ fn tick_from_vox(vox_time: &str, chart: &Chart) -> Result<u32, VoxReadError> {
     let current_sig = match chart
         .beat
         .time_sig
-        .binary_search_by_key(&(measure - 1), |t| t.idx)
+        .binary_search_by_key(&(measure - 1), |t| t.0)
     {
         Ok(i) => chart.beat.time_sig.get(i).unwrap(),
         Err(i) => chart.beat.time_sig.get(i - 1).unwrap(),
     };
 
-    let tick_per_beat = 192 / current_sig.d;
+    let tick_per_beat = 192 / current_sig.1.1;
     Ok(chart.measure_to_tick(measure - 1) + tick_per_beat * (beat - 1) + ticks)
 }
 
@@ -151,12 +147,9 @@ impl Vox for crate::Chart {
 
         chart.beat.bpm = bpm_info.iter().try_fold(
             Vec::new(),
-            |mut bpm, line| -> Result<Vec<ByPulse<f64>>, VoxReadError> {
+            |mut bpm, line| -> Result<ByPulse<f64>, VoxReadError> {
                 let tick = tick_from_vox(line[0], &chart)?;
-                bpm.push(ByPulse {
-                    y: tick,
-                    v: line[1].trim().parse()?,
-                });
+                bpm.push((tick, line[1].trim().parse()?));
                 Ok(bpm)
             },
         )?;
@@ -165,7 +158,7 @@ impl Vox for crate::Chart {
             if track_idx == 0 || track_idx == 7 {
                 //laser tracks
                 let (lasers, _, _) = track.iter().try_fold(
-                    (Vec::new(), LaserSection {v: Vec::new(), wide: 0, y: 0}, 300),
+                    (Vec::new(), LaserSection (0, Vec::new(), 0), 300),
                     |(mut lasers, mut current_section, mut last_vox_v),
                      line|
                      -> Result<(Vec<LaserSection>, LaserSection, i32), VoxReadError> {
@@ -190,9 +183,9 @@ impl Vox for crate::Chart {
                             
                         match node_type {
                             1 => {//start node
-                                current_section = LaserSection {
+                                current_section = LaserSection(
                                     y,
-                                    v: vec![GraphSectionPoint {
+                                    vec![GraphSectionPoint {
                                         ry: 0,
                                         v,
                                         a: None,
@@ -200,17 +193,17 @@ impl Vox for crate::Chart {
                                         vf: None,
                                     }],
                                     wide
-                                }
+                                )
                             }
                             0 | 2 => {//mid node | end node
-                                let ry = y - current_section.y;
-                                if let Some(last) = current_section.v.last_mut() {
+                                let ry = y - current_section.0;
+                                if let Some(last) = current_section.1.last_mut() {
                                     if last.ry == ry {
                                         last.vf = Some(v);
                                     }
                                     else
                                     {
-                                        current_section.v.push(GraphSectionPoint {
+                                        current_section.1.push(GraphSectionPoint {
                                             ry,
                                             v ,
                                             a: None,
@@ -226,17 +219,10 @@ impl Vox for crate::Chart {
                             _ => return Err(VoxReadError::UnknownLaserNodeError(node_type))
                         }
                         if node_type == 2 {
-                            let finished_section = std::mem::replace(&mut  current_section,  LaserSection {
-                                y,
-                                v: vec![GraphSectionPoint {
-                                    ry: 0,
-                                    v: 0.0,
-                                    a: None,
-                                    b: None,
-                                    vf: None,
+                            let finished_section = std::mem::replace(&mut  current_section,  LaserSection(y, vec![GraphSectionPoint {ry: 0,v: 0.0,a: None,b: None,vf: None,
                                 }],
-                                wide
-                            });
+                                wide  
+                            ));
                             lasers.push(finished_section);
                         }
                         Ok((lasers, current_section, last_vox_v))
