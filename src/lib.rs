@@ -72,8 +72,11 @@ pub enum Track {
 pub struct GraphPoint {
     pub y: u32,
     pub v: f64,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub vf: Option<f64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub a: Option<f64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub b: Option<f64>,
 }
 
@@ -82,8 +85,11 @@ pub struct GraphPoint {
 pub struct GraphSectionPoint {
     pub ry: u32,
     pub v: f64,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub vf: Option<f64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub a: Option<f64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub b: Option<f64>,
 }
 
@@ -104,7 +110,10 @@ impl GraphSectionPoint {
 pub struct Interval {
     pub y: u32,
 
-    #[serde(default = "default_zero::<u32>")]
+    #[serde(
+        default = "default_zero::<u32>",
+        skip_serializing_if = "serde_eq::<_, 0>"
+    )]
     pub l: u32,
 }
 
@@ -114,6 +123,10 @@ fn default_zero<T: From<u8>>() -> T {
 
 fn default_true<T: From<bool>>() -> T {
     T::from(true)
+}
+
+fn serde_eq<T: Into<i64> + Copy, const N: i64>(v: &T) -> bool {
+    N == (*v).into()
 }
 
 // fn default_false<T: From<bool>>() -> T {
@@ -173,18 +186,23 @@ pub struct DifficultyInfo {
 #[cfg_attr(feature = "schema", derive(JsonSchema))]
 pub struct MetaInfo {
     pub title: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub title_img_filename: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub subtitle: Option<String>,
     pub artist: String,
     pub gauge: Option<GaugeInfo>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub artist_img_filename: Option<String>,
     pub chart_author: String,
     pub difficulty: DifficultyInfo,
     pub level: u8,
     pub disp_bpm: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub std_bpm: Option<f64>,
     pub jacket_filename: String,
     pub jacket_author: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub information: Option<String>,
 }
 
@@ -356,6 +374,7 @@ impl TimeSignature {
 pub struct BeatInfo {
     pub bpm: Vec<ByPulse<f64>>,
     pub time_sig: Vec<TimeSignature>,
+    #[serde(skip_serializing_if = "serde_eq::<_, 240>")]
     pub resolution: u32,
 }
 
@@ -364,7 +383,7 @@ impl BeatInfo {
         BeatInfo {
             bpm: Vec::new(),
             time_sig: Vec::new(),
-            resolution: 48,
+            resolution: 240,
         }
     }
 }
@@ -377,12 +396,18 @@ pub struct BgmInfo {
     pub vol: f64,
     #[serde(default = "default_zero::<i32>")]
     pub offset: i32,
+    pub preview: PreviewInfo,
+}
 
+#[derive(Serialize, Deserialize, Clone, Default)]
+#[cfg_attr(feature = "schema", derive(JsonSchema))]
+pub struct PreviewInfo {
+    #[serde(default = "default_zero::<u32>")]
+    pub offset: u32,
+    #[serde(default = "default_zero::<u32>")]
+    pub duration: u32,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub preview_filename: Option<String>,
-    #[serde(default = "default_zero::<u32>")]
-    pub preview_offset: u32,
-    #[serde(default = "default_zero::<u32>")]
-    pub preview_duration: u32,
 }
 
 impl BgmInfo {
@@ -391,10 +416,7 @@ impl BgmInfo {
             filename: None,
             vol: 1.0,
             offset: 0,
-
-            preview_filename: None,
-            preview_offset: 0,
-            preview_duration: 15000,
+            preview: PreviewInfo::default(),
         }
     }
 }
@@ -477,6 +499,7 @@ pub struct Chart {
     pub audio: AudioInfo,
     #[serde(default)]
     pub camera: camera::CameraInfo,
+    pub version: String,
 }
 
 type BeatLineFn = dyn Fn(u32) -> Option<(u32, bool)>;
@@ -522,6 +545,7 @@ impl Chart {
             beat: BeatInfo::new(),
             audio: AudioInfo::new(),
             camera: CameraInfo::default(),
+            version: "0.4.0".to_string(),
         }
     }
 

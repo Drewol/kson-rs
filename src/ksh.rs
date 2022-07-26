@@ -129,6 +129,7 @@ impl Ksh for crate::Chart {
                     if let Ok(v) = value.parse::<f64>() {
                         new_chart.beat.bpm.push(ByPulse { y: 0, v })
                     }
+                    new_chart.meta.disp_bpm = value.clone();
                 }
                 "beat" => {}
                 "o" => bgm.offset = value.parse()?,
@@ -152,6 +153,8 @@ impl Ksh for crate::Chart {
                         _ => 0,
                     };
                 }
+                "plength" => bgm.preview.duration = value.parse()?,
+                "po" => bgm.preview.offset = value.parse()?,
                 _ => (),
             }
         }
@@ -386,7 +389,7 @@ impl Ksh for crate::Chart {
             let bgm = self.audio.bgm.clone().unwrap_or_default();
             writeln!(&mut w, "m={}\r", bgm.filename.unwrap_or_default())?;
             writeln!(&mut w, "o={}\r", bgm.offset)?;
-            writeln!(&mut w, "po={}\r", bgm.preview_offset)?;
+            writeln!(&mut w, "po={}\r", bgm.preview.offset)?;
             if self.beat.bpm.len() == 1 {
                 writeln!(&mut w, "t={}\r", self.beat.bpm.first().unwrap().v)?;
             } else {
@@ -402,7 +405,7 @@ impl Ksh for crate::Chart {
                     self.beat.bpm.iter().max_by(bpm_cmp).unwrap().v
                 )?;
             }
-            writeln!(&mut w, "plength={}\r", bgm.preview_duration)?;
+            writeln!(&mut w, "plength={}\r", bgm.preview.duration)?;
             writeln!(
                 &mut w,
                 "information={}\r",
