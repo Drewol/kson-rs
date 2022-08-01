@@ -68,17 +68,92 @@ pub enum Track {
     Laser(Side),
 }
 
-#[derive(Serialize, Deserialize, Copy, Clone, Default)]
+#[derive(Serialize, Deserialize)]
+#[serde(untagged)]
+enum SingleOrPair<T> {
+    Single(T),
+    Pair(T, T),
+}
+
+#[derive(Copy, Clone, Default)]
 #[cfg_attr(feature = "schema", derive(JsonSchema))]
 pub struct GraphPoint {
     pub y: u32,
     pub v: f64,
-    #[serde(skip_serializing_if = "Option::is_none")]
     pub vf: Option<f64>,
-    #[serde(skip_serializing_if = "Option::is_none")]
     pub a: Option<f64>,
-    #[serde(skip_serializing_if = "Option::is_none")]
     pub b: Option<f64>,
+}
+impl<'de> Deserialize<'de> for GraphPoint {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        struct GpVisitor;
+        impl<'de> Visitor<'de> for GpVisitor {
+            type Value = GraphPoint;
+
+            fn expecting(&self, formatter: &mut std::fmt::Formatter) -> std::fmt::Result {
+                formatter.write_str("[u32, f64 | [f64, f64], none | [f64, f64]]")
+            }
+
+            fn visit_seq<A>(self, mut seq: A) -> Result<Self::Value, A::Error>
+            where
+                A: serde::de::SeqAccess<'de>,
+            {
+                let y = seq
+                    .next_element()?
+                    .ok_or_else(|| serde::de::Error::custom("No element"))?;
+                let (v, vf) = match seq
+                    .next_element::<SingleOrPair<f64>>()?
+                    .ok_or_else(|| serde::de::Error::custom("Missing 2nd element"))?
+                {
+                    SingleOrPair::Single(v) => (v, None),
+                    SingleOrPair::Pair(v, vf) => (v, Some(vf)),
+                };
+                let (a, b) = if let Some((a, b)) = seq.next_element::<(f64, f64)>()? {
+                    (Some(a), Some(b))
+                } else {
+                    (None, None)
+                };
+
+                Ok(GraphPoint { y, v, vf, a, b })
+            }
+        }
+
+        deserializer.deserialize_seq(GpVisitor)
+    }
+}
+
+impl Serialize for GraphPoint {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        use serde::ser::SerializeTuple;
+        let point_len = if let (Some(a), Some(b)) = (self.a, self.b) {
+            if (a - b).abs() > f64::EPSILON {
+                3
+            } else {
+                2
+            }
+        } else {
+            2
+        };
+
+        let mut top_tup = serializer.serialize_tuple(point_len)?;
+        top_tup.serialize_element(&self.y)?;
+        if let Some(vf) = self.vf {
+            top_tup.serialize_element(&(self.v, vf))?;
+        } else {
+            top_tup.serialize_element(&self.v)?;
+        }
+        if point_len == 3 {
+            top_tup.serialize_element(&(self.a.unwrap(), self.b.unwrap()))?;
+        }
+
+        top_tup.end()
+    }
 }
 
 #[derive(Copy, Clone)]
@@ -89,13 +164,6 @@ pub struct GraphSectionPoint {
     pub vf: Option<f64>,
     pub a: Option<f64>,
     pub b: Option<f64>,
-}
-
-#[derive(Serialize, Deserialize)]
-#[serde(untagged)]
-enum SingleOrPair<T> {
-    Single(T),
-    Pair(T, T),
 }
 
 impl<'de> Deserialize<'de> for GraphSectionPoint {
@@ -344,7 +412,7 @@ pub struct MetaInfo {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub artist_img_filename: Option<String>,
     pub chart_author: String,
-    pub difficulty: DifficultyInfo,
+    pub difficulty: u8,
     pub level: u8,
     pub disp_bpm: String,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -381,7 +449,7 @@ impl MetaInfo {
             artist: String::new(),
             artist_img_filename: None,
             chart_author: String::new(),
-            difficulty: DifficultyInfo::new(),
+            difficulty: 0,
             level: 1,
             disp_bpm: String::new(),
             std_bpm: None,
@@ -515,6 +583,7 @@ impl TimeSignature {
 pub struct BeatInfo {
     pub bpm: ByPulse<f64>,
     pub time_sig: ByMeasureIdx<TimeSignature>,
+    pub scroll_speed: Vec<GraphPoint>,
     #[serde(
         skip_serializing_if = "serde_eq::<_, 240>",
         default = "serde_def_n::<u32, 240>"
@@ -527,6 +596,7 @@ impl BeatInfo {
         BeatInfo {
             bpm: Vec::new(),
             time_sig: Vec::new(),
+            scroll_speed: Vec::new(),
             resolution: 240,
         }
     }
@@ -541,6 +611,13 @@ pub struct BgmInfo {
     #[serde(default = "default_zero::<i32>")]
     pub offset: i32,
     pub preview: PreviewInfo,
+    pub legacy: LegacyBgmInfo,
+}
+
+#[derive(Serialize, Deserialize, Clone, Default)]
+#[cfg_attr(feature = "schema", derive(JsonSchema))]
+pub struct LegacyBgmInfo {
+    fp_filenames: Vec<String>,
 }
 
 #[derive(Serialize, Deserialize, Clone, Default)]
@@ -561,6 +638,7 @@ impl BgmInfo {
             vol: 1.0,
             offset: 0,
             preview: PreviewInfo::default(),
+            legacy: LegacyBgmInfo::default(),
         }
     }
 }
@@ -857,6 +935,10 @@ impl Chart {
 
 #[cfg(test)]
 mod tests {
+    use serde_test::Token;
+
+    use crate::parameter::{self, EffectParameterValue};
+
     #[cfg(feature = "schema")]
     #[test]
     fn schema() {
@@ -864,5 +946,39 @@ mod tests {
             "{}",
             serde_json::to_string_pretty(&crate::schema()).unwrap()
         );
+    }
+
+    #[test]
+    fn effect_param() {
+        let mut param = parameter::EffectParameter {
+            on: Some(EffectParameterValue::Freq(10.0..=20.0)),
+            off: EffectParameterValue::Freq(5.0..=5.0),
+            v: 0.0_f32,
+            ..Default::default()
+        };
+
+        serde_test::assert_tokens(&param, &[Token::Str("5kHz>10kHz-20kHz")]);
+
+        param.on = None;
+        param.off =
+            EffectParameterValue::Filename("e9fda14b-d635-4cd8-8c7a-ca12f8d9b78a".to_string());
+
+        serde_test::assert_tokens(
+            &param,
+            &[Token::Str("e9fda14b-d635-4cd8-8c7a-ca12f8d9b78a")],
+        );
+
+        param.off = EffectParameterValue::Sample(100..=100);
+        serde_test::assert_tokens(&param, &[Token::Str("100samples")]);
+        param.off = EffectParameterValue::Sample(100..=1000);
+        serde_test::assert_tokens(&param, &[Token::Str("100samples-1000samples")]);
+
+        param.off = EffectParameterValue::Length(0.5..=0.5, true);
+        serde_test::assert_de_tokens(&param, &[Token::Str("1/2")]);
+        serde_test::assert_ser_tokens(&param, &[Token::Str("0.5")]);
+
+        param.off = EffectParameterValue::Switch(false..=false);
+        param.on = Some(EffectParameterValue::Switch(false..=true));
+        serde_test::assert_tokens(&param, &[Token::Str("off>off-on")]);
     }
 }

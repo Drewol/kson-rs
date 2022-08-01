@@ -6,7 +6,7 @@ use serde::{de::Visitor, Deserialize, Serialize};
 #[cfg(feature = "schema")]
 use schemars::JsonSchema;
 
-#[derive(Serialize, Deserialize, Clone, Copy)]
+#[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq)]
 #[cfg_attr(feature = "schema", derive(JsonSchema))]
 pub enum InterpolationShape {
     Linear,
@@ -19,7 +19,7 @@ impl Default for InterpolationShape {
         InterpolationShape::Linear
     }
 }
-#[derive(Clone)]
+#[derive(Clone, Debug, PartialEq)]
 pub enum EffectParameterValue {
     Length(RangeInclusive<f32>, bool),
     Sample(RangeInclusive<i32>),
@@ -50,10 +50,10 @@ impl EffectParameterValue {
     }
 }
 
-#[derive(Clone, Default)]
+#[derive(Clone, Default, Debug, PartialEq)]
 pub struct EffectParameter<T> {
-    on: EffectParameterValue,
-    off: Option<EffectParameterValue>,
+    pub off: EffectParameterValue,
+    pub on: Option<EffectParameterValue>,
     pub v: T,
     pub shape: InterpolationShape,
 }
@@ -65,10 +65,10 @@ impl<T: Any> Serialize for EffectParameter<T> {
     where
         S: serde::Serializer,
     {
-        if let Some(off) = &self.off {
-            serializer.collect_str(&format_args!("{}>{}", off, self.on))
+        if let Some(on) = &self.on {
+            serializer.collect_str(&format_args!("{}>{}", self.off, on))
         } else {
-            serializer.collect_str(&self.on)
+            serializer.collect_str(&self.off)
         }
     }
 }
@@ -85,14 +85,26 @@ impl<'de, T: Default> Deserialize<'de> for EffectParameter<T> {
             fn expecting(&self, formatter: &mut std::fmt::Formatter) -> std::fmt::Result {
                 formatter.write_str("String")
             }
+
+            fn visit_str<E>(self, v: &str) -> Result<Self::Value, E>
+            where
+                E: serde::de::Error,
+            {
+                let mut split = v.split('>');
+                if let Some(a) = split.next() {
+                    Ok((a.to_string(), split.next().map(str::to_string)))
+                } else {
+                    Err(serde::de::Error::custom("Missing value"))
+                }
+            }
         }
 
         let (a, b) = deserializer.deserialize_str(EffectParameterVisitor)?;
 
         Ok(Self {
             v: T::default(),
-            on: a.parse().map_err(serde::de::Error::custom)?,
-            off: b.and_then(|o| EffectParameterValue::from_str(&o).ok()),
+            off: a.parse().map_err(serde::de::Error::custom)?,
+            on: b.and_then(|o| EffectParameterValue::from_str(&o).ok()),
             shape: InterpolationShape::Linear,
         })
     }
@@ -117,16 +129,16 @@ impl Display for EffectParameterValue {
             EffectParameterValue::Sample(s) => serialize_range(s, |v| v.to_string() + "samples"),
             EffectParameterValue::Switch(s) => serialize_range(s, |v| {
                 if *v {
-                    "On".to_string()
+                    "on".to_string()
                 } else {
-                    "Off".to_string()
+                    "off".to_string()
                 }
             }),
             EffectParameterValue::Rate(r)
-            | EffectParameterValue::Freq(r)
             | EffectParameterValue::Pitch(r)
             | EffectParameterValue::Float(r) => serialize_range(r, |v| v.to_string()),
             EffectParameterValue::Int(i) => serialize_range(i, i32::to_string),
+            EffectParameterValue::Freq(f) => serialize_range(f, |v| v.to_string() + "kHz"),
             EffectParameterValue::Filename(f) => f.clone(),
             EffectParameterValue::Undefined => unreachable!(),
         };
@@ -140,15 +152,15 @@ where
 {
     pub fn interpolate(&self, p: f32, on: bool) -> T {
         if on {
-            T::from(self.on.interpolate(p, self.shape)).unwrap_or_default()
-        } else {
             T::from(
-                self.off
+                self.on
                     .as_ref()
-                    .unwrap_or(&self.on)
+                    .unwrap_or(&self.off)
                     .interpolate(p, self.shape),
             )
             .unwrap_or_default()
+        } else {
+            T::from(self.off.interpolate(p, self.shape)).unwrap_or_default()
         }
     }
 }
@@ -168,14 +180,50 @@ impl FromStr for EffectParameterValue {
                 }
             }
 
+            if v.ends_with("ms") {
+                if let Ok(r) = v.trim_end_matches("ms").parse::<f32>() {
+                    let r = r / 1000.0;
+                    return EffectParameterValue::Length(r..=r, false);
+                }
+            }
+            if v.ends_with('s') {
+                if let Ok(r) = v.trim_end_matches('s').parse::<f32>() {
+                    return EffectParameterValue::Length(r..=r, false);
+                }
+            }
+
             if v.ends_with('%') {
-                if let Ok(r) = v.parse::<f32>() {
+                if let Ok(r) = v.trim_end_matches('%').parse::<f32>() {
                     let r = r / 100.0;
                     return EffectParameterValue::Rate(r..=r);
                 }
             }
 
-            todo!()
+            if v.ends_with("kHz") {
+                if let Ok(r) = v.trim_end_matches("kHz").parse::<f32>() {
+                    return EffectParameterValue::Freq(r..=r);
+                }
+            }
+
+            if v.ends_with("Hz") {
+                if let Ok(r) = v.trim_end_matches("Hz").parse::<f32>() {
+                    let r = r / 1000.0;
+                    return EffectParameterValue::Freq(r..=r);
+                }
+            }
+            if v.ends_with("samples") {
+                if let Ok(r) = v.trim_end_matches("samples").parse::<i32>() {
+                    return EffectParameterValue::Sample(r..=r);
+                }
+            }
+
+            if v.eq("on") {
+                EffectParameterValue::Switch(true..=true)
+            } else if v.eq("off") {
+                EffectParameterValue::Switch(false..=false)
+            } else {
+                EffectParameterValue::Filename(v.to_string())
+            }
         };
 
         if v.contains('-') {
@@ -213,7 +261,7 @@ impl FromStr for EffectParameterValue {
             }
         }
 
-        Ok(EffectParameterValue::Filename(v.to_string()))
+        Ok(parse_part(v))
     }
 }
 

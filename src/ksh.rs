@@ -113,6 +113,14 @@ impl Ksh for crate::Chart {
         let mut parts: Vec<&str> = data.split("\n--").collect();
         let meta = parts.first().unwrap_or(&"").lines();
         let mut bgm = BgmInfo::new();
+
+        //TODO
+        new_chart.beat.scroll_speed = vec![GraphPoint {
+            y: 0,
+            v: 1.0,
+            ..Default::default()
+        }];
+
         for line in meta {
             let line_data: Vec<&str> = line.split('=').collect();
             if line_data.len() < 2 {
@@ -133,19 +141,18 @@ impl Ksh for crate::Chart {
                 }
                 "beat" => {}
                 "o" => bgm.offset = value.parse()?,
-                "m" => bgm.filename = Some(value),
+                "m" => {
+                    let mut filenames = value.split(';').map(String::from);
+                    bgm.filename = filenames.next();
+                    bgm.legacy.fp_filenames = filenames.collect();
+                }
                 "level" => {
                     new_chart.meta.level = value.parse::<u8>().unwrap_or(0);
                 }
                 "difficulty" => {
                     let mut short_name = String::from(&value);
                     short_name.truncate(3);
-                    new_chart.meta.difficulty = DifficultyInfo {
-                        idx: 0,
-                        name: Some(String::from(&value)),
-                        short_name: Some(short_name),
-                    };
-                    new_chart.meta.difficulty.idx = match value.as_ref() {
+                    new_chart.meta.difficulty = match value.as_ref() {
                         "light" => 0,
                         "challenge" => 1,
                         "extended" => 2,
@@ -155,6 +162,7 @@ impl Ksh for crate::Chart {
                 }
                 "plength" => bgm.preview.duration = value.parse()?,
                 "po" => bgm.preview.offset = value.parse()?,
+                "mvol" => bgm.vol = value.parse::<f64>()? / 100.0,
                 _ => (),
             }
         }
@@ -358,7 +366,7 @@ impl Ksh for crate::Chart {
             writeln!(&mut w, "artist={}\r", self.meta.artist)?;
             writeln!(&mut w, "effect={}\r", self.meta.chart_author)?;
 
-            let diff = match self.meta.difficulty.idx {
+            let diff = match self.meta.difficulty {
                 0 => "light",
                 1 => "challenge",
                 2 => "extended",
