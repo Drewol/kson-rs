@@ -1,5 +1,7 @@
+use std::{any::Any, default, fmt::Display, ops::RangeInclusive, str::FromStr};
+
 use num_traits::{NumCast, NumOps};
-use serde::{Deserialize, Serialize};
+use serde::{de::Visitor, Deserialize, Serialize};
 
 #[cfg(feature = "schema")]
 use schemars::JsonSchema;
@@ -17,123 +19,211 @@ impl Default for InterpolationShape {
         InterpolationShape::Linear
     }
 }
-
-#[derive(Deserialize, Serialize, Clone, Default)]
-#[cfg_attr(feature = "schema", derive(JsonSchema))]
-pub struct EffectParameter<T> {
-    pub off: Option<T>,
-    pub min: Option<T>,
-    pub max: Option<T>,
-    #[serde(default)]
-    pub shape: InterpolationShape,
-    #[serde(skip_deserializing, skip_serializing)]
-    pub v: T,
+#[derive(Clone)]
+pub enum EffectParameterValue {
+    Length(RangeInclusive<f32>, bool),
+    Sample(RangeInclusive<i32>),
+    Switch(RangeInclusive<bool>),
+    Rate(RangeInclusive<f32>),
+    Freq(RangeInclusive<f32>),
+    Pitch(RangeInclusive<f32>),
+    Int(RangeInclusive<i32>),
+    Float(RangeInclusive<f32>),
+    Filename(String),
+    Undefined,
 }
 
-impl<T: Copy> From<T> for EffectParameter<T> {
-    fn from(v: T) -> Self {
-        EffectParameter {
-            min: Some(v),
-            v,
-            max: None,
-            off: None,
-            shape: InterpolationShape::Linear,
+impl EffectParameterValue {
+    pub fn interpolate(&self, v: f32, shape: InterpolationShape) -> f32 {
+        match self {
+            EffectParameterValue::Length(_, _) => todo!(),
+            EffectParameterValue::Sample(_) => todo!(),
+            EffectParameterValue::Switch(_) => todo!(),
+            EffectParameterValue::Rate(_) => todo!(),
+            EffectParameterValue::Freq(_) => todo!(),
+            EffectParameterValue::Pitch(_) => todo!(),
+            EffectParameterValue::Int(_) => todo!(),
+            EffectParameterValue::Float(_) => todo!(),
+            EffectParameterValue::Filename(_) => todo!(),
+            EffectParameterValue::Undefined => todo!(),
         }
     }
 }
 
-pub trait Parameter<T>: Sized {
-    fn interpolate(&self, p: f32, on: bool) -> T;
-    fn update(&mut self, other: &Self);
+#[derive(Clone, Default)]
+pub struct EffectParameter<T> {
+    on: EffectParameterValue,
+    off: Option<EffectParameterValue>,
+    pub v: T,
+    pub shape: InterpolationShape,
 }
 
-pub trait DeriveParameter: Sized {
-    fn derive(&self, other: &Self) -> Self;
-}
+pub type BoolParameter = EffectParameter<bool>;
 
-impl<T> DeriveParameter for EffectParameter<T>
-where
-    EffectParameter<T>: Parameter<T> + Clone,
-{
-    fn derive(&self, other: &Self) -> Self {
-        let mut new_param = self.clone();
-        new_param.update(other);
-        new_param
+impl<T: Any> Serialize for EffectParameter<T> {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        if let Some(off) = &self.off {
+            serializer.collect_str(&format_args!("{}>{}", off, self.on))
+        } else {
+            serializer.collect_str(&self.on)
+        }
     }
 }
 
-impl<T> Parameter<T> for EffectParameter<T>
+impl<'de, T: Default> Deserialize<'de> for EffectParameter<T> {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        struct EffectParameterVisitor;
+        impl<'de> Visitor<'de> for EffectParameterVisitor {
+            type Value = (String, Option<String>);
+
+            fn expecting(&self, formatter: &mut std::fmt::Formatter) -> std::fmt::Result {
+                formatter.write_str("String")
+            }
+        }
+
+        let (a, b) = deserializer.deserialize_str(EffectParameterVisitor)?;
+
+        Ok(Self {
+            v: T::default(),
+            on: a.parse().map_err(serde::de::Error::custom)?,
+            off: b.and_then(|o| EffectParameterValue::from_str(&o).ok()),
+            shape: InterpolationShape::Linear,
+        })
+    }
+}
+
+impl Default for EffectParameterValue {
+    fn default() -> Self {
+        Self::Undefined
+    }
+}
+
+impl Display for EffectParameterValue {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let str = match self {
+            EffectParameterValue::Length(l, tempo) => {
+                if *tempo {
+                    serialize_range(l, |v| v.to_string())
+                } else {
+                    serialize_range(l, |v| v.to_string() + "ms")
+                }
+            }
+            EffectParameterValue::Sample(s) => serialize_range(s, |v| v.to_string() + "samples"),
+            EffectParameterValue::Switch(s) => serialize_range(s, |v| {
+                if *v {
+                    "On".to_string()
+                } else {
+                    "Off".to_string()
+                }
+            }),
+            EffectParameterValue::Rate(r)
+            | EffectParameterValue::Freq(r)
+            | EffectParameterValue::Pitch(r)
+            | EffectParameterValue::Float(r) => serialize_range(r, |v| v.to_string()),
+            EffectParameterValue::Int(i) => serialize_range(i, i32::to_string),
+            EffectParameterValue::Filename(f) => f.clone(),
+            EffectParameterValue::Undefined => unreachable!(),
+        };
+        f.write_str(&str)
+    }
+}
+
+impl<T> EffectParameter<T>
 where
     T: NumCast + Copy + NumOps + Default,
 {
-    fn interpolate(&self, p: f32, on: bool) -> T {
+    pub fn interpolate(&self, p: f32, on: bool) -> T {
         if on {
-            match (self.min, self.max) {
-                (Some(min), None) => min,
-                (Some(min), Some(max)) => match self.shape {
-                    InterpolationShape::Logarithmic => {
-                        let end: f32 = max.to_f32().unwrap_or(1.0).ln();
-                        let start: f32 = min.to_f32().unwrap_or(1.0).ln();
-                        let width: f32 = end - start;
-                        num_traits::cast((start + width * p).exp()).unwrap_or_default()
-                    }
-                    InterpolationShape::Linear => {
-                        num_traits::cast((min + (max - min)).to_f32().unwrap_or(1.0) * p)
-                            .unwrap_or_default()
-                    }
-                    InterpolationShape::Smooth => {
-                        let smooth_p = p * p * p * (p * (p * 6.0 - 15.0) + 10.0);
-                        num_traits::cast((min + (max - min)).to_f32().unwrap_or(1.0) * smooth_p)
-                            .unwrap_or_default()
-                    }
-                },
-                (None, _) => unreachable!(),
-            }
+            T::from(self.on.interpolate(p, self.shape)).unwrap_or_default()
         } else {
-            match self.off {
-                Some(v) => v,
-                None => self.min.unwrap(),
+            T::from(
+                self.off
+                    .as_ref()
+                    .unwrap_or(&self.on)
+                    .interpolate(p, self.shape),
+            )
+            .unwrap_or_default()
+        }
+    }
+}
+
+impl FromStr for EffectParameterValue {
+    type Err = &'static str;
+
+    fn from_str(v: &str) -> Result<Self, Self::Err> {
+        let parse_part = |v: &str| {
+            if v.contains('/') {
+                if let Some((Ok(a), Ok(b))) = v
+                    .split_once('/')
+                    .map(|v| (v.0.parse::<f32>(), v.1.parse::<f32>()))
+                {
+                    let v = a / b;
+                    return EffectParameterValue::Length(v..=v, true);
+                }
+            }
+
+            if v.ends_with('%') {
+                if let Ok(r) = v.parse::<f32>() {
+                    let r = r / 100.0;
+                    return EffectParameterValue::Rate(r..=r);
+                }
+            }
+
+            todo!()
+        };
+
+        if v.contains('-') {
+            // Range
+            if let Some((a, b)) = v.split_once('-') {
+                let parsed = match (parse_part(a), parse_part(b)) {
+                    (EffectParameterValue::Length(a, ab), EffectParameterValue::Length(b, bb)) => {
+                        EffectParameterValue::Length(*a.start()..=*b.end(), ab || bb)
+                    }
+                    (EffectParameterValue::Sample(a), EffectParameterValue::Sample(b)) => {
+                        EffectParameterValue::Sample(*a.start()..=*b.end())
+                    }
+
+                    (EffectParameterValue::Switch(a), EffectParameterValue::Switch(b)) => {
+                        EffectParameterValue::Switch(*a.start()..=*b.end())
+                    }
+                    (EffectParameterValue::Rate(a), EffectParameterValue::Rate(b)) => {
+                        EffectParameterValue::Rate(*a.start()..=*b.end())
+                    }
+                    (EffectParameterValue::Freq(a), EffectParameterValue::Freq(b)) => {
+                        EffectParameterValue::Freq(*a.start()..=*b.end())
+                    }
+                    (EffectParameterValue::Pitch(a), EffectParameterValue::Pitch(b)) => {
+                        EffectParameterValue::Pitch(*a.start()..=*b.end())
+                    }
+                    (EffectParameterValue::Int(a), EffectParameterValue::Int(b)) => {
+                        EffectParameterValue::Int(*a.start()..=*b.end())
+                    }
+                    (EffectParameterValue::Float(a), EffectParameterValue::Float(b)) => {
+                        EffectParameterValue::Float(*a.start()..=*b.end())
+                    }
+                    _ => EffectParameterValue::Filename(v.to_string()),
+                };
+                return Ok(parsed);
             }
         }
-    }
 
-    fn update(&mut self, other: &Self) {
-        if other.max.is_some() {
-            self.max = other.max;
-        }
-
-        if other.min.is_some() {
-            self.min = other.min;
-        }
-
-        if other.off.is_some() {
-            self.off = other.off;
-        }
+        Ok(EffectParameterValue::Filename(v.to_string()))
     }
 }
 
-impl DeriveParameter for String {
-    fn derive(&self, other: &Self) -> Self {
-        other.clone()
-    }
-}
-
-#[derive(Deserialize, Serialize, Clone, Default)]
-#[cfg_attr(feature = "schema", derive(JsonSchema))]
-pub struct BoolParameter(EffectParameter<f32>);
-
-impl Parameter<bool> for BoolParameter {
-    fn interpolate(&self, p: f32, on: bool) -> bool {
-        self.0.interpolate(p, on) > 0.0
-    }
-
-    fn update(&mut self, other: &Self) {
-        self.0.update(&other.0);
-    }
-}
-
-impl DeriveParameter for BoolParameter {
-    fn derive(&self, other: &Self) -> Self {
-        Self(self.0.derive(&other.0))
+fn serialize_range<T: PartialOrd, F>(r: &RangeInclusive<T>, ser: F) -> String
+where
+    F: Fn(&T) -> String,
+{
+    if let Some(std::cmp::Ordering::Equal) = r.end().partial_cmp(r.start()) {
+        ser(r.start())
+    } else {
+        format!("{}-{}", ser(r.start()), ser(r.end()))
     }
 }

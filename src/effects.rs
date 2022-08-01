@@ -1,9 +1,9 @@
 #![allow(dead_code)]
 use crate::{
-    parameter::{BoolParameter, DeriveParameter, EffectParameter},
+    parameter::{BoolParameter, EffectParameter},
     Chart, Interval, Track,
 };
-use kson_effect_param_macro::DeriveParameter;
+
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
@@ -12,7 +12,7 @@ use std::f32;
 #[cfg(feature = "schema")]
 use schemars::JsonSchema;
 
-#[derive(Deserialize, Serialize, Clone, DeriveParameter)]
+#[derive(Deserialize, Serialize, Clone)]
 #[serde(tag = "type", content = "v")]
 #[serde(rename_all = "snake_case")]
 #[cfg_attr(feature = "schema", derive(JsonSchema))]
@@ -38,7 +38,7 @@ pub enum EffectError {
     EffectTypeMismatchError,
 }
 
-#[derive(Deserialize, Serialize, Clone, Default, DeriveParameter)]
+#[derive(Deserialize, Serialize, Clone, Default)]
 #[cfg_attr(feature = "schema", derive(JsonSchema))]
 pub struct ReTrigger {
     pub update_period: EffectParameter<f32>,
@@ -50,7 +50,7 @@ pub struct ReTrigger {
     pub mix: EffectParameter<f32>,
 }
 
-#[derive(Deserialize, Serialize, Clone, Default, DeriveParameter)]
+#[derive(Deserialize, Serialize, Clone, Default)]
 #[cfg_attr(feature = "schema", derive(JsonSchema))]
 pub struct Gate {
     pub wave_length: EffectParameter<f32>,
@@ -59,7 +59,7 @@ pub struct Gate {
     pub mix: EffectParameter<f32>,
 }
 
-#[derive(Deserialize, Serialize, Clone, Default, DeriveParameter)]
+#[derive(Deserialize, Serialize, Clone, Default)]
 #[cfg_attr(feature = "schema", derive(JsonSchema))]
 pub struct Flanger {
     pub period: EffectParameter<f32>,
@@ -72,7 +72,7 @@ pub struct Flanger {
     pub mix: EffectParameter<f32>,
 }
 
-#[derive(Deserialize, Serialize, Clone, Default, DeriveParameter)]
+#[derive(Deserialize, Serialize, Clone, Default)]
 #[cfg_attr(feature = "schema", derive(JsonSchema))]
 pub struct PitchShift {
     pub pitch: EffectParameter<f32>,
@@ -82,14 +82,14 @@ pub struct PitchShift {
     pub mix: EffectParameter<f32>,
 }
 
-#[derive(Deserialize, Serialize, Clone, Default, DeriveParameter)]
+#[derive(Deserialize, Serialize, Clone, Default)]
 #[cfg_attr(feature = "schema", derive(JsonSchema))]
 pub struct BitCrusher {
     pub reduction: EffectParameter<i64>,
     pub mix: EffectParameter<f32>,
 }
 
-#[derive(Deserialize, Serialize, Clone, Default, DeriveParameter)]
+#[derive(Deserialize, Serialize, Clone, Default)]
 #[cfg_attr(feature = "schema", derive(JsonSchema))]
 pub struct Phaser {
     pub period: EffectParameter<f32>,
@@ -103,7 +103,7 @@ pub struct Phaser {
     pub mix: EffectParameter<f32>,
 }
 
-#[derive(Deserialize, Serialize, Clone, Default, DeriveParameter)]
+#[derive(Deserialize, Serialize, Clone, Default)]
 #[cfg_attr(feature = "schema", derive(JsonSchema))]
 pub struct Wobble {
     pub wave_length: EffectParameter<f32>,
@@ -114,7 +114,7 @@ pub struct Wobble {
     pub mix: EffectParameter<f32>,
 }
 
-#[derive(Deserialize, Serialize, Clone, Default, DeriveParameter)]
+#[derive(Deserialize, Serialize, Clone, Default)]
 #[cfg_attr(feature = "schema", derive(JsonSchema))]
 pub struct TapeStop {
     pub speed: EffectParameter<f32>,
@@ -122,7 +122,7 @@ pub struct TapeStop {
     pub mix: EffectParameter<f32>,
 }
 
-#[derive(Deserialize, Serialize, Clone, Default, DeriveParameter)]
+#[derive(Deserialize, Serialize, Clone, Default)]
 #[cfg_attr(feature = "schema", derive(JsonSchema))]
 pub struct Echo {
     pub update_period: EffectParameter<f32>,
@@ -134,7 +134,7 @@ pub struct Echo {
     pub mix: EffectParameter<f32>,
 }
 
-#[derive(Deserialize, Serialize, Clone, Default, DeriveParameter)]
+#[derive(Deserialize, Serialize, Clone, Default)]
 #[cfg_attr(feature = "schema", derive(JsonSchema))]
 pub struct SideChain {
     pub period: EffectParameter<f32>,
@@ -148,7 +148,7 @@ pub struct SideChain {
     pub ratio: EffectParameter<f32>,
 }
 
-#[derive(Deserialize, Serialize, Clone, Default, DeriveParameter)]
+#[derive(Deserialize, Serialize, Clone, Default)]
 #[cfg_attr(feature = "schema", derive(JsonSchema))]
 pub struct HighPassFilter {
     pub v: EffectParameter<f32>,
@@ -159,7 +159,7 @@ pub struct HighPassFilter {
     pub mix: EffectParameter<f32>,
 }
 
-#[derive(Deserialize, Serialize, Clone, Default, DeriveParameter)]
+#[derive(Deserialize, Serialize, Clone, Default)]
 #[cfg_attr(feature = "schema", derive(JsonSchema))]
 pub struct LowPassFilter {
     pub v: EffectParameter<f32>,
@@ -170,7 +170,7 @@ pub struct LowPassFilter {
     pub mix: EffectParameter<f32>,
 }
 
-#[derive(Deserialize, Serialize, Clone, Default, DeriveParameter)]
+#[derive(Deserialize, Serialize, Clone, Default)]
 #[cfg_attr(feature = "schema", derive(JsonSchema))]
 pub struct PeakingFilter {
     pub v: EffectParameter<f32>,
