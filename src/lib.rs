@@ -17,14 +17,6 @@ use std::collections::HashSet;
 use std::str;
 pub use vox::*;
 
-#[cfg(feature = "schema")]
-use schemars::{schema_for, JsonSchema};
-
-#[cfg(feature = "schema")]
-pub fn schema() -> schemars::schema::RootSchema {
-    schema_for!(Chart)
-}
-
 #[inline]
 pub fn beat_in_ms(bpm: f64) -> f64 {
     60_000.0 / bpm
@@ -76,7 +68,6 @@ enum SingleOrPair<T> {
 }
 
 #[derive(Copy, Clone, Default)]
-#[cfg_attr(feature = "schema", derive(JsonSchema))]
 pub struct GraphPoint {
     pub y: u32,
     pub v: f64,
@@ -157,7 +148,6 @@ impl Serialize for GraphPoint {
 }
 
 #[derive(Copy, Clone)]
-#[cfg_attr(feature = "schema", derive(JsonSchema))]
 pub struct GraphSectionPoint {
     pub ry: u32,
     pub v: f64,
@@ -253,7 +243,6 @@ impl GraphSectionPoint {
 }
 
 #[derive(Copy, Clone)]
-#[cfg_attr(feature = "schema", derive(JsonSchema))]
 pub struct Interval {
     pub y: u32,
     pub l: u32,
@@ -348,7 +337,6 @@ fn serde_def_n<T: From<u32> + Copy, const N: u32>() -> T {
 // }
 
 #[derive(Serialize, Deserialize, Clone)]
-#[cfg_attr(feature = "schema", derive(JsonSchema))]
 pub struct LaserSection(
     u32,
     Vec<GraphSectionPoint>,
@@ -374,7 +362,6 @@ fn default_one<T: From<u8>>() -> T {
 }
 
 #[derive(Serialize, Deserialize, Clone)]
-#[cfg_attr(feature = "schema", derive(JsonSchema))]
 pub struct NoteInfo {
     pub bt: [Vec<Interval>; 4],
     pub fx: [Vec<Interval>; 2],
@@ -392,7 +379,6 @@ impl NoteInfo {
 }
 
 #[derive(Serialize, Deserialize, Clone)]
-#[cfg_attr(feature = "schema", derive(JsonSchema))]
 pub struct DifficultyInfo {
     pub name: Option<String>,
     pub short_name: Option<String>,
@@ -400,7 +386,6 @@ pub struct DifficultyInfo {
 }
 
 #[derive(Serialize, Deserialize, Clone)]
-#[cfg_attr(feature = "schema", derive(JsonSchema))]
 pub struct MetaInfo {
     pub title: String,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -434,7 +419,6 @@ impl DifficultyInfo {
 }
 
 #[derive(Serialize, Deserialize, Clone)]
-#[cfg_attr(feature = "schema", derive(JsonSchema))]
 pub struct GaugeInfo {
     total: u32,
 }
@@ -463,7 +447,6 @@ impl MetaInfo {
 pub type ByPulse<T> = Vec<(u32, T)>;
 
 #[derive(Serialize, Deserialize, Copy, Clone)]
-#[cfg_attr(feature = "schema", derive(JsonSchema))]
 pub struct ByNote<T> {
     y: u32,
     v: Option<T>,
@@ -472,7 +455,6 @@ pub struct ByNote<T> {
 }
 
 #[derive(Serialize, Deserialize, Clone)]
-#[cfg_attr(feature = "schema", derive(JsonSchema))]
 pub struct ByNotes<T> {
     bt: Option<[Vec<ByNote<T>>; 4]>,
     fx: Option<[Vec<ByNote<T>>; 2]>,
@@ -564,7 +546,6 @@ impl<'a, T> Iterator for ByNotesIter<'a, T> {
 
 /// (Numerator, Denominator)
 #[derive(Serialize, Deserialize, Copy, Clone)]
-#[cfg_attr(feature = "schema", derive(JsonSchema))]
 pub struct TimeSignature(u32, u32);
 
 impl TimeSignature {
@@ -579,7 +560,6 @@ impl TimeSignature {
 }
 
 #[derive(Serialize, Deserialize, Clone)]
-#[cfg_attr(feature = "schema", derive(JsonSchema))]
 pub struct BeatInfo {
     pub bpm: ByPulse<f64>,
     pub time_sig: ByMeasureIdx<TimeSignature>,
@@ -603,7 +583,6 @@ impl BeatInfo {
 }
 
 #[derive(Serialize, Deserialize, Clone, Default)]
-#[cfg_attr(feature = "schema", derive(JsonSchema))]
 pub struct BgmInfo {
     pub filename: Option<String>,
     #[serde(default = "default_one::<f64>")]
@@ -615,13 +594,11 @@ pub struct BgmInfo {
 }
 
 #[derive(Serialize, Deserialize, Clone, Default)]
-#[cfg_attr(feature = "schema", derive(JsonSchema))]
 pub struct LegacyBgmInfo {
     fp_filenames: Vec<String>,
 }
 
 #[derive(Serialize, Deserialize, Clone, Default)]
-#[cfg_attr(feature = "schema", derive(JsonSchema))]
 pub struct PreviewInfo {
     #[serde(default = "default_zero::<u32>")]
     pub offset: u32,
@@ -644,32 +621,27 @@ impl BgmInfo {
 }
 
 #[derive(Serialize, Deserialize, Clone)]
-#[cfg_attr(feature = "schema", derive(JsonSchema))]
 pub struct KeySoundInfo {
     pub fx: KeySoundFXInfo,
     pub laser: KeySoundLaserInfo,
 }
 
 #[derive(Serialize, Deserialize, Clone)]
-#[cfg_attr(feature = "schema", derive(JsonSchema))]
 pub struct KeySoundLaserInfo {
     vol: ByPulse<f64>,
 }
 
 #[derive(Serialize, Deserialize, Clone)]
-#[cfg_attr(feature = "schema", derive(JsonSchema))]
 pub struct KeySoundFXInfo {
     chip_event: HashMap<String, [Vec<ByPulse<KeySoundInvokeFX>>; 2]>,
 }
 
 #[derive(Serialize, Deserialize, Clone)]
-#[cfg_attr(feature = "schema", derive(JsonSchema))]
 pub struct KeySoundInvokeFX {
     vol: f64,
 }
 
 #[derive(Serialize, Deserialize, Clone)]
-#[cfg_attr(feature = "schema", derive(JsonSchema))]
 pub struct AudioEffectFXInfo {
     def: Option<HashMap<String, AudioEffect>>,
     param_change: Option<HashMap<String, ByPulse<String>>>,
@@ -677,7 +649,6 @@ pub struct AudioEffectFXInfo {
 }
 
 #[derive(Serialize, Deserialize, Clone)]
-#[cfg_attr(feature = "schema", derive(JsonSchema))]
 pub struct AudioEffectLaserInfo {
     def: Option<HashMap<String, AudioEffect>>,
     param_change: Option<HashMap<String, ByPulse<String>>>,
@@ -687,14 +658,12 @@ pub struct AudioEffectLaserInfo {
 }
 
 #[derive(Serialize, Deserialize, Clone)]
-#[cfg_attr(feature = "schema", derive(JsonSchema))]
 pub struct AudioEffectInfo {
     fx: AudioEffectFXInfo,
     laser: AudioEffectLaserInfo,
 }
 
 #[derive(Serialize, Deserialize, Clone)]
-#[cfg_attr(feature = "schema", derive(JsonSchema))]
 pub struct AudioInfo {
     pub bgm: Option<BgmInfo>,
     pub audio_effect: Option<AudioEffectInfo>,
@@ -713,7 +682,6 @@ impl AudioInfo {
 }
 
 #[derive(Serialize, Deserialize, Clone)]
-#[cfg_attr(feature = "schema", derive(JsonSchema))]
 pub struct Chart {
     pub meta: MetaInfo,
     pub note: NoteInfo,
@@ -937,27 +905,20 @@ impl Chart {
 mod tests {
     use serde_test::Token;
 
-    use crate::parameter::{self, EffectParameterValue};
-
-    #[cfg(feature = "schema")]
-    #[test]
-    fn schema() {
-        println!(
-            "{}",
-            serde_json::to_string_pretty(&crate::schema()).unwrap()
-        );
-    }
+    use crate::parameter::{self, EffectFloat, EffectFreq, EffectParameterValue};
 
     #[test]
     fn effect_param() {
         let mut param = parameter::EffectParameter {
-            on: Some(EffectParameterValue::Freq(10.0..=20.0)),
-            off: EffectParameterValue::Freq(5.0..=5.0),
+            on: Some(EffectParameterValue::Freq(
+                EffectFreq::Khz(10.0)..=EffectFreq::Khz(20.0),
+            )),
+            off: EffectParameterValue::Freq(EffectFreq::Hz(500)..=EffectFreq::Hz(500)),
             v: 0.0_f32,
             ..Default::default()
         };
 
-        serde_test::assert_tokens(&param, &[Token::Str("5kHz>10kHz-20kHz")]);
+        serde_test::assert_tokens(&param, &[Token::Str("500Hz>10kHz-20kHz")]);
 
         param.on = None;
         param.off =
@@ -973,9 +934,11 @@ mod tests {
         param.off = EffectParameterValue::Sample(100..=1000);
         serde_test::assert_tokens(&param, &[Token::Str("100samples-1000samples")]);
 
-        param.off = EffectParameterValue::Length(0.5..=0.5, true);
-        serde_test::assert_de_tokens(&param, &[Token::Str("1/2")]);
-        serde_test::assert_ser_tokens(&param, &[Token::Str("0.5")]);
+        param.off = EffectParameterValue::Length(
+            EffectFloat::Fraction(1, 2)..=EffectFloat::Fraction(1, 2),
+            true,
+        );
+        serde_test::assert_tokens(&param, &[Token::Str("1/2")]);
 
         param.off = EffectParameterValue::Switch(false..=false);
         param.on = Some(EffectParameterValue::Switch(false..=true));

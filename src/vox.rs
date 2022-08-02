@@ -61,9 +61,16 @@ fn time_sig_accumulator(
     line_data: Vec<&str>,
 ) -> Result<ByMeasureIdx<TimeSignature>, VoxReadError> {
     let measure = line_data
-        .get(0).and_then(|v| v.split(',').next().map(|i| i.parse::<u32>()));
+        .get(0)
+        .and_then(|v| v.split(',').next().map(|i| i.parse::<u32>()));
     if let Some(Ok(m)) = measure {
-        accu.push((m - 1, TimeSignature(line_data.get(1).unwrap_or(&"").parse()?, line_data.get(2).unwrap_or(&"").parse()?)));
+        accu.push((
+            m - 1,
+            TimeSignature(
+                line_data.get(1).unwrap_or(&"").parse()?,
+                line_data.get(2).unwrap_or(&"").parse()?,
+            ),
+        ));
         Ok(accu)
     } else {
         Err(VoxReadError::LineParseError(line_data.join(", ")))
@@ -88,7 +95,7 @@ fn tick_from_vox(vox_time: &str, chart: &Chart) -> Result<u32, VoxReadError> {
         Err(i) => chart.beat.time_sig.get(i - 1).unwrap(),
     };
 
-    let tick_per_beat = 192 / current_sig.1.1;
+    let tick_per_beat = 192 / current_sig.1 .1;
     Ok(chart.measure_to_tick(measure - 1) + tick_per_beat * (beat - 1) + ticks)
 }
 
@@ -173,14 +180,14 @@ impl Vox for crate::Chart {
                             };
 
                         let node_type: i32 = line[2].parse()?;
-                        
+
                         let wide: u8 = if line.len() > 5 {
                             line[5].parse()?
                         }
                         else { //for earlier versions
                             1
                         };
-                            
+
                         match node_type {
                             1 => {//start node
                                 current_section = LaserSection(
@@ -221,7 +228,7 @@ impl Vox for crate::Chart {
                         if node_type == 2 {
                             let finished_section = std::mem::replace(&mut  current_section,  LaserSection(y, vec![GraphSectionPoint {ry: 0,v: 0.0,a: None,b: None,vf: None,
                                 }],
-                                wide  
+                                wide
                             ));
                             lasers.push(finished_section);
                         }

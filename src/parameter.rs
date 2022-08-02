@@ -7,7 +7,6 @@ use serde::{de::Visitor, Deserialize, Serialize};
 use schemars::JsonSchema;
 
 #[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq)]
-#[cfg_attr(feature = "schema", derive(JsonSchema))]
 pub enum InterpolationShape {
     Linear,
     Logarithmic,
@@ -19,13 +18,65 @@ impl Default for InterpolationShape {
         InterpolationShape::Linear
     }
 }
+
+#[derive(Clone, Copy, PartialEq, Debug, PartialOrd)]
+
+pub enum EffectFloat {
+    Float(f32),
+    Fraction(i32, i32),
+}
+
+impl From<EffectFloat> for f32 {
+    fn from(val: EffectFloat) -> Self {
+        match val {
+            EffectFloat::Float(f) => f,
+            EffectFloat::Fraction(a, b) => a as f32 / b as f32,
+        }
+    }
+}
+
+impl ToString for EffectFloat {
+    fn to_string(&self) -> String {
+        match self {
+            EffectFloat::Float(f) => f.to_string(),
+            EffectFloat::Fraction(a, b) => format!("{}/{}", a, b),
+        }
+    }
+}
+
+#[derive(Clone, Copy, PartialEq, Debug, PartialOrd)]
+
+pub enum EffectFreq {
+    Hz(i32),
+    Khz(f32),
+}
+
+impl ToString for EffectFreq {
+    fn to_string(&self) -> String {
+        match self {
+            EffectFreq::Hz(f) => f.to_string() + "Hz",
+            EffectFreq::Khz(f) => f.to_string() + "kHz",
+        }
+    }
+}
+
+impl From<EffectFreq> for f32 {
+    fn from(val: EffectFreq) -> Self {
+        match val {
+            EffectFreq::Hz(f) => f as f32,
+            EffectFreq::Khz(kf) => kf * 1000.0,
+        }
+    }
+}
+
 #[derive(Clone, Debug, PartialEq)]
+
 pub enum EffectParameterValue {
-    Length(RangeInclusive<f32>, bool),
+    Length(RangeInclusive<EffectFloat>, bool),
     Sample(RangeInclusive<i32>),
     Switch(RangeInclusive<bool>),
     Rate(RangeInclusive<f32>),
-    Freq(RangeInclusive<f32>),
+    Freq(RangeInclusive<EffectFreq>),
     Pitch(RangeInclusive<f32>),
     Int(RangeInclusive<i32>),
     Float(RangeInclusive<f32>),
@@ -138,7 +189,7 @@ impl Display for EffectParameterValue {
             | EffectParameterValue::Pitch(r)
             | EffectParameterValue::Float(r) => serialize_range(r, |v| v.to_string()),
             EffectParameterValue::Int(i) => serialize_range(i, i32::to_string),
-            EffectParameterValue::Freq(f) => serialize_range(f, |v| v.to_string() + "kHz"),
+            EffectParameterValue::Freq(f) => serialize_range(f, |v| v.to_string()),
             EffectParameterValue::Filename(f) => f.clone(),
             EffectParameterValue::Undefined => unreachable!(),
         };
@@ -173,21 +224,22 @@ impl FromStr for EffectParameterValue {
             if v.contains('/') {
                 if let Some((Ok(a), Ok(b))) = v
                     .split_once('/')
-                    .map(|v| (v.0.parse::<f32>(), v.1.parse::<f32>()))
+                    .map(|v| (v.0.parse::<i32>(), v.1.parse::<i32>()))
                 {
-                    let v = a / b;
+                    let v = EffectFloat::Fraction(a, b);
                     return EffectParameterValue::Length(v..=v, true);
                 }
             }
 
             if v.ends_with("ms") {
                 if let Ok(r) = v.trim_end_matches("ms").parse::<f32>() {
-                    let r = r / 1000.0;
+                    let r = EffectFloat::Float(r / 1000.0);
                     return EffectParameterValue::Length(r..=r, false);
                 }
             }
             if v.ends_with('s') {
                 if let Ok(r) = v.trim_end_matches('s').parse::<f32>() {
+                    let r = EffectFloat::Float(r);
                     return EffectParameterValue::Length(r..=r, false);
                 }
             }
@@ -201,13 +253,14 @@ impl FromStr for EffectParameterValue {
 
             if v.ends_with("kHz") {
                 if let Ok(r) = v.trim_end_matches("kHz").parse::<f32>() {
+                    let r = EffectFreq::Khz(r);
                     return EffectParameterValue::Freq(r..=r);
                 }
             }
 
             if v.ends_with("Hz") {
-                if let Ok(r) = v.trim_end_matches("Hz").parse::<f32>() {
-                    let r = r / 1000.0;
+                if let Ok(r) = v.trim_end_matches("Hz").parse::<i32>() {
+                    let r = EffectFreq::Hz(r);
                     return EffectParameterValue::Freq(r..=r);
                 }
             }
