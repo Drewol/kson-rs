@@ -2,7 +2,7 @@ use proc_macro::TokenStream;
 use quote::quote;
 use syn::{parse_macro_input, Data, DeriveInput};
 
-#[proc_macro_derive(DeriveParameter)]
+#[proc_macro_derive(Effect)]
 pub fn derive_effect_param(input: TokenStream) -> TokenStream {
     let input = parse_macro_input!(input as DeriveInput);
 
@@ -15,40 +15,54 @@ pub fn derive_effect_param(input: TokenStream) -> TokenStream {
                     syn::Fields::Unnamed(_) => {
                         let input = &input.ident;
                         let variant = &variant.ident;
-                        quote!(#input::#variant(DeriveParameter::derive(&a,&b)))
+                        quote!(#input::#variant(Effect::derive(&a,key,param)))
                     }
                     syn::Fields::Unit => panic!("Enum unit variants are not supported"),
                 };
                 let input = &input.ident;
                 let variant = &variant.ident;
-                match_arms
-                    .push(quote!((#input::#variant(a), #input::#variant(b)) => #new_struct_expr,));
+                match_arms.push(quote!(#input::#variant(a) => #new_struct_expr,));
             }
 
             match_arms.push(quote!(_ => panic!("Tried to derive from a different type"),));
             let input = &input.ident;
             proc_macro::TokenStream::from(quote!(
-                impl DeriveParameter for #input {
-                fn derive(&self, other: &Self) -> Self {
-                    match (self,other) { #(#match_arms)* }
+                impl Effect for #input {
+                fn derive(&self, key: &str, param: &str) -> Self {
+                    match self { #(#match_arms)* }
+                }
+                fn param_list() -> &'static [&'static str] {
+                    &[]
                 }
                 }
             ))
         }
         Data::Struct(s) => {
             //self << other
-            let mut field_initializers = vec![];
+            let mut match_arms = vec![];
+            let mut fields = vec![];
 
             for f in &s.fields {
                 if let Some(ident) = &f.ident {
-                    field_initializers.push(quote!(#ident: self.#ident.derive(&other.#ident),))
+                    fields.push(quote!(stringify!(#ident)));
+                    match_arms.push(quote!(stringify!(#ident) => Self {
+                        #ident: param.parse().unwrap_or_default(),
+                        ..self.clone()
+                    },))
                 }
             }
+
+            match_arms.push(quote!(_ => self.clone()));
+
             let input = &input.ident;
             proc_macro::TokenStream::from(quote!(
-            impl DeriveParameter for #input {
-                fn derive(&self, other: &Self) -> Self {
-                    Self {#(#field_initializers)*}
+            impl Effect for #input {
+                fn derive(&self, key: &str, param: &str) -> Self {
+                    match key {#(#match_arms)*}
+                }
+
+                fn param_list() -> &'static [&'static str]  {
+                    &[#(#fields),*]
                 }
             }))
         }

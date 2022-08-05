@@ -14,8 +14,11 @@ use serde::de::Visitor;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::collections::HashSet;
+use std::marker::PhantomData;
 use std::str;
 pub use vox::*;
+
+type Dict<T> = HashMap<String, T>;
 
 #[inline]
 pub fn beat_in_ms(bpm: f64) -> f64 {
@@ -408,16 +411,6 @@ pub struct MetaInfo {
     pub information: Option<String>,
 }
 
-impl DifficultyInfo {
-    fn new() -> DifficultyInfo {
-        DifficultyInfo {
-            name: None,
-            short_name: None,
-            idx: 0,
-        }
-    }
-}
-
 #[derive(Serialize, Deserialize, Clone)]
 pub struct GaugeInfo {
     total: u32,
@@ -445,6 +438,67 @@ impl MetaInfo {
 }
 
 pub type ByPulse<T> = Vec<(u32, T)>;
+#[derive(Copy, Clone, Default)]
+pub struct ByPulseOption<T>(u32, Option<T>);
+
+impl<T: Serialize> Serialize for ByPulseOption<T> {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        use serde::ser::SerializeTuple;
+        if let Some(v) = &self.1 {
+            let mut tup = serializer.serialize_tuple(2)?;
+            tup.serialize_element(&self.0)?;
+            tup.serialize_element(v)?;
+            tup.end()
+        } else {
+            serializer.serialize_u32(self.0)
+        }
+    }
+}
+
+impl<'de, T: Deserialize<'de>> Deserialize<'de> for ByPulseOption<T> {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        struct ByPulseOptionVisitor<T>(PhantomData<T>);
+        impl<'de, T: Deserialize<'de>> Visitor<'de> for ByPulseOptionVisitor<T> {
+            type Value = ByPulseOption<T>;
+
+            fn expecting(&self, formatter: &mut std::fmt::Formatter) -> std::fmt::Result {
+                formatter.write_str("[`u32`, v] or `u32`")
+            }
+
+            fn visit_i64<E>(self, v: i64) -> Result<Self::Value, E>
+            where
+                E: serde::de::Error,
+            {
+                Ok(ByPulseOption::<T>(v as u32, None))
+            }
+
+            fn visit_u64<E>(self, v: u64) -> Result<Self::Value, E>
+            where
+                E: serde::de::Error,
+            {
+                Ok(ByPulseOption::<T>(v as u32, None))
+            }
+
+            fn visit_seq<A>(self, mut seq: A) -> Result<Self::Value, A::Error>
+            where
+                A: serde::de::SeqAccess<'de>,
+            {
+                Ok(ByPulseOption::<T>(
+                    seq.next_element()?.unwrap_or_default(),
+                    seq.next_element()?,
+                ))
+            }
+        }
+
+        deserializer.deserialize_any(ByPulseOptionVisitor(PhantomData))
+    }
+}
 
 #[derive(Serialize, Deserialize, Copy, Clone)]
 pub struct ByNote<T> {
@@ -641,18 +695,26 @@ pub struct KeySoundInvokeFX {
     vol: f64,
 }
 
+type NoteParamChange = ByPulseOption<Dict<String>>;
+
 #[derive(Serialize, Deserialize, Clone)]
 pub struct AudioEffectFXInfo {
-    def: Option<HashMap<String, AudioEffect>>,
-    param_change: Option<HashMap<String, ByPulse<String>>>,
-    long_event: Option<[HashMap<String, ByPulse<AudioEffect>>; 2]>,
+    #[serde(default, skip_serializing_if = "HashMap::is_empty")]
+    def: Dict<AudioEffect>,
+    #[serde(default, skip_serializing_if = "HashMap::is_empty")]
+    param_change: Dict<Dict<ByPulse<String>>>,
+    #[serde(default, skip_serializing_if = "HashMap::is_empty")]
+    long_event: Dict<[Vec<NoteParamChange>; 2]>,
 }
 
 #[derive(Serialize, Deserialize, Clone)]
 pub struct AudioEffectLaserInfo {
-    def: Option<HashMap<String, AudioEffect>>,
-    param_change: Option<HashMap<String, ByPulse<String>>>,
-    pulse_event: Option<HashMap<String, ByPulse<()>>>,
+    #[serde(default, skip_serializing_if = "HashMap::is_empty")]
+    def: Dict<AudioEffect>,
+    #[serde(default, skip_serializing_if = "HashMap::is_empty")]
+    param_change: Dict<Dict<ByPulse<String>>>,
+    #[serde(default, skip_serializing_if = "HashMap::is_empty")]
+    pulse_event: Dict<ByPulse<()>>,
     #[serde(default = "default_zero::<i32>")]
     peaking_filter_delay: i32,
 }

@@ -1,4 +1,4 @@
-use std::{any::Any, default, fmt::Display, ops::RangeInclusive, str::FromStr};
+use std::{any::Any, fmt::Display, marker::PhantomData, ops::RangeInclusive, str::FromStr};
 
 use num_traits::{NumCast, NumOps};
 use serde::{de::Visitor, Deserialize, Serialize};
@@ -26,11 +26,11 @@ pub enum EffectFloat {
     Fraction(i32, i32),
 }
 
-impl From<EffectFloat> for f32 {
-    fn from(val: EffectFloat) -> Self {
+impl From<&EffectFloat> for f32 {
+    fn from(val: &EffectFloat) -> Self {
         match val {
-            EffectFloat::Float(f) => f,
-            EffectFloat::Fraction(a, b) => a as f32 / b as f32,
+            EffectFloat::Float(f) => *f,
+            EffectFloat::Fraction(a, b) => *a as f32 / *b as f32,
         }
     }
 }
@@ -60,10 +60,10 @@ impl ToString for EffectFreq {
     }
 }
 
-impl From<EffectFreq> for f32 {
-    fn from(val: EffectFreq) -> Self {
+impl From<&EffectFreq> for f32 {
+    fn from(val: &EffectFreq) -> Self {
         match val {
-            EffectFreq::Hz(f) => f as f32,
+            EffectFreq::Hz(f) => *f as f32,
             EffectFreq::Khz(kf) => kf * 1000.0,
         }
     }
@@ -84,19 +84,62 @@ pub enum EffectParameterValue {
     Undefined,
 }
 
-impl EffectParameterValue {
-    pub fn interpolate(&self, v: f32, shape: InterpolationShape) -> f32 {
+trait EffectParam {
+    fn interpolate(&self, v: f32, shape: InterpolationShape) -> f32;
+}
+
+impl EffectParam for RangeInclusive<f32> {
+    fn interpolate(&self, v: f32, shape: InterpolationShape) -> f32 {
+        let w = self.end() - self.start();
+        match shape {
+            InterpolationShape::Linear => self.start() + w * v,
+            InterpolationShape::Logarithmic => {
+                let sln = self.start().ln();
+                let wn = self.end().ln() - sln;
+                (sln + wn * v).exp()
+            }
+            InterpolationShape::Smooth => {
+                //https://en.wikipedia.org/wiki/Smoothstep
+                self.start() + (v * v * v * (v * (v * 6.0 - 15.0) + 10.0)) * w
+            }
+        }
+    }
+}
+
+impl EffectParam for RangeInclusive<EffectFloat> {
+    fn interpolate(&self, v: f32, shape: InterpolationShape) -> f32 {
+        RangeInclusive::<f32>::new(self.start().into(), self.end().into()).interpolate(v, shape)
+    }
+}
+
+impl EffectParam for RangeInclusive<EffectFreq> {
+    fn interpolate(&self, v: f32, shape: InterpolationShape) -> f32 {
+        RangeInclusive::<f32>::new(self.start().into(), self.end().into()).interpolate(v, shape)
+    }
+}
+
+impl EffectParam for RangeInclusive<i32> {
+    fn interpolate(&self, v: f32, shape: InterpolationShape) -> f32 {
+        ((*self.start() as f32)..=(*self.end() as f32)).interpolate(v, shape)
+    }
+}
+
+impl EffectParam for EffectParameterValue {
+    fn interpolate(&self, v: f32, shape: InterpolationShape) -> f32 {
         match self {
-            EffectParameterValue::Length(_, _) => todo!(),
-            EffectParameterValue::Sample(_) => todo!(),
-            EffectParameterValue::Switch(_) => todo!(),
-            EffectParameterValue::Rate(_) => todo!(),
-            EffectParameterValue::Freq(_) => todo!(),
-            EffectParameterValue::Pitch(_) => todo!(),
-            EffectParameterValue::Int(_) => todo!(),
-            EffectParameterValue::Float(_) => todo!(),
-            EffectParameterValue::Filename(_) => todo!(),
-            EffectParameterValue::Undefined => todo!(),
+            EffectParameterValue::Length(a, _) => a.interpolate(v, shape),
+            EffectParameterValue::Switch(s) => (if v <= 0.5 { s.start() } else { s.end() })
+                .then(|| 1.0)
+                .unwrap_or(0.0),
+            EffectParameterValue::Rate(r)
+            | EffectParameterValue::Pitch(r)
+            | EffectParameterValue::Float(r) => r.interpolate(v, shape),
+            EffectParameterValue::Freq(f) => f.interpolate(v, shape),
+            EffectParameterValue::Sample(i) | EffectParameterValue::Int(i) => {
+                i.interpolate(v, shape)
+            }
+            EffectParameterValue::Filename(_) => f32::NAN,
+            EffectParameterValue::Undefined => f32::NAN,
         }
     }
 }
@@ -124,14 +167,27 @@ impl<T: Any> Serialize for EffectParameter<T> {
     }
 }
 
+impl<T: Any> ToString for EffectParameter<T> {
+    fn to_string(&self) -> String {
+        if let Some(on) = &self.on {
+            format!("{}>{}", self.off, on)
+        } else {
+            format!("{}", &self.off)
+        }
+    }
+}
+
 impl<'de, T: Default> Deserialize<'de> for EffectParameter<T> {
     fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
     where
         D: serde::Deserializer<'de>,
     {
-        struct EffectParameterVisitor;
-        impl<'de> Visitor<'de> for EffectParameterVisitor {
-            type Value = (String, Option<String>);
+        struct EffectParameterVisitor<T> {
+            p: PhantomData<T>,
+        }
+
+        impl<'de, T: Default> Visitor<'de> for EffectParameterVisitor<T> {
+            type Value = EffectParameter<T>;
 
             fn expecting(&self, formatter: &mut std::fmt::Formatter) -> std::fmt::Result {
                 formatter.write_str("String")
@@ -141,20 +197,30 @@ impl<'de, T: Default> Deserialize<'de> for EffectParameter<T> {
             where
                 E: serde::de::Error,
             {
-                let mut split = v.split('>');
-                if let Some(a) = split.next() {
-                    Ok((a.to_string(), split.next().map(str::to_string)))
-                } else {
-                    Err(serde::de::Error::custom("Missing value"))
-                }
+                v.parse().map_err(serde::de::Error::custom)
             }
         }
 
-        let (a, b) = deserializer.deserialize_str(EffectParameterVisitor)?;
+        deserializer.deserialize_str(EffectParameterVisitor::<T> { p: PhantomData })
+    }
+}
+
+impl<T: Default> FromStr for EffectParameter<T> {
+    type Err = &'static str;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        let (a, b) = {
+            let mut split = s.split('>');
+            if let Some(a) = split.next() {
+                Ok((a.to_string(), split.next().map(str::to_string)))
+            } else {
+                Err("Missing value")
+            }
+        }?;
 
         Ok(Self {
             v: T::default(),
-            off: a.parse().map_err(serde::de::Error::custom)?,
+            off: a.parse()?,
             on: b.and_then(|o| EffectParameterValue::from_str(&o).ok()),
             shape: InterpolationShape::Linear,
         })
