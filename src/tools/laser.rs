@@ -1,3 +1,4 @@
+use crate::i18n;
 use crate::tools::CursorObject;
 use crate::Modifiers;
 use crate::{
@@ -154,8 +155,14 @@ impl CursorObject for LaserTool {
                     let v = std::rc::Rc::new(v); //Can't capture by clone so use RC
                     let i = if self.right { 1 } else { 0 };
                     let new_action = actions.new_action();
-                    new_action.description =
-                        format!("Add {} Laser", if self.right { "Right" } else { "Left" });
+                    new_action.description = i18n::fl!(
+                        "add_laser",
+                        side = if self.right {
+                            i18n::fl!("right")
+                        } else {
+                            i18n::fl!("left")
+                        }
+                    );
                     new_action.action = Box::new(move |edit_chart| {
                         edit_chart.note.laser[i].push(v.as_ref().clone());
                         edit_chart.note.laser[i].sort_by(|a, b| a.y.partial_cmp(&b.y).unwrap());
@@ -212,13 +219,17 @@ impl CursorObject for LaserTool {
         if let LaserEditMode::Edit(edit_state) = self.mode {
             if let Some(curving_index) = edit_state.curving_index {
                 let right = self.right;
-                let laser_text = if right { "Right" } else { "Left" };
+                let laser_text = if right {
+                    i18n::fl!("right")
+                } else {
+                    i18n::fl!("left")
+                };
                 let section_index = edit_state.section_index;
                 let laser_i = if right { 1 } else { 0 };
                 let updated_point = self.section.v[curving_index];
 
                 let new_action = actions.new_action();
-                new_action.description = format!("Adjust {} Laser Curve", laser_text);
+                new_action.description = i18n::fl!("adjust_laser_curve", side = laser_text);
                 new_action.action = Box::new(move |c| {
                     c.note.laser[laser_i][section_index].v[curving_index] = updated_point;
                     Ok(())
@@ -244,8 +255,14 @@ impl CursorObject for LaserTool {
         if let Some(index) = self.hit_test(chart, tick) {
             let laser_i = if self.right { 1 } else { 0 };
             let new_action = actions.new_action();
-            new_action.description =
-                format!("Remove {} laser", if self.right { "right" } else { "left" });
+            new_action.description = i18n::fl!(
+                "remove_laser",
+                side = if self.right {
+                    i18n::fl!("right")
+                } else {
+                    i18n::fl!("left")
+                }
+            );
             new_action.action = Box::new(move |chart: &mut Chart| {
                 chart.note.laser[laser_i].remove(index);
                 Ok(())

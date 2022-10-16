@@ -6,11 +6,13 @@ use std::str::FromStr;
 
 use anyhow::Result;
 use chart_editor::MainState;
+use eframe::egui::style::Selection;
 use eframe::egui::{
-    self, menu, warn_if_debug_build, Button, Color32, DragValue, Frame, Grid, Key, Label, Layout,
-    Pos2, Rect, Response, RichText, Sense, Slider, Ui, Vec2, Visuals,
+    self, menu, warn_if_debug_build, Button, Color32, ComboBox, DragValue, Frame, Grid, Key, Label,
+    Layout, Pos2, Rect, Response, RichText, Sense, Slider, Ui, Vec2, Visuals,
 };
 use eframe::App;
+use i18n_embed::unic_langid::LanguageIdentifier;
 use kson::{BgmInfo, Chart, MetaInfo};
 use puffin::profile_scope;
 use serde::{Deserialize, Serialize};
@@ -20,6 +22,7 @@ mod assets;
 mod camera_widget;
 mod chart_camera;
 mod chart_editor;
+mod i18n;
 mod playback;
 mod tools;
 mod utils;
@@ -27,6 +30,9 @@ mod utils;
 pub trait Widget {
     fn ui(self, ui: &mut Ui) -> Response;
 }
+
+use i18n::fl;
+use tracing::info;
 
 #[derive(Default, Clone, Debug, Serialize, Deserialize, PartialEq, Eq, PartialOrd, Ord)]
 pub struct NewChartOptions {
@@ -45,36 +51,40 @@ impl Widget for &mut kson::MetaInfo {
 
         egui::Grid::new("metadata_editor")
             .show(ui, |ui| {
-                edit_row(ui, "Title", &mut self.title);
-                edit_row(ui, "Artist", &mut self.artist);
-                edit_row(ui, "Effector", &mut self.chart_author);
-                edit_row(ui, "Jacket", &mut self.jacket_filename);
-                edit_row(ui, "Jacket Artist", &mut self.jacket_author);
+                edit_row(ui, &i18n::fl!("title"), &mut self.title);
+                edit_row(ui, &i18n::fl!("artist"), &mut self.artist);
+                edit_row(ui, &i18n::fl!("effector"), &mut self.chart_author);
+                edit_row(ui, &i18n::fl!("jacket"), &mut self.jacket_filename);
+                edit_row(ui, &i18n::fl!("jacket_artist"), &mut self.jacket_author);
 
-                ui.label("Difficulty:");
+                ui.label(i18n::fl!("difficulty"));
                 ui.end_row();
 
-                ui.label("Level");
+                ui.label(i18n::fl!("level"));
                 ui.add(DragValue::new(&mut self.level).clamp_range(1..=20));
                 ui.end_row();
 
                 if self.difficulty.name.is_none() {
                     self.difficulty.name = Some(Default::default());
                 }
-                edit_row(ui, "Name", self.difficulty.name.as_mut().unwrap());
+                edit_row(
+                    ui,
+                    &i18n::fl!("name"),
+                    self.difficulty.name.as_mut().unwrap(),
+                );
 
                 if self.difficulty.short_name.is_none() {
                     self.difficulty.short_name = Some(Default::default());
                 }
                 edit_row(
                     ui,
-                    "Short Name",
+                    &i18n::fl!("short_name"),
                     self.difficulty.short_name.as_mut().unwrap(),
                 );
 
                 self.difficulty.short_name.as_mut().unwrap().truncate(3);
 
-                ui.label("Index");
+                ui.label(i18n::fl!("index"));
                 ui.add(DragValue::new(&mut self.difficulty.idx));
             })
             .response
@@ -84,12 +94,12 @@ impl Widget for &mut kson::MetaInfo {
 impl Widget for &mut NewChartOptions {
     fn ui(self, ui: &mut Ui) -> Response {
         ui.horizontal(|ui| {
-            ui.label("Filename:");
+            ui.label(i18n::fl!("filename"));
             ui.text_edit_singleline(&mut self.filename);
         });
 
         ui.separator();
-        ui.label("Audio File:");
+        ui.label(i18n::fl!("audio_file"));
         ui.label(&self.audio);
         if ui.button("...").clicked() {
             let picked_file =
@@ -104,7 +114,7 @@ impl Widget for &mut NewChartOptions {
         }
 
         ui.separator();
-        ui.label("Destination folder (audio folder will be used if empty):");
+        ui.label(i18n::fl!("destination_folder"));
         if ui.button("...").clicked() {
             let picked_folder = nfd::open_pick_folder(None).map(|res| match res {
                 nfd::Response::Okay(s) => Some(PathBuf::from_str(&s)),
@@ -119,7 +129,7 @@ impl Widget for &mut NewChartOptions {
 
         ui.add_enabled(
             !self.audio.is_empty() && !self.filename.is_empty(),
-            Button::new("Ok"),
+            Button::new(i18n::fl!("ok")),
         )
     }
 }
@@ -132,26 +142,26 @@ impl Widget for &mut kson::BgmInfo {
 
         Grid::new("bgm_info")
             .show(ui, |ui| {
-                ui.label("Audio File");
+                ui.label(i18n::fl!("audio_file"));
                 ui.text_edit_singleline(self.filename.as_mut().unwrap());
                 ui.end_row();
 
-                ui.label("Offset");
+                ui.label(i18n::fl!("offset"));
                 ui.add(DragValue::new(&mut self.offset).suffix("ms"));
                 ui.end_row();
 
-                ui.label("Volume");
+                ui.label(i18n::fl!("volume"));
                 ui.add(Slider::new(&mut self.vol, 0.0..=1.0).clamp_to_range(true));
                 ui.end_row();
 
                 ui.separator();
                 ui.end_row();
 
-                ui.label("Preview Offset");
+                ui.label(i18n::fl!("preview_offset"));
                 ui.add(DragValue::new(&mut self.preview_offset).suffix("ms"));
                 ui.end_row();
 
-                ui.label("Preview Duration");
+                ui.label(i18n::fl!("preview_duration"));
                 ui.add(DragValue::new(&mut self.preview_duration).suffix("ms"));
                 ui.end_row();
             })
@@ -226,6 +236,7 @@ struct AppState {
     meta_edit: Option<MetaInfo>,
     bgm_edit: Option<BgmInfo>,
     exiting: bool,
+    language: LanguageIdentifier,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -233,6 +244,7 @@ struct Config {
     key_bindings: HashMap<KeyCombo, GuiEvent>,
     track_width: f32,
     beats_per_column: u32,
+    language: LanguageIdentifier,
 }
 
 //TODO: ehhhhhhhhh
@@ -440,6 +452,7 @@ impl Default for Config {
             key_bindings: default_bindings,
             track_width: 72.0,
             beats_per_column: 16,
+            language: "en".parse().unwrap(),
         }
     }
 }
@@ -475,19 +488,42 @@ impl AppState {
         ui.add(
             Slider::new(&mut self.editor.screen.track_width, 50.0..=300.0)
                 .clamp_to_range(true)
-                .text("Track Width"),
+                .text(i18n::fl!("track_width")),
         );
 
         ui.add(
             Slider::new(&mut self.editor.screen.beats_per_col, 4..=32)
                 .clamp_to_range(true)
-                .text("Beats per column"),
+                .text(i18n::fl!("beats_per_col")),
         );
+
+        let selected = ComboBox::new("lang_select", "Language")
+            .selected_text(&self.language.language.to_string())
+            .show_ui(ui, |ui| {
+                [
+                    ui.selectable_value(
+                        &mut self.language,
+                        "en".parse::<LanguageIdentifier>().unwrap(),
+                        "en",
+                    ),
+                    ui.selectable_value(
+                        &mut self.language,
+                        "sv".parse::<LanguageIdentifier>().unwrap(),
+                        "sv",
+                    ),
+                ]
+            });
+
+        if let Some(inner) = selected.inner {
+            if inner.iter().any(|r| r.clicked()) {
+                i18n::localizer().select(&[self.language.clone()]).unwrap();
+            }
+        }
 
         let mut binding_vec: Vec<(&KeyCombo, &GuiEvent)> = self.key_bindings.iter().collect();
         binding_vec.sort_by_key(|f| f.1);
         ui.separator();
-        ui.label("Hotkeys");
+        ui.label(i18n::fl!("hotkeys"));
         Grid::new("hotkey_grid").striped(true).show(ui, |ui| {
             for (key, event) in binding_vec {
                 ui.label(format!("{}", event));
@@ -496,7 +532,7 @@ impl AppState {
             }
         });
 
-        if ui.button("Reset to defaults").clicked() {
+        if ui.button(i18n::fl!("reset_to_default")).clicked() {
             self.key_bindings = Config::default().key_bindings;
         }
     }
@@ -532,6 +568,7 @@ impl App for AppState {
             key_bindings: self.key_bindings.clone(),
             beats_per_column: self.editor.screen.beats_per_col,
             track_width: self.editor.screen.track_width,
+            language: self.language.clone(),
         };
 
         eframe::set_value(storage, CONFIG_KEY, &new_config)
@@ -597,41 +634,41 @@ impl App for AppState {
         {
             egui::TopBottomPanel::top("menubar").show(ctx, |ui| {
                 menu::bar(ui, |ui| {
-                    menu_ui(ui, "File", 100.0, |ui| {
-                        if ui.button("New").clicked() {
+                    menu_ui(ui, i18n::fl!("file"), 100.0, |ui| {
+                        if ui.button(i18n::fl!("new")).clicked() {
                             self.new_chart = Some(Default::default());
                         }
-                        if ui.button("Open").clicked() {
+                        if ui.button(i18n::fl!("open")).clicked() {
                             self.editor.gui_event_queue.push_back(GuiEvent::Open);
                         }
-                        if ui.button("Save").clicked() {
+                        if ui.button(i18n::fl!("save")).clicked() {
                             self.editor.gui_event_queue.push_back(GuiEvent::Save)
                         }
-                        if ui.button("Save As").clicked() {
+                        if ui.button(i18n::fl!("save_as")).clicked() {
                             self.editor.gui_event_queue.push_back(GuiEvent::SaveAs)
                         }
-                        if ui.button("Export Ksh").clicked() {
+                        if ui.button(i18n::fl!("export_ksh")).clicked() {
                             self.editor.gui_event_queue.push_back(GuiEvent::ExportKsh)
                         }
                         ui.separator();
-                        if ui.button("Preferences").clicked() {
+                        if ui.button(i18n::fl!("preferences")).clicked() {
                             self.show_preferences = true;
                         }
                         ui.separator();
-                        if ui.button("Exit").clicked() {
+                        if ui.button(i18n::fl!("exit")).clicked() {
                             frame.quit();
                         }
                     });
-                    menu_ui(ui, "Edit", 70.0, |ui| {
+                    menu_ui(ui, i18n::fl!("edit"), 70.0, |ui| {
                         let undo_desc = self.editor.actions.prev_action_desc();
                         let redo_desc = self.editor.actions.next_action_desc();
 
                         if ui
                             .add_enabled(
                                 undo_desc.is_some(),
-                                Button::new(format!(
-                                    "Undo: {}",
-                                    undo_desc.as_ref().unwrap_or(&String::new())
+                                Button::new(i18n::fl!(
+                                    "undo",
+                                    action = undo_desc.as_ref().unwrap_or(&String::new()).clone()
                                 )),
                             )
                             .clicked()
@@ -641,9 +678,9 @@ impl App for AppState {
                         if ui
                             .add_enabled(
                                 redo_desc.is_some(),
-                                Button::new(format!(
-                                    "Redo: {}",
-                                    redo_desc.as_ref().unwrap_or(&String::new())
+                                Button::new(i18n::fl!(
+                                    "redo",
+                                    action = redo_desc.as_ref().unwrap_or(&String::new()).clone()
                                 )),
                             )
                             .clicked()
@@ -652,10 +689,12 @@ impl App for AppState {
                         }
 
                         ui.separator();
-                        if ui.button("Metadata").clicked() && self.meta_edit.is_none() {
+                        if ui.button(i18n::fl!("metadata")).clicked() && self.meta_edit.is_none() {
                             self.meta_edit = Some(self.editor.chart.meta.clone());
                         }
-                        if ui.button("Music Info").clicked() && self.meta_edit.is_none() {
+                        if ui.button(i18n::fl!("music_info")).clicked() && self.meta_edit.is_none()
+                        {
+                            i18n::localizer().select(&vec!["sv".parse().unwrap()]);
                             self.bgm_edit =
                                 Some(self.editor.chart.audio.bgm.clone().unwrap_or_default());
                         }
@@ -664,7 +703,7 @@ impl App for AppState {
                     if !self.editor.actions.saved() {
                         ui.with_layout(Layout::right_to_left(), |ui| {
                             ui.add(egui::Label::new(RichText::new("*").color(Color32::RED)))
-                                .on_hover_text("Unsaved Changes")
+                                .on_hover_text(i18n::fl!("unsaved_changes"))
                         });
                     }
                 });
@@ -693,7 +732,7 @@ impl App for AppState {
         //stuff
         {
             let mut open = self.show_preferences;
-            egui::Window::new("Preferences")
+            egui::Window::new(i18n::fl!("preferences"))
                 .open(&mut open)
                 .show(ctx, |ui| {
                     ui.with_layout(Layout::top_down_justified(egui::Align::Min), |ui| {
@@ -706,11 +745,13 @@ impl App for AppState {
             if let Some(new_chart) = &mut self.new_chart {
                 let mut open = true;
                 let mut event = None;
-                egui::Window::new("New").open(&mut open).show(ctx, |ui| {
-                    if new_chart.ui(ui).clicked() {
-                        event = Some(GuiEvent::NewChart(new_chart.clone()));
-                    }
-                });
+                egui::Window::new(i18n::fl!("new"))
+                    .open(&mut open)
+                    .show(ctx, |ui| {
+                        if new_chart.ui(ui).clicked() {
+                            event = Some(GuiEvent::NewChart(new_chart.clone()));
+                        }
+                    });
 
                 if let Some(event) = event {
                     self.editor.gui_event_queue.push_back(event);
@@ -725,19 +766,19 @@ impl App for AppState {
             //Metadata dialog
             if self.meta_edit.is_some() {
                 let mut open = true;
-                egui::Window::new("Metadata")
+                egui::Window::new(i18n::fl!("metadata"))
                     .open(&mut open)
                     .show(ctx, |ui| {
                         self.meta_edit.as_mut().unwrap().ui(ui);
                         ui.add_space(10.0);
-                        if ui.button("Ok").clicked() {
+                        if ui.button(i18n::fl!("ok")).clicked() {
                             let new_action = self.editor.actions.new_action();
                             let new_meta = self.meta_edit.take().unwrap();
                             new_action.action = Box::new(move |chart: &mut Chart| {
                                 chart.meta = new_meta.clone();
                                 Ok(())
                             });
-                            new_action.description = String::from("Update Metadata");
+                            new_action.description = String::from(i18n::fl!("update_metadata"));
                         }
                     });
                 if !open {
@@ -748,15 +789,15 @@ impl App for AppState {
             //Music data dialog
             if self.bgm_edit.is_some() {
                 let mut open = true;
-                egui::Window::new("Music Info")
+                egui::Window::new(i18n::fl!("music_info"))
                     .open(&mut open)
                     .show(ctx, |ui| {
                         self.bgm_edit.as_mut().unwrap().ui(ui);
                         ui.add_space(10.0);
-                        if ui.button("Ok").clicked() {
+                        if ui.button(i18n::fl!("ok")).clicked() {
                             let new_action = self.editor.actions.new_action();
                             let new_bgm = self.bgm_edit.take().unwrap();
-                            new_action.description = "Update Music Info".into();
+                            new_action.description = i18n::fl!("update_music_info").into();
                             new_action.action = Box::new(move |chart: &mut Chart| {
                                 chart.audio.bgm = Some(new_bgm.clone());
                                 Ok(())
@@ -832,23 +873,23 @@ impl App for AppState {
         //exiting
         {
             if self.exiting {
-                egui::Window::new("There are unsaved changes, save changes before closing?")
+                egui::Window::new(i18n::fl!("unsaved_changes_alert"))
                     .collapsible(false)
                     .resizable(false)
                     .show(ctx, |ui| {
                         ui.horizontal(|ui| {
-                            if ui.button("Yes").clicked() {
+                            if ui.button(i18n::fl!("yes")).clicked() {
                                 self.exiting = false;
                                 if matches!(self.editor.save(), Ok(true)) {
                                     frame.quit();
                                 }
                             }
-                            if ui.button("No").clicked() {
+                            if ui.button(i18n::fl!("no")).clicked() {
                                 self.exiting = false;
                                 self.editor.actions.save(); //marks as saved but doesn't actually save
                                 frame.quit();
                             }
-                            if ui.button("Cancel").clicked() {
+                            if ui.button(i18n::fl!("cancel")).clicked() {
                                 self.exiting = false;
                             }
                         });
@@ -876,6 +917,13 @@ fn main() -> Result<()> {
         "KSON Editor",
         options,
         Box::new(|cc| {
+            let config = if let Some(storage) = cc.storage {
+                let c: Option<Config> = eframe::get_value(storage, CONFIG_KEY);
+                c.unwrap_or_default()
+            } else {
+                Config::default()
+            };
+
             let mut app = AppState {
                 editor: MainState::new().unwrap_or_else(|_| todo!()),
                 key_bindings: HashMap::new(),
@@ -884,14 +932,9 @@ fn main() -> Result<()> {
                 meta_edit: None,
                 bgm_edit: None,
                 exiting: false,
+                language: config.language,
             };
 
-            let config = if let Some(storage) = cc.storage {
-                let c: Option<Config> = eframe::get_value(storage, CONFIG_KEY);
-                c.unwrap_or_default()
-            } else {
-                Config::default()
-            };
             app.key_bindings = config.key_bindings;
             app.editor.screen.track_width = config.track_width;
             app.editor.screen.beats_per_col = config.beats_per_column;

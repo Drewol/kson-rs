@@ -3,6 +3,7 @@ use eframe::{
     epaint::Rgba,
 };
 
+use crate::i18n;
 use glam::vec3;
 use kson::{Chart, Graph, GraphPoint, GraphSectionPoint};
 use std::{default::Default, f32::EPSILON, ops::Sub};
@@ -27,8 +28,8 @@ impl Default for CameraPaths {
 impl ToString for CameraPaths {
     fn to_string(&self) -> String {
         match self {
-            CameraPaths::Zoom => "Radius".to_string(),
-            CameraPaths::RotationX => "Angle".to_string(),
+            CameraPaths::Zoom => i18n::fl!("radius").to_string(),
+            CameraPaths::RotationX => i18n::fl!("angle").to_string(),
         }
     }
 }
@@ -200,11 +201,11 @@ impl CursorObject for CameraTool {
                 Ok(())
             });
 
-            new_action.description = format!(
-                "Edit curve for camera {}.",
-                match self.display_line {
-                    CameraPaths::Zoom => "radius",
-                    CameraPaths::RotationX => "angle",
+            new_action.description = i18n::fl!(
+                "edit_curve_for_camera",
+                graph = match self.display_line {
+                    CameraPaths::Zoom => i18n::fl!("radius"),
+                    CameraPaths::RotationX => i18n::fl!("angle"),
                 }
             )
         }
@@ -240,7 +241,7 @@ impl CursorObject for CameraTool {
             track_length: 16.0,
         };
 
-        eframe::egui::Window::new("Camera")
+        eframe::egui::Window::new(i18n::fl!("camera"))
             .title_bar(true)
             .open(&mut true)
             .resizable(true)
@@ -254,8 +255,8 @@ impl CursorObject for CameraTool {
                 );
                 camera_view.add_track_overlay();
                 ui.add(camera_view);
-                ui.add(Slider::new(&mut self.radius, -3.0..=3.0).text("Radius"));
-                ui.add(Slider::new(&mut self.angle, -3.0..=3.0).text("Angle"));
+                ui.add(Slider::new(&mut self.radius, -3.0..=3.0).text(i18n::fl!("radius")));
+                ui.add(Slider::new(&mut self.angle, -3.0..=3.0).text(i18n::fl!("angle")));
 
                 if old_angle.sub(self.angle).abs() > EPSILON {
                     self.angle_dirty = true;
@@ -265,7 +266,7 @@ impl CursorObject for CameraTool {
                     self.radius_dirty = true;
                 }
 
-                ComboBox::from_label("Display Line")
+                ComboBox::from_label(i18n::fl!("display_line"))
                     .selected_text(self.display_line.to_string())
                     .show_ui(ui, |ui| {
                         ui.selectable_value(
@@ -280,9 +281,9 @@ impl CursorObject for CameraTool {
                         );
                     });
 
-                if ui.button("Add Control Point").clicked() {
+                if ui.button(i18n::fl!("add_control_point")).clicked() {
                     let new_action = state.actions.new_action();
-                    new_action.description = "Added camera control point".to_string();
+                    new_action.description = i18n::fl!("added_camera_control_point").to_string();
                     let Self {
                         angle,
                         radius,

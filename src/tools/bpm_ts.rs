@@ -1,3 +1,4 @@
+use crate::i18n;
 use crate::tools::CursorObject;
 use crate::{
     action_stack::ActionStack,
@@ -6,7 +7,6 @@ use crate::{
 use anyhow::{bail, Result};
 use eframe::egui::{self, Color32, Context, DragValue, Label, Painter, Pos2, Window};
 use kson::Chart;
-
 enum CursorToolStates {
     None,
     Add(u32),
@@ -75,7 +75,7 @@ impl CursorObject for BpmTool {
 
                     let new_action = a.new_action();
 
-                    new_action.description = String::from("Add BPM Change");
+                    new_action.description = String::from(i18n::fl!("add_bpm_change"));
                     new_action.action = Box::new(move |c| {
                         c.beat.bpm.push(kson::ByPulse { y, v });
                         c.beat.bpm.sort_by(|a, b| a.y.cmp(&b.y));
@@ -88,7 +88,7 @@ impl CursorObject for BpmTool {
                     let v = bpm;
 
                     let new_action = a.new_action();
-                    new_action.description = String::from("Edit BPM Change");
+                    new_action.description = String::from(i18n::fl!("edit_bpm_change"));
                     new_action.action = Box::new(move |c| {
                         if let Some(change) = c.beat.bpm.get_mut(index) {
                             change.v = v;
@@ -103,7 +103,7 @@ impl CursorObject for BpmTool {
 
         if let Some(complete) = complete_func {
             let mut bpm = self.bpm as f32;
-            Window::new("Change BPM")
+            Window::new(i18n::fl!("change_bpm"))
                 .title_bar(true)
                 .default_size([300.0, 600.0])
                 .default_pos([100.0, 100.0])
@@ -116,10 +116,10 @@ impl CursorObject for BpmTool {
                         ui.end_row();
                         ui.end_row();
 
-                        if ui.button("Cancel").clicked() {
+                        if ui.button(i18n::fl!("cancel")).clicked() {
                             self.state = CursorToolStates::None;
                         }
-                        if ui.button("Ok").clicked() {
+                        if ui.button(i18n::fl!("ok")).clicked() {
                             complete(&mut state.actions, bpm as f64);
                             self.state = CursorToolStates::None;
                         }
@@ -140,7 +140,7 @@ impl CursorObject for BpmTool {
     ) {
         if let Ok(index) = chart.beat.bpm.binary_search_by_key(&tick, |f| f.y) {
             let new_action = actions.new_action();
-            new_action.description = "Remove BPM Change".into();
+            new_action.description = i18n::fl!("remove_bpm_change").into();
             new_action.action = Box::new(move |chart: &mut Chart| {
                 chart.beat.bpm.remove(index);
                 Ok(())
@@ -210,7 +210,7 @@ impl CursorObject for TimeSigTool {
             .binary_search_by_key(&measure, |f| f.idx)
         {
             let new_action = actions.new_action();
-            new_action.description = "Remove Time Signature Change".into();
+            new_action.description = i18n::fl!("remove_time_signature_change").into();
             new_action.action = Box::new(move |chart: &mut Chart| {
                 chart.beat.time_sig.remove(index);
                 Ok(())
@@ -244,7 +244,7 @@ impl CursorObject for TimeSigTool {
                 let idx = measure;
 
                 let new_action = a.new_action();
-                new_action.description = String::from("Add Time Signature Change");
+                new_action.description = String::from(i18n::fl!("add_time_signature_change"));
                 new_action.action = Box::new(move |c| {
                     c.beat.time_sig.push(kson::ByMeasureIndex { idx, v });
                     c.beat.time_sig.sort_by(|a, b| a.idx.cmp(&b.idx));
@@ -253,7 +253,7 @@ impl CursorObject for TimeSigTool {
             })),
             CursorToolStates::Edit(index) => Some(Box::new(move |a, ts| {
                 let new_action = a.new_action();
-                new_action.description = String::from("Edit Time Signature Change");
+                new_action.description = String::from(i18n::fl!("edit_time_signature_change"));
                 new_action.action = Box::new(move |c| {
                     if let Some(change) = c.beat.time_sig.get_mut(index) {
                         change.v.n = ts[0] as u32;
@@ -267,7 +267,7 @@ impl CursorObject for TimeSigTool {
         };
 
         if let Some(complete) = complete_func {
-            egui::Window::new("Change Time Signature")
+            egui::Window::new(i18n::fl!("change_time_signature"))
                 .title_bar(true)
                 .default_size([300.0, 600.0])
                 .default_pos([100.0, 100.0])
@@ -284,11 +284,11 @@ impl CursorObject for TimeSigTool {
                         self.ts.n = ts_n;
                         self.ts.d = ts_d;
 
-                        if ui.button("Ok").clicked() {
+                        if ui.button(i18n::fl!("ok")).clicked() {
                             complete(&mut state.actions, [ts_n as i32, ts_d as i32]);
                             self.state = CursorToolStates::None;
                         }
-                        if ui.button("Cancel").clicked() {
+                        if ui.button(i18n::fl!("cancel")).clicked() {
                             self.state = CursorToolStates::None;
                         }
                     });

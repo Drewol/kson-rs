@@ -1,3 +1,4 @@
+use crate::i18n;
 use crate::tools::CursorObject;
 use crate::utils::Overlaps;
 use crate::Modifiers;
@@ -91,7 +92,7 @@ impl CursorObject for ButtonInterval {
             // remove found index
             let new_action = actions.new_action();
             let fx = self.fx;
-            new_action.description = format!("Remove {} note", if fx { "FX" } else { "BT" });
+            new_action.description = i18n::fl!("remove_note", lane = if fx { "FX" } else { "BT" });
             new_action.action = Box::new(move |chart: &mut Chart| {
                 if fx {
                     chart.note.fx[lane].remove(index);
@@ -128,9 +129,13 @@ impl CursorObject for ButtonInterval {
             let l = self.lane;
 
             let new_action = actions.new_action();
-            new_action.description = format!(
-                "Add {} FX Note",
-                if self.lane == 0 { "Left" } else { "Right" }
+            new_action.description = i18n::fl!(
+                "add_fx",
+                side = if self.lane == 0 {
+                    i18n::fl!("left")
+                } else {
+                    i18n::fl!("right")
+                }
             );
             new_action.action = Box::new(move |edit_chart: &mut Chart| {
                 edit_chart.note.fx[l].push(v);
@@ -141,9 +146,11 @@ impl CursorObject for ButtonInterval {
             let l = self.lane;
 
             let new_action = actions.new_action();
-            new_action.description = format!(
-                "Add {} BT Note",
-                std::char::from_u32('A' as u32 + self.lane as u32).unwrap_or_default()
+            new_action.description = i18n::fl!(
+                "add_bt",
+                lane = std::char::from_u32('A' as u32 + self.lane as u32)
+                    .unwrap_or_default()
+                    .to_string()
             );
             new_action.action = Box::new(move |edit_chart: &mut Chart| {
                 edit_chart.note.bt[l].push(v);
