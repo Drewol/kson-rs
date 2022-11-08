@@ -1,10 +1,23 @@
+use std::{
+    rc::Rc,
+    sync::{Arc, Mutex},
+};
+
+use crate::vg_ui::ExportVgfx;
 use femtovg as vg;
+use generational_arena::Arena;
 use td::HasContext;
+use tealr::mlu::{
+    mlua::{Function, Lua},
+    UserDataProxy,
+};
 use three_d as td;
 
-fn main() {
+mod game_data;
+mod vg_ui;
+fn main() -> anyhow::Result<()> {
     let window = td::Window::new(td::WindowSettings {
-        title: "Triangle!".to_string(),
+        title: "Test".to_string(),
         max_size: Some((1280, 720)),
         ..Default::default()
     })
@@ -15,6 +28,8 @@ fn main() {
         .expect("Failed to create input context");
 
     // Get the graphics context from the window
+    let lua_arena: Arena<Lua> = Arena::new();
+
     let context = window.gl();
     let renderer = unsafe {
         vg::renderer::OpenGl::new_from_context(
@@ -23,7 +38,11 @@ fn main() {
         )
         .expect("awd")
     };
-    let mut canvas = vg::Canvas::new(renderer).expect("Failed to create canvas");
+
+    let canvas = Arc::new(Mutex::new(
+        vg::Canvas::new(renderer).expect("Failed to create canvas"),
+    ));
+    let mut vgfx = vg_ui::Vgfx::new(canvas.clone(), std::env::current_dir()?);
 
     // Create a CPU-side mesh consisting of a single colored triangle
     let positions = vec![
@@ -61,6 +80,35 @@ fn main() {
     let mut mousex = 0.0;
     let mut mousey = 0.0;
 
+    let file_contents = tealr::TypeWalker::new()
+        .process_type::<vg_ui::Vgfx>()
+        .process_type::<UserDataProxy<vg_ui::Vgfx>>()
+        .generate_global("gfx")?;
+    println!("{}", file_contents);
+
+    let file_contents = tealr::TypeWalker::new()
+        .process_type::<game_data::GameData>()
+        .process_type::<UserDataProxy<game_data::GameData>>()
+        .generate_global("game")?;
+    println!("{}", file_contents);
+
+    let lua = tealr::mlu::mlua::Lua::new();
+    tealr::mlu::set_global_env(ExportVgfx::default(), &lua).unwrap();
+    lua.globals().set("gfx", vgfx.clone())?;
+    lua.globals().set(
+        "game",
+        game_data::GameData {
+            mouse_pos: (0.0, 0.0),
+            resolution: (800, 600),
+        },
+    )?;
+
+    let test_code = std::fs::read_to_string("scripts/titlescreen.lua")?;
+    lua.load_from_std_lib(tealr::mlu::mlua::StdLib::ALL_SAFE)?;
+    if let Err(e) = lua.load(&test_code).set_name("TitleScreen")?.eval::<()>() {
+        println!("{:?}", e);
+    }
+
     window.render_loop(move |frame_input| {
         camera.set_viewport(frame_input.viewport);
 
@@ -70,17 +118,15 @@ fn main() {
         )));
 
         for ele in &frame_input.events {
-            match *ele {
-                td::Event::MouseMotion {
-                    button,
-                    delta,
-                    position,
-                    modifiers,
-                    handled,
-                } => {
-                    (mousex, mousey) = position;
-                }
-                _ => {}
+            if let td::Event::MouseMotion {
+                button: _,
+                delta: _,
+                position,
+                modifiers: _,
+                handled: _,
+            } = *ele
+            {
+                (mousex, mousey) = position;
             }
         }
 
@@ -100,14 +146,42 @@ fn main() {
         {
             frame_input
                 .screen()
-                .clear(td::ClearState::color_and_depth(0.0, 0.0, 0.0, 0.0, 1.0))
-                .render(&camera, &[&model], &[]);
+                .clear(td::ClearState::color_and_depth(0.0, 0.0, 0.0, 0.0, 1.0));
+            // .render(&camera, [&model], &[]);
         }
-        canvas.reset();
-        canvas.set_size(frame_input.viewport.width, frame_input.viewport.height, 1.0);
+        if let Err(e) = lua.globals().set(
+            "game",
+            game_data::GameData {
+                mouse_pos: (mousex, mousey),
+                resolution: (frame_input.viewport.width, frame_input.viewport.height),
+            },
+        ) {
+            println!("{:?}", e);
+        }
 
-        draw_fills(&mut canvas, mousex as f32, mousey as f32, 0.0, 0.0);
-        canvas.flush();
+        {
+            let mut canvas_lock = vgfx.canvas.try_lock();
+            if let Ok(ref mut canvas) = canvas_lock {
+                canvas.reset();
+                canvas.set_size(frame_input.viewport.width, frame_input.viewport.height, 1.0);
+                canvas.flush();
+            }
+        }
+
+        let render: Function = lua.globals().get("render").expect("no render function");
+
+        if let Err(e) = render.call::<_, ()>(frame_input.elapsed_time as f32 / 1000.0) {
+            println!("{:?}", e);
+        }
+
+        {
+            let mut canvas_lock = vgfx.canvas.try_lock();
+            if let Ok(ref mut canvas) = canvas_lock {
+                canvas.reset();
+                canvas.set_size(frame_input.viewport.width, frame_input.viewport.height, 1.0);
+                canvas.flush();
+            }
+        }
 
         td::FrameOutput {
             exit: false,
@@ -115,6 +189,8 @@ fn main() {
             wait_next_event: false,
         }
     });
+
+    Ok(())
 }
 
 fn draw_fills<T: vg::Renderer>(
