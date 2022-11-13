@@ -14,7 +14,7 @@ use tealr::{
 
 use tealr::mlu::mlua;
 
-#[derive(TypeName, UserData, Clone)]
+#[derive(UserData, Clone)]
 pub struct Vgfx {
     pub canvas: Arc<Mutex<Canvas<OpenGl>>>,
     skin: String,
@@ -32,6 +32,18 @@ pub struct Vgfx {
     fonts: HashMap<String, FontId>,
     paint_imgs: HashMap<u32, ImageId>,
     current_font: Option<FontId>,
+}
+
+impl TypeName for Vgfx {
+    fn get_type_parts() -> std::borrow::Cow<'static, [tealr::NamePart]> {
+        use std::borrow::Cow;
+
+        Cow::Borrowed(&[tealr::NamePart::Type(tealr::TealType {
+            name: Cow::Borrowed("gfx"),
+            type_kind: tealr::KindOfType::External,
+            generics: None,
+        })])
+    }
 }
 
 thread_local! {
@@ -1523,8 +1535,8 @@ impl TealData for Vgfx {
         // NVGimageFlags::NVG_IMAGE_NEAREST
 
         //Blend flags
-        fields.add_field_function_get("BLEND_ZERO,", |_, _| Ok(femtovg::BlendFactor::Zero as u8));
-        fields.add_field_function_get("BLEND_ONE,", |_, _| Ok(femtovg::BlendFactor::One as u8));
+        fields.add_field_function_get("BLEND_ZERO", |_, _| Ok(femtovg::BlendFactor::Zero as u8));
+        fields.add_field_function_get("BLEND_ONE", |_, _| Ok(femtovg::BlendFactor::One as u8));
         fields.add_field_function_get("BLEND_SRC_COLOR", |_, _| {
             Ok(femtovg::BlendFactor::SrcColor as u8)
         });

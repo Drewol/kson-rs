@@ -4,10 +4,22 @@ use tealr::{
     TypeName,
 };
 
-#[derive(Debug, TypeName, UserData)]
+#[derive(Debug, UserData)]
 pub struct GameData {
     pub resolution: (u32, u32),
     pub mouse_pos: (f64, f64),
+}
+
+impl TypeName for GameData {
+    fn get_type_parts() -> std::borrow::Cow<'static, [tealr::NamePart]> {
+        use std::borrow::Cow;
+
+        Cow::Borrowed(&[tealr::NamePart::Type(tealr::TealType {
+            name: Cow::Borrowed("game"),
+            type_kind: tealr::KindOfType::External,
+            generics: None,
+        })])
+    }
 }
 
 impl TealData for GameData {
@@ -115,6 +127,7 @@ impl TealData for GameData {
         fields.add_field_function_get("BUTTON_FXL", |_, _| Ok(4));
         fields.add_field_function_get("BUTTON_FXR", |_, _| Ok(5));
         fields.add_field_function_get("BUTTON_STA", |_, _| Ok(6));
+        fields.add_field_function_get("BUTTON_BCK", |_, _| Ok(7));
     }
 }
 

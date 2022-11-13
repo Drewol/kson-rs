@@ -1,4 +1,6 @@
 use std::{
+    io::Write,
+    path::Path,
     rc::Rc,
     sync::{Arc, Mutex},
 };
@@ -80,17 +82,31 @@ fn main() -> anyhow::Result<()> {
     let mut mousex = 0.0;
     let mut mousey = 0.0;
 
-    let file_contents = tealr::TypeWalker::new()
-        .process_type::<vg_ui::Vgfx>()
-        .process_type::<UserDataProxy<vg_ui::Vgfx>>()
-        .generate_global("gfx")?;
-    println!("{}", file_contents);
+    let typedef_folder = Path::new("types");
+    if !typedef_folder.exists() {
+        std::fs::create_dir_all(typedef_folder)?;
+    }
 
-    let file_contents = tealr::TypeWalker::new()
-        .process_type::<game_data::GameData>()
-        .process_type::<UserDataProxy<game_data::GameData>>()
+    let gfx_typedef = tealr::TypeWalker::new()
+        .process_type_inline::<vg_ui::Vgfx>()
+        .generate_global("gfx")?;
+
+    let game_typedef = tealr::TypeWalker::new()
+        .process_type_inline::<game_data::GameData>()
         .generate_global("game")?;
-    println!("{}", file_contents);
+
+    let mut typedef_file_path = typedef_folder.to_path_buf();
+    typedef_file_path.push("rusc.d.tl");
+    let mut typedef_file = std::fs::File::create(typedef_file_path).expect("Failed to create");
+    let file_content = format!("{}\n{}", gfx_typedef, game_typedef)
+        .lines()
+        .filter(|l| !l.starts_with("return"))
+        .collect::<Vec<_>>()
+        .join("\n");
+
+    write!(typedef_file, "{}", file_content)?;
+    typedef_file.flush()?;
+    drop(typedef_file);
 
     let lua = tealr::mlu::mlua::Lua::new();
     tealr::mlu::set_global_env(ExportVgfx::default(), &lua).unwrap();
@@ -132,14 +148,14 @@ fn main() -> anyhow::Result<()> {
 
         while let Some(e) = input.next_event() {
             match e.event {
-                gilrs::EventType::ButtonPressed(_, _) => todo!(),
-                gilrs::EventType::ButtonRepeated(_, _) => todo!(),
-                gilrs::EventType::ButtonReleased(_, _) => todo!(),
-                gilrs::EventType::ButtonChanged(_, _, _) => todo!(),
-                gilrs::EventType::AxisChanged(_, _, _) => todo!(),
-                gilrs::EventType::Connected => todo!(),
-                gilrs::EventType::Disconnected => todo!(),
-                gilrs::EventType::Dropped => todo!(),
+                gilrs::EventType::ButtonPressed(_, _) => {}
+                gilrs::EventType::ButtonRepeated(_, _) => {}
+                gilrs::EventType::ButtonReleased(_, _) => {}
+                gilrs::EventType::ButtonChanged(_, _, _) => {}
+                gilrs::EventType::AxisChanged(_, _, _) => {}
+                gilrs::EventType::Connected => {}
+                gilrs::EventType::Disconnected => {}
+                gilrs::EventType::Dropped => {}
             }
         }
 
