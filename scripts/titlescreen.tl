@@ -1,10 +1,9 @@
-local mposx = 0;
-local mposy = 0;
-local hovered = nil;
+local mposx = 0.0;
+local mposy = 0.0;
+local hovered: function() = nil;
 local cursorIndex = 1
-local buttonWidth = 250;
-local buttonHeight = 50;
-local buttonBorder = 2;
+local buttonWidth = 250.0;
+local buttonHeight = 50.0;
 local label = -1;
 
 local gr_r, gr_g, gr_b, gr_a = game.GetSkinSetting("col_test")
@@ -13,26 +12,21 @@ local gradient = gfx.LinearGradient(0,0,0,1)
 local bgPattern = gfx.CreateSkinImage("bg_pattern.png", gfx.IMAGE_REPEATX + gfx.IMAGE_REPEATY)
 local bgAngle = 0.5
 local bgPaint = gfx.ImagePattern(0,0, 256,256, bgAngle, bgPattern, 1.0)
-local bgPatternTimer = 0
+local bgPatternTimer = 0.0
 local cursorYs = {}
-local buttons = nil
+local buttons: {number: {string, function()}} = nil
 local resx, resy = game.GetResolution();
 
-view_update = function()
-    if package.config:sub(1,1) == '\\' then --windows
-        updateUrl, updateVersion = game.UpdateAvailable()
-        os.execute("start " .. updateUrl)
-    else --unix
-        --TODO: Mac solution
-        os.execute("xdg-open " .. updateUrl)
-    end
+local function sign(x: number): integer
+	return x>0 and 1 or x<0 and -1 or 0
 end
 
-mouse_clipped = function(x,y,w,h)
+
+local function mouse_clipped(x: number,y :number,w: number,h: number): boolean
     return mposx > x and mposy > y and mposx < x+w and mposy < y+h;
 end;
 
-draw_button = function(button, x, y)
+local function draw_button(button: {string, function()}, x: number, y: number): number
 	local name = button[1]
     local rx = x - (buttonWidth / 2);
     local ty = y - (buttonHeight / 2);
@@ -43,7 +37,7 @@ draw_button = function(button, x, y)
 	
 	if mouse_clipped(rx,ty, buttonWidth, buttonHeight) then
        hovered = button[2];
-	   b_r, b_g, b_b, b_a = game.GetSkinSetting("col_test")
+	   local b_r, b_g, b_b, b_a = game.GetSkinSetting("col_test")
        gfx.FillColor(b_r,b_g,b_b);
 	   gfx.Text(name, x+1, y+1);
 	   gfx.Text(name, x-1, y+1);
@@ -55,21 +49,21 @@ draw_button = function(button, x, y)
 	return buttonHeight + 5
 end;
 
-function updateGradient()
+local function updateGradient()
 	gr_r, gr_g, gr_b, gr_a = game.GetSkinSetting("col_test")
 	if gr_r == nil then return end
 	gfx.GradientColors(gr_r,gr_g,gr_b,gr_a,0,128,255,0)
 	--gradient = gfx.LinearGradient(0,0,0,1)
 end
 
-function updatePattern(dt)
+local function updatePattern(dt: number)
 	bgPatternTimer = (bgPatternTimer + dt) % 1.0
 	local bgx = math.cos(bgAngle) * (bgPatternTimer * 256)
 	local bgy = math.sin(bgAngle) * (bgPatternTimer * 256)
 	gfx.UpdateImagePattern(bgPaint, bgx, bgy, 256, 256, bgAngle, 1.0)
 end
 
-function setButtons()
+local function setButtons()
 	if buttons == nil then
 		buttons = {}
 		buttons[1] = {"Start", updateGradient}
@@ -82,11 +76,17 @@ function setButtons()
 end
 
 local renderY = resy/2
-function draw_cursor(x,y,deltaTime)
+local function draw_cursor(x: number,y:number,deltaTime:number)
 	gfx.Save()
 	gfx.BeginPath()
 	
 	local size = 8
+
+	gfx.BeginPath()
+
+	gfx.BeginPath()
+	gfx.MoveTo(2,5)
+	gfx.Fill()
 	
 	renderY = renderY - (renderY - y) * deltaTime * 30
 	
@@ -102,17 +102,15 @@ function draw_cursor(x,y,deltaTime)
 end
 
 
-function sign(x)
-  return x>0 and 1 or x<0 and -1 or 0
-end
 
-function roundToZero(x)
+
+local function roundToZero(x: number): integer
 	if x<0 then return math.ceil(x)
 	elseif x>0 then return math.floor(x)
 	else return 0 end
 end
 
-function deltaKnob(delta)
+local function deltaKnob(delta : number): number
 	if math.abs(delta) > 1.5 * math.pi then 
 		return delta + 2 * math.pi * sign(delta) * -1
 	end
@@ -121,9 +119,9 @@ end
 
 
 
-local lastKnobs = nil
-local knobProgress = 0
-function handle_controller()
+local lastKnobs: {number: number} = nil
+local knobProgress = 0.0
+local function handle_controller()
 	if lastKnobs == nil then
 		lastKnobs = {game.GetKnob(0), game.GetKnob(1)}
 	else
@@ -141,7 +139,7 @@ function handle_controller()
 	end
 end
 
-render = function(deltaTime)
+global function render(deltaTime: number)
 	setButtons()
 	updateGradient()
 	updatePattern(deltaTime)
@@ -162,8 +160,7 @@ render = function(deltaTime)
 	gfx.BeginPath()
 	gfx.GlobalCompositeOperation(gfx.BLEND_OP_SOURCE_OVER)
 	
-	cursorGet = 1
-    buttonY = resy / 2;
+    local buttonY = resy / 2;
     hovered = nil;
 	
     gfx.LoadSkinFont("NotoSans-Regular.ttf");
@@ -184,32 +181,24 @@ render = function(deltaTime)
     gfx.FillColor(255,255,255);
     gfx.FontSize(120);
     if label == -1 then
-        label = gfx.CreateLabel("unnamed_sdvx_clone", 120, 0);
+        label = gfx.CreateLabel("unnamed_sdvx_clone", 120, false);
     end
     gfx.TextAlign(gfx.TEXT_ALIGN_CENTER + gfx.TEXT_ALIGN_MIDDLE);
     gfx.DrawLabel(label, resx / 2, resy / 2 - 200, resx-40);
-    updateUrl, updateVersion = game.UpdateAvailable()
-    if updateUrl then
-       gfx.BeginPath()
-       gfx.TextAlign(gfx.TEXT_ALIGN_BOTTOM + gfx.TEXT_ALIGN_LEFT)
-       gfx.FontSize(30)
-       gfx.Text(string.format("Version %s is now available", updateVersion), 5, resy - buttonHeight - 10)
-       draw_button({"View", view_update}, buttonWidth / 2 + 5, resy - buttonHeight / 2 - 5);
-       draw_button({"Update", Menu.Update}, buttonWidth * 1.5 + 15, resy - buttonHeight / 2 - 5)
-    end
+
 end;
 
-mouse_pressed = function(button)
+global function mouse_pressed(button: integer): number
     if hovered then
         hovered()
     end
     return 0
 end
 
-function button_pressed(button)
+global function button_pressed(button: integer)
     if button == game.BUTTON_STA then 
         buttons[cursorIndex][2]()
     elseif button == game.BUTTON_BCK then
-        Menu.Exit()
+        
     end
 end

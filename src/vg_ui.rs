@@ -6,7 +6,6 @@ use std::{
 };
 
 use femtovg::{renderer::OpenGl, Canvas, Color, FontId, ImageFlags, ImageId, Paint, Path};
-use once_cell::unsync::OnceCell;
 use tealr::{
     mlu::{TealData, UserData, UserDataProxy},
     TypeName,
@@ -44,10 +43,10 @@ pub fn init_vgfx(canvas: Arc<Mutex<Canvas<OpenGl>>>, game_folder: std::path::Pat
     })
 }
 
-pub fn with_vgfx(f: impl FnMut(&mut Vgfx)) {
+pub fn with_vgfx<A>(f: impl FnOnce(&mut Vgfx) -> A) -> A {
     INSTANCE.with(|instance| {
         let mut borrowed = instance.borrow_mut();
-        borrowed.as_mut().map(f);
+        f(borrowed.as_mut().expect("vgfx uninitialized"))
     })
 }
 
@@ -75,7 +74,7 @@ impl Vgfx {
             canvas,
             game_folder,
             skin: "Default".to_string(),
-            path: None,
+            path: Some(Path::new()),
             fill_paint: None,
             stroke_paint: Paint::color(Color::white()),
             gradient_colors: [Color::black(), Color::black()],
@@ -107,9 +106,12 @@ impl Vgfx {
 impl TealData for Vgfx {
     fn add_methods<'lua, T: tealr::mlu::TealDataMethods<'lua, Self>>(methods: &mut T) {
         //BeginPath
-        methods.add_method_mut("BeginPath", |_, _vgfx, _: ()| {
-            _vgfx.path = Some(Path::new());
-            Ok(())
+        methods.document("Begins a new path");
+        methods.add_function_mut("BeginPath", |_, _: ()| {
+            with_vgfx(|_vgfx| {
+                _vgfx.path = Some(Path::new());
+                Ok(())
+            })
         });
 
         //Rect
@@ -120,15 +122,17 @@ impl TealData for Vgfx {
           h : f32,
 
         );
-        methods.add_method_mut("Rect", |_, _vgfx, p: RectParams| {
-            let RectParams { x, y, w, h } = p;
-            match _vgfx.path.as_mut() {
-                Some(p) => {
-                    p.rect(x, y, w, h);
-                    Ok(())
+        methods.add_function_mut("Rect", |_, p: RectParams| {
+            with_vgfx(|_vgfx| {
+                let RectParams { x, y, w, h } = p;
+                match _vgfx.path.as_mut() {
+                    Some(p) => {
+                        p.rect(x, y, w, h);
+                        Ok(())
+                    }
+                    None => Err(mlua::Error::external("No path begun".to_string())),
                 }
-                None => Err(mlua::Error::external("No path begun".to_string())),
-            }
+            })
         });
 
         //FastRect
@@ -139,34 +143,39 @@ impl TealData for Vgfx {
           h : f32,
 
         );
-        methods.add_method_mut("FastRect", |_, _vgfx, p: FastRectParams| {
-            let FastRectParams { x, y, w, h } = p;
-            match _vgfx.path.as_mut() {
-                Some(p) => {
-                    p.rect(x, y, w, h);
-                    Ok(())
+        methods.add_function_mut("FastRect", |_, p: FastRectParams| {
+            with_vgfx(|_vgfx| {
+                let FastRectParams { x, y, w, h } = p;
+                match _vgfx.path.as_mut() {
+                    Some(p) => {
+                        p.rect(x, y, w, h);
+                        Ok(())
+                    }
+                    None => Err(mlua::Error::external("No path begun".to_string())),
                 }
-                None => Err(mlua::Error::external("No path begun".to_string())),
-            }
+            })
         });
 
         //Fill
-        methods.add_method_mut("Fill", |_, _vgfx, _: ()| {
-            match (_vgfx.path.as_mut(), _vgfx.fill_paint.as_ref()) {
-                (Some(path), Some(paint)) => {
-                    let canvas = &mut _vgfx
-                        .canvas
-                        .try_lock()
-                        .map_err(|_| mlua::Error::external("Canvas in use".to_string()))?;
-                    canvas.fill_path(path, paint);
-                    Ok(())
-                }
-                (None, None) => Err(mlua::Error::external(
-                    "No path begun and no paint set".to_string(),
-                )),
-                (None, Some(_)) => Err(mlua::Error::external("No path begun".to_string())),
-                (Some(_), None) => Err(mlua::Error::external("No paint set".to_string())),
-            }
+        methods.document("Fills the current path");
+        methods.add_function_mut("Fill", |_, _: ()| {
+            with_vgfx(
+                |_vgfx| match (_vgfx.path.as_mut(), _vgfx.fill_paint.as_ref()) {
+                    (Some(path), Some(paint)) => {
+                        let canvas = &mut _vgfx
+                            .canvas
+                            .try_lock()
+                            .map_err(|_| mlua::Error::external("Canvas in use".to_string()))?;
+                        canvas.fill_path(path, paint);
+                        Ok(())
+                    }
+                    (None, None) => Err(mlua::Error::external(
+                        "No path begun and no paint set".to_string(),
+                    )),
+                    (None, Some(_)) => Err(mlua::Error::external("No path begun".to_string())),
+                    (Some(_), None) => Err(mlua::Error::external("No paint set".to_string())),
+                },
+            )
         });
 
         //FillColor
@@ -177,15 +186,17 @@ impl TealData for Vgfx {
           a : Option<u8>,
 
         );
-        methods.add_method_mut("FillColor", |_, _vgfx, p: FillColorParams| {
-            let FillColorParams { r, g, b, a } = p;
-            let color = Color::rgba(r, g, b, a.unwrap_or(255));
-            if let Some(paint) = _vgfx.fill_paint.as_mut() {
-                paint.set_color(color);
-            } else {
-                _vgfx.fill_paint = Some(Paint::color(color));
-            }
-            Ok(())
+        methods.add_function_mut("FillColor", |_, p: FillColorParams| {
+            with_vgfx(|_vgfx| {
+                let FillColorParams { r, g, b, a } = p;
+                let color = Color::rgba(r, g, b, a.unwrap_or(255));
+                if let Some(paint) = _vgfx.fill_paint.as_mut() {
+                    paint.set_color(color);
+                } else {
+                    _vgfx.fill_paint = Some(Paint::color(color));
+                }
+                Ok(())
+            })
         });
 
         //CreateImage
@@ -194,25 +205,27 @@ impl TealData for Vgfx {
           imageflags : u32,
 
         );
-        methods.add_method_mut("CreateImage", |_, _vgfx, p: CreateImageParams| {
-            let CreateImageParams {
-                filename,
-                imageflags,
-            } = p;
+        methods.add_function_mut("CreateImage", |_, p: CreateImageParams| {
+            with_vgfx(|_vgfx| {
+                let CreateImageParams {
+                    filename,
+                    imageflags,
+                } = p;
 
-            let img = _vgfx
-                .with_canvas(|canvas| {
-                    canvas.load_image_file(
-                        &filename,
-                        ImageFlags::from_bits(imageflags).unwrap_or(ImageFlags::empty()),
-                    )
-                })?
-                .map_err(mlua::Error::external)?;
+                let img = _vgfx
+                    .with_canvas(|canvas| {
+                        canvas.load_image_file(
+                            &filename,
+                            ImageFlags::from_bits(imageflags).unwrap_or(ImageFlags::empty()),
+                        )
+                    })?
+                    .map_err(mlua::Error::external)?;
 
-            let this_id = _vgfx.next_img_id;
-            _vgfx.next_img_id += 1;
-            _vgfx.images.insert(this_id, img);
-            Ok(this_id)
+                let this_id = _vgfx.next_img_id;
+                _vgfx.next_img_id += 1;
+                _vgfx.images.insert(this_id, img);
+                Ok(this_id)
+            })
         });
 
         //CreateSkinImage
@@ -221,29 +234,31 @@ impl TealData for Vgfx {
           imageflags : u32,
 
         );
-        methods.add_method_mut("CreateSkinImage", |_, _vgfx, p: CreateSkinImageParams| {
-            let CreateSkinImageParams {
-                filename,
-                imageflags,
-            } = p;
-            let mut path = _vgfx.game_folder.clone();
-            path.push("skins");
-            path.push(&_vgfx.skin);
-            path.push("textures");
-            path.push(filename);
-            let img = _vgfx
-                .with_canvas(|canvas| {
-                    canvas.load_image_file(
-                        &path,
-                        ImageFlags::from_bits(imageflags).unwrap_or(ImageFlags::empty()),
-                    )
-                })?
-                .map_err(mlua::Error::external)?;
+        methods.add_function_mut("CreateSkinImage", |_, p: CreateSkinImageParams| {
+            with_vgfx(|_vgfx| {
+                let CreateSkinImageParams {
+                    filename,
+                    imageflags,
+                } = p;
+                let mut path = _vgfx.game_folder.clone();
+                path.push("skins");
+                path.push(&_vgfx.skin);
+                path.push("textures");
+                path.push(filename);
+                let img = _vgfx
+                    .with_canvas(|canvas| {
+                        canvas.load_image_file(
+                            &path,
+                            ImageFlags::from_bits(imageflags).unwrap_or(ImageFlags::empty()),
+                        )
+                    })?
+                    .map_err(mlua::Error::external)?;
 
-            let this_id = _vgfx.next_img_id;
-            _vgfx.next_img_id += 1;
-            _vgfx.images.insert(this_id, img);
-            Ok(this_id)
+                let this_id = _vgfx.next_img_id;
+                _vgfx.next_img_id += 1;
+                _vgfx.images.insert(this_id, img);
+                Ok(this_id)
+            })
         });
 
         //ImageRect
@@ -257,57 +272,59 @@ impl TealData for Vgfx {
           angle : f32,
 
         );
-        methods.add_method_mut("ImageRect", |_, _vgfx, p: ImageRectParams| {
-            let ImageRectParams {
-                x,
-                y,
-                w,
-                h,
-                image,
-                alpha,
-                angle,
-            } = p;
-            if let Some(img_id) = _vgfx.images.get(&image).cloned() {
-                _vgfx.with_canvas(|canvas| {
-                    let (img_w, img_h) =
-                        canvas.image_size(img_id).map_err(mlua::Error::external)?;
-                    let prev_transform = canvas.transform();
-                    let scale_x = w / img_w as f32;
-                    let scale_y = h / img_h as f32;
-                    canvas.translate(x, y);
-                    canvas.rotate(angle);
-                    canvas.scale(scale_x, scale_y);
-                    let paint = Paint::image_tint(
-                        img_id,
-                        0.0,
-                        0.0,
-                        img_w as f32,
-                        img_h as f32,
-                        0.0,
-                        Color {
-                            r: 1.0,
-                            g: 1.0,
-                            b: 1.0,
-                            a: alpha,
-                        },
-                    ); //TODO: Set from tint
-                    let mut rect = Path::new();
-                    rect.rect(0.0, 0.0, img_w as f32, img_h as f32);
-                    canvas.fill_path(&mut rect, &paint);
-                    canvas.set_transform(
-                        prev_transform.0[0],
-                        prev_transform.0[1],
-                        prev_transform.0[2],
-                        prev_transform.0[3],
-                        prev_transform.0[4],
-                        prev_transform.0[5],
-                    );
+        methods.add_function_mut("ImageRect", |_, p: ImageRectParams| {
+            with_vgfx(|_vgfx| {
+                let ImageRectParams {
+                    x,
+                    y,
+                    w,
+                    h,
+                    image,
+                    alpha,
+                    angle,
+                } = p;
+                if let Some(img_id) = _vgfx.images.get(&image).cloned() {
+                    _vgfx.with_canvas(|canvas| {
+                        let (img_w, img_h) =
+                            canvas.image_size(img_id).map_err(mlua::Error::external)?;
+                        let prev_transform = canvas.transform();
+                        let scale_x = w / img_w as f32;
+                        let scale_y = h / img_h as f32;
+                        canvas.translate(x, y);
+                        canvas.rotate(angle);
+                        canvas.scale(scale_x, scale_y);
+                        let paint = Paint::image_tint(
+                            img_id,
+                            0.0,
+                            0.0,
+                            img_w as f32,
+                            img_h as f32,
+                            0.0,
+                            Color {
+                                r: 1.0,
+                                g: 1.0,
+                                b: 1.0,
+                                a: alpha,
+                            },
+                        ); //TODO: Set from tint
+                        let mut rect = Path::new();
+                        rect.rect(0.0, 0.0, img_w as f32, img_h as f32);
+                        canvas.fill_path(&mut rect, &paint);
+                        canvas.set_transform(
+                            prev_transform.0[0],
+                            prev_transform.0[1],
+                            prev_transform.0[2],
+                            prev_transform.0[3],
+                            prev_transform.0[4],
+                            prev_transform.0[5],
+                        );
 
+                        Ok(())
+                    })?
+                } else {
                     Ok(())
-                })?
-            } else {
-                Ok(())
-            }
+                }
+            })
         });
 
         //Text
@@ -317,21 +334,23 @@ impl TealData for Vgfx {
           y : f32,
 
         );
-        methods.add_method_mut("Text", |_, _vgfx, p: TextParams| {
-            let TextParams { s, x, y } = p;
-            match _vgfx.fill_paint.as_ref() {
-                Some(fill_paint) => {
-                    let canvas = &mut _vgfx
-                        .canvas
-                        .try_lock()
-                        .map_err(|_| mlua::Error::external("Canvas in use".to_string()))?;
-                    canvas
-                        .fill_text(x, y, s, fill_paint)
-                        .map_err(mlua::Error::external)?;
-                    Ok(())
+        methods.add_function_mut("Text", |_, p: TextParams| {
+            with_vgfx(|_vgfx| {
+                let TextParams { s, x, y } = p;
+                match _vgfx.fill_paint.as_ref() {
+                    Some(fill_paint) => {
+                        let canvas = &mut _vgfx
+                            .canvas
+                            .try_lock()
+                            .map_err(|_| mlua::Error::external("Canvas in use".to_string()))?;
+                        canvas
+                            .fill_text(x, y, s, fill_paint)
+                            .map_err(mlua::Error::external)?;
+                        Ok(())
+                    }
+                    None => todo!(),
                 }
-                None => todo!(),
-            }
+            })
         });
 
         //TextAlign
@@ -339,29 +358,31 @@ impl TealData for Vgfx {
           align : u32,
 
         );
-        methods.add_method_mut("TextAlign", |_, _vgfx, p: TextAlignParams| {
-            let align = TextAlign::from_bits(p.align)
-                .unwrap_or(TextAlign::ALIGN_BASELINE | TextAlign::ALIGN_LEFT);
-            let vertical = match align & TextAlign::VERTICAL {
-                TextAlign::ALIGN_BOTTOM => femtovg::Baseline::Bottom,
-                TextAlign::ALIGN_MIDDLE => femtovg::Baseline::Middle,
-                TextAlign::ALIGN_TOP => femtovg::Baseline::Top,
-                _ => femtovg::Baseline::Alphabetic,
-            };
+        methods.add_function_mut("TextAlign", |_, p: TextAlignParams| {
+            with_vgfx(|_vgfx| {
+                let align = TextAlign::from_bits(p.align)
+                    .unwrap_or(TextAlign::ALIGN_BASELINE | TextAlign::ALIGN_LEFT);
+                let vertical = match align & TextAlign::VERTICAL {
+                    TextAlign::ALIGN_BOTTOM => femtovg::Baseline::Bottom,
+                    TextAlign::ALIGN_MIDDLE => femtovg::Baseline::Middle,
+                    TextAlign::ALIGN_TOP => femtovg::Baseline::Top,
+                    _ => femtovg::Baseline::Alphabetic,
+                };
 
-            let horizontal = match align & TextAlign::HORIZONTAL {
-                TextAlign::ALIGN_CENTER => femtovg::Align::Center,
-                TextAlign::ALIGN_RIGHT => femtovg::Align::Right,
-                _ => femtovg::Align::Left,
-            };
+                let horizontal = match align & TextAlign::HORIZONTAL {
+                    TextAlign::ALIGN_CENTER => femtovg::Align::Center,
+                    TextAlign::ALIGN_RIGHT => femtovg::Align::Right,
+                    _ => femtovg::Align::Left,
+                };
 
-            _vgfx.stroke_paint.set_text_align(horizontal);
-            _vgfx.stroke_paint.set_text_baseline(vertical);
-            if let Some(text_paint) = _vgfx.fill_paint.as_mut() {
-                text_paint.set_text_align(horizontal);
-                text_paint.set_text_baseline(vertical);
-            }
-            Ok(())
+                _vgfx.stroke_paint.set_text_align(horizontal);
+                _vgfx.stroke_paint.set_text_baseline(vertical);
+                if let Some(text_paint) = _vgfx.fill_paint.as_mut() {
+                    text_paint.set_text_align(horizontal);
+                    text_paint.set_text_baseline(vertical);
+                }
+                Ok(())
+            })
         });
 
         //FontFace
@@ -369,13 +390,15 @@ impl TealData for Vgfx {
           s : String,
 
         );
-        methods.add_method_mut("FontFace", |_, _vgfx, p: FontFaceParams| {
-            if let Some(font_id) = _vgfx.fonts.get(&p.s) {
-                if let Some(text_paint) = _vgfx.fill_paint.as_mut() {
-                    text_paint.set_font(&[*font_id]);
+        methods.add_function_mut("FontFace", |_, p: FontFaceParams| {
+            with_vgfx(|_vgfx| {
+                if let Some(font_id) = _vgfx.fonts.get(&p.s) {
+                    if let Some(text_paint) = _vgfx.fill_paint.as_mut() {
+                        text_paint.set_font(&[*font_id]);
+                    }
                 }
-            }
-            Ok(())
+                Ok(())
+            })
         });
 
         //FontSize
@@ -383,11 +406,13 @@ impl TealData for Vgfx {
           size : f32,
 
         );
-        methods.add_method_mut("FontSize", |_, _vgfx, p: FontSizeParams| {
-            if let Some(text_paint) = _vgfx.fill_paint.as_mut() {
-                text_paint.set_font_size(p.size);
-            }
-            Ok(())
+        methods.add_function_mut("FontSize", |_, p: FontSizeParams| {
+            with_vgfx(|_vgfx| {
+                if let Some(text_paint) = _vgfx.fill_paint.as_mut() {
+                    text_paint.set_font_size(p.size);
+                }
+                Ok(())
+            })
         });
 
         //Translate
@@ -396,10 +421,12 @@ impl TealData for Vgfx {
           y : f32,
 
         );
-        methods.add_method_mut("Translate", |_, _vgfx, p: TranslateParams| {
-            let TranslateParams { x, y } = p;
-            _vgfx.with_canvas(|canvas| canvas.translate(x, y))?;
-            Ok(())
+        methods.add_function_mut("Translate", |_, p: TranslateParams| {
+            with_vgfx(|_vgfx| {
+                let TranslateParams { x, y } = p;
+                _vgfx.with_canvas(|canvas| canvas.translate(x, y))?;
+                Ok(())
+            })
         });
 
         //Scale
@@ -408,10 +435,12 @@ impl TealData for Vgfx {
           y : f32,
 
         );
-        methods.add_method_mut("Scale", |_, _vgfx, p: ScaleParams| {
-            let ScaleParams { x, y } = p;
-            _vgfx.with_canvas(|canvas| canvas.scale(x, y))?;
-            Ok(())
+        methods.add_function_mut("Scale", |_, p: ScaleParams| {
+            with_vgfx(|_vgfx| {
+                let ScaleParams { x, y } = p;
+                _vgfx.with_canvas(|canvas| canvas.scale(x, y))?;
+                Ok(())
+            })
         });
 
         //Rotate
@@ -419,15 +448,19 @@ impl TealData for Vgfx {
           angle : f32,
 
         );
-        methods.add_method_mut("Rotate", |_, _vgfx, p: RotateParams| {
-            _vgfx.with_canvas(|canvas| canvas.rotate(p.angle))?;
-            Ok(())
+        methods.add_function_mut("Rotate", |_, p: RotateParams| {
+            with_vgfx(|_vgfx| {
+                _vgfx.with_canvas(|canvas| canvas.rotate(p.angle))?;
+                Ok(())
+            })
         });
 
         //ResetTransform
-        methods.add_method_mut("ResetTransform", |_, _vgfx, _: ()| {
-            _vgfx.with_canvas(|canvas| canvas.reset_transform())?;
-            Ok(())
+        methods.add_function_mut("ResetTransform", |_, _: ()| {
+            with_vgfx(|_vgfx| {
+                _vgfx.with_canvas(|canvas| canvas.reset_transform())?;
+                Ok(())
+            })
         });
 
         //LoadFont
@@ -436,20 +469,22 @@ impl TealData for Vgfx {
           filename : Option<String>,
 
         );
-        methods.add_method_mut("LoadFont", |_, _vgfx, p: LoadFontParams| {
-            let name = p.name;
-            if let Some(font_id) = _vgfx.fonts.get(&name) {
-                _vgfx.current_font = Some(*font_id);
-            } else {
-                let path = p.filename.unwrap_or_else(|| name.clone());
-                let font_id = _vgfx
-                    .with_canvas(|canvas| canvas.add_font(&path))?
-                    .map_err(mlua::Error::external)?;
-                _vgfx.current_font = Some(font_id);
-                _vgfx.fonts.insert(name, font_id);
-            }
+        methods.add_function_mut("LoadFont", |_, p: LoadFontParams| {
+            with_vgfx(|_vgfx| {
+                let name = p.name;
+                if let Some(font_id) = _vgfx.fonts.get(&name) {
+                    _vgfx.current_font = Some(*font_id);
+                } else {
+                    let path = p.filename.unwrap_or_else(|| name.clone());
+                    let font_id = _vgfx
+                        .with_canvas(|canvas| canvas.add_font(&path))?
+                        .map_err(mlua::Error::external)?;
+                    _vgfx.current_font = Some(font_id);
+                    _vgfx.fonts.insert(name, font_id);
+                }
 
-            Ok(())
+                Ok(())
+            })
         });
 
         //LoadSkinFont
@@ -458,26 +493,28 @@ impl TealData for Vgfx {
           filename : Option<String>,
 
         );
-        methods.add_method_mut("LoadSkinFont", |_, _vgfx, p: LoadSkinFontParams| {
-            let name = p.name;
-            if let Some(font_id) = _vgfx.fonts.get(&name) {
-                _vgfx.current_font = Some(*font_id);
-            } else {
-                let path = p.filename.unwrap_or_else(|| name.clone());
-                let mut font_path = _vgfx.game_folder.clone();
-                font_path.push("skins");
-                font_path.push(&_vgfx.skin);
-                font_path.push("fonts");
-                font_path.push(path);
+        methods.add_function_mut("LoadSkinFont", |_, p: LoadSkinFontParams| {
+            with_vgfx(|_vgfx| {
+                let name = p.name;
+                if let Some(font_id) = _vgfx.fonts.get(&name) {
+                    _vgfx.current_font = Some(*font_id);
+                } else {
+                    let path = p.filename.unwrap_or_else(|| name.clone());
+                    let mut font_path = _vgfx.game_folder.clone();
+                    font_path.push("skins");
+                    font_path.push(&_vgfx.skin);
+                    font_path.push("fonts");
+                    font_path.push(path);
 
-                let font_id = _vgfx
-                    .with_canvas(|canvas| canvas.add_font(&font_path))?
-                    .map_err(mlua::Error::external)?;
-                _vgfx.current_font = Some(font_id);
-                _vgfx.fonts.insert(name, font_id);
-            }
+                    let font_id = _vgfx
+                        .with_canvas(|canvas| canvas.add_font(&font_path))?
+                        .map_err(mlua::Error::external)?;
+                    _vgfx.current_font = Some(font_id);
+                    _vgfx.fonts.insert(name, font_id);
+                }
 
-            Ok(())
+                Ok(())
+            })
         });
 
         //FastText
@@ -487,21 +524,23 @@ impl TealData for Vgfx {
           y : f32,
 
         );
-        methods.add_method_mut("FastText", |_, _vgfx, p: FastTextParams| {
-            let FastTextParams { input_text, x, y } = p;
-            match _vgfx.fill_paint.as_ref() {
-                Some(fill_paint) => {
-                    let canvas = &mut _vgfx
-                        .canvas
-                        .try_lock()
-                        .map_err(|_| mlua::Error::external("Canvas in use".to_string()))?;
-                    canvas
-                        .fill_text(x, y, input_text, fill_paint)
-                        .map_err(mlua::Error::external)?;
-                    Ok(())
+        methods.add_function_mut("FastText", |_, p: FastTextParams| {
+            with_vgfx(|_vgfx| {
+                let FastTextParams { input_text, x, y } = p;
+                match _vgfx.fill_paint.as_ref() {
+                    Some(fill_paint) => {
+                        let canvas = &mut _vgfx
+                            .canvas
+                            .try_lock()
+                            .map_err(|_| mlua::Error::external("Canvas in use".to_string()))?;
+                        canvas
+                            .fill_text(x, y, input_text, fill_paint)
+                            .map_err(mlua::Error::external)?;
+                        Ok(())
+                    }
+                    None => todo!(),
                 }
-                None => todo!(),
-            }
+            })
         });
 
         //CreateLabel
@@ -511,26 +550,28 @@ impl TealData for Vgfx {
           monospace : bool,
 
         );
-        methods.add_method_mut("CreateLabel", |_, _vgfx, p: CreateLabelParams| {
-            let CreateLabelParams {
-                text,
-                size,
-                monospace,
-            } = p;
-
-            _vgfx.labels.insert(
-                _vgfx.next_label_id,
-                Label {
+        methods.add_function_mut("CreateLabel", |_, p: CreateLabelParams| {
+            with_vgfx(|_vgfx| {
+                let CreateLabelParams {
                     text,
                     size,
                     monospace,
-                },
-            );
+                } = p;
 
-            let id = _vgfx.next_label_id;
-            _vgfx.next_label_id += 1;
+                _vgfx.labels.insert(
+                    _vgfx.next_label_id,
+                    Label {
+                        text,
+                        size,
+                        monospace,
+                    },
+                );
 
-            Ok(id)
+                let id = _vgfx.next_label_id;
+                _vgfx.next_label_id += 1;
+
+                Ok(id)
+            })
         });
 
         //DrawLabel
@@ -541,37 +582,39 @@ impl TealData for Vgfx {
           max_width : f32,
 
         );
-        methods.add_method_mut("DrawLabel", |_, _vgfx, p: DrawLabelParams| {
-            let DrawLabelParams {
-                label_id,
-                x,
-                y,
-                max_width,
-            } = p;
-            if let Some(label) = _vgfx.labels.get(&label_id) {
-                let canvas = &mut _vgfx
-                    .canvas
-                    .try_lock()
-                    .map_err(|_| mlua::Error::external("Canvas in use".to_string()))?;
-                let paint = _vgfx
-                    .fill_paint
-                    .clone()
-                    .unwrap_or_else(|| _vgfx.stroke_paint.clone())
-                    .with_font_size(label.size as f32);
+        methods.add_function_mut("DrawLabel", |_, p: DrawLabelParams| {
+            with_vgfx(|_vgfx| {
+                let DrawLabelParams {
+                    label_id,
+                    x,
+                    y,
+                    max_width,
+                } = p;
+                if let Some(label) = _vgfx.labels.get(&label_id) {
+                    let canvas = &mut _vgfx
+                        .canvas
+                        .try_lock()
+                        .map_err(|_| mlua::Error::external("Canvas in use".to_string()))?;
+                    let paint = _vgfx
+                        .fill_paint
+                        .clone()
+                        .unwrap_or_else(|| _vgfx.stroke_paint.clone())
+                        .with_font_size(label.size as f32);
 
-                let text_measure = canvas
-                    .measure_text(x, y, &label.text, &paint)
-                    .map_err(mlua::Error::external)?;
+                    let text_measure = canvas
+                        .measure_text(x, y, &label.text, &paint)
+                        .map_err(mlua::Error::external)?;
 
-                let x_scale = (max_width / text_measure.width()).min(1.0);
+                    let x_scale = (max_width / text_measure.width()).min(1.0);
 
-                let paint = paint.with_font_size(label.size as f32 * x_scale);
+                    let paint = paint.with_font_size(label.size as f32 * x_scale);
 
-                canvas
-                    .fill_text(x, y, &label.text, &paint)
-                    .map_err(mlua::Error::external)?;
-            }
-            Ok(())
+                    canvas
+                        .fill_text(x, y, &label.text, &paint)
+                        .map_err(mlua::Error::external)?;
+                }
+                Ok(())
+            })
         });
 
         //MoveTo
@@ -580,14 +623,16 @@ impl TealData for Vgfx {
           y : f32,
 
         );
-        methods.add_method_mut("MoveTo", |_, _vgfx, p: MoveToParams| {
-            let MoveToParams { x, y } = p;
-            if let Some(path) = _vgfx.path.as_mut() {
-                path.move_to(x, y);
-                Ok(())
-            } else {
-                Err(mlua::Error::external("No path started".to_string()))
-            }
+        methods.add_function_mut("MoveTo", |_, p: MoveToParams| {
+            with_vgfx(|_vgfx| {
+                let MoveToParams { x, y } = p;
+                if let Some(path) = _vgfx.path.as_mut() {
+                    path.move_to(x, y);
+                    Ok(())
+                } else {
+                    Err(mlua::Error::external("No path started".to_string()))
+                }
+            })
         });
 
         //LineTo
@@ -596,14 +641,16 @@ impl TealData for Vgfx {
           y : f32,
 
         );
-        methods.add_method_mut("LineTo", |_, _vgfx, p: LineToParams| {
-            let LineToParams { x, y } = p;
-            if let Some(path) = _vgfx.path.as_mut() {
-                path.line_to(x, y);
-                Ok(())
-            } else {
-                Err(mlua::Error::external("No path started".to_string()))
-            }
+        methods.add_function_mut("LineTo", |_, p: LineToParams| {
+            with_vgfx(|_vgfx| {
+                let LineToParams { x, y } = p;
+                if let Some(path) = _vgfx.path.as_mut() {
+                    path.line_to(x, y);
+                    Ok(())
+                } else {
+                    Err(mlua::Error::external("No path started".to_string()))
+                }
+            })
         });
 
         //BezierTo
@@ -616,21 +663,23 @@ impl TealData for Vgfx {
           y : f32,
 
         );
-        methods.add_method_mut("BezierTo", |_, _vgfx, p: BezierToParams| {
-            let BezierToParams {
-                c_1x,
-                c_1y,
-                c_2x,
-                c_2y,
-                x,
-                y,
-            } = p;
-            if let Some(path) = _vgfx.path.as_mut() {
-                path.bezier_to(c_1x, c_1y, c_2x, c_2y, x, y);
-                Ok(())
-            } else {
-                Err(mlua::Error::external("No path started".to_string()))
-            }
+        methods.add_function_mut("BezierTo", |_, p: BezierToParams| {
+            with_vgfx(|_vgfx| {
+                let BezierToParams {
+                    c_1x,
+                    c_1y,
+                    c_2x,
+                    c_2y,
+                    x,
+                    y,
+                } = p;
+                if let Some(path) = _vgfx.path.as_mut() {
+                    path.bezier_to(c_1x, c_1y, c_2x, c_2y, x, y);
+                    Ok(())
+                } else {
+                    Err(mlua::Error::external("No path started".to_string()))
+                }
+            })
         });
 
         //QuadTo
@@ -641,14 +690,16 @@ impl TealData for Vgfx {
           y : f32,
 
         );
-        methods.add_method_mut("QuadTo", |_, _vgfx, p: QuadToParams| {
-            let QuadToParams { cx, cy, x, y } = p;
-            if let Some(path) = _vgfx.path.as_mut() {
-                path.quad_to(cx, cy, x, y);
-                Ok(())
-            } else {
-                Err(mlua::Error::external("No path started".to_string()))
-            }
+        methods.add_function_mut("QuadTo", |_, p: QuadToParams| {
+            with_vgfx(|_vgfx| {
+                let QuadToParams { cx, cy, x, y } = p;
+                if let Some(path) = _vgfx.path.as_mut() {
+                    path.quad_to(cx, cy, x, y);
+                    Ok(())
+                } else {
+                    Err(mlua::Error::external("No path started".to_string()))
+                }
+            })
         });
 
         //ArcTo
@@ -660,30 +711,34 @@ impl TealData for Vgfx {
           radius : f32,
 
         );
-        methods.add_method_mut("ArcTo", |_, _vgfx, p: ArcToParams| {
-            let ArcToParams {
-                x_1,
-                y_1,
-                x_2,
-                y_2,
-                radius,
-            } = p;
-            if let Some(path) = _vgfx.path.as_mut() {
-                path.arc_to(x_1, y_1, x_2, y_2, radius);
-                Ok(())
-            } else {
-                Err(mlua::Error::external("No path started".to_string()))
-            }
+        methods.add_function_mut("ArcTo", |_, p: ArcToParams| {
+            with_vgfx(|_vgfx| {
+                let ArcToParams {
+                    x_1,
+                    y_1,
+                    x_2,
+                    y_2,
+                    radius,
+                } = p;
+                if let Some(path) = _vgfx.path.as_mut() {
+                    path.arc_to(x_1, y_1, x_2, y_2, radius);
+                    Ok(())
+                } else {
+                    Err(mlua::Error::external("No path started".to_string()))
+                }
+            })
         });
 
         //ClosePath
-        methods.add_method_mut("ClosePath", |_, _vgfx, _: ()| {
-            if let Some(path) = _vgfx.path.as_mut() {
-                path.close();
-                Ok(())
-            } else {
-                Err(mlua::Error::external("No path started".to_string()))
-            }
+        methods.add_function_mut("ClosePath", |_, _: ()| {
+            with_vgfx(|_vgfx| {
+                if let Some(path) = _vgfx.path.as_mut() {
+                    path.close();
+                    Ok(())
+                } else {
+                    Err(mlua::Error::external("No path started".to_string()))
+                }
+            })
         });
 
         //MiterLimit
@@ -691,9 +746,11 @@ impl TealData for Vgfx {
           limit : f32,
 
         );
-        methods.add_method_mut("MiterLimit", |_, _vgfx, p: MiterLimitParams| {
-            _vgfx.stroke_paint.set_miter_limit(p.limit);
-            Ok(())
+        methods.add_function_mut("MiterLimit", |_, p: MiterLimitParams| {
+            with_vgfx(|_vgfx| {
+                _vgfx.stroke_paint.set_miter_limit(p.limit);
+                Ok(())
+            })
         });
 
         //StrokeWidth
@@ -701,9 +758,11 @@ impl TealData for Vgfx {
           size : f32,
 
         );
-        methods.add_method_mut("StrokeWidth", |_, _vgfx, p: StrokeWidthParams| {
-            _vgfx.stroke_paint.set_line_width(p.size);
-            Ok(())
+        methods.add_function_mut("StrokeWidth", |_, p: StrokeWidthParams| {
+            with_vgfx(|_vgfx| {
+                _vgfx.stroke_paint.set_line_width(p.size);
+                Ok(())
+            })
         });
 
         //LineCap
@@ -711,11 +770,13 @@ impl TealData for Vgfx {
           cap : u8,
 
         );
-        methods.add_method_mut("LineCap", |_, _vgfx, p: LineCapParams| {
-            _vgfx
-                .stroke_paint
-                .set_line_cap(unsafe { std::mem::transmute(p.cap) });
-            Ok(())
+        methods.add_function_mut("LineCap", |_, p: LineCapParams| {
+            with_vgfx(|_vgfx| {
+                _vgfx
+                    .stroke_paint
+                    .set_line_cap(unsafe { std::mem::transmute(p.cap) });
+                Ok(())
+            })
         });
 
         //LineJoin
@@ -723,23 +784,27 @@ impl TealData for Vgfx {
           join : u8,
 
         );
-        methods.add_method_mut("LineJoin", |_, _vgfx, p: LineJoinParams| {
-            _vgfx
-                .stroke_paint
-                .set_line_join(unsafe { std::mem::transmute(p.join) });
-            Ok(())
+        methods.add_function_mut("LineJoin", |_, p: LineJoinParams| {
+            with_vgfx(|_vgfx| {
+                _vgfx
+                    .stroke_paint
+                    .set_line_join(unsafe { std::mem::transmute(p.join) });
+                Ok(())
+            })
         });
 
         //Stroke
-        methods.add_method_mut("Stroke", |_, _vgfx, _: ()| {
-            if let Some(path) = _vgfx.path.as_mut() {
-                let canvas = &mut _vgfx
-                    .canvas
-                    .try_lock()
-                    .map_err(|_| mlua::Error::external("Canvas in use".to_string()))?;
-                canvas.stroke_path(path, &_vgfx.stroke_paint);
-            }
-            Ok(())
+        methods.add_function_mut("Stroke", |_, _: ()| {
+            with_vgfx(|_vgfx| {
+                if let Some(path) = _vgfx.path.as_mut() {
+                    let canvas = &mut _vgfx
+                        .canvas
+                        .try_lock()
+                        .map_err(|_| mlua::Error::external("Canvas in use".to_string()))?;
+                    canvas.stroke_path(path, &_vgfx.stroke_paint);
+                }
+                Ok(())
+            })
         });
 
         //StrokeColor
@@ -750,12 +815,14 @@ impl TealData for Vgfx {
           a : Option<u8>,
 
         );
-        methods.add_method_mut("StrokeColor", |_, _vgfx, p: StrokeColorParams| {
-            let StrokeColorParams { r, g, b, a } = p;
-            _vgfx
-                .stroke_paint
-                .set_color(Color::rgba(r, g, b, a.unwrap_or(255))); //TODO
-            Ok(())
+        methods.add_function_mut("StrokeColor", |_, p: StrokeColorParams| {
+            with_vgfx(|_vgfx| {
+                let StrokeColorParams { r, g, b, a } = p;
+                _vgfx
+                    .stroke_paint
+                    .set_color(Color::rgba(r, g, b, a.unwrap_or(255))); //TODO
+                Ok(())
+            })
         });
 
         //UpdateLabel
@@ -765,17 +832,19 @@ impl TealData for Vgfx {
           size : i32,
 
         );
-        methods.add_method_mut("UpdateLabel", |_, _vgfx, p: UpdateLabelParams| {
-            if let Some(label) = _vgfx.labels.get_mut(&p.label_id) {
-                label.text = p.text;
-                label.size = p.size;
-                Ok(())
-            } else {
-                Err(mlua::Error::external(format!(
-                    "No label with id {}",
-                    p.label_id
-                )))
-            }
+        methods.add_function_mut("UpdateLabel", |_, p: UpdateLabelParams| {
+            with_vgfx(move |_vgfx| {
+                if let Some(label) = _vgfx.labels.get_mut(&p.label_id) {
+                    label.text = p.text.clone();
+                    label.size = p.size;
+                    Ok(())
+                } else {
+                    Err(mlua::Error::external(format!(
+                        "No label with id {}",
+                        p.label_id
+                    )))
+                }
+            })
         });
 
         //DrawGauge
@@ -788,9 +857,9 @@ impl TealData for Vgfx {
           delta_time : f32,
 
         );
-        methods.add_method_mut(
+        methods.add_function_mut(
             "DrawGauge",
-            |_, _vgfx, _: DrawGaugeParams| -> Result<(), mlua::Error> {
+            |_, _: DrawGaugeParams| -> Result<(), mlua::Error> {
                 Err(mlua::Error::external("Function removed".to_string()))
             },
         );
@@ -803,9 +872,9 @@ impl TealData for Vgfx {
           b : i32,
 
         );
-        methods.add_method_mut(
+        methods.add_function_mut(
             "SetGaugeColor",
-            |_, _vgfx, _: SetGaugeColorParams| -> Result<(), mlua::Error> {
+            |_, _: SetGaugeColorParams| -> Result<(), mlua::Error> {
                 Err(mlua::Error::external("Function removed".to_string()))
             },
         );
@@ -819,14 +888,16 @@ impl TealData for Vgfx {
           r : f32,
 
         );
-        methods.add_method_mut("RoundedRect", |_, _vgfx, p: RoundedRectParams| {
-            let RoundedRectParams { x, y, w, h, r } = p;
-            if let Some(path) = _vgfx.path.as_mut() {
-                path.rounded_rect(x, y, w, h, r);
-                Ok(())
-            } else {
-                Err(mlua::Error::external("No path started".to_string()))
-            }
+        methods.add_function_mut("RoundedRect", |_, p: RoundedRectParams| {
+            with_vgfx(|_vgfx| {
+                let RoundedRectParams { x, y, w, h, r } = p;
+                if let Some(path) = _vgfx.path.as_mut() {
+                    path.rounded_rect(x, y, w, h, r);
+                    Ok(())
+                } else {
+                    Err(mlua::Error::external("No path started".to_string()))
+                }
+            })
         });
 
         //RoundedRectVarying
@@ -841,9 +912,8 @@ impl TealData for Vgfx {
           rad_bottom_left : f32,
 
         );
-        methods.add_method_mut(
-            "RoundedRectVarying",
-            |_, _vgfx, p: RoundedRectVaryingParams| {
+        methods.add_function_mut("RoundedRectVarying", |_, p: RoundedRectVaryingParams| {
+            with_vgfx(|_vgfx| {
                 let RoundedRectVaryingParams {
                     x,
                     y,
@@ -869,8 +939,8 @@ impl TealData for Vgfx {
                 } else {
                     Err(mlua::Error::external("No path started".to_string()))
                 }
-            },
-        );
+            })
+        });
 
         //Ellipse
         tealr::mlu::create_named_parameters!(EllipseParams with
@@ -880,14 +950,16 @@ impl TealData for Vgfx {
           ry : f32,
 
         );
-        methods.add_method_mut("Ellipse", |_, _vgfx, p: EllipseParams| {
-            let EllipseParams { cx, cy, rx, ry } = p;
-            if let Some(path) = _vgfx.path.as_mut() {
-                path.ellipse(cx, cy, rx, ry);
-                Ok(())
-            } else {
-                Err(mlua::Error::external("No path started".to_string()))
-            }
+        methods.add_function_mut("Ellipse", |_, p: EllipseParams| {
+            with_vgfx(|_vgfx| {
+                let EllipseParams { cx, cy, rx, ry } = p;
+                if let Some(path) = _vgfx.path.as_mut() {
+                    path.ellipse(cx, cy, rx, ry);
+                    Ok(())
+                } else {
+                    Err(mlua::Error::external("No path started".to_string()))
+                }
+            })
         });
 
         //Circle
@@ -897,14 +969,16 @@ impl TealData for Vgfx {
           r : f32,
 
         );
-        methods.add_method_mut("Circle", |_, _vgfx, p: CircleParams| {
-            let CircleParams { cx, cy, r } = p;
-            if let Some(path) = _vgfx.path.as_mut() {
-                path.circle(cx, cy, r);
-                Ok(())
-            } else {
-                Err(mlua::Error::external("No path started".to_string()))
-            }
+        methods.add_function_mut("Circle", |_, p: CircleParams| {
+            with_vgfx(|_vgfx| {
+                let CircleParams { cx, cy, r } = p;
+                if let Some(path) = _vgfx.path.as_mut() {
+                    path.circle(cx, cy, r);
+                    Ok(())
+                } else {
+                    Err(mlua::Error::external("No path started".to_string()))
+                }
+            })
         });
 
         //SkewX
@@ -912,9 +986,11 @@ impl TealData for Vgfx {
           angle : f32,
 
         );
-        methods.add_method_mut("SkewX", |_, _vgfx, p: SkewXParams| {
-            _vgfx.with_canvas(|canvas| canvas.skew_x(p.angle))?;
-            Ok(())
+        methods.add_function_mut("SkewX", |_, p: SkewXParams| {
+            with_vgfx(|_vgfx| {
+                _vgfx.with_canvas(|canvas| canvas.skew_x(p.angle))?;
+                Ok(())
+            })
         });
 
         //SkewY
@@ -922,9 +998,11 @@ impl TealData for Vgfx {
           angle : f32,
 
         );
-        methods.add_method_mut("SkewY", |_, _vgfx, p: SkewYParams| {
-            _vgfx.with_canvas(|canvas| canvas.skew_y(p.angle))?;
-            Ok(())
+        methods.add_function_mut("SkewY", |_, p: SkewYParams| {
+            with_vgfx(|_vgfx| {
+                _vgfx.with_canvas(|canvas| canvas.skew_y(p.angle))?;
+                Ok(())
+            })
         });
 
         //LinearGradient
@@ -935,23 +1013,25 @@ impl TealData for Vgfx {
           ey : f32,
 
         );
-        methods.add_method_mut("LinearGradient", |_, _vgfx, p: LinearGradientParams| {
-            let LinearGradientParams { sx, sy, ex, ey } = p;
-            _vgfx.paints.insert(
-                _vgfx.next_paint_id,
-                Paint::linear_gradient(
-                    sx,
-                    sy,
-                    ex,
-                    ey,
-                    _vgfx.gradient_colors[0],
-                    _vgfx.gradient_colors[1],
-                ),
-            );
-            let id = _vgfx.next_paint_id;
-            _vgfx.next_paint_id += 1;
+        methods.add_function_mut("LinearGradient", |_, p: LinearGradientParams| {
+            with_vgfx(|_vgfx| {
+                let LinearGradientParams { sx, sy, ex, ey } = p;
+                _vgfx.paints.insert(
+                    _vgfx.next_paint_id,
+                    Paint::linear_gradient(
+                        sx,
+                        sy,
+                        ex,
+                        ey,
+                        _vgfx.gradient_colors[0],
+                        _vgfx.gradient_colors[1],
+                    ),
+                );
+                let id = _vgfx.next_paint_id;
+                _vgfx.next_paint_id += 1;
 
-            Ok(id)
+                Ok(id)
+            })
         });
 
         //BoxGradient
@@ -964,19 +1044,21 @@ impl TealData for Vgfx {
           f : f32,
 
         );
-        methods.add_method_mut("BoxGradient", |_, _vgfx, p: BoxGradientParams| {
-            let BoxGradientParams { x, y, w, h, r, f } = p;
-            _vgfx.fill_paint = Some(Paint::box_gradient(
-                x,
-                y,
-                w,
-                h,
-                r,
-                f,
-                _vgfx.gradient_colors[0],
-                _vgfx.gradient_colors[1],
-            ));
-            Ok(())
+        methods.add_function_mut("BoxGradient", |_, p: BoxGradientParams| {
+            with_vgfx(|_vgfx| {
+                let BoxGradientParams { x, y, w, h, r, f } = p;
+                _vgfx.fill_paint = Some(Paint::box_gradient(
+                    x,
+                    y,
+                    w,
+                    h,
+                    r,
+                    f,
+                    _vgfx.gradient_colors[0],
+                    _vgfx.gradient_colors[1],
+                ));
+                Ok(())
+            })
         });
 
         //RadialGradient
@@ -987,23 +1069,25 @@ impl TealData for Vgfx {
           outr : f32,
 
         );
-        methods.add_method_mut("RadialGradient", |_, _vgfx, p: RadialGradientParams| {
-            let RadialGradientParams { cx, cy, inr, outr } = p;
-            _vgfx.paints.insert(
-                _vgfx.next_paint_id,
-                Paint::radial_gradient(
-                    cx,
-                    cy,
-                    inr,
-                    outr,
-                    _vgfx.gradient_colors[0],
-                    _vgfx.gradient_colors[0],
-                ),
-            );
-            let id = _vgfx.next_paint_id;
-            _vgfx.next_paint_id += 1;
+        methods.add_function_mut("RadialGradient", |_, p: RadialGradientParams| {
+            with_vgfx(|_vgfx| {
+                let RadialGradientParams { cx, cy, inr, outr } = p;
+                _vgfx.paints.insert(
+                    _vgfx.next_paint_id,
+                    Paint::radial_gradient(
+                        cx,
+                        cy,
+                        inr,
+                        outr,
+                        _vgfx.gradient_colors[0],
+                        _vgfx.gradient_colors[0],
+                    ),
+                );
+                let id = _vgfx.next_paint_id;
+                _vgfx.next_paint_id += 1;
 
-            Ok(id)
+                Ok(id)
+            })
         });
 
         //ImagePattern
@@ -1017,27 +1101,29 @@ impl TealData for Vgfx {
           alpha : f32,
 
         );
-        methods.add_method_mut("ImagePattern", |_, _vgfx, p: ImagePatternParams| {
-            let ImagePatternParams {
-                ox,
-                oy,
-                ex,
-                ey,
-                angle,
-                image,
-                alpha,
-            } = p;
+        methods.add_function_mut("ImagePattern", |_, p: ImagePatternParams| {
+            with_vgfx(|_vgfx| {
+                let ImagePatternParams {
+                    ox,
+                    oy,
+                    ex,
+                    ey,
+                    angle,
+                    image,
+                    alpha,
+                } = p;
 
-            if let Some(id) = _vgfx.images.get(&image) {
-                let paint = Paint::image(*id, ox, oy, ex, ey, angle, alpha);
-                _vgfx.paints.insert(_vgfx.next_paint_id, paint);
-                let paint_id = _vgfx.next_paint_id;
-                _vgfx.next_paint_id += 1;
-                _vgfx.paint_imgs.insert(paint_id, *id);
-                Ok(paint_id)
-            } else {
-                Err(mlua::Error::external(format!("No image with id {image}")))
-            }
+                if let Some(id) = _vgfx.images.get(&image) {
+                    let paint = Paint::image(*id, ox, oy, ex, ey, angle, alpha);
+                    _vgfx.paints.insert(_vgfx.next_paint_id, paint);
+                    let paint_id = _vgfx.next_paint_id;
+                    _vgfx.next_paint_id += 1;
+                    _vgfx.paint_imgs.insert(paint_id, *id);
+                    Ok(paint_id)
+                } else {
+                    Err(mlua::Error::external(format!("No image with id {image}")))
+                }
+            })
         });
 
         //UpdateImagePattern
@@ -1050,9 +1136,8 @@ impl TealData for Vgfx {
           angle : f32,
           alpha : f32,
         );
-        methods.add_method_mut(
-            "UpdateImagePattern",
-            |_, _vgfx, p: UpdateImagePatternParams| {
+        methods.add_function_mut("UpdateImagePattern", |_, p: UpdateImagePatternParams| {
+            with_vgfx(|_vgfx| {
                 let UpdateImagePatternParams {
                     paint,
                     ox,
@@ -1069,8 +1154,8 @@ impl TealData for Vgfx {
                     *pattern_paint = Paint::image(*img, ox, oy, ex, ey, angle, alpha);
                 }
                 Ok(())
-            },
-        );
+            })
+        });
 
         //GradientColors
         tealr::mlu::create_named_parameters!(GradientColorsParams with
@@ -1084,22 +1169,24 @@ impl TealData for Vgfx {
           ao : i32,
 
         );
-        methods.add_method_mut("GradientColors", |_, _vgfx, p: GradientColorsParams| {
-            let GradientColorsParams {
-                ri,
-                gi,
-                bi,
-                ai,
-                ro,
-                go,
-                bo,
-                ao,
-            } = p;
-            _vgfx.gradient_colors = [
-                Color::rgba(ri as u8, gi as u8, bi as u8, ai as u8),
-                Color::rgba(ro as u8, go as u8, bo as u8, ao as u8),
-            ];
-            Ok(())
+        methods.add_function_mut("GradientColors", |_, p: GradientColorsParams| {
+            with_vgfx(|_vgfx| {
+                let GradientColorsParams {
+                    ri,
+                    gi,
+                    bi,
+                    ai,
+                    ro,
+                    go,
+                    bo,
+                    ao,
+                } = p;
+                _vgfx.gradient_colors = [
+                    Color::rgba(ri as u8, gi as u8, bi as u8, ai as u8),
+                    Color::rgba(ro as u8, go as u8, bo as u8, ao as u8),
+                ];
+                Ok(())
+            })
         });
 
         //FillPaint
@@ -1107,11 +1194,13 @@ impl TealData for Vgfx {
           paint : u32,
 
         );
-        methods.add_method_mut("FillPaint", |_, _vgfx, p: FillPaintParams| {
-            if let Some(paint) = _vgfx.paints.get(&p.paint) {
-                _vgfx.fill_paint = Some(paint.clone());
-            }
-            Ok(())
+        methods.add_function_mut("FillPaint", |_, p: FillPaintParams| {
+            with_vgfx(|_vgfx| {
+                if let Some(paint) = _vgfx.paints.get(&p.paint) {
+                    _vgfx.fill_paint = Some(paint.clone());
+                }
+                Ok(())
+            })
         });
 
         //StrokePaint
@@ -1119,31 +1208,37 @@ impl TealData for Vgfx {
           paint : u32,
 
         );
-        methods.add_method_mut("StrokePaint", |_, _vgfx, p: StrokePaintParams| {
-            if let Some(paint) = _vgfx.paints.get(&p.paint) {
-                _vgfx.stroke_paint = paint.clone();
-            }
+        methods.add_function_mut("StrokePaint", |_, p: StrokePaintParams| {
+            with_vgfx(|_vgfx| {
+                if let Some(paint) = _vgfx.paints.get(&p.paint) {
+                    _vgfx.stroke_paint = paint.clone();
+                }
 
-            Ok(())
+                Ok(())
+            })
         });
 
         //Save
-        methods.add_method_mut("Save", |_l, _vgfx, _: ()| {
-            _vgfx.with_canvas(|canvas| canvas.save())?;
-            //TODO: stacks for custom stuff
-            Ok(())
+        methods.add_function_mut("Save", |_l, _: ()| {
+            with_vgfx(|_vgfx| {
+                _vgfx.with_canvas(|canvas| canvas.save())?;
+                //TODO: stacks for custom stuff
+                Ok(())
+            })
         });
 
         //Restore
-        methods.add_method_mut("Restore", |_, _vgfx, _: ()| {
-            _vgfx.with_canvas(|canvas| canvas.restore())?;
-            //TODO: stacks for custom stuff
-            Ok(())
+        methods.add_function_mut("Restore", |_, _: ()| {
+            with_vgfx(|_vgfx| {
+                _vgfx.with_canvas(|canvas| canvas.restore())?;
+                //TODO: stacks for custom stuff
+                Ok(())
+            })
         });
 
         //Reset
-        methods.add_method_mut("Reset", |_, _vgfx, _: ()| {
-            _vgfx.with_canvas(|canvas| canvas.reset())
+        methods.add_function_mut("Reset", |_, _: ()| {
+            with_vgfx(|_vgfx| _vgfx.with_canvas(|canvas| canvas.reset()))
         });
 
         //PathWinding
@@ -1151,16 +1246,20 @@ impl TealData for Vgfx {
           dir : i32,
 
         );
-        methods.add_method_mut("PathWinding", |_, _vgfx, p: PathWindingParams| {
-            todo!();
-            Ok(0)
+        methods.add_function_mut("PathWinding", |_, p: PathWindingParams| {
+            with_vgfx(|_vgfx| {
+                todo!();
+                Ok(0)
+            })
         });
 
         //ForceRender
-        methods.add_method_mut("ForceRender", |_, _vgfx, _: ()| {
-            //TODO: Flush game render as well
-            _vgfx.with_canvas(|canvas| canvas.flush())?;
-            Ok(())
+        methods.add_function_mut("ForceRender", |_, _: ()| {
+            with_vgfx(|_vgfx| {
+                //TODO: Flush game render as well
+                _vgfx.with_canvas(|canvas| canvas.flush())?;
+                Ok(())
+            })
         });
 
         //LoadImageJob
@@ -1171,9 +1270,11 @@ impl TealData for Vgfx {
           h : i32,
 
         );
-        methods.add_method_mut("LoadImageJob", |_, _vgfx, p: LoadImageJobParams| {
-            todo!();
-            Ok(0)
+        methods.add_function_mut("LoadImageJob", |_, p: LoadImageJobParams| {
+            with_vgfx(|_vgfx| {
+                todo!();
+                Ok(0)
+            })
         });
 
         //LoadWebImageJob
@@ -1184,9 +1285,11 @@ impl TealData for Vgfx {
           h : i32,
 
         );
-        methods.add_method_mut("LoadWebImageJob", |_, _vgfx, p: LoadWebImageJobParams| {
-            todo!();
-            Ok(0)
+        methods.add_function_mut("LoadWebImageJob", |_, p: LoadWebImageJobParams| {
+            with_vgfx(|_vgfx| {
+                todo!();
+                Ok(0)
+            })
         });
 
         //Scissor
@@ -1197,11 +1300,13 @@ impl TealData for Vgfx {
           h : f32,
 
         );
-        methods.add_method_mut("Scissor", |_, _vgfx, p: ScissorParams| {
-            let ScissorParams { x, y, w, h } = p;
-            _vgfx.with_canvas(|canvas| canvas.scissor(x, y, w, h))?;
+        methods.add_function_mut("Scissor", |_, p: ScissorParams| {
+            with_vgfx(|_vgfx| {
+                let ScissorParams { x, y, w, h } = p;
+                _vgfx.with_canvas(|canvas| canvas.scissor(x, y, w, h))?;
 
-            Ok(())
+                Ok(())
+            })
         });
 
         //IntersectScissor
@@ -1212,16 +1317,20 @@ impl TealData for Vgfx {
           h : f32,
 
         );
-        methods.add_method_mut("IntersectScissor", |_, _vgfx, p: IntersectScissorParams| {
-            let IntersectScissorParams { x, y, w, h } = p;
-            _vgfx.with_canvas(|canvas| canvas.intersect_scissor(x, y, w, h))?;
-            Ok(())
+        methods.add_function_mut("IntersectScissor", |_, p: IntersectScissorParams| {
+            with_vgfx(|_vgfx| {
+                let IntersectScissorParams { x, y, w, h } = p;
+                _vgfx.with_canvas(|canvas| canvas.intersect_scissor(x, y, w, h))?;
+                Ok(())
+            })
         });
 
         //ResetScissor
-        methods.add_method_mut("ResetScissor", |_, _vgfx, _: ()| {
-            _vgfx.with_canvas(|canvas| canvas.reset_scissor())?;
-            Ok(())
+        methods.add_function_mut("ResetScissor", |_, _: ()| {
+            with_vgfx(|_vgfx| {
+                _vgfx.with_canvas(|canvas| canvas.reset_scissor())?;
+                Ok(())
+            })
         });
 
         //TextBounds
@@ -1231,22 +1340,24 @@ impl TealData for Vgfx {
           s : String,
 
         );
-        methods.add_method_mut("TextBounds", |_, _vgfx, p: TextBoundsParams| {
+        methods.add_function_mut("TextBounds", |_, p: TextBoundsParams| {
             let TextBoundsParams { x, y, s } = p;
 
-            if let Some(paint) = _vgfx.fill_paint.as_ref() {
-                let canvas = &mut _vgfx
-                    .canvas
-                    .try_lock()
-                    .map_err(|_| mlua::Error::external("Canvas in use".to_string()))?;
+            with_vgfx(move |_vgfx| {
+                if let Some(paint) = _vgfx.fill_paint.as_ref() {
+                    let canvas = &mut _vgfx
+                        .canvas
+                        .try_lock()
+                        .map_err(|_| mlua::Error::external("Canvas in use".to_string()))?;
 
-                let bounds = canvas
-                    .measure_text(x, y, s, paint)
-                    .map_err(mlua::Error::external)?;
-                Ok((x, y, x + bounds.width(), y + bounds.height()))
-            } else {
-                Err(mlua::Error::external("No text paint set".to_string()))
-            }
+                    let bounds = canvas
+                        .measure_text(x, y, &s, paint)
+                        .map_err(mlua::Error::external)?;
+                    Ok((x, y, x + bounds.width(), y + bounds.height()))
+                } else {
+                    Err(mlua::Error::external("No text paint set".to_string()))
+                }
+            })
         });
 
         //LabelSize
@@ -1254,9 +1365,11 @@ impl TealData for Vgfx {
           label : i32,
 
         );
-        methods.add_method_mut("LabelSize", |_, _vgfx, p: LabelSizeParams| {
-            todo!();
-            Ok(0)
+        methods.add_function_mut("LabelSize", |_, p: LabelSizeParams| {
+            with_vgfx(|_vgfx| {
+                todo!();
+                Ok(0)
+            })
         });
 
         //FastTextSize
@@ -1264,9 +1377,11 @@ impl TealData for Vgfx {
           text : String,
 
         );
-        methods.add_method_mut("FastTextSize", |_, _vgfx, p: FastTextSizeParams| {
-            todo!();
-            Ok(0)
+        methods.add_function_mut("FastTextSize", |_, p: FastTextSizeParams| {
+            with_vgfx(|_vgfx| {
+                todo!();
+                Ok(0)
+            })
         });
 
         //ImageSize
@@ -1274,17 +1389,19 @@ impl TealData for Vgfx {
           image : u32,
 
         );
-        methods.add_method_mut("ImageSize", |_, _vgfx, p: ImageSizeParams| {
-            if let Some(id) = _vgfx.images.get(&p.image).copied() {
-                _vgfx
-                    .with_canvas(|canvas| canvas.image_size(id))?
-                    .map_err(mlua::Error::external)
-            } else {
-                Err(mlua::Error::external(format!(
-                    "No image with id {}",
-                    p.image
-                )))
-            }
+        methods.add_function_mut("ImageSize", |_, p: ImageSizeParams| {
+            with_vgfx(|_vgfx| {
+                if let Some(id) = _vgfx.images.get(&p.image).copied() {
+                    _vgfx
+                        .with_canvas(|canvas| canvas.image_size(id))?
+                        .map_err(mlua::Error::external)
+                } else {
+                    Err(mlua::Error::external(format!(
+                        "No image with id {}",
+                        p.image
+                    )))
+                }
+            })
         });
 
         //Arc
@@ -1297,32 +1414,34 @@ impl TealData for Vgfx {
           dir : i32,
 
         );
-        methods.add_method_mut("Arc", |_, _vgfx, p: ArcParams| {
-            let ArcParams {
-                cx,
-                cy,
-                r,
-                a_0,
-                a_1,
-                dir,
-            } = p;
-            if let Some(path) = _vgfx.path.as_mut() {
-                path.arc(
+        methods.add_function_mut("Arc", |_, p: ArcParams| {
+            with_vgfx(|_vgfx| {
+                let ArcParams {
                     cx,
                     cy,
                     r,
                     a_0,
                     a_1,
-                    if dir == 0 {
-                        femtovg::Solidity::Solid
-                    } else {
-                        femtovg::Solidity::Hole
-                    },
-                );
-                Ok(())
-            } else {
-                Err(mlua::Error::external("No path started".to_string()))
-            }
+                    dir,
+                } = p;
+                if let Some(path) = _vgfx.path.as_mut() {
+                    path.arc(
+                        cx,
+                        cy,
+                        r,
+                        a_0,
+                        a_1,
+                        if dir == 0 {
+                            femtovg::Solidity::Solid
+                        } else {
+                            femtovg::Solidity::Hole
+                        },
+                    );
+                    Ok(())
+                } else {
+                    Err(mlua::Error::external("No path started".to_string()))
+                }
+            })
         });
 
         //SetImageTint
@@ -1332,12 +1451,14 @@ impl TealData for Vgfx {
           b : i32,
 
         );
-        methods.add_method_mut("SetImageTint", |_, _vgfx, p: SetImageTintParams| {
-            if let Some(paint) = _vgfx.fill_paint.as_mut() {
-                //Paint::image_tint(id, cx, cy, width, height, angle, tint)
-            }
-            todo!();
-            Ok(0)
+        methods.add_function_mut("SetImageTint", |_, p: SetImageTintParams| {
+            with_vgfx(|_vgfx| {
+                if let Some(paint) = _vgfx.fill_paint.as_mut() {
+                    //Paint::image_tint(id, cx, cy, width, height, angle, tint)
+                }
+                todo!();
+                Ok(0)
+            })
         });
 
         //GlobalCompositeOperation
@@ -1345,18 +1466,20 @@ impl TealData for Vgfx {
           op : u8,
 
         );
-        methods.add_method_mut(
+        methods.add_function_mut(
             "GlobalCompositeOperation",
-            |_, _vgfx, p: GlobalCompositeOperationParams| {
-                if p.op <= femtovg::CompositeOperation::Xor as u8 {
-                    unsafe {
-                        _vgfx.with_canvas(|canvas| {
-                            canvas.global_composite_operation(std::mem::transmute(p.op))
-                        })?
+            |_, p: GlobalCompositeOperationParams| {
+                with_vgfx(|_vgfx| {
+                    if p.op <= femtovg::CompositeOperation::Xor as u8 {
+                        unsafe {
+                            _vgfx.with_canvas(|canvas| {
+                                canvas.global_composite_operation(std::mem::transmute(p.op))
+                            })?
+                        }
                     }
-                }
 
-                Ok(())
+                    Ok(())
+                })
             },
         );
 
@@ -1366,22 +1489,24 @@ impl TealData for Vgfx {
           dfactor : u8,
 
         );
-        methods.add_method_mut(
+        methods.add_function_mut(
             "GlobalCompositeBlendFunc",
-            |_, _vgfx, p: GlobalCompositeBlendFuncParams| {
-                let last_factor = femtovg::BlendFactor::SrcAlphaSaturate as u8;
-                if p.dfactor <= last_factor && p.sfactor <= last_factor {
-                    unsafe {
-                        _vgfx.with_canvas(|canvas| {
-                            canvas.global_composite_blend_func(
-                                std::mem::transmute(p.sfactor),
-                                std::mem::transmute(p.dfactor),
-                            )
-                        })?
+            |_, p: GlobalCompositeBlendFuncParams| {
+                with_vgfx(|_vgfx| {
+                    let last_factor = femtovg::BlendFactor::SrcAlphaSaturate as u8;
+                    if p.dfactor <= last_factor && p.sfactor <= last_factor {
+                        unsafe {
+                            _vgfx.with_canvas(|canvas| {
+                                canvas.global_composite_blend_func(
+                                    std::mem::transmute(p.sfactor),
+                                    std::mem::transmute(p.dfactor),
+                                )
+                            })
+                        }?
                     }
-                }
 
-                Ok(())
+                    Ok(())
+                })
             },
         );
 
@@ -1393,11 +1518,13 @@ impl TealData for Vgfx {
           dst_alpha : i32,
 
         );
-        methods.add_method_mut(
+        methods.add_function_mut(
             "GlobalCompositeBlendFuncSeparate",
-            |_, _vgfx, p: GlobalCompositeBlendFuncSeparateParams| {
-                todo!();
-                Ok(0)
+            |_, p: GlobalCompositeBlendFuncSeparateParams| {
+                with_vgfx(|_vgfx| {
+                    todo!();
+                    Ok(0)
+                })
             },
         );
 
@@ -1409,9 +1536,11 @@ impl TealData for Vgfx {
           compressed : bool,
 
         );
-        methods.add_method_mut("LoadAnimation", |_, _vgfx, p: LoadAnimationParams| {
-            todo!();
-            Ok(0)
+        methods.add_function_mut("LoadAnimation", |_, p: LoadAnimationParams| {
+            with_vgfx(|_vgfx| {
+                todo!();
+                Ok(0)
+            })
         });
 
         //GlobalAlpha
@@ -1419,9 +1548,11 @@ impl TealData for Vgfx {
           alpha : f32,
 
         );
-        methods.add_method_mut("GlobalAlpha", |_, _vgfx, p: GlobalAlphaParams| {
-            todo!();
-            Ok(0)
+        methods.add_function_mut("GlobalAlpha", |_, p: GlobalAlphaParams| {
+            with_vgfx(|_vgfx| {
+                todo!();
+                Ok(0)
+            })
         });
 
         //LoadSkinAnimation
@@ -1432,13 +1563,12 @@ impl TealData for Vgfx {
           compressed : bool,
 
         );
-        methods.add_method_mut(
-            "LoadSkinAnimation",
-            |_, _vgfx, p: LoadSkinAnimationParams| {
+        methods.add_function_mut("LoadSkinAnimation", |_, p: LoadSkinAnimationParams| {
+            with_vgfx(|_vgfx| {
                 todo!();
                 Ok(0)
-            },
-        );
+            })
+        });
 
         //TickAnimation
         tealr::mlu::create_named_parameters!(TickAnimationParams with
@@ -1446,9 +1576,11 @@ impl TealData for Vgfx {
           delta_time : f32,
 
         );
-        methods.add_method_mut("TickAnimation", |_, _vgfx, p: TickAnimationParams| {
-            todo!();
-            Ok(0)
+        methods.add_function_mut("TickAnimation", |_, p: TickAnimationParams| {
+            with_vgfx(|_vgfx| {
+                todo!();
+                Ok(0)
+            })
         });
 
         //LoadSharedTexture
@@ -1457,13 +1589,12 @@ impl TealData for Vgfx {
           path : String,
 
         );
-        methods.add_method_mut(
-            "LoadSharedTexture",
-            |_, _vgfx, p: LoadSharedTextureParams| {
+        methods.add_function_mut("LoadSharedTexture", |_, p: LoadSharedTextureParams| {
+            with_vgfx(|_vgfx| {
                 todo!();
                 Ok(0)
-            },
-        );
+            })
+        });
 
         //LoadSharedSkinTexture
         tealr::mlu::create_named_parameters!(LoadSharedSkinTextureParams with
@@ -1471,11 +1602,13 @@ impl TealData for Vgfx {
           path : String,
 
         );
-        methods.add_method_mut(
+        methods.add_function_mut(
             "LoadSharedSkinTexture",
-            |_, _vgfx, p: LoadSharedSkinTextureParams| {
-                todo!();
-                Ok(0)
+            |_, p: LoadSharedSkinTextureParams| {
+                with_vgfx(|_vgfx| {
+                    todo!();
+                    Ok(0)
+                })
             },
         );
 
@@ -1484,9 +1617,11 @@ impl TealData for Vgfx {
           key : String,
 
         );
-        methods.add_method_mut("GetSharedTexture", |_, _vgfx, p: GetSharedTextureParams| {
-            todo!();
-            Ok(0)
+        methods.add_function_mut("GetSharedTexture", |_, p: GetSharedTextureParams| {
+            with_vgfx(|_vgfx| {
+                todo!();
+                Ok(0)
+            })
         });
     }
     fn add_fields<'lua, F: tealr::mlu::TealDataFields<'lua, Self>>(fields: &mut F) {
@@ -1523,8 +1658,8 @@ impl TealData for Vgfx {
         // NVGimageFlags::NVG_IMAGE_NEAREST
 
         //Blend flags
-        fields.add_field_function_get("BLEND_ZERO,", |_, _| Ok(femtovg::BlendFactor::Zero as u8));
-        fields.add_field_function_get("BLEND_ONE,", |_, _| Ok(femtovg::BlendFactor::One as u8));
+        fields.add_field_function_get("BLEND_ZERO", |_, _| Ok(femtovg::BlendFactor::Zero as u8));
+        fields.add_field_function_get("BLEND_ONE", |_, _| Ok(femtovg::BlendFactor::One as u8));
         fields.add_field_function_get("BLEND_SRC_COLOR", |_, _| {
             Ok(femtovg::BlendFactor::SrcColor as u8)
         });
