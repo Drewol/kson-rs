@@ -1,10 +1,9 @@
 use std::{
-    io::Write,
     rc::Rc,
     sync::{Arc, Mutex},
 };
 
-use crate::{game_data::GameData, vg_ui::ExportVgfx};
+use crate::vg_ui::ExportVgfx;
 use femtovg as vg;
 use generational_arena::Arena;
 use td::HasContext;
@@ -43,7 +42,7 @@ fn main() -> anyhow::Result<()> {
     let canvas = Arc::new(Mutex::new(
         vg::Canvas::new(renderer).expect("Failed to create canvas"),
     ));
-    vg_ui::init_vgfx(canvas.clone(), std::env::current_dir()?);
+    let mut vgfx = vg_ui::Vgfx::new(canvas.clone(), std::env::current_dir()?);
 
     // Create a CPU-side mesh consisting of a single colored triangle
     let positions = vec![
@@ -80,20 +79,22 @@ fn main() -> anyhow::Result<()> {
 
     let mut mousex = 0.0;
     let mut mousey = 0.0;
-    std::fs::create_dir("types")?;
-    let file_contents = tealr::TypeWalker::new()
-        .process_type_inline::<vg_ui::Vgfx>()
-        .generate("gfx", true)?;
-    std::fs::File::create("types/gfx.d.tl").and_then(|mut f| write!(f, "{}", file_contents))?;
 
     let file_contents = tealr::TypeWalker::new()
-        .process_type_inline::<game_data::GameData>()
+        .process_type::<vg_ui::Vgfx>()
+        .process_type::<UserDataProxy<vg_ui::Vgfx>>()
+        .generate_global("gfx")?;
+    println!("{}", file_contents);
+
+    let file_contents = tealr::TypeWalker::new()
+        .process_type::<game_data::GameData>()
+        .process_type::<UserDataProxy<game_data::GameData>>()
         .generate_global("game")?;
-    std::fs::File::create("types/game.d.tl").and_then(|mut f| write!(f, "{}", file_contents))?;
+    println!("{}", file_contents);
 
     let lua = tealr::mlu::mlua::Lua::new();
     tealr::mlu::set_global_env(ExportVgfx::default(), &lua).unwrap();
-    vg_ui::with_vgfx(|vgfx| lua.globals().set("gfx", vgfx.clone()))?;
+    lua.globals().set("gfx", vgfx.clone())?;
     lua.globals().set(
         "game",
         game_data::GameData {
@@ -105,15 +106,6 @@ fn main() -> anyhow::Result<()> {
     let test_code = std::fs::read_to_string("scripts/titlescreen.lua")?;
     lua.load_from_std_lib(tealr::mlu::mlua::StdLib::ALL_SAFE)?;
     if let Err(e) = lua.load(&test_code).set_name("TitleScreen")?.eval::<()>() {
-        println!("{:?}", e);
-    }
-    if let Err(e) = lua.globals().set(
-        "game",
-        game_data::GameData {
-            mouse_pos: (mousex, mousey),
-            resolution: (1, 1),
-        },
-    ) {
         println!("{:?}", e);
     }
 
@@ -137,20 +129,17 @@ fn main() -> anyhow::Result<()> {
                 (mousex, mousey) = position;
             }
         }
-        game_data::set_game_data(GameData {
-            mouse_pos: (mousex, mousey),
-            resolution: (frame_input.viewport.width, frame_input.viewport.height),
-        });
+
         while let Some(e) = input.next_event() {
             match e.event {
-                gilrs::EventType::ButtonPressed(_, _) => {}
-                gilrs::EventType::ButtonRepeated(_, _) => {}
-                gilrs::EventType::ButtonReleased(_, _) => {}
-                gilrs::EventType::ButtonChanged(_, _, _) => {}
-                gilrs::EventType::AxisChanged(_, _, _) => {}
-                gilrs::EventType::Connected => {}
-                gilrs::EventType::Disconnected => {}
-                gilrs::EventType::Dropped => {}
+                gilrs::EventType::ButtonPressed(_, _) => todo!(),
+                gilrs::EventType::ButtonRepeated(_, _) => todo!(),
+                gilrs::EventType::ButtonReleased(_, _) => todo!(),
+                gilrs::EventType::ButtonChanged(_, _, _) => todo!(),
+                gilrs::EventType::AxisChanged(_, _, _) => todo!(),
+                gilrs::EventType::Connected => todo!(),
+                gilrs::EventType::Disconnected => todo!(),
+                gilrs::EventType::Dropped => todo!(),
             }
         }
 
@@ -160,9 +149,18 @@ fn main() -> anyhow::Result<()> {
                 .clear(td::ClearState::color_and_depth(0.0, 0.0, 0.0, 0.0, 1.0));
             // .render(&camera, [&model], &[]);
         }
+        if let Err(e) = lua.globals().set(
+            "game",
+            game_data::GameData {
+                mouse_pos: (mousex, mousey),
+                resolution: (frame_input.viewport.width, frame_input.viewport.height),
+            },
+        ) {
+            println!("{:?}", e);
+        }
 
         {
-            let mut canvas_lock = canvas.try_lock();
+            let mut canvas_lock = vgfx.canvas.try_lock();
             if let Ok(ref mut canvas) = canvas_lock {
                 canvas.reset();
                 canvas.set_size(frame_input.viewport.width, frame_input.viewport.height, 1.0);
@@ -177,7 +175,7 @@ fn main() -> anyhow::Result<()> {
         }
 
         {
-            let mut canvas_lock = canvas.try_lock();
+            let mut canvas_lock = vgfx.canvas.try_lock();
             if let Ok(ref mut canvas) = canvas_lock {
                 canvas.reset();
                 canvas.set_size(frame_input.viewport.width, frame_input.viewport.height, 1.0);
