@@ -1183,10 +1183,7 @@ impl TealData for Vgfx {
           h : i32,
 
         );
-        methods.add_method_mut("LoadImageJob", |_, _vgfx, p: LoadImageJobParams| {
-            todo!();
-            Ok(0)
-        });
+        methods.add_method_mut("LoadImageJob", |_, _vgfx, p: LoadImageJobParams| Ok(0));
 
         //LoadWebImageJob
         tealr::mlu::create_named_parameters!(LoadWebImageJobParams with

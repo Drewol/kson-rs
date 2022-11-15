@@ -17,8 +17,10 @@ kson = { git = "https://github.com/Drewol/kson-rs.git", version = "0.1.0" }
 kson-audio = { git = "https://github.com/Drewol/kson-rs.git", version = "0.1.0" }
 rodio = "0.16.0"
 tealr = { git = "https://github.com/lenscas/tealr.git", features = ["mlua", "tealr_derive", "mlua_lua54", "mlua_vendored"] }
-three-d = "0.14.0"
+three-d = {version = "0.14.0", features = ["egui-gui"]}
 anyhow = "1"
 bitflags = "1"
 generational-arena = "*"
 once_cell = "1"
+walkdir = "*"
+rfd = "*"

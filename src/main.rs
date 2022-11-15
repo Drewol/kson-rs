@@ -8,6 +8,8 @@ use std::{
 use crate::vg_ui::ExportVgfx;
 use femtovg as vg;
 use generational_arena::Arena;
+use songselect::SongSelect;
+use td::egui;
 use td::HasContext;
 use tealr::mlu::{
     mlua::{Function, Lua},
@@ -16,6 +18,7 @@ use tealr::mlu::{
 use three_d as td;
 
 mod game_data;
+mod songselect;
 mod vg_ui;
 fn main() -> anyhow::Result<()> {
     let window = td::Window::new(td::WindowSettings {
@@ -82,6 +85,14 @@ fn main() -> anyhow::Result<()> {
     let mut mousex = 0.0;
     let mut mousey = 0.0;
 
+    let songs_folder = loop {
+        if let Some(f) = rfd::FileDialog::new().pick_folder() {
+            break f;
+        }
+    };
+
+    let songsel = Arc::new(Mutex::new(songselect::SongSelect::new(songs_folder)));
+
     let typedef_folder = Path::new("types");
     if !typedef_folder.exists() {
         std::fs::create_dir_all(typedef_folder)?;
@@ -95,10 +106,16 @@ fn main() -> anyhow::Result<()> {
         .process_type_inline::<game_data::GameData>()
         .generate_global("game")?;
 
+    let songwheel_typedef = tealr::TypeWalker::new()
+        .process_type::<songselect::Song>()
+        .process_type::<songselect::Difficulty>()
+        .process_type_inline::<songselect::SongSelect>()
+        .generate_global("songwheel")?;
+
     let mut typedef_file_path = typedef_folder.to_path_buf();
     typedef_file_path.push("rusc.d.tl");
     let mut typedef_file = std::fs::File::create(typedef_file_path).expect("Failed to create");
-    let file_content = format!("{}\n{}", gfx_typedef, game_typedef)
+    let file_content = format!("{}\n{}\n{}", gfx_typedef, game_typedef, songwheel_typedef)
         .lines()
         .filter(|l| !l.starts_with("return"))
         .collect::<Vec<_>>()
@@ -107,9 +124,11 @@ fn main() -> anyhow::Result<()> {
     write!(typedef_file, "{}", file_content)?;
     typedef_file.flush()?;
     drop(typedef_file);
+    let mut gui = three_d::GUI::new(&context);
 
-    let lua = tealr::mlu::mlua::Lua::new();
+    let mut lua = tealr::mlu::mlua::Lua::new();
     tealr::mlu::set_global_env(ExportVgfx::default(), &lua).unwrap();
+    lua.globals().set("songwheel", songsel.clone())?;
     lua.globals().set("gfx", vgfx.clone())?;
     lua.globals().set(
         "game",
@@ -119,13 +138,13 @@ fn main() -> anyhow::Result<()> {
         },
     )?;
 
-    let test_code = std::fs::read_to_string("scripts/titlescreen.lua")?;
+    let test_code = std::fs::read_to_string("scripts/songwheel.lua")?;
     lua.load_from_std_lib(tealr::mlu::mlua::StdLib::ALL_SAFE)?;
-    if let Err(e) = lua.load(&test_code).set_name("TitleScreen")?.eval::<()>() {
+    if let Err(e) = lua.load(&test_code).set_name("SongWheel")?.eval::<()>() {
         println!("{:?}", e);
     }
 
-    window.render_loop(move |frame_input| {
+    window.render_loop(move |mut frame_input| {
         camera.set_viewport(frame_input.viewport);
 
         // Set the current transformation of the triangle
@@ -187,7 +206,7 @@ fn main() -> anyhow::Result<()> {
         let render: Function = lua.globals().get("render").expect("no render function");
 
         if let Err(e) = render.call::<_, ()>(frame_input.elapsed_time as f32 / 1000.0) {
-            println!("{:?}", e);
+            panic!("{:?}", e);
         }
 
         {
@@ -199,6 +218,19 @@ fn main() -> anyhow::Result<()> {
             }
         }
 
+        {
+            let mut songsel_handle = songsel.lock().expect("Songsel busy idk");
+            gui.update(
+                &mut frame_input.events,
+                frame_input.accumulated_time,
+                frame_input.viewport,
+                frame_input.device_pixel_ratio,
+                |gui_context| songsel_handle.debug_ui(gui_context, &lua),
+            );
+
+            frame_input.screen().write(|| gui.render());
+        }
+
         td::FrameOutput {
             exit: false,
             swap_buffers: true,
@@ -207,54 +239,4 @@ fn main() -> anyhow::Result<()> {
     });
 
     Ok(())
-}
-
-fn draw_fills<T: vg::Renderer>(
-    canvas: &mut vg::Canvas<T>,
-    x: f32,
-    y: f32,
-    mousex: f32,
-    mousey: f32,
-) {
-    use vg::{Color, FillRule, Paint, Path};
-    canvas.save();
-    canvas.translate(x, y);
-
-    let mut evenodd_fill = Paint::color(Color::rgba(220, 220, 220, 120));
-    evenodd_fill.set_fill_rule(FillRule::EvenOdd);
-
-    let mut path = Path::new();
-    path.move_to(50.0, 0.0);
-    path.line_to(21.0, 90.0);
-    path.line_to(98.0, 35.0);
-    path.line_to(2.0, 35.0);
-    path.line_to(79.0, 90.0);
-    path.close();
-
-    if canvas.contains_point(&mut path, mousex, mousey, FillRule::EvenOdd) {
-        evenodd_fill.set_color(Color::rgb(220, 220, 220));
-    }
-
-    canvas.fill_path(&mut path, &evenodd_fill);
-
-    canvas.translate(100.0, 0.0);
-
-    let mut nonzero_fill = Paint::color(Color::rgba(220, 220, 220, 120));
-    nonzero_fill.set_fill_rule(FillRule::NonZero);
-
-    let mut path = Path::new();
-    path.move_to(50.0, 0.0);
-    path.line_to(21.0, 90.0);
-    path.line_to(98.0, 35.0);
-    path.line_to(2.0, 35.0);
-    path.line_to(79.0, 90.0);
-    path.close();
-
-    if canvas.contains_point(&mut path, mousex, mousey, FillRule::NonZero) {
-        nonzero_fill.set_color(Color::rgb(220, 220, 220));
-    }
-
-    canvas.fill_path(&mut path, &nonzero_fill);
-
-    canvas.restore();
 }
