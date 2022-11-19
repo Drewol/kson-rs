@@ -5,9 +5,13 @@ use std::{
     sync::{Arc, Mutex},
 };
 
-use crate::vg_ui::ExportVgfx;
+use crate::{
+    game_data::{ExportGame, GameData},
+    vg_ui::{ExportVgfx, Vgfx},
+};
 use femtovg as vg;
 use generational_arena::Arena;
+use log::*;
 use songselect::SongSelect;
 use td::egui;
 use td::HasContext;
@@ -18,15 +22,23 @@ use tealr::mlu::{
 use three_d as td;
 
 mod game_data;
+mod help;
+mod main_menu;
+mod scene;
 mod songselect;
 mod vg_ui;
+
 fn main() -> anyhow::Result<()> {
     let window = td::Window::new(td::WindowSettings {
         title: "Test".to_string(),
-        max_size: Some((1280, 720)),
+        max_size: None,
+        multisamples: 4,
+        vsync: false,
         ..Default::default()
     })
     .unwrap();
+
+    simple_logger::init_with_level(Level::Info)?;
 
     let mut input = gilrs::GilrsBuilder::default()
         .build()
@@ -47,7 +59,10 @@ fn main() -> anyhow::Result<()> {
     let canvas = Arc::new(Mutex::new(
         vg::Canvas::new(renderer).expect("Failed to create canvas"),
     ));
-    let mut vgfx = vg_ui::Vgfx::new(canvas.clone(), std::env::current_dir()?);
+    let mut vgfx = Arc::new(Mutex::new(vg_ui::Vgfx::new(
+        canvas.clone(),
+        std::env::current_dir()?,
+    )));
 
     // Create a CPU-side mesh consisting of a single colored triangle
     let positions = vec![
@@ -91,8 +106,6 @@ fn main() -> anyhow::Result<()> {
         }
     };
 
-    let songsel = Arc::new(Mutex::new(songselect::SongSelect::new(songs_folder)));
-
     let typedef_folder = Path::new("types");
     if !typedef_folder.exists() {
         std::fs::create_dir_all(typedef_folder)?;
@@ -126,42 +139,73 @@ fn main() -> anyhow::Result<()> {
     drop(typedef_file);
     let mut gui = three_d::GUI::new(&context);
 
-    let mut lua = tealr::mlu::mlua::Lua::new();
-    tealr::mlu::set_global_env(ExportVgfx::default(), &lua).unwrap();
-    lua.globals().set("songwheel", songsel.clone())?;
-    lua.globals().set("gfx", vgfx.clone())?;
-    lua.globals().set(
-        "game",
-        game_data::GameData {
-            mouse_pos: (0.0, 0.0),
-            resolution: (800, 600),
-        },
-    )?;
+    const FRAME_ACC_SIZE: usize = 16;
+    let mut frame_times = [16.0; FRAME_ACC_SIZE];
+    let mut frame_time_index = 0;
+    let fps_paint = vg::Paint::color(vg::Color::white()).with_text_align(vg::Align::Right);
 
-    let test_code = std::fs::read_to_string("scripts/songwheel.lua")?;
-    lua.load_from_std_lib(tealr::mlu::mlua::StdLib::ALL_SAFE)?;
-    if let Err(e) = lua.load(&test_code).set_name("SongWheel")?.eval::<()>() {
-        println!("{:?}", e);
-    }
+    let mut scenes_loaded: Vec<Box<dyn scene::Scene>> = vec![]; //Uninitialized
+    let mut scenes: Vec<Box<dyn scene::Scene>> = vec![]; //Initialized
+
+    scenes_loaded.push(Box::new(songselect::SongSelectScene::new(songs_folder)));
+    scenes_loaded.push(Box::new(main_menu::MainMenu::new()));
+    let game_data = Arc::new(Mutex::new(game_data::GameData {
+        mouse_pos: (mousex, mousey),
+        resolution: (800, 600),
+    }));
 
     window.render_loop(move |mut frame_input| {
-        camera.set_viewport(frame_input.viewport);
+        let load_lua = |game_data: Arc<Mutex<GameData>>, vgfx: Arc<Mutex<Vgfx>>| {
+            Box::new(move |lua: &Lua, script_path| {
+                tealr::mlu::set_global_env(ExportVgfx, lua)?;
+                tealr::mlu::set_global_env(ExportGame, lua)?;
+                lua.set_app_data(vgfx.clone());
+                lua.set_app_data(game_data.clone());
+                let mut real_script_path = std::env::current_dir()?;
+                real_script_path.push("scripts");
+                real_script_path.push(script_path);
+                let test_code = std::fs::read_to_string(real_script_path)?;
+                lua.load(&test_code).set_name(script_path)?.eval::<()>()?;
+                Ok(())
+            })
+        };
 
+        //Initialize loaded scenes
+        scenes_loaded.retain_mut(
+            |s| match s.init(load_lua(game_data.clone(), vgfx.clone())) {
+                Ok(_) => true,
+                Err(e) => {
+                    error!("{:?}", e);
+                    false
+                }
+            },
+        );
+        scenes.append(&mut scenes_loaded);
+
+        camera.set_viewport(frame_input.viewport);
         // Set the current transformation of the triangle
         model.set_transformation(td::Mat4::from_angle_y(td::radians(
             (frame_input.accumulated_time * 0.005) as f32,
         )));
 
-        for ele in &frame_input.events {
+        frame_times[frame_time_index as usize] = frame_input.elapsed_time;
+        frame_time_index = (frame_time_index + 1) % FRAME_ACC_SIZE;
+        let fps = 1000_f64 / (frame_times.iter().sum::<f64>() / FRAME_ACC_SIZE as f64);
+
+        for event in &mut frame_input.events {
             if let td::Event::MouseMotion {
                 button: _,
                 delta: _,
                 position,
                 modifiers: _,
                 handled: _,
-            } = *ele
+            } = *event
             {
                 (mousex, mousey) = position;
+            }
+
+            for scene in scenes.iter_mut().filter(|s| !s.is_suspended()) {
+                scene.on_event(event); //TODO: break on event handled
             }
         }
 
@@ -179,60 +223,96 @@ fn main() -> anyhow::Result<()> {
         }
 
         {
+            let lock = game_data.lock();
+            if let Ok(mut game_data) = lock {
+                *game_data = GameData {
+                    mouse_pos: (mousex, mousey),
+                    resolution: (frame_input.viewport.width, frame_input.viewport.height),
+                };
+            }
+        }
+
+        {
             frame_input
                 .screen()
                 .clear(td::ClearState::color_and_depth(0.0, 0.0, 0.0, 0.0, 1.0));
             // .render(&camera, [&model], &[]);
         }
-        if let Err(e) = lua.globals().set(
-            "game",
-            game_data::GameData {
-                mouse_pos: (mousex, mousey),
-                resolution: (frame_input.viewport.width, frame_input.viewport.height),
-            },
-        ) {
-            println!("{:?}", e);
-        }
 
         {
-            let mut canvas_lock = vgfx.canvas.try_lock();
-            if let Ok(ref mut canvas) = canvas_lock {
-                canvas.reset();
-                canvas.set_size(frame_input.viewport.width, frame_input.viewport.height, 1.0);
-                canvas.flush();
-            }
-        }
-
-        let render: Function = lua.globals().get("render").expect("no render function");
-
-        if let Err(e) = render.call::<_, ()>(frame_input.elapsed_time as f32 / 1000.0) {
-            panic!("{:?}", e);
-        }
-
-        {
-            let mut canvas_lock = vgfx.canvas.try_lock();
-            if let Ok(ref mut canvas) = canvas_lock {
-                canvas.reset();
-                canvas.set_size(frame_input.viewport.width, frame_input.viewport.height, 1.0);
-                canvas.flush();
+            let vgfx_lock = vgfx.try_lock();
+            if let Ok(vgfx) = vgfx_lock {
+                let mut canvas_lock = vgfx.canvas.try_lock();
+                if let Ok(ref mut canvas) = canvas_lock {
+                    canvas.reset();
+                    canvas.set_size(frame_input.viewport.width, frame_input.viewport.height, 1.0);
+                    canvas.flush();
+                }
             }
         }
 
         {
-            let mut songsel_handle = songsel.lock().expect("Songsel busy idk");
+            scenes.retain_mut(|s| {
+                match s.tick(frame_input.elapsed_time, *game_data.lock().unwrap()) {
+                    Ok(close) => !close,
+                    Err(e) => {
+                        error!("{:?}", e);
+                        false
+                    }
+                }
+            });
+
+            scenes.retain_mut(|s| {
+                if s.is_suspended() {
+                    true
+                } else {
+                    match s.render(frame_input.elapsed_time) {
+                        Ok(close) => !close,
+                        Err(e) => {
+                            error!("{:?}", e);
+                            false
+                        }
+                    }
+                }
+            })
+        }
+
+        {
+            let vgfx_lock = vgfx.try_lock();
+            if let Ok(vgfx) = vgfx_lock {
+                let mut canvas_lock = vgfx.canvas.try_lock();
+                if let Ok(ref mut canvas) = canvas_lock {
+                    canvas.reset();
+                    canvas.set_size(frame_input.viewport.width, frame_input.viewport.height, 1.0);
+                    canvas.fill_text(
+                        frame_input.viewport.width as f32 - 5.0,
+                        frame_input.viewport.height as f32 - 5.0,
+                        format!("{:.1} FPS", fps),
+                        &fps_paint,
+                    );
+                    canvas.flush();
+                }
+            }
+        }
+
+        {
             gui.update(
                 &mut frame_input.events,
                 frame_input.accumulated_time,
                 frame_input.viewport,
                 frame_input.device_pixel_ratio,
-                |gui_context| songsel_handle.debug_ui(gui_context, &lua),
+                |gui_context| {
+                    if let Some(s) = scenes.last_mut() {
+                        s.debug_ui(gui_context);
+                    }
+                },
             );
 
             frame_input.screen().write(|| gui.render());
         }
 
         td::FrameOutput {
-            exit: false,
+            exit: scenes.is_empty() && scenes_loaded.is_empty(),
             swap_buffers: true,
             wait_next_event: false,
         }

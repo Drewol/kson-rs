@@ -6,16 +6,16 @@ local buttonWidth = 250.0;
 local buttonHeight = 50.0;
 local label = -1;
 
-local gr_r, gr_g, gr_b, gr_a = game:GetSkinSetting("col_test")
-gfx:GradientColors(0, 127, 255, 255, 0, 128, 255, 0)
-local gradient = gfx:LinearGradient(0, 0, 0, 1)
-local bgPattern = gfx:CreateSkinImage("bg_pattern.png", gfx.IMAGE_REPEATX + gfx.IMAGE_REPEATY)
+local gr_r, gr_g, gr_b, gr_a = game.GetSkinSetting("col_test")
+gfx.GradientColors(0, 127, 255, 255, 0, 128, 255, 0)
+local gradient = gfx.LinearGradient(0, 0, 0, 1)
+local bgPattern = gfx.CreateSkinImage("bg_pattern.png", gfx.IMAGE_REPEATX + gfx.IMAGE_REPEATY)
 local bgAngle = 0.5
-local bgPaint = gfx:ImagePattern(0, 0, 256, 256, bgAngle, bgPattern, 1.0)
+local bgPaint = gfx.ImagePattern(0, 0, 256, 256, bgAngle, bgPattern, 1.0)
 local bgPatternTimer = 0.0
 local cursorYs = {}
 local buttons = nil
-local resx, resy = game:GetResolution();
+local resx, resy = game.GetResolution();
 
 local function sign(x)
    return x > 0 and 1 or x < 0 and -1 or 0
@@ -30,29 +30,29 @@ local function draw_button(button, x, y)
    local name = button[1]
    local rx = x - (buttonWidth / 2);
    local ty = y - (buttonHeight / 2);
-   gfx:BeginPath();
-   gfx:TextAlign(gfx.TEXT_ALIGN_CENTER + gfx.TEXT_ALIGN_MIDDLE);
+   gfx.BeginPath();
+   gfx.TextAlign(gfx.TEXT_ALIGN_CENTER + gfx.TEXT_ALIGN_MIDDLE);
 
-   gfx:FontSize(40);
+   gfx.FontSize(40);
 
    if mouse_clipped(rx, ty, buttonWidth, buttonHeight) then
       hovered = button[2];
-      local b_r, b_g, b_b, b_a = game:GetSkinSetting("col_test")
-      gfx:FillColor(b_r, b_g, b_b);
-      gfx:Text(name, x + 1, y + 1);
-      gfx:Text(name, x - 1, y + 1);
-      gfx:Text(name, x + 1, y - 1);
-      gfx:Text(name, x - 1, y - 1);
+      local b_r, b_g, b_b, b_a = game.GetSkinSetting("col_test")
+      gfx.FillColor(b_r, b_g, b_b);
+      gfx.Text(name, x + 1, y + 1);
+      gfx.Text(name, x - 1, y + 1);
+      gfx.Text(name, x + 1, y - 1);
+      gfx.Text(name, x - 1, y - 1);
    end
-   gfx:FillColor(255, 255, 255);
-   gfx:Text(name, x, y);
+   gfx.FillColor(255, 255, 255);
+   gfx.Text(name, x, y);
    return buttonHeight + 5
 end;
 
 local function updateGradient()
-   gr_r, gr_g, gr_b, gr_a = game:GetSkinSetting("col_test")
+   gr_r, gr_g, gr_b, gr_a = game.GetSkinSetting("col_test")
    if gr_r == nil then return end
-   gfx:GradientColors(gr_r, gr_g, gr_b, gr_a, 0, 128, 255, 0)
+   gfx.GradientColors(gr_r, gr_g, gr_b, gr_a, 0, 128, 255, 0)
 
 end
 
@@ -60,45 +60,45 @@ local function updatePattern(dt)
    bgPatternTimer = (bgPatternTimer + dt) % 1.0
    local bgx = math.cos(bgAngle) * (bgPatternTimer * 256)
    local bgy = math.sin(bgAngle) * (bgPatternTimer * 256)
-   gfx:UpdateImagePattern(bgPaint, bgx, bgy, 256, 256, bgAngle, 1.0)
+   gfx.UpdateImagePattern(bgPaint, bgx, bgy, 256, 256, bgAngle, 1.0)
 end
 
 local function setButtons()
    if buttons == nil then
       buttons = {}
-      buttons[1] = { "Start", updateGradient }
-      buttons[2] = { "Multiplayer", updateGradient }
-      buttons[3] = { "Challenges", updateGradient }
-      buttons[4] = { "Get Songs", updateGradient }
-      buttons[5] = { "Settings", updateGradient }
-      buttons[6] = { "Exit", updateGradient }
-   end
+		buttons[1] = {"Start", Menu.Start}
+		buttons[2] = {"Multiplayer", Menu.Multiplayer}
+      buttons[3] = {"Challenges", Menu.Challenges}
+		buttons[4] = {"Get Songs", Menu.DLScreen}
+		buttons[5] = {"Settings", Menu.Settings}
+		buttons[6] = {"Exit", Menu.Exit}
+	end
 end
 
 local renderY = resy / 2
 local function draw_cursor(x, y, deltaTime)
-   gfx:Save()
-   gfx:BeginPath()
+   gfx.Save()
+   gfx.BeginPath()
 
    local size = 8
 
-   gfx:BeginPath()
+   gfx.BeginPath()
 
-   gfx:BeginPath()
-   gfx:MoveTo(2, 5)
-   gfx:Fill()
+   gfx.BeginPath()
+   gfx.MoveTo(2, 5)
+   gfx.Fill()
 
    renderY = renderY - (renderY - y) * deltaTime * 30
 
-   gfx:MoveTo(x - size, renderY - size)
-   gfx:LineTo(x, renderY)
-   gfx:LineTo(x - size, renderY + size)
+   gfx.MoveTo(x - size, renderY - size)
+   gfx.LineTo(x, renderY)
+   gfx.LineTo(x - size, renderY + size)
 
-   gfx:StrokeWidth(3)
-   gfx:StrokeColor(255, 255, 255)
-   gfx:Stroke()
+   gfx.StrokeWidth(3)
+   gfx.StrokeColor(255, 255, 255)
+   gfx.Stroke()
 
-   gfx:Restore()
+   gfx.Restore()
 end
 
 
@@ -123,9 +123,9 @@ local lastKnobs = nil
 local knobProgress = 0.0
 local function handle_controller()
    if lastKnobs == nil then
-      lastKnobs = { game:GetKnob(0), game:GetKnob(1) }
+      lastKnobs = { game.GetKnob(0), game.GetKnob(1) }
    else
-      local newKnobs = { game:GetKnob(0), game:GetKnob(1) }
+      local newKnobs = { game.GetKnob(0), game.GetKnob(1) }
 
       knobProgress = knobProgress - deltaKnob(lastKnobs[1] - newKnobs[1]) * 1.2
       knobProgress = knobProgress - deltaKnob(lastKnobs[2] - newKnobs[2]) * 1.2
@@ -143,28 +143,28 @@ function render(deltaTime)
    setButtons()
    updateGradient()
    updatePattern(deltaTime)
-   resx, resy = game:GetResolution();
-   mposx, mposy = game:GetMousePos();
-   gfx:BeginPath();
-   gfx:Scale(resx, resy / 3)
-   gfx:Rect(0, 0, 1, 1)
-   gfx:FillPaint(gradient)
-   gfx:Fill()
-   gfx:ResetTransform()
-   gfx:BeginPath()
-   gfx:Scale(0.5, 0.5)
-   gfx:Rect(0, 0, resx * 2, resy * 2)
-   gfx:GlobalCompositeOperation(gfx.BLEND_OP_DESTINATION_IN)
-   gfx:FillPaint(bgPaint)
-   gfx:Fill()
-   gfx:ResetTransform()
-   gfx:BeginPath()
-   gfx:GlobalCompositeOperation(gfx.BLEND_OP_SOURCE_OVER)
+   resx, resy = game.GetResolution();
+   mposx, mposy = game.GetMousePos();
+   gfx.BeginPath();
+   gfx.Scale(resx, resy / 3)
+   gfx.Rect(0, 0, 1, 1)
+   gfx.FillPaint(gradient)
+   gfx.Fill()
+   gfx.ResetTransform()
+   gfx.BeginPath()
+   gfx.Scale(0.5, 0.5)
+   gfx.Rect(0, 0, resx * 2, resy * 2)
+   gfx.GlobalCompositeOperation(gfx.BLEND_OP_DESTINATION_IN)
+   gfx.FillPaint(bgPaint)
+   gfx.Fill()
+   gfx.ResetTransform()
+   gfx.BeginPath()
+   gfx.GlobalCompositeOperation(gfx.BLEND_OP_SOURCE_OVER)
 
    local buttonY = resy / 2;
    hovered = nil;
 
-   gfx:LoadSkinFont("NotoSans-Regular.ttf");
+   gfx.LoadSkinFont("NotoSans-Regular.ttf");
 
    for i = 1, #buttons do
       cursorYs[i] = buttonY
@@ -178,16 +178,16 @@ function render(deltaTime)
 
    draw_cursor(resx / 2 - 100, cursorYs[cursorIndex], deltaTime)
 
-   gfx:BeginPath();
-   gfx:FillColor(255, 255, 255);
-   gfx:FontSize(120);
+   gfx.BeginPath();
+   gfx.FillColor(255, 255, 255);
+   gfx.FontSize(120);
    if label == -1 then
-      label = gfx:CreateLabel("unnamed_sdvx_clone", 120, false);
+      label = gfx.CreateLabel("unnamed_sdvx_clone", 120, false);
    end
-   gfx:TextAlign(gfx.TEXT_ALIGN_CENTER + gfx.TEXT_ALIGN_MIDDLE);
-   gfx:DrawLabel(label, resx / 2, resy / 2 - 200, resx - 40);
+   gfx.TextAlign(gfx.TEXT_ALIGN_CENTER + gfx.TEXT_ALIGN_MIDDLE);
+   gfx.DrawLabel(label, resx / 2, resy / 2 - 200, resx - 40);
 
-end;
+end
 
 function mouse_pressed(button)
    if hovered then

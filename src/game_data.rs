@@ -1,10 +1,20 @@
-use tealr::{
-    mlu::{mlua, UserData},
-    mlu::{TealData, UserDataProxy},
-    TypeName,
+use std::{
+    cell::RefMut,
+    sync::{Arc, Mutex},
 };
 
-#[derive(Debug, UserData)]
+use tealr::{
+    mlu::{
+        mlua::{self, FromLuaMulti, Lua, Result, ToLuaMulti},
+        MaybeSend, TealDataMethods, UserData,
+    },
+    mlu::{TealData, UserDataProxy},
+    TealMultiValue, TypeName,
+};
+
+use crate::help::add_lua_static_method;
+
+#[derive(Debug, UserData, Clone, Copy)]
 pub struct GameData {
     pub resolution: (u32, u32),
     pub mouse_pos: (f64, f64),
@@ -25,23 +35,41 @@ impl TypeName for GameData {
 impl TealData for GameData {
     fn add_methods<'lua, T: tealr::mlu::TealDataMethods<'lua, Self>>(methods: &mut T) {
         //GetMousePos
-        methods.add_method("GetMousePos", |_, _game_data, _: ()| {
+        add_lua_static_method(methods, "GetMousePos", |_, _game_data, _: ()| {
             Ok(_game_data.mouse_pos)
         });
 
         //GetResolution
-        methods.add_method("GetResolution", |_, _game_data, _: ()| {
+        add_lua_static_method(methods, "GetResolution", |_, _game_data, _: ()| {
             Ok(_game_data.resolution)
         });
 
         //Log
+
+        /*
+           Debug = 0,
+           Info = 1,
+           Normal = 2,
+           Warning = 3,
+           Error = 4
+        */
         tealr::mlu::create_named_parameters!(LogParams with
           message : String,
           severity : i32,
 
         );
-        methods.add_method("Log", |_, _game_data, p: LogParams| {
-            println!("{}", p.message);
+        add_lua_static_method(methods, "Log", |_, _game_data, p: LogParams| {
+            use log::*;
+            let LogParams { message, severity } = p;
+            match severity {
+                0 => debug!("{}", message),
+                1 => info!("{}", message),
+                2 => info!("{}", message),
+                3 => warn!("{}", message),
+                4 => error!("{}", message),
+                _ => {}
+            }
+
             Ok(())
         });
 
@@ -50,7 +78,8 @@ impl TealData for GameData {
           name : String,
 
         );
-        methods.add_method(
+        add_lua_static_method(
+            methods,
             "LoadSkinSample",
             |_, _game_data, p: LoadSkinSampleParams| Ok(()),
         );
@@ -61,21 +90,30 @@ impl TealData for GameData {
           doLoop : bool,
 
         );
-        methods.add_method("PlaySample", |_, _game_data, p: PlaySampleParams| Ok(()));
+        add_lua_static_method(
+            methods,
+            "PlaySample",
+            |_, _game_data, p: PlaySampleParams| Ok(()),
+        );
 
         //StopSample
         tealr::mlu::create_named_parameters!(StopSampleParams with
           name : String,
 
         );
-        methods.add_method("StopSample", |_, _game_data, p: StopSampleParams| Ok(()));
+        add_lua_static_method(
+            methods,
+            "StopSample",
+            |_, _game_data, p: StopSampleParams| Ok(()),
+        );
 
         //IsSamplePlaying
         tealr::mlu::create_named_parameters!(IsSamplePlayingParams with
           name : String,
 
         );
-        methods.add_method(
+        add_lua_static_method(
+            methods,
             "IsSamplePlaying",
             |_, _game_data, p: IsSamplePlayingParams| Ok(false),
         );
@@ -85,32 +123,38 @@ impl TealData for GameData {
           laser : i32,
 
         );
-        methods.add_method("GetLaserColor", |_, _game_data, p: GetLaserColorParams| {
-            Ok((0, 127, 255, 255))
-        });
+        add_lua_static_method(
+            methods,
+            "GetLaserColor",
+            |_, _game_data, p: GetLaserColorParams| Ok((0, 127, 255, 255)),
+        );
 
         //GetButton
         tealr::mlu::create_named_parameters!(GetButtonParams with
           button : i32,
 
         );
-        methods.add_method("GetButton", |_, _game_data, p: GetButtonParams| Ok(false));
+        add_lua_static_method(methods, "GetButton", |_, _game_data, p: GetButtonParams| {
+            Ok(false)
+        });
 
         //GetKnob
         tealr::mlu::create_named_parameters!(GetKnobParams with
           knob : i32,
 
         );
-        methods.add_method("GetKnob", |_, _game_data, p: GetKnobParams| Ok(0.5));
+        add_lua_static_method(methods, "GetKnob", |_, _game_data, p: GetKnobParams| {
+            Ok(0.5)
+        });
 
         //UpdateAvailable
-        methods.add_method("UpdateAvailable", |_, _game_data, _: ()| Ok(()));
+        add_lua_static_method(methods, "UpdateAvailable", |_, _game_data, _: ()| Ok(()));
 
         //GetSkin
-        methods.add_method("GetSkin", |_, _game_data, _: ()| Ok("default"));
+        add_lua_static_method(methods, "GetSkin", |_, _game_data, _: ()| Ok("default"));
 
         //GetSkinSetting
-        methods.add_method("GetSkinSetting", |_, _game_data, key: (String)| {
+        add_lua_static_method(methods, "GetSkinSetting", |_, _game_data, key: (String)| {
             Ok((0, 127, 255, 255))
         });
     }
@@ -142,7 +186,7 @@ impl tealr::mlu::ExportInstances for ExportGame {
         instance_collector.document_instance("Documentation for the exposed static proxy");
 
         // note that the proxy type is NOT `Example` but a special mlua type, which is represented differnetly in .d.tl as well
-        instance_collector.add_instance("GameData", UserDataProxy::<GameData>::new)?;
+        instance_collector.add_instance("game", UserDataProxy::<GameData>::new)?;
         Ok(())
     }
 }

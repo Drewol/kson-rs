@@ -10,46 +10,46 @@ local timer = 0.0
 local resx = 0.0
 local resy = 0.0
 local effector = 0
-local searchText = gfx:CreateLabel("",5,false)
+local searchText = gfx.CreateLabel("",5,false)
 local searchIndex = 1
-local jacketFallback = gfx:CreateSkinImage("song_select/loading.png", 0)
-local showGuide = game:GetSkinSetting("show_guide")
+local jacketFallback = gfx.CreateSkinImage("song_select/loading.png", 0)
+local showGuide = game.GetSkinSetting("show_guide")
 local legendTable: {{string: integer}} = {
-  {["labelSingleLine"] =  gfx:CreateLabel("DIFFICULTY SELECT",16, false), ["labelMultiLine"] =  gfx:CreateLabel("DIFFICULTY\nSELECT",16, false), ["image"] = gfx:CreateSkinImage("legend/knob-left.png", 0)},
-  {["labelSingleLine"] =  gfx:CreateLabel("MUSIC SELECT",16, false),      ["labelMultiLine"] =  gfx:CreateLabel("MUSIC\nSELECT",16, false),      ["image"] = gfx:CreateSkinImage("legend/knob-right.png", 0)},
-  {["labelSingleLine"] =  gfx:CreateLabel("FILTER MUSIC",16, false),      ["labelMultiLine"] =  gfx:CreateLabel("FILTER\nMUSIC",16, false),      ["image"] = gfx:CreateSkinImage("legend/FX-L.png", 0)},
-  {["labelSingleLine"] =  gfx:CreateLabel("SORT MUSIC",16, false),        ["labelMultiLine"] =  gfx:CreateLabel("SORT\nMUSIC",16, false),        ["image"] = gfx:CreateSkinImage("legend/FX-R.png", 0)},
-  {["labelSingleLine"] =  gfx:CreateLabel("MUSIC MODS",16, false),        ["labelMultiLine"] =  gfx:CreateLabel("MUSIC\nMODS",16, false),        ["image"] = gfx:CreateSkinImage("legend/FX-LR.png", 0)},
-  {["labelSingleLine"] =  gfx:CreateLabel("PLAY",16, false),              ["labelMultiLine"] =  gfx:CreateLabel("PLAY",16, false),               ["image"] = gfx:CreateSkinImage("legend/start.png", 0)}
+  {["labelSingleLine"] =  gfx.CreateLabel("DIFFICULTY SELECT",16, false), ["labelMultiLine"] =  gfx.CreateLabel("DIFFICULTY\nSELECT",16, false), ["image"] = gfx.CreateSkinImage("legend/knob-left.png", 0)},
+  {["labelSingleLine"] =  gfx.CreateLabel("MUSIC SELECT",16, false),      ["labelMultiLine"] =  gfx.CreateLabel("MUSIC\nSELECT",16, false),      ["image"] = gfx.CreateSkinImage("legend/knob-right.png", 0)},
+  {["labelSingleLine"] =  gfx.CreateLabel("FILTER MUSIC",16, false),      ["labelMultiLine"] =  gfx.CreateLabel("FILTER\nMUSIC",16, false),      ["image"] = gfx.CreateSkinImage("legend/FX-L.png", 0)},
+  {["labelSingleLine"] =  gfx.CreateLabel("SORT MUSIC",16, false),        ["labelMultiLine"] =  gfx.CreateLabel("SORT\nMUSIC",16, false),        ["image"] = gfx.CreateSkinImage("legend/FX-R.png", 0)},
+  {["labelSingleLine"] =  gfx.CreateLabel("MUSIC MODS",16, false),        ["labelMultiLine"] =  gfx.CreateLabel("MUSIC\nMODS",16, false),        ["image"] = gfx.CreateSkinImage("legend/FX-LR.png", 0)},
+  {["labelSingleLine"] =  gfx.CreateLabel("PLAY",16, false),              ["labelMultiLine"] =  gfx.CreateLabel("PLAY",16, false),               ["image"] = gfx.CreateSkinImage("legend/start.png", 0)}
 }
 local grades = {
-  {["max"] = 6999999, ["image"] = gfx:CreateSkinImage("score/D.png", 0)},
-  {["max"] = 7999999, ["image"] = gfx:CreateSkinImage("score/C.png", 0)},
-  {["max"] = 8699999, ["image"] = gfx:CreateSkinImage("score/B.png", 0)},
-  {["max"] = 8999999, ["image"] = gfx:CreateSkinImage("score/A.png", 0)},
-  {["max"] = 9299999, ["image"] = gfx:CreateSkinImage("score/A+.png", 0)},
-  {["max"] = 9499999, ["image"] = gfx:CreateSkinImage("score/AA.png", 0)},
-  {["max"] = 9699999, ["image"] = gfx:CreateSkinImage("score/AA+.png", 0)},
-  {["max"] = 9799999, ["image"] = gfx:CreateSkinImage("score/AAA.png", 0)},
-  {["max"] = 9899999, ["image"] = gfx:CreateSkinImage("score/AAA+.png", 0)},
-  {["max"] = 99999999, ["image"] = gfx:CreateSkinImage("score/S.png", 0)}
+  {["max"] = 6999999, ["image"] = gfx.CreateSkinImage("score/D.png", 0)},
+  {["max"] = 7999999, ["image"] = gfx.CreateSkinImage("score/C.png", 0)},
+  {["max"] = 8699999, ["image"] = gfx.CreateSkinImage("score/B.png", 0)},
+  {["max"] = 8999999, ["image"] = gfx.CreateSkinImage("score/A.png", 0)},
+  {["max"] = 9299999, ["image"] = gfx.CreateSkinImage("score/A+.png", 0)},
+  {["max"] = 9499999, ["image"] = gfx.CreateSkinImage("score/AA.png", 0)},
+  {["max"] = 9699999, ["image"] = gfx.CreateSkinImage("score/AA+.png", 0)},
+  {["max"] = 9799999, ["image"] = gfx.CreateSkinImage("score/AAA.png", 0)},
+  {["max"] = 9899999, ["image"] = gfx.CreateSkinImage("score/AAA+.png", 0)},
+  {["max"] = 99999999, ["image"] = gfx.CreateSkinImage("score/S.png", 0)}
 }
 
 local badges = {
-    gfx:CreateSkinImage("badges/played.png", 0),
-    gfx:CreateSkinImage("badges/clear.png", 0),
-    gfx:CreateSkinImage("badges/hard-clear.png", 0),
-    gfx:CreateSkinImage("badges/full-combo.png", 0),
-    gfx:CreateSkinImage("badges/perfect.png", 0)
+    gfx.CreateSkinImage("badges/played.png", 0),
+    gfx.CreateSkinImage("badges/clear.png", 0),
+    gfx.CreateSkinImage("badges/hard-clear.png", 0),
+    gfx.CreateSkinImage("badges/full-combo.png", 0),
+    gfx.CreateSkinImage("badges/perfect.png", 0)
 }
 
 local recordCache = {}
 
-gfx:LoadSkinFont("NotoSans-Regular.ttf");
+gfx.LoadSkinFont("NotoSans-Regular.ttf");
 
-game:LoadSkinSample("menu_click")
-game:LoadSkinSample("click-02")
-game:LoadSkinSample("woosh")
+game.LoadSkinSample("menu_click")
+game.LoadSkinSample("click-02")
+game.LoadSkinSample("woosh")
 
 local wheelSize = 12
 
@@ -148,23 +148,23 @@ local function check_or_create_cache(song: Song, loadJacket: boolean)
   if not songCache[song.id] then songCache[song.id] = {} end
 
   if not songCache[song.id]["title"] then
-      songCache[song.id]["title"] = gfx:CreateLabel(song.title, 40, false)
+      songCache[song.id]["title"] = gfx.CreateLabel(song.title, 40, false)
   end
 
   if not songCache[song.id]["artist"] then
-      songCache[song.id]["artist"] = gfx:CreateLabel(song.artist, 25, false)
+      songCache[song.id]["artist"] = gfx.CreateLabel(song.artist, 25, false)
   end
 
   if not songCache[song.id]["bpm"] then
-      songCache[song.id]["bpm"] = gfx:CreateLabel(string.format("BPM: %s",song.bpm), 20, false)
+      songCache[song.id]["bpm"] = gfx.CreateLabel(string.format("BPM: %s",song.bpm), 20, false)
   end
 
 if not songCache[song.id]["effector"] then
-      songCache[song.id]["effector"] = gfx:CreateLabel(string.format("BPM: %s",song.bpm), 20, false)
+      songCache[song.id]["effector"] = gfx.CreateLabel(string.format("BPM: %s",song.bpm), 20, false)
   end
 
   if not songCache[song.id]["jacket"] and loadJacket then
-      songCache[song.id]["jacket"] = gfx:CreateImage(song.difficulties[1].jacketPath, 0)
+      songCache[song.id]["jacket"] = gfx.CreateImage(song.difficulties[1].jacketPath, 0)
   end
 end
 
@@ -175,57 +175,57 @@ local function draw_scores(difficulty: Difficulty, x: number, y: number, w: numb
   local height = h/3 - 10
   local ySpacing = h/3
 	local yOffset = h/3
-  gfx:FontSize(30);
-  gfx:TextAlign(gfx.TEXT_ALIGN_BOTTOM + gfx.TEXT_ALIGN_CENTER);
-  gfx:FastText("HIGH SCORE", x +(w/2), y+(h/2))
-  gfx:BeginPath()
-  gfx:Rect(x+xOffset,y+h/2,w-(xOffset*2),h/2)
-  gfx:FillColor(30,30,30,10)
-  gfx:StrokeColor(0,128,255)
-  gfx:StrokeWidth(1)
-  gfx:Fill()
-  gfx:Stroke()
+  gfx.FontSize(30);
+  gfx.TextAlign(gfx.TEXT_ALIGN_BOTTOM + gfx.TEXT_ALIGN_CENTER);
+  gfx.FastText("HIGH SCORE", x +(w/2), y+(h/2))
+  gfx.BeginPath()
+  gfx.Rect(x+xOffset,y+h/2,w-(xOffset*2),h/2)
+  gfx.FillColor(30,30,30,10)
+  gfx.StrokeColor(0,128,255)
+  gfx.StrokeWidth(1)
+  gfx.Fill()
+  gfx.Stroke()
 	if difficulty.scores[1] ~= nil then
 		local highScore = difficulty.scores[1]
-    local scoreLabel = gfx:CreateLabel(string.format("%08d",highScore), 40, false)
+    local scoreLabel = gfx.CreateLabel(string.format("%08d",highScore), 40, false)
     for i,v in ipairs(grades) do
       if v.max > highScore then
-        gfx:BeginPath()
-        local iw,ih = gfx:ImageSize(v.image)
+        gfx.BeginPath()
+        local iw,ih = gfx.ImageSize(v.image)
         local iar = iw / ih;
-        gfx:ImageRect(x+xOffset,y+h/2 +5, iar * (h/2-10),h/2-10, v.image, 1, 0)
+        gfx.ImageRect(x+xOffset,y+h/2 +5, iar * (h/2-10),h/2-10, v.image, 1, 0)
         break
       end
     end
     if difficulty.bestBadge ~= 0 then
-        gfx:BeginPath()
-        gfx:ImageRect(x+xOffset+w-h/2, y+h/2 +5, (h/2-10), h/2-10, badges[difficulty.bestBadge], 1, 0)
+        gfx.BeginPath()
+        gfx.ImageRect(x+xOffset+w-h/2, y+h/2 +5, (h/2-10), h/2-10, badges[difficulty.bestBadge], 1, 0)
     end
-    gfx:FillColor(255,255,255)
-		gfx:FontSize(40);
-    gfx:TextAlign(gfx.TEXT_ALIGN_MIDDLE + gfx.TEXT_ALIGN_CENTER);
-		gfx:DrawLabel(scoreLabel, x+(w/2),y+(h/4)*3,w)
+    gfx.FillColor(255,255,255)
+		gfx.FontSize(40);
+    gfx.TextAlign(gfx.TEXT_ALIGN_MIDDLE + gfx.TEXT_ALIGN_CENTER);
+		gfx.DrawLabel(scoreLabel, x+(w/2),y+(h/4)*3,w)
 	end
 end
 
 local function draw_song(song: Song, x: number, y: number, w: number, h: number, selected: boolean)
     check_or_create_cache(song)
-    gfx:BeginPath()
-    gfx:RoundedRectVarying(x,y, w, h,0,0,0,40)
-    gfx:FillColor(30,30,30)
-    gfx:StrokeColor(0,128,255)
-    gfx:StrokeWidth(1)
+    gfx.BeginPath()
+    gfx.RoundedRectVarying(x,y, w, h,0,0,0,40)
+    gfx.FillColor(30,30,30)
+    gfx.StrokeColor(0,128,255)
+    gfx.StrokeWidth(1)
     if selected then
-        gfx:StrokeColor(255,128,0)
-        gfx:StrokeWidth(2)
+        gfx.StrokeColor(255,128,0)
+        gfx.StrokeWidth(2)
     end
-    gfx:Fill()
-    gfx:Stroke()
-    gfx:FillColor(255,255,255)
-    gfx:TextAlign(gfx.TEXT_ALIGN_TOP + gfx.TEXT_ALIGN_LEFT)
-    gfx:DrawLabel(songCache[song.id]["title"], x+10, y + 5, w-10)
-    gfx:DrawLabel(songCache[song.id]["artist"], x+20, y + 50, w-10)
-    gfx:ForceRender()
+    gfx.Fill()
+    gfx.Stroke()
+    gfx.FillColor(255,255,255)
+    gfx.TextAlign(gfx.TEXT_ALIGN_TOP + gfx.TEXT_ALIGN_LEFT)
+    gfx.DrawLabel(songCache[song.id]["title"], x+10, y + 5, w-10)
+    gfx.DrawLabel(songCache[song.id]["artist"], x+20, y + 50, w-10)
+    gfx.ForceRender()
 
 end
 
@@ -233,41 +233,41 @@ local function draw_diff_icon(diff: Difficulty, x: number, y: number, w: number,
     local shrinkX = w/4
     local shrinkY = h/4
     if selected then
-      gfx:FontSize(h/2)
+      gfx.FontSize(h/2)
       shrinkX = w/6
       shrinkY = h/6
     else
-      gfx:FontSize(math.floor(h / 3))
+      gfx.FontSize(math.floor(h / 3))
     end
-    gfx:BeginPath()
-    gfx:RoundedRectVarying(x+shrinkX,y+shrinkY,w-shrinkX*2,h-shrinkY*2,0,0,0,0)
-    gfx:FillColor(15,15,15)
-    gfx:StrokeColor(table.unpack(diffColors[diff.difficulty + 1]))
-    gfx:StrokeWidth(2)
-    gfx:Fill()
-    gfx:Stroke()
-    gfx:FillColor(255,255,255)
-    gfx:TextAlign(gfx.TEXT_ALIGN_MIDDLE + gfx.TEXT_ALIGN_CENTER)
-    gfx:FastText(tostring(diff.level), x+(w/2),y+(h/2))
+    gfx.BeginPath()
+    gfx.RoundedRectVarying(x+shrinkX,y+shrinkY,w-shrinkX*2,h-shrinkY*2,0,0,0,0)
+    gfx.FillColor(15,15,15)
+    gfx.StrokeColor(table.unpack(diffColors[diff.difficulty + 1]))
+    gfx.StrokeWidth(2)
+    gfx.Fill()
+    gfx.Stroke()
+    gfx.FillColor(255,255,255)
+    gfx.TextAlign(gfx.TEXT_ALIGN_MIDDLE + gfx.TEXT_ALIGN_CENTER)
+    gfx.FastText(tostring(diff.level), x+(w/2),y+(h/2))
 end
 
 local function draw_cursor(x: number,y: number,rotation: number,width: number)
-	gfx:Save()
-    gfx:BeginPath();
-    gfx:Translate(x,y)
-    gfx:Rotate(rotation)
-    gfx:StrokeColor(255,128,0)
-    gfx:StrokeWidth(4)
-    gfx:Rect(-width/2, -width/2, width, width)
-    gfx:Stroke()
-    gfx:Restore()
+	gfx.Save()
+    gfx.BeginPath();
+    gfx.Translate(x,y)
+    gfx.Rotate(rotation)
+    gfx.StrokeColor(255,128,0)
+    gfx.StrokeWidth(4)
+    gfx.Rect(-width/2, -width/2, width, width)
+    gfx.Stroke()
+    gfx.Restore()
 end
 
 local function draw_diffs(diffs: {Difficulty}, x: number, y: number, w: number, h: number)
     local diffWidth = w/2.5
     local diffHeight = w/2.5
     local diffCount = #diffs
-    gfx:Scissor(x,y,w,h)
+    gfx.Scissor(x,y,w,h)
     for i = math.max(selectedDiff - 2, 1), math.max(selectedDiff - 1,1) do
       local diff = diffs[i]
       local xpos = x + ((w/2 - diffWidth/2) + (selectedDiff - i + doffset)*(-0.8*diffWidth))
@@ -287,14 +287,14 @@ local function draw_diffs(diffs: {Difficulty}, x: number, y: number, w: number, 
     local diff = diffs[selectedDiff]
     local xpos = x + ((w/2 - diffWidth/2) + (doffset)*(-0.8*diffWidth))
   draw_diff_icon(diff, xpos, y, diffWidth, diffHeight, true)
-  gfx:BeginPath()
-  gfx:FillColor(0,128,255)
-  gfx:Rect(x,y+10,2,diffHeight-h/6)
-  gfx:Fill()
-  gfx:BeginPath()
-  gfx:Rect(x+w-2,y+10,2,diffHeight-h/6)
-  gfx:Fill()
-  gfx:ResetScissor()
+  gfx.BeginPath()
+  gfx.FillColor(0,128,255)
+  gfx.Rect(x,y+10,2,diffHeight-h/6)
+  gfx.Fill()
+  gfx.BeginPath()
+  gfx.Rect(x+w-2,y+10,2,diffHeight-h/6)
+  gfx.Fill()
+  gfx.ResetScissor()
   draw_cursor(x + w/2, y +diffHeight/2, timer * math.pi, diffHeight / 1.5)
 end
 
@@ -321,13 +321,13 @@ local function draw_selected(song: Song, x: number, y:number, w:number, h:number
     end
     --Border
     local diff = song.difficulties[selectedDiff]
-    gfx:BeginPath()
-    gfx:RoundedRectVarying(xpos,ypos,width,height,yPadding,yPadding,yPadding,yPadding)
-    gfx:FillColor(30,30,30)
-    gfx:StrokeColor(0,128,255)
-    gfx:StrokeWidth(1)
-    gfx:Fill()
-    gfx:Stroke()
+    gfx.BeginPath()
+    gfx.RoundedRectVarying(xpos,ypos,width,height,yPadding,yPadding,yPadding,yPadding)
+    gfx.FillColor(30,30,30)
+    gfx.StrokeColor(0,128,255)
+    gfx.StrokeWidth(1)
+    gfx.Fill()
+    gfx.Stroke()
     -- jacket should take up 1/3 of height, always be square, and be centered
     local imageSize = math.floor(height/3)
     local imageXPos = ((width/2) - (imageSize/2)) + x+xMargin
@@ -337,12 +337,12 @@ local function draw_selected(song: Song, x: number, y:number, w:number, h:number
       imageXPos = x+xMargin+xPadding
     end
     if not songCache[song.id][selectedDiff] or songCache[song.id][selectedDiff] ==  jacketFallback then
-        songCache[song.id][selectedDiff] = gfx:LoadImageJob(diff.jacketPath, jacketFallback, 200,200)
+        songCache[song.id][selectedDiff] = gfx.LoadImageJob(diff.jacketPath, jacketFallback, 200,200)
     end
 
     if songCache[song.id][selectedDiff] then
-        gfx:BeginPath()
-        gfx:ImageRect(imageXPos, y+yMargin+yPadding, imageSize, imageSize, songCache[song.id][selectedDiff], 1, 0)
+        gfx.BeginPath()
+        gfx.ImageRect(imageXPos, y+yMargin+yPadding, imageSize, imageSize, songCache[song.id][selectedDiff], 1, 0)
     end
     -- difficulty should take up 1/6 of height, full width, and be centered
     if aspectRatio == "PortraitWidescreen" then
@@ -355,31 +355,31 @@ local function draw_selected(song: Song, x: number, y:number, w:number, h:number
     end
     -- effector / bpm should take up 1/3 of height, full width
     if aspectRatio == "PortraitWidescreen" then
-      gfx:FontSize(40)
-      gfx:TextAlign(gfx.TEXT_ALIGN_TOP + gfx.TEXT_ALIGN_LEFT)
-      gfx:DrawLabel(songCache[song.id]["title"], xpos+xPadding+imageSize, y+yMargin+yPadding, width-imageSize-20)
-      gfx:FontSize(30)
-      gfx:DrawLabel(songCache[song.id]["artist"], xpos+xPadding+imageSize+3, y+yMargin+yPadding + 45, width-imageSize-20)
-      gfx:FontSize(20)
-      gfx:DrawLabel(songCache[song.id]["bpm"], xpos+xPadding+imageSize+3, y+yMargin+yPadding + 85, width-imageSize-20)
-      gfx:FastText(string.format("Effector: %s", diff.effector), xpos+xPadding+imageSize+3, y+yMargin+yPadding + 115)
+      gfx.FontSize(40)
+      gfx.TextAlign(gfx.TEXT_ALIGN_TOP + gfx.TEXT_ALIGN_LEFT)
+      gfx.DrawLabel(songCache[song.id]["title"], xpos+xPadding+imageSize, y+yMargin+yPadding, width-imageSize-20)
+      gfx.FontSize(30)
+      gfx.DrawLabel(songCache[song.id]["artist"], xpos+xPadding+imageSize+3, y+yMargin+yPadding + 45, width-imageSize-20)
+      gfx.FontSize(20)
+      gfx.DrawLabel(songCache[song.id]["bpm"], xpos+xPadding+imageSize+3, y+yMargin+yPadding + 85, width-imageSize-20)
+      gfx.FastText(string.format("Effector: %s", diff.effector), xpos+xPadding+imageSize+3, y+yMargin+yPadding + 115)
     else
-      gfx:FontSize(40)
-      gfx:TextAlign(gfx.TEXT_ALIGN_TOP + gfx.TEXT_ALIGN_LEFT)
-      gfx:DrawLabel(songCache[song.id]["title"], xpos+10, (height/10)*6, width-20)
-      gfx:FontSize(30)
-      gfx:DrawLabel(songCache[song.id]["artist"], xpos+10, (height/10)*6 + 45, width-20)
-      gfx:FillColor(255,255,255)
-      gfx:FontSize(20)
-      gfx:DrawLabel(songCache[song.id]["bpm"], xpos+10, (height/10)*6 + 85, width-20)
-      gfx:FastText(string.format("Effector: %s", diff.effector),xpos+10, (height/10)*6 + 115)
+      gfx.FontSize(40)
+      gfx.TextAlign(gfx.TEXT_ALIGN_TOP + gfx.TEXT_ALIGN_LEFT)
+      gfx.DrawLabel(songCache[song.id]["title"], xpos+10, (height/10)*6, width-20)
+      gfx.FontSize(30)
+      gfx.DrawLabel(songCache[song.id]["artist"], xpos+10, (height/10)*6 + 45, width-20)
+      gfx.FillColor(255,255,255)
+      gfx.FontSize(20)
+      gfx.DrawLabel(songCache[song.id]["bpm"], xpos+10, (height/10)*6 + 85, width-20)
+      gfx.FastText(string.format("Effector: %s", diff.effector),xpos+10, (height/10)*6 + 115)
     end
     if aspectRatio == "PortraitWidescreen" then
       draw_scores(diff, xpos+xPadding+imageSize+3,  (height/3)*2, width-imageSize-20, (height/3)-yPadding)
     else
       draw_scores(diff, xpos, (height/6)*5, width, (height/6))
     end
-    gfx:ForceRender()
+    gfx.ForceRender()
 end
 
 local function draw_songwheel(x: number,y: number,w: number,h: number): Song
@@ -427,25 +427,25 @@ local function draw_legend_pane(x :number,y :number,w :number,h :number,obj: {st
   local xpos = x+5
   local ypos = y
   local imageSize = h
-  gfx:BeginPath()
-  gfx:TextAlign(gfx.TEXT_ALIGN_MIDDLE + gfx.TEXT_ALIGN_LEFT)
-  gfx:ImageRect(x, y, imageSize, imageSize, obj.image, 1, 0)
+  gfx.BeginPath()
+  gfx.TextAlign(gfx.TEXT_ALIGN_MIDDLE + gfx.TEXT_ALIGN_LEFT)
+  gfx.ImageRect(x, y, imageSize, imageSize, obj.image, 1, 0)
   xpos = xpos + imageSize + 5
-  gfx:FontSize(16);
+  gfx.FontSize(16);
   if h < (w-(10+imageSize))/2 then
-    gfx:DrawLabel(obj.labelSingleLine, xpos, y+(h/2), w-(10+imageSize))
+    gfx.DrawLabel(obj.labelSingleLine, xpos, y+(h/2), w-(10+imageSize))
   else
-    gfx:DrawLabel(obj.labelMultiLine, xpos, y+(h/2), w-(10+imageSize))
+    gfx.DrawLabel(obj.labelMultiLine, xpos, y+(h/2), w-(10+imageSize))
   end
-  gfx:ForceRender()
+  gfx.ForceRender()
 end
 
 local draw_legend = function(x: number,y: number,w: number,h: number)
-  gfx:TextAlign(gfx.TEXT_ALIGN_MIDDLE + gfx.TEXT_ALIGN_LEFT);
-  gfx:BeginPath()
-  gfx:FillColor(0,0,0,170)
-  gfx:Rect(x,y,w,h)
-  gfx:Fill()
+  gfx.TextAlign(gfx.TEXT_ALIGN_MIDDLE + gfx.TEXT_ALIGN_LEFT);
+  gfx.BeginPath()
+  gfx.FillColor(0,0,0,170)
+  gfx.Rect(x,y,w,h)
+  gfx.Fill()
   local xpos = 10;
   local legendWidth = math.floor((w-20)/#legendTable)
   for i,v in ipairs(legendTable) do
@@ -456,30 +456,30 @@ end
 local draw_search = function(x: number,y: number,w: number,h: number)
   soffset = soffset + (searchIndex) - (songwheel.searchInputActive and 0 or 1)
   if searchIndex ~= (songwheel.searchInputActive and 0 or 1) then
-      game:PlaySample("woosh")
+      game.PlaySample("woosh")
   end
   searchIndex = songwheel.searchInputActive and 0 or 1
 
-  gfx:BeginPath()
+  gfx.BeginPath()
   local bgfade = 1 - (searchIndex + soffset)
   --if not songwheel.searchInputActive then bgfade = soffset end
-  gfx:FillColor(0,0,0,math.floor(200 * bgfade))
-  gfx:Rect(0,0,resx,resy)
-  gfx:Fill()
-  gfx:ForceRender()
+  gfx.FillColor(0,0,0,math.floor(200 * bgfade))
+  gfx.Rect(0,0,resx,resy)
+  gfx.Fill()
+  gfx.ForceRender()
   local xpos = x + (searchIndex + soffset)*w
-  gfx:UpdateLabel(searchText ,string.format("Search: %s",songwheel.searchText), 30)
-  gfx:BeginPath()
-  gfx:RoundedRect(xpos,y,w,h,h/2)
-  gfx:FillColor(30,30,30)
-  gfx:StrokeColor(0,128,255)
-  gfx:StrokeWidth(1)
-  gfx:Fill()
-  gfx:Stroke()
-  gfx:BeginPath();
-  gfx:LoadSkinFont("NotoSans-Regular.ttf");
-  gfx:TextAlign(gfx.TEXT_ALIGN_LEFT + gfx.TEXT_ALIGN_MIDDLE);
-  gfx:DrawLabel(searchText, xpos+10,y+(h/2), w-20)
+  gfx.UpdateLabel(searchText ,string.format("Search: %s",songwheel.searchText), 30)
+  gfx.BeginPath()
+  gfx.RoundedRect(xpos,y,w,h,h/2)
+  gfx.FillColor(30,30,30)
+  gfx.StrokeColor(0,128,255)
+  gfx.StrokeWidth(1)
+  gfx.Fill()
+  gfx.Stroke()
+  gfx.BeginPath();
+  gfx.LoadSkinFont("NotoSans-Regular.ttf");
+  gfx.TextAlign(gfx.TEXT_ALIGN_LEFT + gfx.TEXT_ALIGN_MIDDLE);
+  gfx.DrawLabel(searchText, xpos+10,y+(h/2), w-20)
 
 end
 
@@ -490,12 +490,12 @@ local totalForce: number = 0
 global function render(deltaTime: number)
     timer = (timer + deltaTime)
     timer = timer % 2
-    resx,resy = game:GetResolution();
+    resx,resy = game.GetResolution();
     adjustScreen(resx,resy);
-    gfx:BeginPath();
-    gfx:LoadSkinFont("NotoSans-Regular.ttf");
-    gfx:FontSize(40);
-    gfx:FillColor(255,255,255);
+    gfx.BeginPath();
+    gfx.LoadSkinFont("NotoSans-Regular.ttf");
+    gfx.FontSize(40);
+    gfx.FillColor(255,255,255);
     if songwheel.songs[1] ~= nil then
       --draw songwheel and get selected song
       if aspectRatio == "PortraitWidescreen" then
@@ -528,28 +528,28 @@ global function render(deltaTime: number)
     doffset = doffset * 0.9
     soffset = soffset * 0.8
 	if songwheel.searchStatus then
-		gfx:BeginPath()
-		gfx:FillColor(255,255,255)
-		gfx:FontSize(20);
-		gfx:TextAlign(gfx.TEXT_ALIGN_LEFT + gfx.TEXT_ALIGN_TOP)
-		gfx:Text(songwheel.searchStatus, 3, 3)
+		gfx.BeginPath()
+		gfx.FillColor(255,255,255)
+		gfx.FontSize(20);
+		gfx.TextAlign(gfx.TEXT_ALIGN_LEFT + gfx.TEXT_ALIGN_TOP)
+		gfx.Text(songwheel.searchStatus, 3, 3)
 	end
 	if totalForce then
-		gfx:BeginPath()
-		gfx:FillColor(255,255,255)
-		gfx:FontSize(20);
-		gfx:TextAlign(gfx.TEXT_ALIGN_LEFT + gfx.TEXT_ALIGN_BOTTOM)
+		gfx.BeginPath()
+		gfx.FillColor(255,255,255)
+		gfx.FontSize(20);
+		gfx.TextAlign(gfx.TEXT_ALIGN_LEFT + gfx.TEXT_ALIGN_BOTTOM)
 		local forceText = string.format("Force: %.2f", totalForce)
-		gfx:Text(forceText, 0, fullY)
+		gfx.Text(forceText, 0, fullY)
 	end
-    gfx:LoadSkinFont("NotoSans-Regular.ttf");
-    gfx:ResetTransform()
-    gfx:ForceRender()
+    gfx.LoadSkinFont("NotoSans-Regular.ttf");
+    gfx.ResetTransform()
+    gfx.ForceRender()
 end
 
 local set_index = function(newIndex: integer)
     if newIndex ~= selectedIndex then
-        game:PlaySample("menu_click")
+        game.PlaySample("menu_click")
     end
     ioffset = ioffset + selectedIndex - newIndex
     selectedIndex = newIndex
@@ -557,7 +557,7 @@ end;
 
 local set_diff = function(newDiff: integer)
     if newDiff ~= selectedDiff then
-        game:PlaySample("click-02")
+        game.PlaySample("click-02")
     end
     doffset = doffset + selectedDiff - newDiff
     selectedDiff = newDiff

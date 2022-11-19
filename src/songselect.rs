@@ -1,5 +1,11 @@
-use std::{collections::HashMap, fs::FileType, path::PathBuf};
+use std::{
+    collections::HashMap,
+    fs::FileType,
+    path::PathBuf,
+    sync::{Arc, Mutex},
+};
 
+use anyhow::Result;
 use kson::{Chart, Ksh};
 use tealr::{
     mlu::{
@@ -8,6 +14,8 @@ use tealr::{
     },
     TypeName,
 };
+
+use crate::scene::Scene;
 
 #[derive(Debug, TypeName, UserData, Clone)]
 pub struct Difficulty {
@@ -163,30 +171,87 @@ impl SongSelect {
             selected_index: 0,
         }
     }
+}
 
-    pub fn debug_ui(&mut self, ctx: &three_d::egui::Context, lua: &Lua) {
-        use three_d::egui;
-        let set_song_idx: Function = lua.globals().get("set_index").unwrap();
+pub struct SongSelectScene {
+    state: Arc<Mutex<SongSelect>>,
+    lua: Lua,
+    background_lua: Lua,
+}
 
-        egui::Window::new("Songsel").show(ctx, |ui| {
-            egui::Grid::new("songsel-grid")
-                .num_columns(2)
-                .striped(true)
-                .show(ui, |ui| {
-                    ui.label("Song");
-                    if ui
-                        .add(
-                            egui::DragValue::new(&mut self.selected_index)
-                                .clamp_range(1..=self.songs.len())
-                                .speed(0.1),
-                        )
-                        .changed()
-                    {
-                        set_song_idx.call::<_, i32>(self.selected_index);
-                    }
-
-                    ui.end_row()
-                })
-        });
+impl SongSelectScene {
+    pub fn new(song_path: impl std::convert::AsRef<std::path::Path>) -> Self {
+        Self {
+            background_lua: Lua::new(),
+            lua: Lua::new(),
+            state: Arc::new(Mutex::new(SongSelect::new(song_path))),
+        }
     }
+}
+
+impl Scene for SongSelectScene {
+    fn render(&mut self, dt: f64) -> Result<bool> {
+        // let render_bg: Function = self.background_lua.globals().get("render")?;
+        // render_bg.call(dt)?;
+
+        let render_wheel: Function = self.lua.globals().get("render")?;
+        render_wheel.call(dt / 1000.0)?;
+
+        Ok(false)
+    }
+
+    fn is_suspended(&self) -> bool {
+        false
+    }
+
+    fn debug_ui(&mut self, ctx: &three_d::egui::Context) -> Result<()> {
+        use three_d::egui;
+        let set_song_idx: Function = self.lua.globals().get("set_index").unwrap();
+        if let Ok(state) = &mut self.state.lock() {
+            let song_count = state.songs.len();
+
+            egui::Window::new("Songsel").show(ctx, |ui| {
+                egui::Grid::new("songsel-grid")
+                    .num_columns(2)
+                    .striped(true)
+                    .show(ui, |ui| {
+                        ui.label("Song");
+                        if ui
+                            .add(
+                                egui::DragValue::new(&mut state.selected_index)
+                                    .clamp_range(1..=song_count)
+                                    .speed(0.1),
+                            )
+                            .changed()
+                        {
+                            set_song_idx.call::<_, i32>(state.selected_index);
+                        }
+
+                        ui.end_row()
+                    })
+            });
+        }
+
+        Ok(())
+    }
+
+    fn init(
+        &mut self,
+        load_lua: Box<dyn Fn(&Lua, &'static str) -> anyhow::Result<()>>,
+    ) -> anyhow::Result<()> {
+        self.lua.globals().set("songwheel", self.state.clone());
+        load_lua(&self.lua, "songselect/songwheel.lua")?;
+        //load_lua(&self.background_lua, "songselect/background.lua")?;
+        Ok(())
+    }
+
+    fn tick(&mut self, dt: f64, game_data: crate::game_data::GameData) -> Result<bool> {
+        Ok(false)
+    }
+
+    fn on_event(&mut self, event: &mut three_d::Event) {}
+
+    fn suspend(&mut self) {}
+
+    fn resume(&mut self) {}
 }
