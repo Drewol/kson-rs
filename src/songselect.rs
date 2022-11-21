@@ -1,21 +1,25 @@
 use std::{
+    cell::Ref,
     collections::HashMap,
     fs::FileType,
+    ops::Deref,
     path::PathBuf,
-    sync::{Arc, Mutex},
+    rc::Rc,
+    sync::{mpsc::Sender, Arc, Mutex},
 };
 
 use anyhow::Result;
 use kson::{Chart, Ksh};
+use puffin::profile_function;
 use tealr::{
     mlu::{
-        mlua::{Function, Lua, ToLua},
+        mlua::{AnyUserData, Function, Lua, ToLua},
         TealData, UserData,
     },
     TypeName,
 };
 
-use crate::scene::Scene;
+use crate::{button_codes::UscButton, scene::Scene, ControlMessage};
 
 #[derive(Debug, TypeName, UserData, Clone)]
 pub struct Difficulty {
@@ -141,31 +145,35 @@ impl SongSelect {
             },
         );
 
+        let mut songs: Vec<Song> = song_folders
+            .into_iter()
+            .enumerate()
+            .map(|(id, (song_folder, charts))| Song {
+                title: charts[0].meta.title.clone(),
+                artist: charts[0].meta.artist.clone(),
+                bpm: charts[0].meta.disp_bpm.clone(),
+                id: id as i32,
+                path: song_folder.clone(),
+                difficulties: charts
+                    .iter()
+                    .enumerate()
+                    .map(|(id, c)| Difficulty {
+                        best_badge: 0,
+                        difficulty: c.meta.difficulty,
+                        effector: c.meta.chart_author.clone(),
+                        id: id as i32,
+                        jacket_path: song_folder.join(&c.meta.jacket_filename),
+                        level: c.meta.level,
+                        scores: vec![99],
+                    })
+                    .collect(),
+            })
+            .collect();
+
+        songs.sort_by_key(|s| s.title.to_lowercase());
+
         Self {
-            songs: song_folders
-                .into_iter()
-                .enumerate()
-                .map(|(id, (song_folder, charts))| Song {
-                    title: charts[0].meta.title.clone(),
-                    artist: charts[0].meta.artist.clone(),
-                    bpm: charts[0].meta.disp_bpm.clone(),
-                    id: id as i32,
-                    path: song_folder.clone(),
-                    difficulties: charts
-                        .iter()
-                        .enumerate()
-                        .map(|(id, c)| Difficulty {
-                            best_badge: 0,
-                            difficulty: c.meta.difficulty,
-                            effector: c.meta.chart_author.clone(),
-                            id: id as i32,
-                            jacket_path: song_folder.join(&c.meta.jacket_filename),
-                            level: c.meta.level,
-                            scores: vec![99],
-                        })
-                        .collect(),
-                })
-                .collect(),
+            songs,
             searchInputActive: false,
             searchText: String::new(),
             selected_index: 0,
@@ -175,22 +183,25 @@ impl SongSelect {
 
 pub struct SongSelectScene {
     state: Arc<Mutex<SongSelect>>,
-    lua: Lua,
-    background_lua: Lua,
+    lua: Rc<Lua>,
+    background_lua: Rc<Lua>,
+    program_control: Option<Sender<ControlMessage>>,
 }
 
 impl SongSelectScene {
     pub fn new(song_path: impl std::convert::AsRef<std::path::Path>) -> Self {
         Self {
-            background_lua: Lua::new(),
-            lua: Lua::new(),
+            background_lua: Rc::new(Lua::new()),
+            lua: Rc::new(Lua::new()),
             state: Arc::new(Mutex::new(SongSelect::new(song_path))),
+            program_control: None,
         }
     }
 }
 
 impl Scene for SongSelectScene {
     fn render(&mut self, dt: f64) -> Result<bool> {
+        profile_function!();
         // let render_bg: Function = self.background_lua.globals().get("render")?;
         // render_bg.call(dt)?;
 
@@ -237,19 +248,33 @@ impl Scene for SongSelectScene {
 
     fn init(
         &mut self,
-        load_lua: Box<dyn Fn(&Lua, &'static str) -> anyhow::Result<()>>,
+        load_lua: Box<dyn Fn(Rc<Lua>, &'static str) -> anyhow::Result<()>>,
+        app_control_tx: Sender<ControlMessage>,
     ) -> anyhow::Result<()> {
         self.lua.globals().set("songwheel", self.state.clone());
-        load_lua(&self.lua, "songselect/songwheel.lua")?;
+        self.program_control = Some(app_control_tx);
+        load_lua(self.lua.clone(), "songselect/songwheel.lua")?;
         //load_lua(&self.background_lua, "songselect/background.lua")?;
         Ok(())
     }
 
-    fn tick(&mut self, dt: f64, game_data: crate::game_data::GameData) -> Result<bool> {
+    fn tick(&mut self, dt: f64) -> Result<bool> {
         Ok(false)
     }
 
     fn on_event(&mut self, event: &mut three_d::Event) {}
+
+    fn on_button_pressed(&mut self, button: crate::button_codes::UscButton) {
+        if let UscButton::Start = button {
+            let state = self.state.lock().unwrap();
+            if let Some(pc) = &self.program_control {
+                pc.send(ControlMessage::Song(
+                    state.songs[state.selected_index as usize].path.clone(),
+                ))
+                .unwrap();
+            }
+        }
+    }
 
     fn suspend(&mut self) {}
 

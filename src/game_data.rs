@@ -3,6 +3,7 @@ use std::{
     sync::{Arc, Mutex},
 };
 
+use puffin::ProfilerScope;
 use tealr::{
     mlu::{
         mlua::{self, FromLuaMulti, Lua, Result, ToLuaMulti},
@@ -14,10 +15,11 @@ use tealr::{
 
 use crate::help::add_lua_static_method;
 
-#[derive(Debug, UserData, Clone, Copy)]
+#[derive(UserData)]
 pub struct GameData {
     pub resolution: (u32, u32),
     pub mouse_pos: (f64, f64),
+    pub profile_stack: Vec<ProfilerScope>,
 }
 
 impl TypeName for GameData {
@@ -157,6 +159,38 @@ impl TealData for GameData {
         add_lua_static_method(methods, "GetSkinSetting", |_, _game_data, key: (String)| {
             Ok((0, 127, 255, 255))
         });
+
+        //BeginProfile
+        add_lua_static_method(
+            methods,
+            "BeginProfile",
+            |lua, _game_data, scope: Option<String>| {
+                if puffin::are_scopes_on() {
+                    let scope = scope.unwrap_or_else(|| {
+                        if let Some(a) = lua.inspect_stack(1) {
+                            let names = a.names();
+                            names
+                                .name
+                                .map(|a| String::from_utf8_lossy(a).to_string())
+                                .unwrap_or_else(|| "unknown".to_string())
+                        } else {
+                            "unknown".to_string()
+                        }
+                    });
+
+                    _game_data
+                        .profile_stack
+                        .push(ProfilerScope::new("Lua scope", &scope, ""))
+                }
+                Ok(())
+            },
+        );
+
+        //EndProfile
+        add_lua_static_method(methods, "EndProfile", |_, _game_data, _: ()| {
+            _game_data.profile_stack.pop();
+            Ok(())
+        })
     }
 
     fn add_fields<'lua, F: tealr::mlu::TealDataFields<'lua, Self>>(fields: &mut F) {

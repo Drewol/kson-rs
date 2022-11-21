@@ -26,3 +26,9 @@ walkdir = "*"
 rfd = "*"
 log = "*"
 simple_logger = "4.0.0"
+puffin = "0.14.0"
+puffin_http = "0.11.0"
+uuid = "1.2.2"
+
+[profile.release]
+debug = true

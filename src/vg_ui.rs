@@ -1208,7 +1208,7 @@ impl TealData for Vgfx {
         //ForceRender
         add_lua_static_method(methods, "ForceRender", |_, _vgfx, _: ()| {
             //TODO: Flush game render as well
-            _vgfx.with_canvas(|canvas| canvas.flush())?;
+            //_vgfx.with_canvas(|canvas| canvas.flush())?;
             Ok(())
         });
 
@@ -1231,7 +1231,7 @@ impl TealData for Vgfx {
                     h,
                 } = p;
 
-                while let Ok((path, img)) = _vgfx.image_loader_rx.try_recv() {
+                if let Ok((path, img)) = _vgfx.image_loader_rx.try_recv() {
                     let img_id = _vgfx.with_canvas(|c| {
                         c.create_image(
                             femtovg::ImageSource::try_from(&img).expect("bad image format?"),

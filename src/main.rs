@@ -1,8 +1,8 @@
 use std::{
     io::Write,
-    path::Path,
+    path::{Path, PathBuf},
     rc::Rc,
-    sync::{Arc, Mutex},
+    sync::{Arc, Mutex, RwLock},
 };
 
 use crate::{
@@ -11,7 +11,10 @@ use crate::{
 };
 use femtovg as vg;
 use generational_arena::Arena;
+use gilrs::Mapping;
 use log::*;
+use main_menu::MainMenuButton;
+use puffin::profile_scope;
 use songselect::SongSelect;
 use td::egui;
 use td::HasContext;
@@ -21,14 +24,28 @@ use tealr::mlu::{
 };
 use three_d as td;
 
+mod button_codes;
 mod game_data;
 mod help;
 mod main_menu;
 mod scene;
 mod songselect;
 mod vg_ui;
+pub enum ControlMessage {
+    MainMenu(MainMenuButton),
+    Song(PathBuf),
+    Result {
+        song: songselect::Song,
+        diff_idx: usize,
+        score: u32,
+    },
+}
 
 fn main() -> anyhow::Result<()> {
+    puffin::set_scopes_on(true);
+    let server_addr = format!("0.0.0.0:{}", puffin_http::DEFAULT_PORT);
+    let _server = puffin_http::Server::new(&server_addr)?;
+
     let window = td::Window::new(td::WindowSettings {
         title: "Test".to_string(),
         max_size: None,
@@ -41,11 +58,12 @@ fn main() -> anyhow::Result<()> {
     simple_logger::init_with_level(Level::Info)?;
 
     let mut input = gilrs::GilrsBuilder::default()
+        .add_included_mappings(true)
+        .add_mappings("03000000d01600006d0a000000000000,Pocket Voltex Rev4,a:b1,b:b2,y:b3,x:b4,leftshoulder:b5,rightshoulder:b6,start:b0,leftx:a0,rightx:a1")
         .build()
         .expect("Failed to create input context");
 
-    // Get the graphics context from the window
-    let lua_arena: Arena<Lua> = Arena::new();
+    while input.next_event().is_some() {} //empty events
 
     let context = window.gl();
     let renderer = unsafe {
@@ -147,20 +165,35 @@ fn main() -> anyhow::Result<()> {
     let mut scenes_loaded: Vec<Box<dyn scene::Scene>> = vec![]; //Uninitialized
     let mut scenes: Vec<Box<dyn scene::Scene>> = vec![]; //Initialized
 
-    scenes_loaded.push(Box::new(songselect::SongSelectScene::new(songs_folder)));
     scenes_loaded.push(Box::new(main_menu::MainMenu::new()));
     let game_data = Arc::new(Mutex::new(game_data::GameData {
         mouse_pos: (mousex, mousey),
         resolution: (800, 600),
+        profile_stack: vec![],
     }));
 
+    let lua_arena: Rc<RwLock<Arena<Rc<Lua>>>> = Rc::new(RwLock::new(Arena::new()));
+
+    let (control_tx, control_rx) = std::sync::mpsc::channel();
     window.render_loop(move |mut frame_input| {
-        let load_lua = |game_data: Arc<Mutex<GameData>>, vgfx: Arc<Mutex<Vgfx>>| {
-            Box::new(move |lua: &Lua, script_path| {
-                tealr::mlu::set_global_env(ExportVgfx, lua)?;
-                tealr::mlu::set_global_env(ExportGame, lua)?;
+        puffin::profile_scope!("Frame");
+        puffin::GlobalProfiler::lock().new_frame();
+
+        let load_lua = |game_data: Arc<Mutex<GameData>>,
+                        vgfx: Arc<Mutex<Vgfx>>,
+                        arena: Rc<RwLock<Arena<Rc<Lua>>>>| {
+            Box::new(move |lua: Rc<Lua>, script_path| {
+                tealr::mlu::set_global_env(ExportVgfx, &lua)?;
+                tealr::mlu::set_global_env(ExportGame, &lua)?;
+
+                let idx = arena
+                    .write()
+                    .expect("Could not get lock to lua arena")
+                    .insert(lua.clone());
                 lua.set_app_data(vgfx.clone());
                 lua.set_app_data(game_data.clone());
+                lua.set_app_data(idx);
+                lua.gc_stop();
                 let mut real_script_path = std::env::current_dir()?;
                 real_script_path.push("scripts");
                 real_script_path.push(script_path);
@@ -171,16 +204,38 @@ fn main() -> anyhow::Result<()> {
         };
 
         //Initialize loaded scenes
-        scenes_loaded.retain_mut(
-            |s| match s.init(load_lua(game_data.clone(), vgfx.clone())) {
+        scenes_loaded.retain_mut(|s| {
+            match s.init(
+                load_lua(game_data.clone(), vgfx.clone(), lua_arena.clone()),
+                control_tx.clone(),
+            ) {
                 Ok(_) => true,
                 Err(e) => {
                     error!("{:?}", e);
                     false
                 }
-            },
-        );
+            }
+        });
         scenes.append(&mut scenes_loaded);
+
+        while let Ok(control_msg) = control_rx.try_recv() {
+            match control_msg {
+                ControlMessage::MainMenu(b) => match b {
+                    MainMenuButton::Start => {
+                        scenes_loaded
+                            .push(Box::new(songselect::SongSelectScene::new(&songs_folder)));
+                    }
+                    MainMenuButton::Downloads => {}
+                    _ => {}
+                },
+                ControlMessage::Song(p) => info!("{:?}", p),
+                ControlMessage::Result {
+                    song,
+                    diff_idx,
+                    score,
+                } => todo!(),
+            }
+        }
 
         camera.set_viewport(frame_input.viewport);
         // Set the current transformation of the triangle
@@ -211,15 +266,30 @@ fn main() -> anyhow::Result<()> {
 
         while let Some(e) = input.next_event() {
             match e.event {
-                gilrs::EventType::ButtonPressed(_, _) => {}
+                gilrs::EventType::ButtonPressed(button, _) => {
+                    let button = button_codes::UscButton::from(button);
+                    info!("{:?}", button);
+                    scenes
+                        .iter_mut()
+                        .filter(|s| !s.is_suspended())
+                        .for_each(|s| s.on_button_pressed(button))
+                }
                 gilrs::EventType::ButtonRepeated(_, _) => {}
                 gilrs::EventType::ButtonReleased(_, _) => {}
                 gilrs::EventType::ButtonChanged(_, _, _) => {}
-                gilrs::EventType::AxisChanged(_, _, _) => {}
+                gilrs::EventType::AxisChanged(axis, value, code) => {
+                    info!("{:?}, {:.3}, {:?}", axis, value, code)
+                }
                 gilrs::EventType::Connected => {}
                 gilrs::EventType::Disconnected => {}
                 gilrs::EventType::Dropped => {}
             }
+        }
+
+        if frame_input.first_frame {
+            input.gamepads().for_each(|(_, g)| {
+                info!("{} uuid: {}", g.name(), uuid::Uuid::from_bytes(g.uuid()))
+            });
         }
 
         {
@@ -228,6 +298,7 @@ fn main() -> anyhow::Result<()> {
                 *game_data = GameData {
                     mouse_pos: (mousex, mousey),
                     resolution: (frame_input.viewport.width, frame_input.viewport.height),
+                    profile_stack: std::mem::take(&mut game_data.profile_stack),
                 };
             }
         }
@@ -252,16 +323,17 @@ fn main() -> anyhow::Result<()> {
         }
 
         {
-            scenes.retain_mut(|s| {
-                match s.tick(frame_input.elapsed_time, *game_data.lock().unwrap()) {
-                    Ok(close) => !close,
-                    Err(e) => {
-                        error!("{:?}", e);
-                        false
-                    }
+            profile_scope!("Tick");
+            scenes.retain_mut(|s| match s.tick(frame_input.elapsed_time) {
+                Ok(close) => !close,
+                Err(e) => {
+                    error!("{:?}", e);
+                    false
                 }
             });
-
+        }
+        {
+            profile_scope!("Render");
             scenes.retain_mut(|s| {
                 if s.is_suspended() {
                     true
@@ -296,6 +368,7 @@ fn main() -> anyhow::Result<()> {
         }
 
         {
+            profile_scope!("Debug UI");
             gui.update(
                 &mut frame_input.events,
                 frame_input.accumulated_time,
@@ -309,6 +382,19 @@ fn main() -> anyhow::Result<()> {
             );
 
             frame_input.screen().write(|| gui.render());
+        }
+
+        {
+            profile_scope!("Garbage collect");
+            for (idx, lua) in lua_arena.read().unwrap().iter() {
+                //TODO: if reference count = 1, remove loaded gfx assets for state
+                lua.gc_collect();
+                lua.gc_collect();
+            }
+        }
+
+        {
+            game_data.lock().map(|mut a| a.profile_stack.clear());
         }
 
         td::FrameOutput {

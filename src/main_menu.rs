@@ -1,5 +1,6 @@
 use std::{
     cell::Ref,
+    rc::Rc,
     sync::{
         mpsc::{Receiver, Sender},
         Arc, Mutex,
@@ -14,9 +15,9 @@ use tealr::{
     TypeName,
 };
 
-use crate::scene::Scene;
+use crate::{scene::Scene, ControlMessage};
 #[derive(Debug)]
-enum Buttons {
+pub enum MainMenuButton {
     Start,
     Downloads,
     Multiplayer,
@@ -27,7 +28,7 @@ enum Buttons {
 }
 
 #[derive(Debug, UserData, TypeName)]
-struct Bindings(Sender<Buttons>);
+struct Bindings(Sender<MainMenuButton>);
 
 impl TealData for Bindings {
     fn add_methods<'lua, T: tealr::mlu::TealDataMethods<'lua, Self>>(methods: &mut T) {
@@ -45,32 +46,32 @@ impl TealData for Bindings {
          */
 
         methods.add_function("Start", |lua, ()| {
-            let s: Ref<Sender<Buttons>> = lua.app_data_ref().unwrap();
-            s.send(Buttons::Start).map_err(Error::external)
+            let s: Ref<Sender<MainMenuButton>> = lua.app_data_ref().unwrap();
+            s.send(MainMenuButton::Start).map_err(Error::external)
         });
         methods.add_function("DLScreen", |lua, ()| {
-            let s: Ref<Sender<Buttons>> = lua.app_data_ref().unwrap();
-            s.send(Buttons::Downloads).map_err(Error::external)
+            let s: Ref<Sender<MainMenuButton>> = lua.app_data_ref().unwrap();
+            s.send(MainMenuButton::Downloads).map_err(Error::external)
         });
         methods.add_function("Multiplayer", |lua, ()| {
-            let s: Ref<Sender<Buttons>> = lua.app_data_ref().unwrap();
-            s.send(Buttons::Multiplayer).map_err(Error::external)
+            let s: Ref<Sender<MainMenuButton>> = lua.app_data_ref().unwrap();
+            s.send(MainMenuButton::Multiplayer).map_err(Error::external)
         });
         methods.add_function("Exit", |lua, ()| {
-            let s: Ref<Sender<Buttons>> = lua.app_data_ref().unwrap();
-            s.send(Buttons::Exit).map_err(Error::external)
+            let s: Ref<Sender<MainMenuButton>> = lua.app_data_ref().unwrap();
+            s.send(MainMenuButton::Exit).map_err(Error::external)
         });
         methods.add_function("Settings", |lua, ()| {
-            let s: Ref<Sender<Buttons>> = lua.app_data_ref().unwrap();
-            s.send(Buttons::Options).map_err(Error::external)
+            let s: Ref<Sender<MainMenuButton>> = lua.app_data_ref().unwrap();
+            s.send(MainMenuButton::Options).map_err(Error::external)
         });
         methods.add_function("Update", |lua, ()| {
-            let s: Ref<Sender<Buttons>> = lua.app_data_ref().unwrap();
-            s.send(Buttons::Update).map_err(Error::external)
+            let s: Ref<Sender<MainMenuButton>> = lua.app_data_ref().unwrap();
+            s.send(MainMenuButton::Update).map_err(Error::external)
         });
         methods.add_function("Challenges", |lua, ()| {
-            let s: Ref<Sender<Buttons>> = lua.app_data_ref().unwrap();
-            s.send(Buttons::Challenges).map_err(Error::external)
+            let s: Ref<Sender<MainMenuButton>> = lua.app_data_ref().unwrap();
+            s.send(MainMenuButton::Challenges).map_err(Error::external)
         });
     }
 }
@@ -88,17 +89,24 @@ impl ExportInstances for ExportBindings {
 }
 
 pub struct MainMenu {
-    lua: Lua,
-    button_rx: Receiver<Buttons>,
+    lua: Rc<Lua>,
+    button_rx: Receiver<MainMenuButton>,
+    control_tx: Option<Sender<ControlMessage>>,
+    suspended: bool,
 }
 
 impl MainMenu {
     pub fn new() -> Self {
-        let lua = Lua::new();
+        let lua = Rc::new(Lua::new());
         let (tx, button_rx) = std::sync::mpsc::channel();
         lua.set_app_data(tx);
         tealr::mlu::set_global_env(ExportBindings, &lua);
-        Self { lua, button_rx }
+        Self {
+            lua,
+            button_rx,
+            control_tx: None,
+            suspended: false,
+        }
     }
 }
 
@@ -111,19 +119,25 @@ impl Scene for MainMenu {
 
     fn init(
         &mut self,
-        load_lua: Box<dyn Fn(&Lua, &'static str) -> anyhow::Result<()>>,
+        load_lua: Box<dyn Fn(Rc<Lua>, &'static str) -> anyhow::Result<()>>,
+        app_control_tx: Sender<ControlMessage>,
     ) -> anyhow::Result<()> {
-        load_lua(&self.lua, "titlescreen.lua")?;
+        load_lua(self.lua.clone(), "titlescreen.lua")?;
+        self.control_tx = Some(app_control_tx);
         Ok(())
     }
 
-    fn tick(&mut self, dt: f64, game_data: crate::game_data::GameData) -> anyhow::Result<bool> {
-        self.lua.globals().set("game", game_data)?;
-
+    fn tick(&mut self, dt: f64) -> anyhow::Result<bool> {
         while let Ok(button) = self.button_rx.try_recv() {
             log::info!("Pressed: {:?}", &button);
-            if let Buttons::Exit = button {
+            if let MainMenuButton::Exit = button {
                 return Ok(true);
+            } else {
+                self.control_tx
+                    .as_ref()
+                    .unwrap()
+                    .send(ControlMessage::MainMenu(button))?;
+                self.suspended = true;
             }
         }
 
@@ -147,7 +161,11 @@ impl Scene for MainMenu {
     }
 
     fn is_suspended(&self) -> bool {
-        false
+        self.suspended
+    }
+
+    fn resume(&mut self) {
+        self.suspended = false;
     }
 
     fn debug_ui(&mut self, ctx: &three_d::egui::Context) -> anyhow::Result<()> {

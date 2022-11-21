@@ -210,6 +210,7 @@ local function draw_scores(difficulty, x, y, w, h)
 end
 
 local function draw_song(song, x, y, w, h, selected)
+   game.BeginProfile()
    check_or_create_cache(song)
    gfx.BeginPath()
    gfx.RoundedRectVarying(x, y, w, h, 0, 0, 0, 40)
@@ -227,7 +228,7 @@ local function draw_song(song, x, y, w, h, selected)
    gfx.DrawLabel(songCache[song.id]["title"], x + 10, y + 5, w - 10)
    gfx.DrawLabel(songCache[song.id]["artist"], x + 20, y + 50, w - 10)
    gfx.ForceRender()
-
+   game.EndProfile()
 end
 
 local function draw_diff_icon(diff, x, y, w, h, selected)
@@ -300,6 +301,7 @@ local function draw_diffs(diffs, x, y, w, h)
 end
 
 local function draw_selected(song, x, y, w, h)
+   game.BeginProfile()
    check_or_create_cache(song)
 
    local xPadding = math.floor(w / 16)
@@ -381,9 +383,11 @@ local function draw_selected(song, x, y, w, h)
       draw_scores(diff, xpos, (height / 6) * 5, width, (height / 6))
    end
    gfx.ForceRender()
+   game.EndProfile()
 end
 
 local function draw_songwheel(x, y, w, h)
+   game.BeginProfile()
    local offsetX = fifthX / 2
    local width = math.floor((w / 5) * 4)
    if aspectRatio == "landscapeWidescreen" then
@@ -421,6 +425,7 @@ local function draw_songwheel(x, y, w, h)
    local offsetY = (ioffset) * (height - (wheelSize / 2 * ((1) * aspectFloat)))
    local ypos = y + ((h / 2 - height / 2) - (ioffset) - offsetY)
    draw_song(songwheel.songs[selectedIndex], xpos, ypos, width, height, true)
+   game.EndProfile()
    return songwheel.songs[selectedIndex]
 end
 
