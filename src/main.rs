@@ -6,12 +6,13 @@ use std::{
 };
 
 use crate::{
+    button_codes::LaserState,
     game_data::{ExportGame, GameData},
     vg_ui::{ExportVgfx, Vgfx},
 };
 use femtovg as vg;
 use generational_arena::Arena;
-use gilrs::Mapping;
+use gilrs::{ev::filter::Jitter, Filter, Mapping};
 use log::*;
 use main_menu::MainMenuButton;
 use puffin::profile_scope;
@@ -59,6 +60,7 @@ fn main() -> anyhow::Result<()> {
 
     let mut input = gilrs::GilrsBuilder::default()
         .add_included_mappings(true)
+        .with_default_filters(false)
         .add_mappings("03000000d01600006d0a000000000000,Pocket Voltex Rev4,a:b1,b:b2,y:b3,x:b4,leftshoulder:b5,rightshoulder:b6,start:b0,leftx:a0,rightx:a1")
         .build()
         .expect("Failed to create input context");
@@ -77,8 +79,8 @@ fn main() -> anyhow::Result<()> {
     let canvas = Arc::new(Mutex::new(
         vg::Canvas::new(renderer).expect("Failed to create canvas"),
     ));
-    let mut vgfx = Arc::new(Mutex::new(vg_ui::Vgfx::new(
-        canvas.clone(),
+    let vgfx = Arc::new(Mutex::new(vg_ui::Vgfx::new(
+        canvas,
         std::env::current_dir()?,
     )));
 
@@ -173,9 +175,12 @@ fn main() -> anyhow::Result<()> {
     }));
 
     let lua_arena: Rc<RwLock<Arena<Rc<Lua>>>> = Rc::new(RwLock::new(Arena::new()));
+    let jitter_filter = Jitter { threshold: 0.005 };
+    let mut knob_state = LaserState::default();
 
     let (control_tx, control_rx) = std::sync::mpsc::channel();
     window.render_loop(move |mut frame_input| {
+        knob_state.zero_deltas();
         puffin::profile_scope!("Frame");
         puffin::GlobalProfiler::lock().new_frame();
 
@@ -277,9 +282,13 @@ fn main() -> anyhow::Result<()> {
                 gilrs::EventType::ButtonRepeated(_, _) => {}
                 gilrs::EventType::ButtonReleased(_, _) => {}
                 gilrs::EventType::ButtonChanged(_, _, _) => {}
-                gilrs::EventType::AxisChanged(axis, value, code) => {
-                    info!("{:?}, {:.3}, {:?}", axis, value, code)
-                }
+                gilrs::EventType::AxisChanged(axis, value, _) => match axis {
+                    gilrs::Axis::LeftStickX => knob_state.update(kson::Side::Left, value),
+                    gilrs::Axis::RightStickX => knob_state.update(kson::Side::Right, value),
+                    e => {
+                        info!("{:?}", e)
+                    }
+                },
                 gilrs::EventType::Connected => {}
                 gilrs::EventType::Disconnected => {}
                 gilrs::EventType::Dropped => {}
@@ -324,7 +333,7 @@ fn main() -> anyhow::Result<()> {
 
         {
             profile_scope!("Tick");
-            scenes.retain_mut(|s| match s.tick(frame_input.elapsed_time) {
+            scenes.retain_mut(|s| match s.tick(frame_input.elapsed_time, knob_state) {
                 Ok(close) => !close,
                 Err(e) => {
                     error!("{:?}", e);

@@ -4,7 +4,11 @@ use anyhow::Result;
 use tealr::mlu::mlua::Lua;
 use three_d::Event;
 
-use crate::{button_codes::UscButton, game_data::GameData, ControlMessage};
+use crate::{
+    button_codes::{LaserState, UscButton},
+    game_data::GameData,
+    ControlMessage,
+};
 
 #[allow(unused_variables)]
 pub trait Scene {
@@ -15,7 +19,7 @@ pub trait Scene {
     ) -> Result<()> {
         Ok(())
     }
-    fn tick(&mut self, dt: f64) -> Result<bool> {
+    fn tick(&mut self, dt: f64, knob_state: LaserState) -> Result<bool> {
         Ok(false)
     }
     fn on_event(&mut self, event: &mut Event) {}

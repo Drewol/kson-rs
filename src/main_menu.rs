@@ -7,6 +7,7 @@ use std::{
     },
 };
 
+use anyhow::Result;
 use tealr::{
     mlu::{
         mlua::{Function, Lua},
@@ -15,7 +16,7 @@ use tealr::{
     TypeName,
 };
 
-use crate::{scene::Scene, ControlMessage};
+use crate::{button_codes::LaserState, scene::Scene, ControlMessage};
 #[derive(Debug)]
 pub enum MainMenuButton {
     Start,
@@ -127,7 +128,7 @@ impl Scene for MainMenu {
         Ok(())
     }
 
-    fn tick(&mut self, dt: f64) -> anyhow::Result<bool> {
+    fn tick(&mut self, dt: f64, knob_state: LaserState) -> Result<bool> {
         while let Ok(button) = self.button_rx.try_recv() {
             log::info!("Pressed: {:?}", &button);
             if let MainMenuButton::Exit = button {

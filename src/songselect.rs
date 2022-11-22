@@ -19,7 +19,11 @@ use tealr::{
     TypeName,
 };
 
-use crate::{button_codes::UscButton, scene::Scene, ControlMessage};
+use crate::{
+    button_codes::{LaserAxis, LaserState, UscButton},
+    scene::Scene,
+    ControlMessage,
+};
 
 #[derive(Debug, TypeName, UserData, Clone)]
 pub struct Difficulty {
@@ -186,6 +190,8 @@ pub struct SongSelectScene {
     lua: Rc<Lua>,
     background_lua: Rc<Lua>,
     program_control: Option<Sender<ControlMessage>>,
+    song_advance: f32,
+    diff_advance: f32,
 }
 
 impl SongSelectScene {
@@ -195,6 +201,8 @@ impl SongSelectScene {
             lua: Rc::new(Lua::new()),
             state: Arc::new(Mutex::new(SongSelect::new(song_path))),
             program_control: None,
+            diff_advance: 0.0,
+            song_advance: 0.0,
         }
     }
 }
@@ -230,12 +238,12 @@ impl Scene for SongSelectScene {
                         if ui
                             .add(
                                 egui::DragValue::new(&mut state.selected_index)
-                                    .clamp_range(1..=song_count)
+                                    .clamp_range(0..=(song_count - 1))
                                     .speed(0.1),
                             )
                             .changed()
                         {
-                            set_song_idx.call::<_, i32>(state.selected_index);
+                            set_song_idx.call::<_, i32>(state.selected_index + 1);
                         }
 
                         ui.end_row()
@@ -258,7 +266,22 @@ impl Scene for SongSelectScene {
         Ok(())
     }
 
-    fn tick(&mut self, dt: f64) -> Result<bool> {
+    fn tick(&mut self, dt: f64, knob_state: LaserState) -> Result<bool> {
+        self.song_advance += LaserAxis::from(knob_state.get(kson::Side::Right)).delta;
+        self.diff_advance += LaserAxis::from(knob_state.get(kson::Side::Left)).delta;
+
+        const KNOB_NAV_THRESHOLD: f32 = std::f32::consts::PI / 3.0;
+        let song_advance_steps = (self.song_advance / KNOB_NAV_THRESHOLD).trunc() as i32;
+        self.song_advance -= song_advance_steps as f32 * KNOB_NAV_THRESHOLD;
+        if let Ok(state) = &mut self.state.lock() {
+            state.selected_index =
+                (state.selected_index + song_advance_steps).rem_euclid(state.songs.len() as i32);
+            if song_advance_steps != 0 {
+                let set_song_idx: Function = self.lua.globals().get("set_index").unwrap();
+                set_song_idx.call::<_, ()>(state.selected_index + 1);
+            }
+        }
+
         Ok(false)
     }
 
