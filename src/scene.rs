@@ -1,6 +1,11 @@
-use std::{path::Path, rc::Rc, sync::mpsc::Sender};
+use std::{
+    path::Path,
+    rc::Rc,
+    sync::{mpsc::Sender, Arc},
+};
 
 use anyhow::Result;
+use generational_arena::Index;
 use tealr::mlu::mlua::Lua;
 use three_d::Event;
 
@@ -14,7 +19,7 @@ use crate::{
 pub trait Scene {
     fn init(
         &mut self,
-        load_lua: Box<dyn Fn(Rc<Lua>, &'static str) -> Result<()>>,
+        load_lua: Box<dyn Fn(Rc<Lua>, &'static str) -> Result<Index>>,
         app_control_tx: Sender<ControlMessage>,
     ) -> Result<()> {
         Ok(())
@@ -30,4 +35,11 @@ pub trait Scene {
     fn resume(&mut self) {}
     fn is_suspended(&self) -> bool;
     fn debug_ui(&mut self, ctx: &three_d::egui::Context) -> Result<()>;
+}
+
+pub trait SceneData
+where
+    Self: Send + Sync,
+{
+    fn make_scene(self: Arc<Self>) -> Box<dyn Scene>;
 }

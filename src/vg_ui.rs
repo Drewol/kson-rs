@@ -10,6 +10,7 @@ use std::{
 
 use femtovg::{renderer::OpenGl, Canvas, Color, FontId, ImageFlags, ImageId, Paint, Path};
 use once_cell::unsync::OnceCell;
+use poll_promise::Promise;
 use tealr::{
     mlu::{TealData, UserData, UserDataProxy},
     TypeName,
@@ -38,9 +39,7 @@ pub struct Vgfx {
     paint_imgs: HashMap<u32, ImageId>,
     job_imgs: HashMap<String, u32>,
     current_font: Option<FontId>,
-    image_loader_rx: std::sync::mpsc::Receiver<(String, image::DynamicImage)>,
-    image_loader_tx: std::sync::mpsc::Sender<Option<(String, u32, u32)>>,
-    img_thread: Option<JoinHandle<()>>,
+    image_jobs: HashMap<String, Promise<image::DynamicImage>>,
 }
 
 impl TypeName for Vgfx {
@@ -74,18 +73,6 @@ impl Vgfx {
                 _ = canvas.add_font_dir(&font_dir);
             }
         }
-        let (tx, rx) = std::sync::mpsc::channel();
-        let (request_tx, request_rx) = std::sync::mpsc::channel();
-        let img_thread = std::thread::spawn(move || {
-            while let Ok(Some((path, w, h))) = request_rx.recv() {
-                if let Ok(img) = image::open(&path) {
-                    tx.send((
-                        path,
-                        img.resize(w, h, image::imageops::FilterType::CatmullRom),
-                    ));
-                }
-            }
-        });
 
         Self {
             canvas,
@@ -105,9 +92,7 @@ impl Vgfx {
             next_paint_id: 1,
             next_label_id: 1,
             current_font: None,
-            image_loader_rx: rx,
-            image_loader_tx: request_tx,
-            img_thread: Some(img_thread),
+            image_jobs: Default::default(),
         }
     }
 
@@ -121,14 +106,6 @@ impl Vgfx {
             .map_err(|_| mlua::Error::external("Canvas in use".to_string()))?;
 
         Ok(f(canvas))
-    }
-}
-
-impl Drop for Vgfx {
-    fn drop(&mut self) {
-        if self.image_loader_tx.send(None).is_ok() {
-            self.img_thread.take().map(|t| t.join());
-        }
     }
 }
 
@@ -1231,28 +1208,47 @@ impl TealData for Vgfx {
                     h,
                 } = p;
 
-                if let Ok((path, img)) = _vgfx.image_loader_rx.try_recv() {
-                    let img_id = _vgfx.with_canvas(|c| {
-                        c.create_image(
-                            femtovg::ImageSource::try_from(&img).expect("bad image format?"),
-                            ImageFlags::empty(),
-                        )
-                        .map_err(mlua::Error::external)
-                    })??;
+                if let Some((key, job)) = _vgfx.image_jobs.remove_entry(&path) {
+                    match job.try_take() {
+                        Ok(img) if img.width() > 0 => {
+                            let img_id = _vgfx.with_canvas(|c| {
+                                c.create_image(
+                                    femtovg::ImageSource::try_from(&img)
+                                        .expect("bad image format?"),
+                                    ImageFlags::empty(),
+                                )
+                                .map_err(mlua::Error::external)
+                            })??;
 
-                    _vgfx.images.insert(_vgfx.next_img_id, img_id);
-                    _vgfx.job_imgs.insert(path, _vgfx.next_img_id);
-                    _vgfx.next_img_id += 1;
+                            _vgfx.images.insert(_vgfx.next_img_id, img_id);
+                            _vgfx.job_imgs.insert(key, _vgfx.next_img_id);
+                            _vgfx.next_img_id += 1;
+                        }
+                        Ok(_) => {}
+                        Err(job) => {
+                            _vgfx.image_jobs.insert(key, job);
+                        }
+                    }
                 }
 
-                let tx = _vgfx.image_loader_tx.clone();
                 let key = path.clone();
-                if !_vgfx.job_imgs.contains_key(&key) {
-                    _vgfx.image_loader_tx.send(Some((key.clone(), w, h)));
-                    _vgfx.job_imgs.insert(key.clone(), placeholder);
+                if !_vgfx.job_imgs.contains_key(&path) {
+                    _vgfx
+                        .image_jobs
+                        .entry(path.clone())
+                        .or_insert_with(move || {
+                            Promise::spawn_thread("load image", move || {
+                                image::open(key)
+                                    .map(|img| {
+                                        img.resize(w, h, image::imageops::FilterType::CatmullRom)
+                                    })
+                                    .unwrap_or_default()
+                            })
+                        });
+                    _vgfx.job_imgs.insert(path.clone(), placeholder);
                 }
 
-                Ok(*_vgfx.job_imgs.get(&key).unwrap_or(&placeholder))
+                Ok(*_vgfx.job_imgs.get(&path).unwrap_or(&placeholder))
             },
         );
 

@@ -8,10 +8,11 @@ use std::{
 use crate::{
     button_codes::LaserState,
     game_data::{ExportGame, GameData},
+    transition::Transition,
     vg_ui::{ExportVgfx, Vgfx},
 };
 use femtovg as vg;
-use generational_arena::Arena;
+use generational_arena::{Arena, Index};
 use gilrs::{ev::filter::Jitter, Filter, Mapping};
 use log::*;
 use main_menu::MainMenuButton;
@@ -31,10 +32,14 @@ mod help;
 mod main_menu;
 mod scene;
 mod songselect;
+mod transition;
 mod vg_ui;
+
+#[derive(Clone)]
 pub enum ControlMessage {
     MainMenu(MainMenuButton),
     Song(PathBuf),
+    TransitionComplete(Arc<dyn scene::SceneData>),
     Result {
         song: songselect::Song,
         diff_idx: usize,
@@ -175,11 +180,16 @@ fn main() -> anyhow::Result<()> {
     }));
 
     let lua_arena: Rc<RwLock<Arena<Rc<Lua>>>> = Rc::new(RwLock::new(Arena::new()));
+
+    let mut transition_lua_idx = Index::from_raw_parts(0, 0);
+    let mut transition_song_lua_idx = Index::from_raw_parts(0, 0);
+
     let jitter_filter = Jitter { threshold: 0.005 };
     let mut knob_state = LaserState::default();
 
     let (control_tx, control_rx) = std::sync::mpsc::channel();
     window.render_loop(move |mut frame_input| {
+        poll_promise::tick(); //Tick async runtime at least once per frame
         knob_state.zero_deltas();
         puffin::profile_scope!("Frame");
         puffin::GlobalProfiler::lock().new_frame();
@@ -197,16 +207,26 @@ fn main() -> anyhow::Result<()> {
                     .insert(lua.clone());
                 lua.set_app_data(vgfx.clone());
                 lua.set_app_data(game_data.clone());
-                lua.set_app_data(idx);
+                lua.set_app_data(idx.clone());
                 lua.gc_stop();
                 let mut real_script_path = std::env::current_dir()?;
                 real_script_path.push("scripts");
                 real_script_path.push(script_path);
                 let test_code = std::fs::read_to_string(real_script_path)?;
                 lua.load(&test_code).set_name(script_path)?.eval::<()>()?;
-                Ok(())
+                Ok(idx)
             })
         };
+
+        if frame_input.first_frame {
+            let transition_lua = Rc::new(Lua::new());
+            let loader_fn = load_lua(game_data.clone(), vgfx.clone(), lua_arena.clone());
+            transition_lua_idx = loader_fn(transition_lua.clone(), "transition.lua").unwrap();
+
+            let transition_song_lua = Rc::new(Lua::new());
+            transition_song_lua_idx =
+                loader_fn(transition_song_lua.clone(), "songtransition.lua").unwrap();
+        }
 
         //Initialize loaded scenes
         scenes_loaded.retain_mut(|s| {
@@ -227,13 +247,22 @@ fn main() -> anyhow::Result<()> {
             match control_msg {
                 ControlMessage::MainMenu(b) => match b {
                     MainMenuButton::Start => {
-                        scenes_loaded
-                            .push(Box::new(songselect::SongSelectScene::new(&songs_folder)));
+                        if let Ok(arena) = lua_arena.read() {
+                            let transition_lua = arena.get(transition_lua_idx).unwrap().clone();
+                            scenes_loaded.push(Box::new(Transition::new(
+                                transition_lua,
+                                control_msg.clone(),
+                                control_tx.clone(),
+                            )))
+                        }
                     }
                     MainMenuButton::Downloads => {}
                     _ => {}
                 },
                 ControlMessage::Song(p) => info!("{:?}", p),
+                ControlMessage::TransitionComplete(scene_data) => {
+                    scenes_loaded.push(scene_data.make_scene());
+                }
                 ControlMessage::Result {
                     song,
                     diff_idx,

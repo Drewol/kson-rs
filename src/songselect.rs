@@ -9,11 +9,14 @@ use std::{
 };
 
 use anyhow::Result;
+use generational_arena::Index;
 use kson::{Chart, Ksh};
-use puffin::profile_function;
+use log::info;
+use puffin::{profile_function, profile_scope};
+use serde::Serialize;
 use tealr::{
     mlu::{
-        mlua::{AnyUserData, Function, Lua, ToLua},
+        mlua::{AnyUserData, Function, Lua, LuaSerdeExt, ToLua, UserData},
         TealData, UserData,
     },
     TypeName,
@@ -21,11 +24,12 @@ use tealr::{
 
 use crate::{
     button_codes::{LaserAxis, LaserState, UscButton},
-    scene::Scene,
+    scene::{Scene, SceneData},
     ControlMessage,
 };
 
-#[derive(Debug, TypeName, UserData, Clone)]
+#[derive(Debug, TypeName, Clone, Serialize, UserData)]
+#[serde(rename_all = "camelCase")]
 pub struct Difficulty {
     jacket_path: PathBuf,
     level: u8,
@@ -55,7 +59,7 @@ impl TealData for Difficulty {
     }
 }
 
-#[derive(Debug, TypeName, UserData, Clone)]
+#[derive(Debug, TypeName, UserData, Clone, Serialize)]
 pub struct Song {
     title: String,
     artist: String,
@@ -64,7 +68,8 @@ pub struct Song {
     path: PathBuf,                 //folder the song is stored in
     difficulties: Vec<Difficulty>, //array of all difficulties for this song
 }
-//TODO: Investigate lifetimes
+
+//Keep tealdata for generating type definitions
 impl TealData for Song {
     fn add_fields<'lua, F: tealr::mlu::TealDataFields<'lua, Self>>(fields: &mut F) {
         fields.add_field_method_get("title", |_, song| Ok(song.title.clone()));
@@ -78,7 +83,7 @@ impl TealData for Song {
     }
 }
 
-#[derive(Debug, UserData)]
+#[derive(Debug, Serialize, UserData)]
 pub struct SongSelect {
     songs: Vec<Song>,
     searchInputActive: bool, //true when the user is currently inputting search text
@@ -88,7 +93,10 @@ pub struct SongSelect {
 
 impl TealData for SongSelect {
     fn add_fields<'lua, F: tealr::mlu::TealDataFields<'lua, Self>>(fields: &mut F) {
-        fields.add_field_method_get("songs", |_, songwheel| Ok(songwheel.songs.clone()));
+        fields.add_field_method_get("songs", |lua, songwheel| {
+            profile_scope!("Cloning songs");
+            songwheel.songs.clone().to_lua(lua)
+        });
         fields.add_field_method_get("searchInputActive", |_, songwheel| {
             Ok(songwheel.searchInputActive)
         });
@@ -185,6 +193,14 @@ impl SongSelect {
     }
 }
 
+impl SceneData for SongSelect {
+    fn make_scene(self: Arc<Self>) -> Box<dyn Scene> {
+        Box::new(SongSelectScene::new(
+            Arc::try_unwrap(self).expect("SceneData not released by others"),
+        ))
+    }
+}
+
 pub struct SongSelectScene {
     state: Arc<Mutex<SongSelect>>,
     lua: Rc<Lua>,
@@ -195,11 +211,11 @@ pub struct SongSelectScene {
 }
 
 impl SongSelectScene {
-    pub fn new(song_path: impl std::convert::AsRef<std::path::Path>) -> Self {
+    pub fn new(song_select: SongSelect) -> Self {
         Self {
             background_lua: Rc::new(Lua::new()),
             lua: Rc::new(Lua::new()),
-            state: Arc::new(Mutex::new(SongSelect::new(song_path))),
+            state: Arc::new(Mutex::new(song_select)),
             program_control: None,
             diff_advance: 0.0,
             song_advance: 0.0,
@@ -256,10 +272,12 @@ impl Scene for SongSelectScene {
 
     fn init(
         &mut self,
-        load_lua: Box<dyn Fn(Rc<Lua>, &'static str) -> anyhow::Result<()>>,
+        load_lua: Box<dyn Fn(Rc<Lua>, &'static str) -> anyhow::Result<Index>>,
         app_control_tx: Sender<ControlMessage>,
     ) -> anyhow::Result<()> {
-        self.lua.globals().set("songwheel", self.state.clone());
+        self.lua
+            .globals()
+            .set("songwheel", self.lua.to_value(&self.state)?)?;
         self.program_control = Some(app_control_tx);
         load_lua(self.lua.clone(), "songselect/songwheel.lua")?;
         //load_lua(&self.background_lua, "songselect/background.lua")?;

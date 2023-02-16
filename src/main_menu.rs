@@ -7,7 +7,8 @@ use std::{
     },
 };
 
-use anyhow::Result;
+use anyhow::{anyhow, Result};
+use generational_arena::Index;
 use tealr::{
     mlu::{
         mlua::{Function, Lua},
@@ -17,7 +18,7 @@ use tealr::{
 };
 
 use crate::{button_codes::LaserState, scene::Scene, ControlMessage};
-#[derive(Debug)]
+#[derive(Debug, Clone, Copy)]
 pub enum MainMenuButton {
     Start,
     Downloads,
@@ -120,7 +121,7 @@ impl Scene for MainMenu {
 
     fn init(
         &mut self,
-        load_lua: Box<dyn Fn(Rc<Lua>, &'static str) -> anyhow::Result<()>>,
+        load_lua: Box<dyn Fn(Rc<Lua>, &'static str) -> anyhow::Result<Index>>,
         app_control_tx: Sender<ControlMessage>,
     ) -> anyhow::Result<()> {
         load_lua(self.lua.clone(), "titlescreen.lua")?;
@@ -137,7 +138,8 @@ impl Scene for MainMenu {
                 self.control_tx
                     .as_ref()
                     .unwrap()
-                    .send(ControlMessage::MainMenu(button))?;
+                    .send(ControlMessage::MainMenu(button))
+                    .map_err(|_| anyhow!("Failed to send button"))?;
                 self.suspended = true;
             }
         }
