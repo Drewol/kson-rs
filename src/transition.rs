@@ -8,6 +8,7 @@ use poll_promise::Promise;
 use tealr::mlu::mlua::{Function, Lua};
 
 use crate::{
+    config::GameConfig,
     main_menu::MainMenuButton,
     scene::{Scene, SceneData},
     songselect::{SongSelect, SongSelectScene},
@@ -33,7 +34,7 @@ fn load_songs() -> Arc<dyn SceneData + Send> {
     //TODO: Global config object?
     // Song databse?
     // Song provider?
-    Arc::new(SongSelect::new(std::env::current_dir().unwrap()))
+    Arc::new(SongSelect::new(&GameConfig::get().unwrap().songs_path))
 }
 
 impl Transition {

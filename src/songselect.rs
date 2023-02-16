@@ -1,6 +1,7 @@
 use std::{
     cell::Ref,
     collections::HashMap,
+    fmt::Debug,
     fs::FileType,
     ops::Deref,
     path::PathBuf,
@@ -123,7 +124,8 @@ impl TypeName for SongSelect {
 }
 
 impl SongSelect {
-    pub fn new(song_path: impl std::convert::AsRef<std::path::Path>) -> Self {
+    pub fn new(song_path: impl std::convert::AsRef<std::path::Path> + Debug) -> Self {
+        info!("Loading songs from: {:?}", &song_path);
         let song_walker = walkdir::WalkDir::new(song_path);
 
         let charts = song_walker
@@ -250,19 +252,23 @@ impl Scene for SongSelectScene {
                     .num_columns(2)
                     .striped(true)
                     .show(ui, |ui| {
-                        ui.label("Song");
-                        if ui
-                            .add(
-                                egui::DragValue::new(&mut state.selected_index)
-                                    .clamp_range(0..=(song_count - 1))
-                                    .speed(0.1),
-                            )
-                            .changed()
-                        {
-                            set_song_idx.call::<_, i32>(state.selected_index + 1);
-                        }
+                        if song_count > 0 {
+                            ui.label("Song");
+                            if ui
+                                .add(
+                                    egui::DragValue::new(&mut state.selected_index)
+                                        .clamp_range(0..=(song_count - 1))
+                                        .speed(0.1),
+                                )
+                                .changed()
+                            {
+                                set_song_idx.call::<_, i32>(state.selected_index + 1);
+                            }
 
-                        ui.end_row()
+                            ui.end_row()
+                        } else {
+                            ui.label("No songs");
+                        }
                     })
             });
         }
@@ -292,11 +298,13 @@ impl Scene for SongSelectScene {
         let song_advance_steps = (self.song_advance / KNOB_NAV_THRESHOLD).trunc() as i32;
         self.song_advance -= song_advance_steps as f32 * KNOB_NAV_THRESHOLD;
         if let Ok(state) = &mut self.state.lock() {
-            state.selected_index =
-                (state.selected_index + song_advance_steps).rem_euclid(state.songs.len() as i32);
-            if song_advance_steps != 0 {
-                let set_song_idx: Function = self.lua.globals().get("set_index").unwrap();
-                set_song_idx.call::<_, ()>(state.selected_index + 1);
+            if !state.songs.is_empty() {
+                state.selected_index = (state.selected_index + song_advance_steps)
+                    .rem_euclid(state.songs.len() as i32);
+                if song_advance_steps != 0 {
+                    let set_song_idx: Function = self.lua.globals().get("set_index").unwrap();
+                    set_song_idx.call::<_, ()>(state.selected_index + 1);
+                }
             }
         }
 

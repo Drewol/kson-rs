@@ -17,7 +17,7 @@ kson = { git = "https://github.com/Drewol/kson-rs.git", version = "0.1.0" }
 kson-audio = { git = "https://github.com/Drewol/kson-rs.git", version = "0.1.0" }
 rodio = "0.16.0"
 tealr = { git = "https://github.com/lenscas/tealr.git", features = ["mlua", "tealr_derive", "mlua_lua54", "mlua_vendored", "mlua_serialize"] }
-three-d = {version = "0.14.0", features = ["egui-gui"]}
+three-d = {version = "0.14.0", features = ["egui-gui", "window"]}
 anyhow = "1"
 bitflags = "1"
 generational-arena = "*"
@@ -31,6 +31,7 @@ puffin_http = "0.11.0"
 uuid = "1.2.2"
 poll-promise = { git = "https://github.com/EmbarkStudios/poll-promise", features = ["smol"]}
 serde = { version = "1.0.152", features = ["derive"] }
+toml = "0.7.2"
 
 [profile.release]
 debug = true
