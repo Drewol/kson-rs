@@ -39,7 +39,7 @@ pub trait Scene {
 
 pub trait SceneData
 where
-    Self: Send + Sync,
+    Self: Send,
 {
-    fn make_scene(self: Arc<Self>) -> Box<dyn Scene>;
+    fn make_scene(self: Box<Self>) -> Box<dyn Scene>;
 }

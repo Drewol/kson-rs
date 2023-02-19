@@ -24,17 +24,17 @@ enum TransitionState {
 
 pub struct Transition {
     target: ControlMessage,
-    target_state: Option<Promise<Arc<dyn SceneData + Send>>>,
+    target_state: Option<Promise<Box<dyn SceneData + Send>>>,
     control_tx: Sender<ControlMessage>,
     state: TransitionState,
     transition_lua: Rc<Lua>,
 }
 
-fn load_songs() -> Arc<dyn SceneData + Send> {
+fn load_songs() -> Box<dyn SceneData + Send> {
     //TODO: Global config object?
     // Song databse?
     // Song provider?
-    Arc::new(SongSelect::new(&GameConfig::get().unwrap().songs_path))
+    Box::new(SongSelect::new())
 }
 
 impl Transition {
@@ -98,7 +98,7 @@ impl Scene for Transition {
                     if let Some(target_state) = self.target_state.take() {
                         if let Ok(scene_data) = target_state.try_take() {
                             self.control_tx
-                                .send(ControlMessage::TransitionComplete(scene_data))?;
+                                .send(ControlMessage::TransitionComplete(scene_data));
                         }
                     }
 

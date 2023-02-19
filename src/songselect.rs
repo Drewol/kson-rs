@@ -6,6 +6,7 @@ use std::{
     ops::Deref,
     path::PathBuf,
     rc::Rc,
+    str::FromStr,
     sync::{mpsc::Sender, Arc, Mutex},
 };
 
@@ -25,20 +26,22 @@ use tealr::{
 
 use crate::{
     button_codes::{LaserAxis, LaserState, UscButton},
+    config::GameConfig,
     scene::{Scene, SceneData},
+    song_provider::{FileSongProvider, NauticaSongProvider, SongProvider, SongProviderEvent},
     ControlMessage,
 };
 
 #[derive(Debug, TypeName, Clone, Serialize, UserData)]
 #[serde(rename_all = "camelCase")]
 pub struct Difficulty {
-    jacket_path: PathBuf,
-    level: u8,
-    difficulty: u8, // 0 = nov, 1 = adv, etc.
-    id: i32,        //unique static identifier
-    effector: String,
-    best_badge: i32,  //top badge for this difficulty
-    scores: Vec<i32>, //array of all scores on this diff
+    pub jacket_path: PathBuf,
+    pub level: u8,
+    pub difficulty: u8, // 0 = nov, 1 = adv, etc.
+    pub id: u64,        //unique static identifier
+    pub effector: String,
+    pub best_badge: i32,  //top badge for this difficulty
+    pub scores: Vec<i32>, //array of all scores on this diff
 }
 
 impl TealData for Difficulty {
@@ -62,12 +65,11 @@ impl TealData for Difficulty {
 
 #[derive(Debug, TypeName, UserData, Clone, Serialize)]
 pub struct Song {
-    title: String,
-    artist: String,
-    bpm: String,                   //ex. "170-200"
-    id: i32,                       //unique static identifier
-    path: PathBuf,                 //folder the song is stored in
-    difficulties: Vec<Difficulty>, //array of all difficulties for this song
+    pub title: String,
+    pub artist: String,
+    pub bpm: String,                   //ex. "170-200"
+    pub id: u64,                       //unique static identifier
+    pub difficulties: Vec<Difficulty>, //array of all difficulties for this song
 }
 
 //Keep tealdata for generating type definitions
@@ -77,27 +79,23 @@ impl TealData for Song {
         fields.add_field_method_get("artist", |_, song| Ok(song.artist.clone()));
         fields.add_field_method_get("bpm", |_, song| Ok(song.bpm.clone()));
         fields.add_field_method_get("id", |_, song| Ok(song.id));
-        fields.add_field_method_get("path", |_, song| {
-            Ok(song.path.clone().into_os_string().into_string().unwrap())
-        });
         fields.add_field_method_get("difficulties", |_, song| Ok(song.difficulties.clone()));
     }
 }
 
 #[derive(Debug, Serialize, UserData)]
 pub struct SongSelect {
-    songs: Vec<Song>,
+    songs: Vec<Arc<Song>>,
     searchInputActive: bool, //true when the user is currently inputting search text
     searchText: String,      //current string used by the song search
     selected_index: i32,
+    #[serde(skip_serializing)]
+    song_provider: Box<dyn SongProvider + Send>,
 }
 
 impl TealData for SongSelect {
     fn add_fields<'lua, F: tealr::mlu::TealDataFields<'lua, Self>>(fields: &mut F) {
-        fields.add_field_method_get("songs", |lua, songwheel| {
-            profile_scope!("Cloning songs");
-            songwheel.songs.clone().to_lua(lua)
-        });
+        fields.add_field_method_get("songs", |_, _| Ok([] as [Song; 0]));
         fields.add_field_method_get("searchInputActive", |_, songwheel| {
             Ok(songwheel.searchInputActive)
         });
@@ -124,87 +122,39 @@ impl TypeName for SongSelect {
 }
 
 impl SongSelect {
-    pub fn new(song_path: impl std::convert::AsRef<std::path::Path> + Debug) -> Self {
-        info!("Loading songs from: {:?}", &song_path);
-        let song_walker = walkdir::WalkDir::new(song_path);
+    pub fn new() -> Self {
+        let song_path = { GameConfig::get().unwrap().songs_path.clone() };
 
-        let charts = song_walker
-            .into_iter()
-            .filter_map(|a| a.ok())
-            .filter(|e| e.file_type().is_file())
-            .filter_map(|e| {
-                if let Ok(data) = std::fs::read_to_string(e.path()) {
-                    Some((e, data))
-                } else {
-                    None
-                }
-            })
-            .filter_map(|(dir, data)| {
-                if let Ok(chart) = kson::Chart::from_ksh(&data) {
-                    Some((dir, chart))
-                } else {
-                    None
-                }
-            });
+        let mut provider: Box<dyn SongProvider + Send> = if song_path == PathBuf::from("nautica") {
+            Box::new(NauticaSongProvider::new())
+        } else {
+            Box::new(FileSongProvider::new())
+        };
 
-        let song_folders = charts.fold(
-            HashMap::<PathBuf, Vec<Chart>>::new(),
-            |mut acc, (dir, chart)| {
-                if let Some(parent_folder) = dir.path().parent() {
-                    acc.entry(parent_folder.to_path_buf())
-                        .and_modify(|v| v.push(chart.clone()))
-                        .or_insert_with(|| vec![chart]);
-                }
-                acc
-            },
-        );
-
-        let mut songs: Vec<Song> = song_folders
-            .into_iter()
-            .enumerate()
-            .map(|(id, (song_folder, charts))| Song {
-                title: charts[0].meta.title.clone(),
-                artist: charts[0].meta.artist.clone(),
-                bpm: charts[0].meta.disp_bpm.clone(),
-                id: id as i32,
-                path: song_folder.clone(),
-                difficulties: charts
-                    .iter()
-                    .enumerate()
-                    .map(|(id, c)| Difficulty {
-                        best_badge: 0,
-                        difficulty: c.meta.difficulty,
-                        effector: c.meta.chart_author.clone(),
-                        id: id as i32,
-                        jacket_path: song_folder.join(&c.meta.jacket_filename),
-                        level: c.meta.level,
-                        scores: vec![99],
-                    })
-                    .collect(),
-            })
-            .collect();
-
-        songs.sort_by_key(|s| s.title.to_lowercase());
+        let songs = if let Some(SongProviderEvent::SongsAdded(songs)) = provider.poll() {
+            songs
+        } else {
+            vec![]
+        };
 
         Self {
             songs,
             searchInputActive: false,
             searchText: String::new(),
             selected_index: 0,
+            song_provider: provider,
         }
     }
 }
 
 impl SceneData for SongSelect {
-    fn make_scene(self: Arc<Self>) -> Box<dyn Scene> {
-        Box::new(SongSelectScene::new(
-            Arc::try_unwrap(self).expect("SceneData not released by others"),
-        ))
+    fn make_scene(self: Box<Self>) -> Box<dyn Scene> {
+        Box::new(SongSelectScene::new(self))
     }
 }
 
 pub struct SongSelectScene {
-    state: Arc<Mutex<SongSelect>>,
+    state: Arc<Mutex<Box<SongSelect>>>,
     lua: Rc<Lua>,
     background_lua: Rc<Lua>,
     program_control: Option<Sender<ControlMessage>>,
@@ -213,7 +163,7 @@ pub struct SongSelectScene {
 }
 
 impl SongSelectScene {
-    pub fn new(song_select: SongSelect) -> Self {
+    pub fn new(song_select: Box<SongSelect>) -> Self {
         Self {
             background_lua: Rc::new(Lua::new()),
             lua: Rc::new(Lua::new()),
@@ -298,11 +248,36 @@ impl Scene for SongSelectScene {
         let song_advance_steps = (self.song_advance / KNOB_NAV_THRESHOLD).trunc() as i32;
         self.song_advance -= song_advance_steps as f32 * KNOB_NAV_THRESHOLD;
         if let Ok(state) = &mut self.state.lock() {
+            let mut songs_dirty = false;
+            while let Some(provider_event) = state.song_provider.poll() {
+                songs_dirty = true;
+                match provider_event {
+                    SongProviderEvent::SongsAdded(mut new_songs) => {
+                        state.songs.append(&mut new_songs)
+                    }
+                    SongProviderEvent::SongsRemoved(removed_ids) => {
+                        state.songs.retain(|s| !removed_ids.contains(&s.id))
+                    }
+                    SongProviderEvent::OrderChanged(_) => todo!(),
+                }
+            }
+
+            if songs_dirty {
+                self.lua
+                    .globals()
+                    .set("songwheel", self.lua.to_value(state.as_ref())?)?;
+            }
+
             if !state.songs.is_empty() {
                 state.selected_index = (state.selected_index + song_advance_steps)
                     .rem_euclid(state.songs.len() as i32);
+                let song_idx = state.selected_index as usize;
+                let song_id = state.songs[song_idx].id;
+                state.song_provider.set_current_index(song_id);
+
                 if song_advance_steps != 0 {
                     let set_song_idx: Function = self.lua.globals().get("set_index").unwrap();
+
                     set_song_idx.call::<_, ()>(state.selected_index + 1);
                 }
             }
@@ -317,10 +292,7 @@ impl Scene for SongSelectScene {
         if let UscButton::Start = button {
             let state = self.state.lock().unwrap();
             if let Some(pc) = &self.program_control {
-                pc.send(ControlMessage::Song(
-                    state.songs[state.selected_index as usize].path.clone(),
-                ))
-                .unwrap();
+                todo!()
             }
         }
     }

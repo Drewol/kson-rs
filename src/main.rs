@@ -34,15 +34,15 @@ mod game_data;
 mod help;
 mod main_menu;
 mod scene;
+mod song_provider;
 mod songselect;
 mod transition;
 mod vg_ui;
 
-#[derive(Clone)]
 pub enum ControlMessage {
     MainMenu(MainMenuButton),
     Song(PathBuf),
-    TransitionComplete(Arc<dyn scene::SceneData>),
+    TransitionComplete(Box<dyn scene::SceneData>),
     Result {
         song: songselect::Song,
         diff_idx: usize,
@@ -253,7 +253,7 @@ fn main() -> anyhow::Result<()> {
                             let transition_lua = arena.get(transition_lua_idx).unwrap().clone();
                             scenes_loaded.push(Box::new(Transition::new(
                                 transition_lua,
-                                control_msg.clone(),
+                                ControlMessage::MainMenu(MainMenuButton::Start),
                                 control_tx.clone(),
                             )))
                         }
