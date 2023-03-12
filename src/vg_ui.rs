@@ -17,8 +17,9 @@ use tealr::{
 };
 
 use tealr::mlu::mlua;
+use three_d::FrameInput;
 
-use crate::help::add_lua_static_method;
+use crate::{help::add_lua_static_method, shaded_mesh::ShadedMesh};
 
 #[derive(UserData)]
 pub struct Vgfx {
@@ -1598,6 +1599,29 @@ impl TealData for Vgfx {
                 Ok(0)
             },
         );
+
+        tealr::mlu::create_named_parameters!(CreateShadedMeshParams with
+            material: String,
+            path: Option<String>,
+        );
+
+        methods.add_function_mut("CreateShadedMesh", |lua, p: CreateShadedMeshParams| {
+            let context = &lua.app_data_ref::<FrameInput>().unwrap().context;
+            let vgfx = &lua.app_data_ref::<Arc<Mutex<Vgfx>>>().unwrap();
+            let vgfx = vgfx.lock().unwrap();
+
+            let mut shader_path = vgfx.game_folder.clone();
+            shader_path.push("skins");
+            shader_path.push(&vgfx.skin);
+            shader_path.push("shaders");
+
+            ShadedMesh::new(
+                context,
+                p.material,
+                p.path.map(PathBuf::from).unwrap_or(shader_path),
+            )
+            .map_err(mlua::Error::external)
+        })
     }
     fn add_fields<'lua, F: tealr::mlu::TealDataFields<'lua, Self>>(fields: &mut F) {
         fields.add_field_function_get("TEXT_ALIGN_BASELINE", |_, _| {

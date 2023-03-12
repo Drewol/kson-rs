@@ -178,8 +178,8 @@ impl SongSelectScene {
 impl Scene for SongSelectScene {
     fn render(&mut self, dt: f64) -> Result<bool> {
         profile_function!();
-        // let render_bg: Function = self.background_lua.globals().get("render")?;
-        // render_bg.call(dt)?;
+        let render_bg: Function = self.background_lua.globals().get("render")?;
+        render_bg.call(dt / 1000.0)?;
 
         let render_wheel: Function = self.lua.globals().get("render")?;
         render_wheel.call(dt / 1000.0)?;
@@ -236,7 +236,7 @@ impl Scene for SongSelectScene {
             .set("songwheel", self.lua.to_value(&self.state)?)?;
         self.program_control = Some(app_control_tx);
         load_lua(self.lua.clone(), "songselect/songwheel.lua")?;
-        //load_lua(&self.background_lua, "songselect/background.lua")?;
+        load_lua(self.background_lua.clone(), "songselect/background.lua")?;
         Ok(())
     }
 

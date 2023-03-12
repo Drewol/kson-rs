@@ -20,8 +20,8 @@ use main_menu::MainMenuButton;
 use puffin::{profile_function, profile_scope};
 use scene::Scene;
 use songselect::SongSelect;
-use td::egui;
 use td::HasContext;
+use td::{egui, FrameInput};
 use tealr::mlu::{
     mlua::{Function, Lua},
     UserDataProxy,
@@ -34,6 +34,7 @@ mod game_data;
 mod help;
 mod main_menu;
 mod scene;
+mod shaded_mesh;
 mod song_provider;
 mod songselect;
 mod transition;
@@ -196,21 +197,29 @@ fn main() -> anyhow::Result<()> {
         puffin::profile_scope!("Frame");
         puffin::GlobalProfiler::lock().new_frame();
 
+        for (idx, lua) in lua_arena.read().unwrap().iter() {
+            lua.set_app_data(frame_input.clone());
+        }
+        let lua_frame_input = frame_input.clone();
+
         let load_lua = |game_data: Arc<Mutex<GameData>>,
                         vgfx: Arc<Mutex<Vgfx>>,
                         arena: Rc<RwLock<Arena<Rc<Lua>>>>| {
+            let lua_frame_input = lua_frame_input.clone();
             Box::new(move |lua: Rc<Lua>, script_path| {
                 tealr::mlu::set_global_env(ExportVgfx, &lua)?;
                 tealr::mlu::set_global_env(ExportGame, &lua)?;
-
                 let idx = arena
                     .write()
                     .expect("Could not get lock to lua arena")
                     .insert(lua.clone());
-                lua.set_app_data(vgfx.clone());
-                lua.set_app_data(game_data.clone());
-                lua.set_app_data(idx.clone());
-                lua.gc_stop();
+                {
+                    lua.set_app_data(vgfx.clone());
+                    lua.set_app_data(game_data.clone());
+                    lua.set_app_data(idx.clone());
+                    lua.set_app_data(lua_frame_input.clone());
+                    lua.gc_stop();
+                }
                 let mut real_script_path = std::env::current_dir()?;
                 real_script_path.push("scripts");
                 real_script_path.push(script_path);
