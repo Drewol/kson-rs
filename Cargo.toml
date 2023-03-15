@@ -13,7 +13,7 @@ image = { version = "0.24.0", default-features = false, features = [
 ] }
 gilrs = "0.10.0"
 hecs = { version = "0.9.0", features = ["macros", "lazy_static"] }
-kson = { git = "https://github.com/Drewol/kson-rs.git", version = "0.1.0" }
+kson = { path = "../kson-rs" }
 kson-audio = { git = "https://github.com/Drewol/kson-rs.git", version = "0.1.0" }
 rodio = "0.16.0"
 tealr = { git = "https://github.com/lenscas/tealr.git", features = ["mlua", "tealr_derive", "mlua_lua54", "mlua_vendored", "mlua_serialize"] }

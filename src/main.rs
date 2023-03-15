@@ -12,9 +12,11 @@ use crate::{
     transition::Transition,
     vg_ui::{ExportVgfx, Vgfx},
 };
+use directories::ProjectDirs;
 use femtovg as vg;
 use generational_arena::{Arena, Index};
 use gilrs::{ev::filter::Jitter, Filter, Mapping};
+use kson::Chart;
 use log::*;
 use main_menu::MainMenuButton;
 use puffin::{profile_function, profile_scope};
@@ -28,11 +30,14 @@ use tealr::mlu::{
 };
 use three_d as td;
 
+mod audio;
 mod button_codes;
 mod config;
+mod game;
 mod game_data;
 mod help;
 mod main_menu;
+mod material;
 mod scene;
 mod shaded_mesh;
 mod song_provider;
@@ -40,9 +45,18 @@ mod songselect;
 mod transition;
 mod vg_ui;
 
+pub fn project_dirs() -> ProjectDirs {
+    directories::ProjectDirs::from("", "Drewol", "USC").expect("Failed to get project dirs")
+}
+
 pub enum ControlMessage {
+    None,
     MainMenu(MainMenuButton),
-    Song(PathBuf),
+    Song {
+        song: Arc<songselect::Song>,
+        diff: usize,
+        loader: Box<dyn FnOnce() -> (Chart, Box<dyn rodio::Source<Item = i16>>) + Send>,
+    },
     TransitionComplete(Box<dyn scene::SceneData>),
     Result {
         song: songselect::Song,
@@ -169,6 +183,12 @@ fn main() -> anyhow::Result<()> {
     const FRAME_ACC_SIZE: usize = 16;
     let mut frame_times = [16.0; FRAME_ACC_SIZE];
     let mut frame_time_index = 0;
+    let skin_root = {
+        let mut current = std::env::current_dir().unwrap();
+        current.push("skins");
+        current.push("Default");
+        current
+    };
     let fps_paint = vg::Paint::color(vg::Color::white()).with_text_align(vg::Align::Right);
 
     let mut scenes_loaded: Vec<Box<dyn scene::Scene>> = vec![]; //Uninitialized
@@ -256,6 +276,7 @@ fn main() -> anyhow::Result<()> {
 
         while let Ok(control_msg) = control_rx.try_recv() {
             match control_msg {
+                ControlMessage::None => {}
                 ControlMessage::MainMenu(b) => match b {
                     MainMenuButton::Start => {
                         if let Ok(arena) = lua_arena.read() {
@@ -264,13 +285,26 @@ fn main() -> anyhow::Result<()> {
                                 transition_lua,
                                 ControlMessage::MainMenu(MainMenuButton::Start),
                                 control_tx.clone(),
+                                frame_input.context.clone(),
+                                vgfx.clone(),
                             )))
                         }
                     }
                     MainMenuButton::Downloads => {}
                     _ => {}
                 },
-                ControlMessage::Song(p) => info!("{:?}", p),
+                ControlMessage::Song { diff, loader, song } => {
+                    if let Ok(arena) = lua_arena.read() {
+                        let transition_lua = arena.get(transition_song_lua_idx).unwrap().clone();
+                        scenes_loaded.push(Box::new(Transition::new(
+                            transition_lua,
+                            ControlMessage::Song { diff, loader, song },
+                            control_tx.clone(),
+                            frame_input.context.clone(),
+                            vgfx.clone(),
+                        )))
+                    }
+                }
                 ControlMessage::TransitionComplete(scene_data) => {
                     scenes_loaded.push(scene_data.make_scene());
                 }
@@ -426,7 +460,13 @@ fn render_frame(scenes: &mut Vec<Box<dyn Scene>>, frame_input: &td::FrameInput) 
         if s.is_suspended() {
             true
         } else {
-            match s.render(frame_input.elapsed_time) {
+            s.render(
+                frame_input.elapsed_time,
+                &frame_input.context,
+                &mut frame_input.screen(),
+                frame_input.viewport,
+            );
+            match s.render_ui(frame_input.elapsed_time) {
                 Ok(close) => !close,
                 Err(e) => {
                     error!("{:?}", e);

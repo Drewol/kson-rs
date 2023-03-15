@@ -136,6 +136,64 @@ impl SongSelect {
         } else {
             vec![]
         };
+        let charts = song_walker
+            .into_iter()
+            .filter_map(|a| a.ok())
+            .filter(|e| e.file_type().is_file())
+            .filter_map(|e| {
+                if let Ok(data) = std::fs::read_to_string(e.path()) {
+                    Some((e, data))
+                } else {
+                    None
+                }
+            })
+            .filter_map(|(dir, data)| {
+                if let Ok(chart) = kson::Chart::from_ksh(&data) {
+                    Some((dir, chart))
+                } else {
+                    None
+                }
+            });
+
+        let song_folders = charts.fold(
+            HashMap::<PathBuf, Vec<(PathBuf, Chart)>>::new(),
+            |mut acc, (dir, chart)| {
+                if let Some(parent_folder) = dir.path().parent() {
+                    acc.entry(parent_folder.to_path_buf())
+                        .and_modify(|v| v.push((dir.clone().into_path(), chart.clone())))
+                        .or_insert_with(|| vec![(dir.into_path(), chart)]);
+                }
+                acc
+            },
+        );
+
+        let mut songs: Vec<Song> = song_folders
+            .into_iter()
+            .enumerate()
+            .map(|(id, (song_folder, charts))| Song {
+                title: charts[0].1.meta.title.clone(),
+                artist: charts[0].1.meta.artist.clone(),
+                bpm: charts[0].1.meta.disp_bpm.clone(),
+                id: id as i32,
+                path: song_folder.clone(),
+                difficulties: charts
+                    .iter()
+                    .enumerate()
+                    .map(|(id, (p, c))| Difficulty {
+                        best_badge: 0,
+                        difficulty: c.meta.difficulty,
+                        effector: c.meta.chart_author.clone(),
+                        id: id as i32,
+                        jacket_path: song_folder.join(&c.meta.jacket_filename),
+                        level: c.meta.level,
+                        scores: vec![99],
+                        file_path: p.clone(),
+                    })
+                    .collect(),
+            })
+            .collect();
+
+        songs.sort_by_key(|s| s.title.to_lowercase());
 
         Self {
             songs,
@@ -176,7 +234,7 @@ impl SongSelectScene {
 }
 
 impl Scene for SongSelectScene {
-    fn render(&mut self, dt: f64) -> Result<bool> {
+    fn render_ui(&mut self, dt: f64) -> Result<bool> {
         profile_function!();
         let render_bg: Function = self.background_lua.globals().get("render")?;
         render_bg.call(dt / 1000.0)?;
@@ -215,6 +273,16 @@ impl Scene for SongSelectScene {
                                 set_song_idx.call::<_, i32>(state.selected_index + 1);
                             }
 
+                            ui.end_row();
+                            if ui.button("Start").clicked() {
+                                let song = &state.songs[state.selected_index as usize];
+                                self.program_control
+                                    .as_ref()
+                                    .unwrap()
+                                    .send(ControlMessage::Song(
+                                        song.difficulties.first().unwrap().file_path.clone(),
+                                    ));
+                            }
                             ui.end_row()
                         } else {
                             ui.label("No songs");

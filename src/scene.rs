@@ -7,7 +7,7 @@ use std::{
 use anyhow::Result;
 use generational_arena::Index;
 use tealr::mlu::mlua::Lua;
-use three_d::Event;
+use three_d::{ColorMaterial, Event, Gm, Mesh, RenderTarget, Viewport};
 
 use crate::{
     button_codes::{LaserState, UscButton},
@@ -30,7 +30,15 @@ pub trait Scene {
     fn on_event(&mut self, event: &mut Event) {}
     fn on_button_pressed(&mut self, button: UscButton) {}
     fn on_button_released(&mut self, button: UscButton) {}
-    fn render(&mut self, dt: f64) -> Result<bool>;
+    fn render(
+        &mut self,
+        dt: f64,
+        td_context: &three_d::Context,
+        target: &mut RenderTarget,
+        viewport: Viewport,
+    ) {
+    }
+    fn render_ui(&mut self, dt: f64) -> Result<bool>;
     fn suspend(&mut self) {}
     fn resume(&mut self) {}
     fn is_suspended(&self) -> bool;

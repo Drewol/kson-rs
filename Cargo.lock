@@ -1593,7 +1593,17 @@ name = "kson"
 version = "0.1.0"
 source = "git+https://github.com/Drewol/kson-rs.git#ac79f938eaddd64fd87e29de8cdf6f371bc697cb"
 dependencies = [
- "kson-effect-param-macro",
+ "kson-effect-param-macro 0.1.0",
+ "num-traits",
+ "serde",
+ "thiserror",
+]
+
+[[package]]
+name = "kson"
+version = "0.1.1"
+dependencies = [
+ "kson-effect-param-macro 0.1.1",
  "num-traits",
  "serde",
  "thiserror",
@@ -1604,13 +1614,22 @@ name = "kson-audio"
 version = "0.1.0"
 source = "git+https://github.com/Drewol/kson-rs.git#ac79f938eaddd64fd87e29de8cdf6f371bc697cb"
 dependencies = [
- "kson",
+ "kson 0.1.0",
 ]
 
 [[package]]
 name = "kson-effect-param-macro"
 version = "0.1.0"
 source = "git+https://github.com/Drewol/kson-rs.git#ac79f938eaddd64fd87e29de8cdf6f371bc697cb"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn",
+]
+
+[[package]]
+name = "kson-effect-param-macro"
+version = "0.1.1"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -2588,7 +2607,7 @@ dependencies = [
  "gilrs",
  "hecs",
  "image",
- "kson",
+ "kson 0.1.1",
  "kson-audio",
  "log",
  "once_cell",
