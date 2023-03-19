@@ -1,9 +1,23 @@
-use std::{collections::VecDeque, fmt::Debug, path::PathBuf, str::FromStr, sync::Arc};
+use std::{
+    collections::{HashMap, VecDeque},
+    fmt::Debug,
+    fs::File,
+    io::{BufReader, BufWriter, Read, Seek},
+    path::PathBuf,
+    str::FromStr,
+    sync::Arc,
+};
 
-use crate::songselect::{Difficulty, Song};
+use rayon::prelude::*;
+
+use crate::{
+    project_dirs,
+    songselect::{Difficulty, Song},
+};
 
 use super::{SongProvider, SongProviderEvent};
 use anyhow::Result;
+use kson::Ksh;
 use poll_promise::Promise;
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
@@ -13,6 +27,11 @@ pub struct NauticaSongs {
     pub(crate) data: Vec<Datum>,
     pub(crate) links: Links,
     pub(crate) meta: Meta,
+}
+
+#[derive(Serialize, Deserialize)]
+pub struct NauticaSong {
+    pub(crate) data: Datum,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -119,21 +138,34 @@ impl Datum {
             tags,
         } = self;
 
+        let mut song_path = project_dirs().cache_dir().to_path_buf();
+        song_path.push(id.hyphenated().to_string());
         let (id_0, id_1) = id.as_u64_pair();
-        let id = id_0 ^ id_1;
+        let song_id = id_0 ^ id_1;
+
+        std::fs::create_dir_all(&song_path);
+        song_path.push("jacket.png");
+        let jacket_path = if jacket_url.ends_with("png") {
+            song_path
+        } else {
+            song_path.with_extension("jpg")
+        };
 
         Song {
             title: title.clone(),
             artist: artist.clone(),
             bpm: "unk".to_string(),
-            id,
-            difficulties: charts.iter().map(Chart::as_diff).collect(),
+            id: song_id,
+            difficulties: charts
+                .iter()
+                .map(|x| x.as_diff(jacket_path.clone()))
+                .collect(),
         }
     }
 }
 
 impl Chart {
-    fn as_diff(&self) -> Difficulty {
+    fn as_diff(&self, jacket_path: PathBuf) -> Difficulty {
         let Chart {
             id,
             user_id,
@@ -150,7 +182,8 @@ impl Chart {
         let id = id_0 ^ id_1;
 
         Difficulty {
-            jacket_path: PathBuf::default(),
+            jacket_path,
+            file_path: PathBuf::default(),
             level: *level as u8,
             difficulty: *difficulty as u8 - 1,
             id,
@@ -165,6 +198,7 @@ pub struct NauticaSongProvider {
     next: Option<Promise<Result<NauticaSongs>>>,
     events: VecDeque<SongProviderEvent>,
     all_songs: Vec<Arc<Song>>,
+    id_map: HashMap<u64, Uuid>,
     next_url: String,
 }
 
@@ -178,7 +212,38 @@ fn next_songs(path: &str) -> Promise<Result<NauticaSongs>> {
     log::info!("Getting more nautica songs: {}", path);
     let path = String::from_str(path).unwrap();
     Promise::spawn_thread("get nautica", move || {
-        Ok(ureq::get(&path).call()?.into_json::<NauticaSongs>()?)
+        let nautica_songs = ureq::get(&path).call()?.into_json::<NauticaSongs>()?;
+        nautica_songs
+            .data
+            .par_iter()
+            .try_for_each(|x| -> Result<()> {
+                let mut song_path = project_dirs().cache_dir().to_path_buf();
+                song_path.push(x.id.hyphenated().to_string());
+                std::fs::create_dir_all(&song_path)?;
+                if x.jacket_url.ends_with("png") {
+                    song_path.push("jacket.png");
+                } else {
+                    song_path.push("jacket.jpg");
+                }
+
+                if song_path.exists() {
+                    return Ok(());
+                }
+
+                let jacket_response = ureq::get(&x.jacket_url).call().expect("No jacket");
+                let jacket_path = match jacket_response.content_type() {
+                    "image/jpeg" => song_path.with_extension("jpg"),
+                    "image/png" => song_path.with_extension("png"),
+                    _ => todo!(),
+                };
+
+                let file = File::create(&jacket_path)?;
+                let mut file = std::io::BufWriter::new(file);
+                std::io::copy(&mut jacket_response.into_reader(), &mut file)?;
+
+                Ok(())
+            })?;
+        Ok(nautica_songs)
     })
 }
 
@@ -189,17 +254,23 @@ impl NauticaSongProvider {
             .unwrap();
 
         let mut events = VecDeque::new();
-        let new_songs: Vec<Arc<Song>> = first_songs
+        let (new_songs, ids): (Vec<Arc<Song>>, Vec<(u64, Uuid)>) = first_songs
             .data
             .iter()
-            .map(|d| Arc::new(d.as_song()))
-            .collect();
+            .map(|d| {
+                let song = d.as_song();
+                let song_id = song.id;
+                (Arc::new(song), (song_id, d.id))
+            })
+            .unzip();
+
         events.push_back(SongProviderEvent::SongsAdded(new_songs.clone()));
 
         Self {
             next: None,
             events,
             all_songs: new_songs,
+            id_map: ids.iter().copied().collect(),
             next_url: first_songs.links.next.unwrap_or_default(),
         }
     }
@@ -210,8 +281,17 @@ impl SongProvider for NauticaSongProvider {
         if let Some(next) = self.next.take() {
             match next.try_take() {
                 Ok(Ok(songs)) => {
-                    let new_songs: Vec<Arc<Song>> =
-                        songs.data.iter().map(|d| Arc::new(d.as_song())).collect();
+                    let (new_songs, new_ids): (Vec<Arc<Song>>, Vec<(u64, Uuid)>) = songs
+                        .data
+                        .iter()
+                        .map(|d| {
+                            let data = d.as_song();
+                            let song_id = data.id;
+                            (Arc::new(data), (song_id, d.id))
+                        })
+                        .unzip();
+
+                    self.id_map.extend(new_ids.iter().copied());
                     self.all_songs.append(&mut new_songs.clone());
                     self.next_url = songs.links.next.unwrap_or_default();
                     self.events
@@ -251,7 +331,112 @@ impl SongProvider for NauticaSongProvider {
         }
     }
 
-    fn load_song(&mut self, index: u64) -> poll_promise::Promise<anyhow::Result<kson::Chart>> {
-        todo!()
+    fn load_song(
+        &self,
+        index: u64,
+        diff_id: u64,
+    ) -> Box<dyn FnOnce() -> (kson::Chart, Box<dyn rodio::Source<Item = i16>>) + Send> {
+        if let Some(song_uuid) = self.id_map.get(&index) {
+            let mut song_path = project_dirs().cache_dir().to_path_buf();
+
+            song_path.push(song_uuid.hyphenated().to_string());
+            log::info!("Writing song cache {:?}", &song_path);
+            std::fs::create_dir_all(&song_path);
+            song_path.push("jacket.png");
+
+            let song = self
+                .all_songs
+                .iter()
+                .find(|x| x.id == index)
+                .expect("song id not in song list");
+
+            let diff = song
+                .difficulties
+                .iter()
+                .find(|x| x.id == diff_id)
+                .expect("diff id not in songs difficulties");
+
+            download_song(*song_uuid, diff.difficulty)
+        } else {
+            todo!()
+        }
     }
+}
+
+fn download_song(
+    id: Uuid,
+    diff: u8,
+) -> Box<dyn FnOnce() -> (kson::Chart, Box<dyn rodio::Source<Item = i16>>) + Send> {
+    Box::new(move || {
+        let mut song_path = project_dirs().cache_dir().to_path_buf();
+
+        song_path.push(id.hyphenated().to_string());
+        song_path.push("data.zip");
+
+        if song_path.exists() {
+            let file = File::open(song_path).unwrap();
+            let file = BufReader::new(file);
+            return song_from_zip(file, diff).expect("Failed to load song from zip");
+        }
+
+        let NauticaSong { data: nautica } =
+            ureq::get(&format!("https://ksm.dev/app/songs/{}", id.as_hyphenated()))
+                .call()
+                .expect("Failed to get song")
+                .into_json()
+                .expect("Failed to parse nautica song");
+
+        let mut data = ureq::get(&nautica.cdn_download_url)
+            .call()
+            .expect("Failed to download song zip")
+            .into_reader();
+
+        let mut file = File::create(&song_path).expect("Failed to create song zip for downloading");
+        {
+            let mut file_writer = BufWriter::new(&file);
+            std::io::copy(&mut data, &mut file_writer);
+        }
+        drop(file);
+        let file = File::open(song_path).expect("Ug");
+        return song_from_zip(BufReader::new(file), diff).expect("Failed to load song from zip");
+    })
+}
+
+fn song_from_zip(
+    data: impl std::io::Read + std::io::Seek,
+    diff: u8,
+) -> Result<(kson::Chart, Box<dyn rodio::Source<Item = i16>>)> {
+    let mut archive = zip::read::ZipArchive::new(data)?;
+    for i in 0..archive.len() {
+        let mut file = archive.by_index(i)?;
+        if file.is_dir() {
+            continue;
+        }
+        let mut chart_string = String::new();
+        let file_read = file.read_to_string(&mut chart_string);
+        if file_read.is_err() {
+            continue;
+        }
+
+        let file_folder = PathBuf::from(file.name());
+        drop(file);
+
+        if let Ok(chart) = kson::Chart::from_ksh(&chart_string) {
+            if chart.meta.difficulty == diff {
+                let bgm_name = chart.audio.bgm.clone().unwrap().filename.unwrap();
+                let bgm_path = file_folder.with_file_name(bgm_name);
+                let bgm_path = bgm_path.to_str().unwrap_or("").replace('\\', "/");
+
+                log::info!("Loading {bgm_path}");
+
+                let mut bgm_entry = archive.by_name(&bgm_path)?;
+                let mut bgm_buf = Vec::new();
+                bgm_entry.read_to_end(&mut bgm_buf)?;
+                let bgm_cursor = std::io::Cursor::new(bgm_buf);
+
+                return Ok((chart, Box::new(rodio::Decoder::new(bgm_cursor)?)));
+            }
+        }
+    }
+    Err(anyhow::anyhow!("Could not find difficulty in zip archive"))
 }

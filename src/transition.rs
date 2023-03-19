@@ -4,8 +4,10 @@ use std::{
     sync::{mpsc::Sender, Arc, Mutex},
 };
 
+use femtovg::Canvas;
 use poll_promise::Promise;
-use tealr::mlu::mlua::{Function, Lua};
+use tealr::mlu::mlua::{Function, Lua, LuaSerdeExt};
+use ureq::json;
 
 use crate::{
     config::GameConfig,
@@ -28,6 +30,8 @@ pub struct Transition {
     control_tx: Sender<ControlMessage>,
     state: TransitionState,
     transition_lua: Rc<Lua>,
+    context: three_d::Context,
+    vgfx: Arc<Mutex<crate::Vgfx>>,
 }
 
 fn load_songs() -> Box<dyn SceneData + Send> {
@@ -37,14 +41,49 @@ fn load_songs() -> Box<dyn SceneData + Send> {
     Box::new(SongSelect::new())
 }
 
+fn load_chart(
+    context: three_d::Context,
+    chart: kson::Chart,
+    skin_folder: PathBuf,
+) -> Box<dyn SceneData + Send> {
+    Box::new(crate::game::GameData {
+        chart,
+        skin_folder,
+        context,
+    })
+}
+
 impl Transition {
     pub fn new(
         transition_lua: Rc<Lua>,
         target: ControlMessage,
         control_tx: Sender<ControlMessage>,
+        context: three_d::Context,
+        vgfx: Arc<Mutex<crate::Vgfx>>,
     ) -> Self {
         if let Ok(reset_fn) = transition_lua.globals().get::<_, Function>("reset") {
             reset_fn.call::<(), ()>(());
+        }
+
+        if let ControlMessage::Song {
+            song,
+            diff,
+            loader: _,
+        } = &target
+        {
+            let mut vgfx = vgfx.lock().unwrap();
+
+            transition_lua.globals().set(
+                "song",
+                transition_lua
+                    .to_value(&json!({
+                        "jacket": vgfx.load_image(&song.difficulties[*diff].jacket_path).unwrap_or(0),
+                        "title": song.title,
+                        "artist": song.artist,
+                        "bpm": song.bpm
+                    }))
+                    .unwrap(),
+            );
         }
 
         Self {
@@ -53,6 +92,8 @@ impl Transition {
             target_state: None,
             control_tx,
             state: TransitionState::Intro,
+            context,
+            vgfx,
         }
     }
 }
@@ -82,9 +123,19 @@ impl Scene for Transition {
 
                 if TransitionState::Intro == self.state && intro_complete {
                     self.state = TransitionState::Loading;
-                    self.target_state = match self.target {
+                    let target = std::mem::take(&mut self.target);
+
+                    self.target_state = match target {
                         ControlMessage::MainMenu(MainMenuButton::Start) => {
                             Some(Promise::spawn_thread("Load song select", load_songs))
+                        }
+                        ControlMessage::Song { song, diff, loader } => {
+                            let context = self.context.clone();
+                            let skin_folder = self.vgfx.lock().unwrap().skin_folder();
+                            Some(Promise::spawn_thread("Load song", move || {
+                                let (chart, audio) = loader();
+                                load_chart(context, chart, skin_folder)
+                            }))
                         }
                         _ => None,
                     }

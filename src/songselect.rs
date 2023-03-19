@@ -1,24 +1,16 @@
+use anyhow::{ensure, Result};
+use generational_arena::Index;
+use puffin::profile_function;
+use serde::Serialize;
 use std::{
-    cell::Ref,
-    collections::HashMap,
     fmt::Debug,
-    fs::FileType,
-    ops::Deref,
     path::PathBuf,
     rc::Rc,
-    str::FromStr,
     sync::{mpsc::Sender, Arc, Mutex},
 };
-
-use anyhow::Result;
-use generational_arena::Index;
-use kson::{Chart, Ksh};
-use log::info;
-use puffin::{profile_function, profile_scope};
-use serde::Serialize;
 use tealr::{
     mlu::{
-        mlua::{AnyUserData, Function, Lua, LuaSerdeExt, ToLua, UserData},
+        mlua::{Function, Lua, LuaSerdeExt},
         TealData, UserData,
     },
     TypeName,
@@ -89,6 +81,7 @@ pub struct SongSelect {
     searchInputActive: bool, //true when the user is currently inputting search text
     searchText: String,      //current string used by the song search
     selected_index: i32,
+    selected_diff_index: i32,
     #[serde(skip_serializing)]
     song_provider: Box<dyn SongProvider + Send>,
 }
@@ -104,7 +97,7 @@ impl TealData for SongSelect {
         });
         fields.add_field_method_get(
             "searchStatus",
-            |_, songwheel| -> Result<Option<String>, tealr::mlu::mlua::Error> { Ok(None) },
+            |_, _| -> Result<Option<String>, tealr::mlu::mlua::Error> { Ok(None) },
         );
     }
 }
@@ -200,6 +193,7 @@ impl SongSelect {
             searchInputActive: false,
             searchText: String::new(),
             selected_index: 0,
+            selected_diff_index: 0,
             song_provider: provider,
         }
     }
@@ -259,7 +253,7 @@ impl Scene for SongSelectScene {
                 egui::Grid::new("songsel-grid")
                     .num_columns(2)
                     .striped(true)
-                    .show(ui, |ui| {
+                    .show(ui, |ui| -> Result<()> {
                         if song_count > 0 {
                             ui.label("Song");
                             if ui
@@ -270,22 +264,29 @@ impl Scene for SongSelectScene {
                                 )
                                 .changed()
                             {
-                                set_song_idx.call::<_, i32>(state.selected_index + 1);
+                                set_song_idx.call::<_, i32>(state.selected_index + 1)?;
                             }
 
                             ui.end_row();
                             if ui.button("Start").clicked() {
-                                let song = &state.songs[state.selected_index as usize];
-                                self.program_control
+                                let song = state.songs[state.selected_index as usize].clone();
+                                let diff = state.selected_diff_index as usize;
+
+                                let loader = state
+                                    .song_provider
+                                    .load_song(song.id, song.difficulties[diff].id);
+                                ensure!(self
+                                    .program_control
                                     .as_ref()
                                     .unwrap()
-                                    .send(ControlMessage::Song(
-                                        song.difficulties.first().unwrap().file_path.clone(),
-                                    ));
+                                    .send(ControlMessage::Song { diff, song, loader })
+                                    .is_ok());
                             }
-                            ui.end_row()
+                            ui.end_row();
+                            Ok(())
                         } else {
                             ui.label("No songs");
+                            Ok(())
                         }
                     })
             });
@@ -308,7 +309,7 @@ impl Scene for SongSelectScene {
         Ok(())
     }
 
-    fn tick(&mut self, dt: f64, knob_state: LaserState) -> Result<bool> {
+    fn tick(&mut self, _dt: f64, knob_state: LaserState) -> Result<bool> {
         self.song_advance += LaserAxis::from(knob_state.get(kson::Side::Right)).delta;
         self.diff_advance += LaserAxis::from(knob_state.get(kson::Side::Left)).delta;
 
@@ -346,7 +347,7 @@ impl Scene for SongSelectScene {
                 if song_advance_steps != 0 {
                     let set_song_idx: Function = self.lua.globals().get("set_index").unwrap();
 
-                    set_song_idx.call::<_, ()>(state.selected_index + 1);
+                    set_song_idx.call::<_, ()>(state.selected_index + 1)?;
                 }
             }
         }
@@ -354,13 +355,18 @@ impl Scene for SongSelectScene {
         Ok(false)
     }
 
-    fn on_event(&mut self, event: &mut three_d::Event) {}
+    fn on_event(&mut self, _event: &mut three_d::Event) {}
 
     fn on_button_pressed(&mut self, button: crate::button_codes::UscButton) {
         if let UscButton::Start = button {
             let state = self.state.lock().unwrap();
             if let Some(pc) = &self.program_control {
-                todo!()
+                let song = state.songs[state.selected_index as usize].clone();
+                let diff = state.selected_diff_index as usize;
+                let loader = state
+                    .song_provider
+                    .load_song(song.id, song.difficulties[diff].id);
+                pc.send(ControlMessage::Song { diff, loader, song });
             }
         }
     }

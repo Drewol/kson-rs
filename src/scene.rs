@@ -51,3 +51,9 @@ where
 {
     fn make_scene(self: Box<Self>) -> Box<dyn Scene>;
 }
+
+impl SceneData for dyn Scene + Send {
+    fn make_scene(self: Box<Self>) -> Box<dyn Scene> {
+        self
+    }
+}

@@ -1,5 +1,5 @@
-use crate::scene::Scene;
-use kson::{Ksh, Vox};
+use crate::scene::{Scene, SceneData};
+use kson::{Chart, Ksh, Vox};
 pub struct Game {
     view: ChartView,
     chart: kson::Chart,
@@ -8,14 +8,20 @@ pub struct Game {
     duration: i64,
 }
 
+pub struct GameData {
+    pub context: three_d::Context,
+    pub chart: kson::Chart,
+    pub skin_folder: PathBuf,
+}
+
+impl SceneData for GameData {
+    fn make_scene(self: Box<Self>) -> Box<dyn Scene> {
+        Box::new(Game::new(self.chart, &self.skin_folder, &self.context).unwrap())
+    }
+}
+
 impl Game {
-    pub fn new(
-        chart_path: impl AsRef<std::path::Path>,
-        skin_root: &PathBuf,
-        td: &three_d::Context,
-    ) -> Result<Self> {
-        let chart_data = std::fs::read_to_string(chart_path)?;
-        let chart = kson::Chart::from_ksh(&chart_data).or(kson::Chart::from_vox(&chart_data))?;
+    pub fn new(chart: Chart, skin_root: &PathBuf, td: &three_d::Context) -> Result<Self> {
         let mut view = ChartView::new(skin_root, td);
         view.build_laser_meshes(&chart);
         let duration = chart.get_last_tick();

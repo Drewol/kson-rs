@@ -65,6 +65,12 @@ pub enum ControlMessage {
     },
 }
 
+impl Default for ControlMessage {
+    fn default() -> Self {
+        Self::None
+    }
+}
+
 fn main() -> anyhow::Result<()> {
     simple_logger::init_with_level(Level::Info)?;
     puffin::set_scopes_on(true);

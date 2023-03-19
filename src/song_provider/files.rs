@@ -50,8 +50,8 @@ impl FileSongProvider {
             |mut acc, (dir, chart)| {
                 if let Some(parent_folder) = dir.path().parent() {
                     acc.entry(parent_folder.to_path_buf())
-                        .and_modify(|v| v.push(chart.clone()))
-                        .or_insert_with(|| vec![chart]);
+                        .and_modify(|v| v.push((chart.clone(), dir.clone())))
+                        .or_insert_with(|| vec![(chart, dir)]);
                 }
                 acc
             },
@@ -74,8 +74,9 @@ impl FileSongProvider {
                             difficulty: c.meta.difficulty,
                             effector: c.meta.chart_author.clone(),
                             id: id as u64,
-                            jacket_path: song_folder.join(&c.meta.jacket_filename),
-                            level: c.meta.level,
+                            jacket_path: song_folder.join(&c.0.meta.jacket_filename),
+                            file_path: c.1.clone().into_path(),
+                            level: c.0.meta.level,
                             scores: vec![99],
                         })
                         .collect(),
@@ -120,7 +121,11 @@ impl SongProvider for FileSongProvider {
         todo!()
     }
 
-    fn load_song(&mut self, index: u64) -> poll_promise::Promise<anyhow::Result<kson::Chart>> {
+    fn load_song(
+        &self,
+        index: u64,
+        diff_index: u64,
+    ) -> Box<dyn FnOnce() -> (kson::Chart, Box<dyn rodio::Source<Item = i16>>) + Send> {
         todo!()
     }
 }

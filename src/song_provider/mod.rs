@@ -1,4 +1,4 @@
-use std::{collections::HashSet, fmt::Debug, sync::Arc};
+use std::{collections::HashSet, fmt::Debug, path::PathBuf, sync::Arc};
 
 use anyhow::Result;
 use kson::Chart;
@@ -36,7 +36,11 @@ pub trait SongProvider: Debug {
     fn set_sort(&mut self, sort: SongSort);
     fn set_filter(&mut self, filter: SongFilter);
     fn set_current_index(&mut self, index: u64);
-    fn load_song(&mut self, index: u64) -> Promise<Result<Chart>>;
+    fn load_song(
+        &self,
+        song_index: u64,
+        diff_index: u64,
+    ) -> Box<dyn FnOnce() -> (Chart, Box<dyn rodio::Source<Item = i16>>) + Send>;
 }
 
 pub use files::FileSongProvider;

@@ -108,6 +108,28 @@ impl Vgfx {
 
         Ok(f(canvas))
     }
+
+    pub fn load_image(&mut self, path: impl AsRef<std::path::Path>) -> anyhow::Result<u32> {
+        let img = self.with_canvas(|x| x.load_image_file(&path, ImageFlags::empty()))??;
+        self.images.insert(self.next_img_id, img);
+        let result = self.next_img_id;
+        self.next_img_id += 1;
+
+        Ok(result)
+    }
+
+    pub fn delete_image(&mut self, image: u32) {
+        if let Some(id) = self.images.get(&image).copied() {
+            self.with_canvas(|x| x.delete_image(id));
+        }
+    }
+
+    pub fn skin_folder(&self) -> PathBuf {
+        let mut res = self.game_folder.clone();
+        res.push("skins");
+        res.push(&self.skin);
+        res
+    }
 }
 
 impl TealData for Vgfx {
