@@ -38,8 +38,11 @@ impl Game {
 }
 
 impl Scene for Game {
-    fn render_ui(&mut self, dt: f64) -> anyhow::Result<bool> {
-        Ok(false)
+    fn closed(&self) -> bool {
+        self.time >= self.duration
+    }
+    fn render_ui(&mut self, dt: f64) -> anyhow::Result<()> {
+        Ok(())
     }
 
     fn is_suspended(&self) -> bool {

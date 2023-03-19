@@ -113,10 +113,10 @@ impl MainMenu {
 }
 
 impl Scene for MainMenu {
-    fn render_ui(&mut self, dt: f64) -> anyhow::Result<bool> {
+    fn render_ui(&mut self, dt: f64) -> anyhow::Result<()> {
         let render: Function = self.lua.globals().get("render")?;
         render.call(dt / 1000.0)?;
-        Ok(false)
+        Ok(())
     }
 
     fn init(
@@ -129,22 +129,18 @@ impl Scene for MainMenu {
         Ok(())
     }
 
-    fn tick(&mut self, dt: f64, knob_state: LaserState) -> Result<bool> {
+    fn tick(&mut self, dt: f64, knob_state: LaserState) -> Result<()> {
         while let Ok(button) = self.button_rx.try_recv() {
             log::info!("Pressed: {:?}", &button);
-            if let MainMenuButton::Exit = button {
-                return Ok(true);
-            } else {
-                self.control_tx
-                    .as_ref()
-                    .unwrap()
-                    .send(ControlMessage::MainMenu(button))
-                    .map_err(|_| anyhow!("Failed to send button"))?;
-                self.suspended = true;
-            }
+            self.control_tx
+                .as_ref()
+                .unwrap()
+                .send(ControlMessage::MainMenu(button))
+                .map_err(|_| anyhow!("Failed to send button"))?;
+            self.suspended = true;
         }
 
-        Ok(false)
+        Ok(())
     }
 
     fn on_event(&mut self, event: &mut three_d::Event) {
@@ -173,5 +169,9 @@ impl Scene for MainMenu {
 
     fn debug_ui(&mut self, ctx: &three_d::egui::Context) -> anyhow::Result<()> {
         Ok(())
+    }
+
+    fn closed(&self) -> bool {
+        false
     }
 }

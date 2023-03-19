@@ -22,8 +22,8 @@ use main_menu::MainMenuButton;
 use puffin::{profile_function, profile_scope};
 use scene::Scene;
 use songselect::SongSelect;
-use td::HasContext;
 use td::{egui, FrameInput};
+use td::{FrameOutput, HasContext};
 use tealr::mlu::{
     mlua::{Function, Lua},
     UserDataProxy,
@@ -297,6 +297,12 @@ fn main() -> anyhow::Result<()> {
                         }
                     }
                     MainMenuButton::Downloads => {}
+                    MainMenuButton::Exit => {
+                        return FrameOutput {
+                            exit: true,
+                            ..Default::default()
+                        }
+                    }
                     _ => {}
                 },
                 ControlMessage::Song { diff, loader, song } => {
@@ -384,10 +390,10 @@ fn main() -> anyhow::Result<()> {
         update_game_data_and_clear(&game_data, mousex, mousey, &frame_input);
 
         reset_viewport_size(&vgfx, &frame_input);
+        close_scenes(&mut scenes, &scenes_loaded);
 
         tick(&mut scenes, &frame_input, knob_state);
         render_frame(&mut scenes, &frame_input);
-
         render_overlays(&vgfx, &frame_input, fps, &fps_paint);
 
         debug_ui(&mut gui, frame_input, &mut scenes);
@@ -410,6 +416,22 @@ fn main() -> anyhow::Result<()> {
     });
 
     Ok(())
+}
+
+fn close_scenes(scenes: &mut Vec<Box<dyn Scene>>, incoming: &Vec<Box<dyn Scene>>) {
+    let top = scenes.pop();
+    let top_closed = top.as_ref().map(|x| x.closed()).unwrap_or(false);
+    scenes.retain_mut(|x| !x.closed());
+
+    if top_closed {
+        if incoming.is_empty() {
+            if let Some(new_top) = scenes.last_mut() {
+                new_top.resume()
+            }
+        }
+    } else if top.is_some() {
+        scenes.push(top.unwrap());
+    }
 }
 
 fn run_lua_gc(lua_arena: &Rc<RwLock<Arena<Rc<Lua>>>>) {
@@ -473,7 +495,7 @@ fn render_frame(scenes: &mut Vec<Box<dyn Scene>>, frame_input: &td::FrameInput) 
                 frame_input.viewport,
             );
             match s.render_ui(frame_input.elapsed_time) {
-                Ok(close) => !close,
+                Ok(_) => true,
                 Err(e) => {
                     error!("{:?}", e);
                     false
@@ -485,8 +507,9 @@ fn render_frame(scenes: &mut Vec<Box<dyn Scene>>, frame_input: &td::FrameInput) 
 
 fn tick(scenes: &mut Vec<Box<dyn Scene>>, frame_input: &td::FrameInput, knob_state: LaserState) {
     profile_scope!("Tick");
+
     scenes.retain_mut(|s| match s.tick(frame_input.elapsed_time, knob_state) {
-        Ok(close) => !close,
+        Ok(_) => true,
         Err(e) => {
             error!("{:?}", e);
             false

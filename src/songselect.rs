@@ -124,67 +124,11 @@ impl SongSelect {
             Box::new(FileSongProvider::new())
         };
 
-        let songs = if let Some(SongProviderEvent::SongsAdded(songs)) = provider.poll() {
+        let mut songs = if let Some(SongProviderEvent::SongsAdded(songs)) = provider.poll() {
             songs
         } else {
             vec![]
         };
-        let charts = song_walker
-            .into_iter()
-            .filter_map(|a| a.ok())
-            .filter(|e| e.file_type().is_file())
-            .filter_map(|e| {
-                if let Ok(data) = std::fs::read_to_string(e.path()) {
-                    Some((e, data))
-                } else {
-                    None
-                }
-            })
-            .filter_map(|(dir, data)| {
-                if let Ok(chart) = kson::Chart::from_ksh(&data) {
-                    Some((dir, chart))
-                } else {
-                    None
-                }
-            });
-
-        let song_folders = charts.fold(
-            HashMap::<PathBuf, Vec<(PathBuf, Chart)>>::new(),
-            |mut acc, (dir, chart)| {
-                if let Some(parent_folder) = dir.path().parent() {
-                    acc.entry(parent_folder.to_path_buf())
-                        .and_modify(|v| v.push((dir.clone().into_path(), chart.clone())))
-                        .or_insert_with(|| vec![(dir.into_path(), chart)]);
-                }
-                acc
-            },
-        );
-
-        let mut songs: Vec<Song> = song_folders
-            .into_iter()
-            .enumerate()
-            .map(|(id, (song_folder, charts))| Song {
-                title: charts[0].1.meta.title.clone(),
-                artist: charts[0].1.meta.artist.clone(),
-                bpm: charts[0].1.meta.disp_bpm.clone(),
-                id: id as i32,
-                path: song_folder.clone(),
-                difficulties: charts
-                    .iter()
-                    .enumerate()
-                    .map(|(id, (p, c))| Difficulty {
-                        best_badge: 0,
-                        difficulty: c.meta.difficulty,
-                        effector: c.meta.chart_author.clone(),
-                        id: id as i32,
-                        jacket_path: song_folder.join(&c.meta.jacket_filename),
-                        level: c.meta.level,
-                        scores: vec![99],
-                        file_path: p.clone(),
-                    })
-                    .collect(),
-            })
-            .collect();
 
         songs.sort_by_key(|s| s.title.to_lowercase());
 
@@ -212,6 +156,8 @@ pub struct SongSelectScene {
     program_control: Option<Sender<ControlMessage>>,
     song_advance: f32,
     diff_advance: f32,
+    suspended: bool,
+    closed: bool,
 }
 
 impl SongSelectScene {
@@ -223,12 +169,14 @@ impl SongSelectScene {
             program_control: None,
             diff_advance: 0.0,
             song_advance: 0.0,
+            suspended: false,
+            closed: false,
         }
     }
 }
 
 impl Scene for SongSelectScene {
-    fn render_ui(&mut self, dt: f64) -> Result<bool> {
+    fn render_ui(&mut self, dt: f64) -> Result<()> {
         profile_function!();
         let render_bg: Function = self.background_lua.globals().get("render")?;
         render_bg.call(dt / 1000.0)?;
@@ -236,25 +184,30 @@ impl Scene for SongSelectScene {
         let render_wheel: Function = self.lua.globals().get("render")?;
         render_wheel.call(dt / 1000.0)?;
 
-        Ok(false)
+        Ok(())
     }
 
     fn is_suspended(&self) -> bool {
-        false
+        self.suspended
     }
 
     fn debug_ui(&mut self, ctx: &three_d::egui::Context) -> Result<()> {
         use three_d::egui;
-        let set_song_idx: Function = self.lua.globals().get("set_index").unwrap();
-        if let Ok(state) = &mut self.state.lock() {
-            let song_count = state.songs.len();
 
-            egui::Window::new("Songsel").show(ctx, |ui| {
-                egui::Grid::new("songsel-grid")
-                    .num_columns(2)
-                    .striped(true)
-                    .show(ui, |ui| -> Result<()> {
-                        if song_count > 0 {
+        let song_count = if let Ok(state) = &mut self.state.lock() {
+            state.songs.len()
+        } else {
+            0
+        };
+
+        egui::Window::new("Songsel").show(ctx, |ui| {
+            egui::Grid::new("songsel-grid")
+                .num_columns(2)
+                .striped(true)
+                .show(ui, |ui| -> Result<()> {
+                    if song_count > 0 {
+                        {
+                            let state = &mut self.state.lock().unwrap();
                             ui.label("Song");
                             if ui
                                 .add(
@@ -264,33 +217,36 @@ impl Scene for SongSelectScene {
                                 )
                                 .changed()
                             {
+                                let set_song_idx: Function =
+                                    self.lua.globals().get("set_index").unwrap();
+
                                 set_song_idx.call::<_, i32>(state.selected_index + 1)?;
                             }
-
-                            ui.end_row();
-                            if ui.button("Start").clicked() {
-                                let song = state.songs[state.selected_index as usize].clone();
-                                let diff = state.selected_diff_index as usize;
-
-                                let loader = state
-                                    .song_provider
-                                    .load_song(song.id, song.difficulties[diff].id);
-                                ensure!(self
-                                    .program_control
-                                    .as_ref()
-                                    .unwrap()
-                                    .send(ControlMessage::Song { diff, song, loader })
-                                    .is_ok());
-                            }
-                            ui.end_row();
-                            Ok(())
-                        } else {
-                            ui.label("No songs");
-                            Ok(())
                         }
-                    })
-            });
-        }
+                        ui.end_row();
+                        if ui.button("Start").clicked() {
+                            self.suspend();
+                            let state = &mut self.state.lock().unwrap();
+                            let song = state.songs[state.selected_index as usize].clone();
+                            let diff = state.selected_diff_index as usize;
+                            let loader = state
+                                .song_provider
+                                .load_song(song.id, song.difficulties[diff].id);
+                            ensure!(self
+                                .program_control
+                                .as_ref()
+                                .unwrap()
+                                .send(ControlMessage::Song { diff, song, loader })
+                                .is_ok());
+                        }
+                        ui.end_row();
+                        Ok(())
+                    } else {
+                        ui.label("No songs");
+                        Ok(())
+                    }
+                })
+        });
 
         Ok(())
     }
@@ -309,7 +265,7 @@ impl Scene for SongSelectScene {
         Ok(())
     }
 
-    fn tick(&mut self, _dt: f64, knob_state: LaserState) -> Result<bool> {
+    fn tick(&mut self, _dt: f64, knob_state: LaserState) -> Result<()> {
         self.song_advance += LaserAxis::from(knob_state.get(kson::Side::Right)).delta;
         self.diff_advance += LaserAxis::from(knob_state.get(kson::Side::Left)).delta;
 
@@ -352,26 +308,37 @@ impl Scene for SongSelectScene {
             }
         }
 
-        Ok(false)
+        Ok(())
     }
 
     fn on_event(&mut self, _event: &mut three_d::Event) {}
 
     fn on_button_pressed(&mut self, button: crate::button_codes::UscButton) {
         if let UscButton::Start = button {
-            let state = self.state.lock().unwrap();
+            self.suspend();
             if let Some(pc) = &self.program_control {
+                let state = self.state.lock().unwrap();
                 let song = state.songs[state.selected_index as usize].clone();
                 let diff = state.selected_diff_index as usize;
                 let loader = state
                     .song_provider
                     .load_song(song.id, song.difficulties[diff].id);
                 pc.send(ControlMessage::Song { diff, loader, song });
+            } else {
+                self.resume()
             }
         }
     }
 
-    fn suspend(&mut self) {}
+    fn suspend(&mut self) {
+        self.suspended = true;
+    }
 
-    fn resume(&mut self) {}
+    fn resume(&mut self) {
+        self.suspended = false;
+    }
+
+    fn closed(&self) -> bool {
+        self.closed
+    }
 }

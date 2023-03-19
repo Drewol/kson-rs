@@ -34,9 +34,7 @@ where
         for effect in effects
             .iter()
             .filter(|x| matches!(x.track, Some(kson::Track::FX(_))))
-        {
-            effect.effect
-        }
+        {}
 
         chart_audio
     }

@@ -24,8 +24,8 @@ pub trait Scene {
     ) -> Result<()> {
         Ok(())
     }
-    fn tick(&mut self, dt: f64, knob_state: LaserState) -> Result<bool> {
-        Ok(false)
+    fn tick(&mut self, dt: f64, knob_state: LaserState) -> Result<()> {
+        Ok(())
     }
     fn on_event(&mut self, event: &mut Event) {}
     fn on_button_pressed(&mut self, button: UscButton) {}
@@ -38,11 +38,12 @@ pub trait Scene {
         viewport: Viewport,
     ) {
     }
-    fn render_ui(&mut self, dt: f64) -> Result<bool>;
+    fn render_ui(&mut self, dt: f64) -> Result<()>;
     fn suspend(&mut self) {}
     fn resume(&mut self) {}
     fn is_suspended(&self) -> bool;
     fn debug_ui(&mut self, ctx: &three_d::egui::Context) -> Result<()>;
+    fn closed(&self) -> bool;
 }
 
 pub trait SceneData

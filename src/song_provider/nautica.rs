@@ -183,7 +183,6 @@ impl Chart {
 
         Difficulty {
             jacket_path,
-            file_path: PathBuf::default(),
             level: *level as u8,
             difficulty: *difficulty as u8 - 1,
             id,

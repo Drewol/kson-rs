@@ -7,6 +7,7 @@ use std::{
 use femtovg::Canvas;
 use poll_promise::Promise;
 use tealr::mlu::mlua::{Function, Lua, LuaSerdeExt};
+use three_d::FrameInput;
 use ureq::json;
 
 use crate::{
@@ -22,6 +23,7 @@ enum TransitionState {
     Intro,
     Loading,
     Outro,
+    Done,
 }
 
 pub struct Transition {
@@ -72,7 +74,6 @@ impl Transition {
         } = &target
         {
             let mut vgfx = vgfx.lock().unwrap();
-
             transition_lua.globals().set(
                 "song",
                 transition_lua
@@ -99,21 +100,17 @@ impl Transition {
 }
 
 impl Scene for Transition {
-    fn tick(
-        &mut self,
-        dt: f64,
-        knob_state: crate::button_codes::LaserState,
-    ) -> anyhow::Result<bool> {
+    fn tick(&mut self, dt: f64, knob_state: crate::button_codes::LaserState) -> anyhow::Result<()> {
         if let Some(loading) = self.target_state.as_mut() {
             if loading.poll().is_ready() {
                 self.state = TransitionState::Outro;
             }
         }
 
-        Ok(false)
+        Ok(())
     }
 
-    fn render(&mut self, dt: f64) -> anyhow::Result<bool> {
+    fn render_ui(&mut self, dt: f64) -> anyhow::Result<()> {
         //TODO: Render last frame before transition
         //TODO: Handle rendering of next scene during outro
         match self.state {
@@ -140,25 +137,24 @@ impl Scene for Transition {
                         _ => None,
                     }
                 }
-                Ok(false)
             }
             TransitionState::Outro => {
                 let render: Function = self.transition_lua.globals().get("render_out")?;
                 let outro_complete: bool = render.call(dt / 1000_f64)?;
                 if outro_complete {
+                    self.state = TransitionState::Done;
                     if let Some(target_state) = self.target_state.take() {
                         if let Ok(scene_data) = target_state.try_take() {
                             self.control_tx
                                 .send(ControlMessage::TransitionComplete(scene_data));
                         }
                     }
-
-                    Ok(true)
-                } else {
-                    Ok(false)
                 }
             }
+            TransitionState::Done => {}
         }
+
+        Ok(())
     }
 
     fn is_suspended(&self) -> bool {
@@ -167,5 +163,9 @@ impl Scene for Transition {
 
     fn debug_ui(&mut self, ctx: &three_d::egui::Context) -> anyhow::Result<()> {
         Ok(())
+    }
+
+    fn closed(&self) -> bool {
+        self.state == TransitionState::Done
     }
 }

@@ -11,6 +11,7 @@ use crate::songselect::{Difficulty, Song};
 use super::{SongProvider, SongProviderEvent};
 use kson::{Chart, Ksh};
 use log::info;
+use walkdir::DirEntry;
 
 #[derive(Debug)]
 pub struct FileSongProvider {
@@ -46,7 +47,7 @@ impl FileSongProvider {
             });
 
         let song_folders = charts.fold(
-            HashMap::<PathBuf, Vec<Chart>>::new(),
+            HashMap::<PathBuf, Vec<(Chart, DirEntry)>>::new(),
             |mut acc, (dir, chart)| {
                 if let Some(parent_folder) = dir.path().parent() {
                     acc.entry(parent_folder.to_path_buf())
@@ -62,20 +63,19 @@ impl FileSongProvider {
             .enumerate()
             .map(|(id, (song_folder, charts))| {
                 Arc::new(Song {
-                    title: charts[0].meta.title.clone(),
-                    artist: charts[0].meta.artist.clone(),
-                    bpm: charts[0].meta.disp_bpm.clone(),
+                    title: charts[0].0.meta.title.clone(),
+                    artist: charts[0].0.meta.artist.clone(),
+                    bpm: charts[0].0.meta.disp_bpm.clone(),
                     id: id as u64,
                     difficulties: charts
                         .iter()
                         .enumerate()
                         .map(|(id, c)| Difficulty {
                             best_badge: 0,
-                            difficulty: c.meta.difficulty,
-                            effector: c.meta.chart_author.clone(),
+                            difficulty: c.0.meta.difficulty,
+                            effector: c.0.meta.chart_author.clone(),
                             id: id as u64,
                             jacket_path: song_folder.join(&c.0.meta.jacket_filename),
-                            file_path: c.1.clone().into_path(),
                             level: c.0.meta.level,
                             scores: vec![99],
                         })
