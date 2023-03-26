@@ -303,7 +303,10 @@ impl TealData for Vgfx {
                                 )
                             })
                     })?
-                    .map_err(mlua::Error::external)?;
+                    .unwrap_or_else(|err| {
+                        log::error!("Failed to load image: {:?}", err);
+                        ImageId(generational_arena::Index::from_raw_parts(0, 0))
+                    });
 
                 let this_id = _vgfx.next_img_id;
                 _vgfx.next_img_id += 1;
@@ -372,13 +375,16 @@ impl TealData for Vgfx {
 
         //Text
         tealr::mlu::create_named_parameters!(TextParams with
-          s : String,
+          s : Option<String>,
           x : f32,
           y : f32,
 
         );
         add_lua_static_method(methods, "Text", |_, _vgfx, p: TextParams| {
             let TextParams { s, x, y } = p;
+            if s.is_none() {
+                return Ok(());
+            }
             match _vgfx.fill_paint.as_ref() {
                 Some(fill_paint) => {
                     let canvas = &mut _vgfx
@@ -386,7 +392,7 @@ impl TealData for Vgfx {
                         .try_lock()
                         .map_err(|_| mlua::Error::external("Canvas in use".to_string()))?;
                     canvas
-                        .fill_text(x, y, s, fill_paint)
+                        .fill_text(x, y, s.unwrap(), fill_paint)
                         .map_err(mlua::Error::external)?;
                     Ok(())
                 }
@@ -570,7 +576,7 @@ impl TealData for Vgfx {
 
         //CreateLabel
         tealr::mlu::create_named_parameters!(CreateLabelParams with
-          text : String,
+          text : Option<String>,
           size : i32,
           monospace : bool,
 
@@ -585,7 +591,7 @@ impl TealData for Vgfx {
             _vgfx.labels.insert(
                 _vgfx.next_label_id,
                 Label {
-                    text,
+                    text: text.unwrap_or_default(),
                     size,
                     monospace,
                 },

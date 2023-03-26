@@ -74,14 +74,19 @@ impl Transition {
         } = &target
         {
             let mut vgfx = vgfx.lock().unwrap();
+            let diff = &song.difficulties[*diff];
+
             transition_lua.globals().set(
                 "song",
                 transition_lua
                     .to_value(&json!({
-                        "jacket": vgfx.load_image(&song.difficulties[*diff].jacket_path).unwrap_or(0),
+                        "jacket": vgfx.load_image(&diff.jacket_path).unwrap_or(0),
                         "title": song.title,
                         "artist": song.artist,
-                        "bpm": song.bpm
+                        "bpm": song.bpm,
+                        "difficulty": diff.difficulty,
+                        "level": diff.level,
+                        "effector": diff.effector
                     }))
                     .unwrap(),
             );

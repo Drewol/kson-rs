@@ -1,5 +1,6 @@
 use std::{
     cell::RefMut,
+    path::PathBuf,
     sync::{Arc, Mutex},
 };
 
@@ -60,17 +61,33 @@ impl TealData for GameData {
           severity : i32,
 
         );
-        add_lua_static_method(methods, "Log", |_, _game_data, p: LogParams| {
+        add_lua_static_method(methods, "Log", |lua, _game_data, p: LogParams| {
             use log::*;
             let LogParams { message, severity } = p;
-            match severity {
-                0 => debug!("{}", message),
-                1 => info!("{}", message),
-                2 => info!("{}", message),
-                3 => warn!("{}", message),
-                4 => error!("{}", message),
-                _ => {}
-            }
+            let d = lua
+                .inspect_stack(1)
+                .and_then(|x| {
+                    x.source()
+                        .short_src
+                        .map(String::from_utf8_lossy)
+                        .map(|s| s.to_string())
+                        .map(PathBuf::from)
+                        .and_then(|p| p.file_name().map(|f| f.to_string_lossy().to_string()))
+                })
+                .unwrap_or_else(|| String::from("Unknown"));
+            log!(
+                target: &d,
+                match severity {
+                    0 => Level::Debug,
+                    1 => Level::Info,
+                    2 => Level::Info,
+                    3 => Level::Warn,
+                    4 => Level::Error,
+                    _ => Level::Debug,
+                },
+                "{}",
+                message
+            );
 
             Ok(())
         });
