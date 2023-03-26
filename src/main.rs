@@ -230,6 +230,12 @@ fn main() -> anyhow::Result<()> {
                         arena: Rc<RwLock<Arena<Rc<Lua>>>>| {
             let lua_frame_input = lua_frame_input.clone();
             Box::new(move |lua: Rc<Lua>, script_path| {
+                //Set path for 'require' (https://stackoverflow.com/questions/4125971/setting-the-global-lua-path-variable-from-c-c?lq=1)
+                let skin = &GameConfig::get().unwrap().skin;
+                let mut real_script_path = std::env::current_dir()?;
+                real_script_path.push("skins");
+                real_script_path.push(skin);
+
                 tealr::mlu::set_global_env(ExportVgfx, &lua)?;
                 tealr::mlu::set_global_env(ExportGame, &lua)?;
                 lua.globals()
@@ -252,11 +258,33 @@ fn main() -> anyhow::Result<()> {
                     lua.set_app_data(lua_frame_input.clone());
                     lua.gc_stop();
                 }
-                let mut real_script_path = std::env::current_dir()?;
-                let skin = &GameConfig::get().unwrap().skin;
-                real_script_path.push("skins");
-                real_script_path.push(skin);
+
+                {
+                    let package: tealr::mlu::mlua::Table = lua.globals().get("package").unwrap();
+                    let package_path: String = package.get("path").unwrap();
+                    let package_path = format!(
+                        "{};{}/scripts/?.lua;{}/scripts/?",
+                        package_path,
+                        real_script_path.as_os_str().to_string_lossy(),
+                        real_script_path.as_os_str().to_string_lossy()
+                    );
+                    info!("lua package.path: {}", &package_path);
+                    package.set("path", package_path).unwrap();
+
+                    lua.globals().set("package", package).unwrap();
+                }
+
                 real_script_path.push("scripts");
+
+                real_script_path.push("common.lua");
+                if real_script_path.exists() {
+                    info!("Loading: {:?}", &real_script_path);
+                    let test_code = std::fs::read_to_string(&real_script_path)?;
+                    lua.load(&test_code).set_name("common.lua")?.eval::<()>()?;
+                }
+
+                real_script_path.pop();
+
                 real_script_path.push(script_path);
                 info!("Loading: {:?}", &real_script_path);
                 let test_code = std::fs::read_to_string(real_script_path)?;

@@ -17,7 +17,7 @@ use three_d::{
     Texture2D, Vec2, Vec3, Vec4, VertexBuffer,
 };
 
-use crate::vg_ui::Vgfx;
+use crate::{config::GameConfig, vg_ui::Vgfx};
 
 enum ShaderParam {
     Single(f32),
@@ -241,7 +241,15 @@ impl TealData for ShadedMesh {
         });
         methods.add_method_mut("AddSkinTexture", |lua, this, params: (String, String)| {
             let context = &lua.app_data_ref::<FrameInput>().unwrap().context;
-            this.use_texture(context, params.0, params.1)
+
+            let mut path = std::env::current_dir().unwrap();
+            let skin = &GameConfig::get().unwrap().skin;
+            path.push("skins");
+            path.push(skin);
+            path.push("textures");
+            path.push(params.1);
+
+            this.use_texture(context, params.0, path)
                 .map_err(tealr::mlu::mlua::Error::external)
         });
         methods.add_method_mut("AddSharedTexture", |lua, this, params: (String, String)| {

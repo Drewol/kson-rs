@@ -13,7 +13,7 @@ use tealr::{
     TealMultiValue, TypeName,
 };
 
-use crate::help::add_lua_static_method;
+use crate::{config::GameConfig, help::add_lua_static_method};
 
 #[derive(UserData)]
 pub struct GameData {
@@ -153,12 +153,25 @@ impl TealData for GameData {
         add_lua_static_method(methods, "UpdateAvailable", |_, _game_data, _: ()| Ok(()));
 
         //GetSkin
-        add_lua_static_method(methods, "GetSkin", |_, _game_data, _: ()| Ok("default"));
+        add_lua_static_method(methods, "GetSkin", |_, _game_data, _: ()| {
+            GameConfig::get()
+                .map(|x| Ok(x.skin.clone()))
+                .unwrap_or(Err(mlua::Error::RuntimeError(
+                    "GameConfig not available".into(),
+                )))
+        });
 
         //GetSkinSetting
         add_lua_static_method(methods, "GetSkinSetting", |_, _game_data, key: (String)| {
             Ok((0, 127, 255, 255))
         });
+
+        //GetSkinSetting
+        add_lua_static_method(
+            methods,
+            "SetSkinSetting",
+            |_, _game_data, key: (String, mlua::Value)| Ok((0, 127, 255, 255)),
+        );
 
         //BeginProfile
         add_lua_static_method(

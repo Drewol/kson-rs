@@ -1254,9 +1254,9 @@ impl TealData for Vgfx {
         //LoadImageJob
         tealr::mlu::create_named_parameters!(LoadImageJobParams with
           path : String,
-          placeholder : u32,
-          w : u32,
-          h : u32,
+          placeholder : Option<u32>,
+          w : Option<u32>,
+          h : Option<u32>,
 
         );
         add_lua_static_method(
@@ -1304,15 +1304,28 @@ impl TealData for Vgfx {
                             Promise::spawn_thread("load image", move || {
                                 image::open(key)
                                     .map(|img| {
-                                        img.resize(w, h, image::imageops::FilterType::CatmullRom)
+                                        if let (Some(w), Some(h)) = (w, h) {
+                                            img.resize(
+                                                w,
+                                                h,
+                                                image::imageops::FilterType::CatmullRom,
+                                            )
+                                        } else {
+                                            img
+                                        }
                                     })
                                     .unwrap_or_default()
                             })
                         });
-                    _vgfx.job_imgs.insert(path.clone(), placeholder);
+                    _vgfx
+                        .job_imgs
+                        .insert(path.clone(), placeholder.unwrap_or_default());
                 }
 
-                Ok(*_vgfx.job_imgs.get(&path).unwrap_or(&placeholder))
+                Ok(*_vgfx
+                    .job_imgs
+                    .get(&path)
+                    .unwrap_or(&placeholder.unwrap_or_default()))
             },
         );
 
@@ -1399,12 +1412,28 @@ impl TealData for Vgfx {
 
         //LabelSize
         tealr::mlu::create_named_parameters!(LabelSizeParams with
-          label : i32,
+          label : u32,
 
         );
         add_lua_static_method(methods, "LabelSize", |_, _vgfx, p: LabelSizeParams| {
-            todo!();
-            Ok(0)
+            let mut paint = _vgfx
+                .fill_paint
+                .clone()
+                .unwrap_or_else(|| _vgfx.stroke_paint.clone());
+
+            let canvas = _vgfx.canvas.lock().unwrap();
+            if let Some(label) = _vgfx.labels.get(&p.label) {
+                paint.set_font_size(label.size as f32);
+                let size = canvas
+                    .measure_text(0.0, 0.0, &label.text, &paint)
+                    .map_err(mlua::Error::external)?;
+                Ok((size.width(), size.height()))
+            } else {
+                Err(mlua::Error::RuntimeError(format!(
+                    "No label with id: {}",
+                    p.label
+                )))
+            }
         });
 
         //FastTextSize
@@ -1599,8 +1628,9 @@ impl TealData for Vgfx {
 
         );
         add_lua_static_method(methods, "GlobalAlpha", |_, _vgfx, p: GlobalAlphaParams| {
-            todo!();
-            Ok(0)
+            // todo!();
+            _vgfx.canvas.lock().unwrap().set_global_alpha(p.alpha);
+            Ok(())
         });
 
         //LoadSkinAnimation
