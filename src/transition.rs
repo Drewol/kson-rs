@@ -168,4 +168,8 @@ impl Scene for Transition {
     fn closed(&self) -> bool {
         self.state == TransitionState::Done
     }
+
+    fn name(&self) -> &str {
+        "Transition"
+    }
 }

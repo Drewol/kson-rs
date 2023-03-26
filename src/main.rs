@@ -25,11 +25,13 @@ use songselect::SongSelect;
 use td::{egui, FrameInput};
 use td::{FrameOutput, HasContext};
 use tealr::mlu::{
-    mlua::{Function, Lua},
+    mlua::{Function, Lua, LuaSerdeExt},
     UserDataProxy,
 };
 use three_d as td;
+use ureq::json;
 
+mod animation;
 mod audio;
 mod button_codes;
 mod config;
@@ -189,12 +191,7 @@ fn main() -> anyhow::Result<()> {
     const FRAME_ACC_SIZE: usize = 16;
     let mut frame_times = [16.0; FRAME_ACC_SIZE];
     let mut frame_time_index = 0;
-    let skin_root = {
-        let mut current = std::env::current_dir().unwrap();
-        current.push("skins");
-        current.push("Default");
-        current
-    };
+
     let fps_paint = vg::Paint::color(vg::Color::white()).with_text_align(vg::Align::Right);
 
     let mut scenes_loaded: Vec<Box<dyn scene::Scene>> = vec![]; //Uninitialized
@@ -235,6 +232,15 @@ fn main() -> anyhow::Result<()> {
             Box::new(move |lua: Rc<Lua>, script_path| {
                 tealr::mlu::set_global_env(ExportVgfx, &lua)?;
                 tealr::mlu::set_global_env(ExportGame, &lua)?;
+                lua.globals()
+                    .set(
+                        "IRData",
+                        lua.to_value(&json!({
+                            "Active": false
+                        }))
+                        .unwrap(),
+                    )
+                    .unwrap();
                 let idx = arena
                     .write()
                     .expect("Could not get lock to lua arena")
@@ -242,13 +248,17 @@ fn main() -> anyhow::Result<()> {
                 {
                     lua.set_app_data(vgfx.clone());
                     lua.set_app_data(game_data.clone());
-                    lua.set_app_data(idx.clone());
+                    lua.set_app_data(idx);
                     lua.set_app_data(lua_frame_input.clone());
                     lua.gc_stop();
                 }
                 let mut real_script_path = std::env::current_dir()?;
+                let skin = &GameConfig::get().unwrap().skin;
+                real_script_path.push("skins");
+                real_script_path.push(skin);
                 real_script_path.push("scripts");
                 real_script_path.push(script_path);
+                info!("Loading: {:?}", &real_script_path);
                 let test_code = std::fs::read_to_string(real_script_path)?;
                 lua.load(&test_code).set_name(script_path)?.eval::<()>()?;
                 Ok(idx)
@@ -258,11 +268,10 @@ fn main() -> anyhow::Result<()> {
         if frame_input.first_frame {
             let transition_lua = Rc::new(Lua::new());
             let loader_fn = load_lua(game_data.clone(), vgfx.clone(), lua_arena.clone());
-            transition_lua_idx = loader_fn(transition_lua.clone(), "transition.lua").unwrap();
+            transition_lua_idx = loader_fn(transition_lua, "transition.lua").unwrap();
 
             let transition_song_lua = Rc::new(Lua::new());
-            transition_song_lua_idx =
-                loader_fn(transition_song_lua.clone(), "songtransition.lua").unwrap();
+            transition_song_lua_idx = loader_fn(transition_song_lua, "songtransition.lua").unwrap();
         }
 
         //Initialize loaded scenes
@@ -273,7 +282,7 @@ fn main() -> anyhow::Result<()> {
             ) {
                 Ok(_) => true,
                 Err(e) => {
-                    error!("{:?}", e);
+                    error!("Failed to init {}: {:?}", s.name(), e);
                     false
                 }
             }

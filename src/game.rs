@@ -92,6 +92,10 @@ impl Scene for Game {
         let axes = three_d::Axes::new(td_context, 0.01, 0.30);
         target.render(&camera, [axes], &[]);
     }
+
+    fn name(&self) -> &str {
+        "Game"
+    }
 }
 
 use std::{collections::HashMap, path::PathBuf, rc::Rc, sync::Arc};

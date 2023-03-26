@@ -288,8 +288,6 @@ impl TealData for ShadedMesh {
                 .unzip();
 
             let context = &lua.app_data_ref::<FrameInput>().unwrap().context;
-            dbg!(&pos);
-
             this.vertecies_pos = VertexBuffer::new_with_data(context, &pos);
             this.vertecies_uv = VertexBuffer::new_with_data(context, &uv);
 

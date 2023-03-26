@@ -17,9 +17,28 @@ use tealr::{
 };
 
 use tealr::mlu::mlua;
-use three_d::FrameInput;
+use three_d::{egui::Id, FrameInput};
 
-use crate::{help::add_lua_static_method, shaded_mesh::ShadedMesh};
+use crate::{
+    animation::VgAnimation,
+    config::{self, GameConfig},
+    help::add_lua_static_method,
+    shaded_mesh::ShadedMesh,
+};
+
+enum VgImage {
+    Static(ImageId),
+    Animation(VgAnimation),
+}
+
+impl Into<ImageId> for &VgImage {
+    fn into(self) -> ImageId {
+        match self {
+            VgImage::Static(id) => *id,
+            VgImage::Animation(anim) => anim.current_img_id(),
+        }
+    }
+}
 
 #[derive(UserData)]
 pub struct Vgfx {
@@ -33,7 +52,7 @@ pub struct Vgfx {
     next_img_id: u32,
     next_paint_id: u32,
     next_label_id: u32,
-    images: HashMap<u32, ImageId>,
+    images: HashMap<u32, VgImage>,
     paints: HashMap<u32, Paint>,
     labels: HashMap<u32, Label>,
     fonts: HashMap<String, FontId>,
@@ -75,11 +94,13 @@ impl Vgfx {
             }
         }
 
+        let config = &GameConfig::get().unwrap();
+
         Self {
             canvas,
             game_folder,
-            skin: "Default".to_string(),
-            path: None,
+            skin: config.skin.clone(),
+            path: Some(Path::new()),
             fill_paint: None,
             stroke_paint: Paint::color(Color::white()),
             gradient_colors: [Color::black(), Color::black()],
@@ -111,7 +132,7 @@ impl Vgfx {
 
     pub fn load_image(&mut self, path: impl AsRef<std::path::Path>) -> anyhow::Result<u32> {
         let img = self.with_canvas(|x| x.load_image_file(&path, ImageFlags::empty()))??;
-        self.images.insert(self.next_img_id, img);
+        self.images.insert(self.next_img_id, VgImage::Static(img));
         let result = self.next_img_id;
         self.next_img_id += 1;
 
@@ -119,7 +140,8 @@ impl Vgfx {
     }
 
     pub fn delete_image(&mut self, image: u32) {
-        if let Some(id) = self.images.get(&image).copied() {
+        if let Some(VgImage::Static(id)) = self.images.get(&image) {
+            let id = *id;
             self.with_canvas(|x| x.delete_image(id));
         }
     }
@@ -239,7 +261,7 @@ impl TealData for Vgfx {
 
             let this_id = _vgfx.next_img_id;
             _vgfx.next_img_id += 1;
-            _vgfx.images.insert(this_id, img);
+            _vgfx.images.insert(this_id, VgImage::Static(img));
             Ok(this_id)
         });
 
@@ -264,16 +286,28 @@ impl TealData for Vgfx {
                 path.push(filename);
                 let img = _vgfx
                     .with_canvas(|canvas| {
-                        canvas.load_image_file(
-                            &path,
-                            ImageFlags::from_bits(imageflags).unwrap_or(ImageFlags::empty()),
-                        )
+                        canvas
+                            .load_image_file(
+                                &path,
+                                ImageFlags::from_bits(imageflags).unwrap_or(ImageFlags::empty()),
+                            )
+                            .or_else(|_| {
+                                let img = image::open(&path)?;
+                                canvas.create_image(
+                                    femtovg::ImageSource::try_from(
+                                        &image::DynamicImage::ImageRgba8(img.to_rgba8()),
+                                    )
+                                    .expect("Bad image format"),
+                                    ImageFlags::from_bits(imageflags)
+                                        .unwrap_or(ImageFlags::empty()),
+                                )
+                            })
                     })?
                     .map_err(mlua::Error::external)?;
 
                 let this_id = _vgfx.next_img_id;
                 _vgfx.next_img_id += 1;
-                _vgfx.images.insert(this_id, img);
+                _vgfx.images.insert(this_id, VgImage::Static(img));
                 Ok(this_id)
             },
         );
@@ -299,7 +333,8 @@ impl TealData for Vgfx {
                 alpha,
                 angle,
             } = p;
-            if let Some(img_id) = _vgfx.images.get(&image).cloned() {
+            if let Some(img_id) = _vgfx.images.get(&image) {
+                let img_id = img_id.into();
                 _vgfx.with_canvas(|canvas| {
                     canvas.save_with(|canvas| {
                         let (img_w, img_h) = canvas
@@ -567,7 +602,7 @@ impl TealData for Vgfx {
           label_id : u32,
           x : f32,
           y : f32,
-          max_width : f32,
+          max_width : Option<f32>,
 
         );
         add_lua_static_method(methods, "DrawLabel", |_, _vgfx, p: DrawLabelParams| {
@@ -592,7 +627,10 @@ impl TealData for Vgfx {
                     .measure_text(x, y, &label.text, &paint)
                     .map_err(mlua::Error::external)?;
 
-                let x_scale = (max_width / text_measure.width()).min(1.0);
+                let x_scale = match max_width {
+                    Some(max_width) => (max_width / text_measure.width()).min(1.0),
+                    None => 1.0,
+                };
 
                 let paint = paint.with_font_size(label.size as f32 * x_scale);
 
@@ -1072,11 +1110,12 @@ impl TealData for Vgfx {
                 } = p;
 
                 if let Some(id) = _vgfx.images.get(&image) {
-                    let paint = Paint::image(*id, ox, oy, ex, ey, angle, alpha);
+                    let id: ImageId = id.into();
+                    let paint = Paint::image(id, ox, oy, ex, ey, angle, alpha);
                     _vgfx.paints.insert(_vgfx.next_paint_id, paint);
                     let paint_id = _vgfx.next_paint_id;
                     _vgfx.next_paint_id += 1;
-                    _vgfx.paint_imgs.insert(paint_id, *id);
+                    _vgfx.paint_imgs.insert(paint_id, id);
                     Ok(paint_id)
                 } else {
                     Err(mlua::Error::external(format!("No image with id {image}")))
@@ -1243,7 +1282,9 @@ impl TealData for Vgfx {
                                 .map_err(mlua::Error::external)
                             })??;
 
-                            _vgfx.images.insert(_vgfx.next_img_id, img_id);
+                            _vgfx
+                                .images
+                                .insert(_vgfx.next_img_id, VgImage::Static(img_id));
                             _vgfx.job_imgs.insert(key, _vgfx.next_img_id);
                             _vgfx.next_img_id += 1;
                         }
@@ -1386,7 +1427,8 @@ impl TealData for Vgfx {
 
         );
         add_lua_static_method(methods, "ImageSize", |_, _vgfx, p: ImageSizeParams| {
-            if let Some(id) = _vgfx.images.get(&p.image).copied() {
+            if let Some(id) = _vgfx.images.get(&p.image) {
+                let id: ImageId = id.into();
                 _vgfx
                     .with_canvas(|canvas| canvas.image_size(id))?
                     .map_err(mlua::Error::external)
@@ -1522,8 +1564,8 @@ impl TealData for Vgfx {
         //LoadAnimation
         tealr::mlu::create_named_parameters!(LoadAnimationParams with
           path : String,
-          frametime : f32,
-          loopcount : i32,
+          frametime : f64,
+          loopcount : usize,
           compressed : bool,
 
         );
@@ -1531,8 +1573,23 @@ impl TealData for Vgfx {
             methods,
             "LoadAnimation",
             |_, _vgfx, p: LoadAnimationParams| {
-                todo!();
-                Ok(0)
+                let LoadAnimationParams {
+                    path,
+                    frametime,
+                    loopcount,
+                    compressed,
+                } = p;
+
+                let anim =
+                    VgAnimation::new(path, frametime, _vgfx.canvas.clone(), loopcount, compressed)
+                        .map_err(mlua::Error::external)?;
+                _vgfx
+                    .images
+                    .insert(_vgfx.next_img_id, VgImage::Animation(anim));
+                let res = _vgfx.next_img_id;
+                _vgfx.next_img_id += 1;
+
+                Ok(res)
             },
         );
 
@@ -1547,34 +1604,59 @@ impl TealData for Vgfx {
         });
 
         //LoadSkinAnimation
-        tealr::mlu::create_named_parameters!(LoadSkinAnimationParams with
-          path : String,
-          frametime : f32,
-          loopcount : i32,
-          compressed : bool,
-
-        );
         add_lua_static_method(
             methods,
             "LoadSkinAnimation",
-            |_, _vgfx, p: LoadSkinAnimationParams| {
-                todo!();
-                Ok(0)
+            |_, _vgfx, p: LoadAnimationParams| {
+                let LoadAnimationParams {
+                    path,
+                    frametime,
+                    loopcount,
+                    compressed,
+                } = p;
+
+                let mut skinned_path = _vgfx.game_folder.clone();
+                skinned_path.push("skins");
+                skinned_path.push(&_vgfx.skin);
+                skinned_path.push("textures");
+                skinned_path.push(path);
+
+                let anim = VgAnimation::new(
+                    skinned_path,
+                    frametime,
+                    _vgfx.canvas.clone(),
+                    loopcount,
+                    compressed,
+                )
+                .map_err(mlua::Error::external)?;
+                _vgfx
+                    .images
+                    .insert(_vgfx.next_img_id, VgImage::Animation(anim));
+                let res = _vgfx.next_img_id;
+                _vgfx.next_img_id += 1;
+
+                Ok(res)
             },
         );
 
         //TickAnimation
         tealr::mlu::create_named_parameters!(TickAnimationParams with
-          animation : i32,
-          delta_time : f32,
+          animation : u32,
+          delta_time : f64,
 
         );
         add_lua_static_method(
             methods,
             "TickAnimation",
             |_, _vgfx, p: TickAnimationParams| {
-                todo!();
-                Ok(0)
+                let TickAnimationParams {
+                    animation,
+                    delta_time,
+                } = p;
+                if let Some(VgImage::Animation(anim)) = _vgfx.images.get_mut(&animation) {
+                    anim.tick(delta_time)
+                }
+                Ok(())
             },
         );
 

@@ -174,4 +174,8 @@ impl Scene for MainMenu {
     fn closed(&self) -> bool {
         false
     }
+
+    fn name(&self) -> &str {
+        "Main Menu"
+    }
 }

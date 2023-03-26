@@ -341,4 +341,8 @@ impl Scene for SongSelectScene {
     fn closed(&self) -> bool {
         self.closed
     }
+
+    fn name(&self) -> &str {
+        "Song Select"
+    }
 }

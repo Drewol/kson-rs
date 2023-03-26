@@ -44,6 +44,7 @@ pub trait Scene {
     fn is_suspended(&self) -> bool;
     fn debug_ui(&mut self, ctx: &three_d::egui::Context) -> Result<()>;
     fn closed(&self) -> bool;
+    fn name(&self) -> &str;
 }
 
 pub trait SceneData

@@ -12,6 +12,7 @@ pub struct GameConfig {
     #[serde(skip_serializing, skip_deserializing)]
     config_file: PathBuf,
     pub songs_path: PathBuf,
+    pub skin: String,
 }
 
 impl Default for GameConfig {
@@ -19,6 +20,7 @@ impl Default for GameConfig {
         Self {
             config_file: PathBuf::from_iter([".", "Main.cfg"]),
             songs_path: PathBuf::from_iter([".", "songs"]),
+            skin: "Default".into(),
         }
     }
 }
@@ -47,6 +49,7 @@ impl GameConfig {
                 INSTANCE.set(RwLock::new(GameConfig {
                     config_file: path,
                     songs_path: PathBuf::from_iter([".", "songs"]),
+                    skin: "Default".into(),
                 }));
             }
             Err(e) => {
@@ -54,6 +57,7 @@ impl GameConfig {
                 INSTANCE.set(RwLock::new(GameConfig {
                     config_file: path,
                     songs_path: PathBuf::from_iter([".", "songs"]),
+                    skin: "Default".into(),
                 }));
             }
         }

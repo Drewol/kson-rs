@@ -1,0 +1,18 @@
+gfx: Renderer
+gl: Game Logic
+
+lock?.lua: Lua state
+
+gl: {
+    process control commands -> process inputs -> process current screen -> emit control commands
+    process current screen -> finish loop -> process control commands
+}
+
+gl.finish loop -> lock.game state : update
+gl.process current screen -> lock?.lua : update
+
+gfx: {
+    clone game state -> render -> finish frame -> clone game state
+}
+gfx.render -> lock?.lua : draw
+gfx.clone game state <-> lock.game state : clone
