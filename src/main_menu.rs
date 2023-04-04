@@ -94,6 +94,7 @@ pub struct MainMenu {
     lua: Rc<Lua>,
     button_rx: Receiver<MainMenuButton>,
     control_tx: Option<Sender<ControlMessage>>,
+    should_suspended: bool,
     suspended: bool,
 }
 
@@ -108,6 +109,7 @@ impl MainMenu {
             button_rx,
             control_tx: None,
             suspended: false,
+            should_suspended: false,
         }
     }
 }
@@ -130,6 +132,11 @@ impl Scene for MainMenu {
     }
 
     fn tick(&mut self, dt: f64, knob_state: LaserState) -> Result<()> {
+        if self.should_suspended {
+            self.suspended = true;
+            self.should_suspended = false;
+        }
+
         while let Ok(button) = self.button_rx.try_recv() {
             log::info!("Pressed: {:?}", &button);
             self.control_tx
@@ -137,7 +144,7 @@ impl Scene for MainMenu {
                 .unwrap()
                 .send(ControlMessage::MainMenu(button))
                 .map_err(|_| anyhow!("Failed to send button"))?;
-            self.suspended = true;
+            self.should_suspended = true;
         }
 
         Ok(())

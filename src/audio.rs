@@ -20,7 +20,7 @@ where
         let sample_rate = self.sample_rate();
         let samples = self.convert_samples().collect::<Vec<f32>>().repeat(2);
         let effect_offset = samples.len();
-        let mut chart_audio = ChartAudio {
+        let chart_audio = ChartAudio {
             samples,
             cursor: 0,
             channels,
@@ -31,7 +31,7 @@ where
 
         //TODO: Render effects
         let effects = chart.get_effect_tracks();
-        for effect in effects
+        for _effect in effects
             .iter()
             .filter(|x| matches!(x.track, Some(kson::Track::FX(_))))
         {}

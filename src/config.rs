@@ -1,9 +1,6 @@
-use std::{
-    path::PathBuf,
-    sync::{RwLock, RwLockReadGuard},
-};
+use std::{path::PathBuf, sync::RwLock};
 
-use log::{error, info, trace, warn};
+use log::{error, info};
 use once_cell::sync::OnceCell;
 use serde::{Deserialize, Serialize};
 

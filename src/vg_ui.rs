@@ -31,9 +31,9 @@ enum VgImage {
     Animation(VgAnimation),
 }
 
-impl Into<ImageId> for &VgImage {
-    fn into(self) -> ImageId {
-        match self {
+impl From<&VgImage> for ImageId {
+    fn from(val: &VgImage) -> Self {
+        match val {
             VgImage::Static(id) => *id,
             VgImage::Animation(anim) => anim.current_img_id(),
         }
@@ -60,6 +60,7 @@ pub struct Vgfx {
     job_imgs: HashMap<String, u32>,
     current_font: Option<FontId>,
     image_jobs: HashMap<String, Promise<image::DynamicImage>>,
+    fallback_img: ImageId,
 }
 
 impl TypeName for Vgfx {
@@ -83,16 +84,25 @@ struct Label {
 
 impl Vgfx {
     pub fn new(canvas: Arc<Mutex<Canvas<OpenGl>>>, game_folder: std::path::PathBuf) -> Self {
-        {
-            let mut canvas_lock = canvas.try_lock();
-            if let Ok(canvas) = canvas_lock.borrow_mut() {
-                let mut font_dir = game_folder.clone();
-                font_dir.push("fonts");
-                _ = canvas.add_font_dir(&font_dir);
-                font_dir.push("settings");
-                _ = canvas.add_font_dir(&font_dir);
-            }
-        }
+        let fallback_img = {
+            let mut canvas = canvas.lock().unwrap();
+
+            let mut font_dir = game_folder.clone();
+            font_dir.push("fonts");
+            _ = canvas.add_font_dir(&font_dir);
+            font_dir.push("settings");
+            _ = canvas.add_font_dir(&font_dir);
+            canvas
+                .create_image(
+                    femtovg::ImageSource::try_from(
+                        &image::load_from_memory(include_bytes!("static_assets/missing.png"))
+                            .unwrap(),
+                    )
+                    .unwrap(),
+                    ImageFlags::empty(),
+                )
+                .unwrap()
+        };
 
         let config = &GameConfig::get().unwrap();
 
@@ -115,6 +125,7 @@ impl Vgfx {
             next_label_id: 1,
             current_font: None,
             image_jobs: Default::default(),
+            fallback_img,
         }
     }
 
@@ -305,7 +316,7 @@ impl TealData for Vgfx {
                     })?
                     .unwrap_or_else(|err| {
                         log::error!("Failed to load image: {:?}", err);
-                        ImageId(generational_arena::Index::from_raw_parts(0, 0))
+                        _vgfx.fallback_img
                     });
 
                 let this_id = _vgfx.next_img_id;
@@ -1282,7 +1293,7 @@ impl TealData for Vgfx {
                             let img_id = _vgfx.with_canvas(|c| {
                                 c.create_image(
                                     femtovg::ImageSource::try_from(&img)
-                                        .expect("bad image format?"),
+                                        .map_err(mlua::Error::external)?,
                                     ImageFlags::empty(),
                                 )
                                 .map_err(mlua::Error::external)
@@ -1757,7 +1768,7 @@ impl TealData for Vgfx {
 
             ShadedMesh::new(
                 context,
-                p.material,
+                &p.material,
                 p.path.map(PathBuf::from).unwrap_or(shader_path),
             )
             .map_err(mlua::Error::external)

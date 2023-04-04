@@ -1,6 +1,5 @@
 use std::{
     collections::VecDeque,
-    fs::FileType,
     path::{Path, PathBuf},
     sync::{
         mpsc::{channel, Receiver, Sender},
@@ -33,7 +32,7 @@ pub struct VgAnimation {
     canvas: Arc<Mutex<Canvas<OpenGl>>>,
     loader_tx: Sender<LoaderRequest>,
     loader_rx: Receiver<LoaderResponse>,
-    loader_thread: JoinHandle<()>,
+    _loader_thread: JoinHandle<()>,
     image_count: usize,
 }
 
@@ -92,7 +91,7 @@ impl VgAnimation {
 
         let (request_tx, request_rx) = channel::<LoaderRequest>();
         let (response_tx, response_rx) = channel::<LoaderResponse>();
-        let loader_thread =
+        let _loader_thread =
             std::thread::spawn(move || loader(request_rx, response_tx, image_paths));
 
         if compressed {
@@ -117,7 +116,7 @@ impl VgAnimation {
             canvas,
             loader_rx: response_rx,
             loader_tx: request_tx,
-            loader_thread,
+            _loader_thread,
         })
     }
 

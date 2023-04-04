@@ -13,13 +13,15 @@ use tealr::{
     TypeName,
 };
 use three_d::{
-    vec2, vec3, vec4, Blend, CpuTexture, ElementBuffer, FrameInput, Mat4, Program, RenderStates,
-    Texture2D, Vec2, Vec3, Vec4, VertexBuffer,
+    vec2, vec3, vec4, AxisAlignedBoundingBox, Blend, BufferDataType, CpuTexture, ElementBuffer,
+    ElementBufferDataType, FrameInput, Geometry, Mat4, Object, Program, RenderStates, SquareMatrix,
+    Texture2D, Vec2, Vec3, Vec4, VertexBuffer, Zero,
 };
+use three_d_asset::geometry;
 
 use crate::{config::GameConfig, vg_ui::Vgfx};
 
-enum ShaderParam {
+pub enum ShaderParam {
     Single(f32),
     Vec2(Vec2),
     Vec3(Vec3),
@@ -27,11 +29,38 @@ enum ShaderParam {
     Texture(Texture2D),
 }
 
+impl From<f32> for ShaderParam {
+    fn from(value: f32) -> Self {
+        Self::Single(value)
+    }
+}
+
+impl From<Vec2> for ShaderParam {
+    fn from(value: Vec2) -> Self {
+        Self::Vec2(value)
+    }
+}
+impl From<Vec3> for ShaderParam {
+    fn from(value: Vec3) -> Self {
+        Self::Vec3(value)
+    }
+}
+impl From<Vec4> for ShaderParam {
+    fn from(value: Vec4) -> Self {
+        Self::Vec4(value)
+    }
+}
+impl From<Texture2D> for ShaderParam {
+    fn from(value: Texture2D) -> Self {
+        Self::Texture(value)
+    }
+}
+
 /// https://www.khronos.org/opengl/wiki/Primitive#Triangle_primitives for calculating indecies
 enum DrawingMode {
-    Triangles,
-    Strip,
-    Fan,
+    Triangles = 0,
+    Fan = 1,
+    Strip = 2,
 }
 
 #[derive(UserData, TypeName)]
@@ -44,12 +73,14 @@ pub struct ShadedMesh {
     indecies: ElementBuffer,
     vertecies_pos: VertexBuffer,
     vertecies_uv: VertexBuffer,
+    aabb: AxisAlignedBoundingBox,
+    transform: Mat4,
 }
 
 impl ShadedMesh {
     pub fn new(
         context: &three_d::Context,
-        material: String,
+        material: &str,
         path: impl AsRef<Path>,
     ) -> anyhow::Result<Self> {
         let mut shader_path = path.as_ref().to_path_buf();
@@ -77,7 +108,13 @@ impl ShadedMesh {
             indecies: ElementBuffer::new(context),
             vertecies_pos: VertexBuffer::new(context),
             vertecies_uv: VertexBuffer::new(context),
+            aabb: AxisAlignedBoundingBox::EMPTY,
+            transform: Mat4::identity(),
         })
+    }
+
+    pub fn set_blend(&mut self, blend: Blend) {
+        self.state.blend = blend;
     }
 
     fn update_indecies(&mut self) -> anyhow::Result<()> {
@@ -110,17 +147,189 @@ impl ShadedMesh {
         Ok(())
     }
 
-    fn use_texture(
+    pub fn set_param(&mut self, key: impl Into<String>, param: impl Into<ShaderParam>) {
+        self.params.insert(key.into(), param.into());
+    }
+
+    pub fn use_texture(
         &mut self,
         context: &three_d::Context,
-        name: String,
+        name: impl Into<String>,
         path: impl AsRef<Path>,
     ) -> anyhow::Result<()> {
-        let texture: CpuTexture = three_d_asset::io::load_and_deserialize(path)?;
+        let name = name.into();
+        let mut texture: CpuTexture = three_d_asset::io::load_and_deserialize(path)?;
+
+        texture.data = match texture.data {
+            three_d::TextureData::RU8(luma) => {
+                three_d::TextureData::RgbU8(luma.into_iter().map(|v| [v, v, v]).collect())
+            }
+            three_d::TextureData::RgU8(luma_alpha) => three_d::TextureData::RgbaU8(
+                luma_alpha
+                    .into_iter()
+                    .map(|la| [la[0], la[0], la[0], la[1]])
+                    .collect(),
+            ),
+
+            data => data,
+        };
         let texture = three_d::Texture2D::new(context, &texture);
         self.material.use_texture(&name, &texture);
         self.params.insert(name, ShaderParam::Texture(texture));
         Ok(())
+    }
+
+    fn use_params(&self) {
+        for (name, param) in &self.params {
+            if self.material.requires_uniform(name) {
+                match param {
+                    ShaderParam::Single(v) => self.material.use_uniform(name, v),
+                    ShaderParam::Vec2(v) => self.material.use_uniform(name, v),
+                    ShaderParam::Vec3(v) => self.material.use_uniform(name, v),
+                    ShaderParam::Vec4(v) => self.material.use_uniform(name, v),
+                    ShaderParam::Texture(v) => self.material.use_texture(name, v),
+                }
+            }
+        }
+    }
+
+    fn draw(&self, frame: &FrameInput) -> Result<(), tealr::mlu::mlua::Error> {
+        self.use_params();
+        self.material
+            .use_vertex_attribute("inPos", &self.vertecies_pos);
+        if self.material.requires_attribute("inTex") {
+            self.material
+                .use_vertex_attribute("inTex", &self.vertecies_uv); //UVs
+        }
+        self.material
+            .draw_elements(self.state, frame.viewport, &self.indecies);
+        Ok(())
+    }
+
+    pub fn draw_camera(&self, camera: &three_d::Camera) -> Result<(), tealr::mlu::mlua::Error> {
+        self.material.use_uniform("proj", camera.projection());
+        self.material.use_uniform("camera", camera.view());
+        self.material.use_uniform("world", self.transform);
+        self.use_params();
+        self.material
+            .use_vertex_attribute("inPos", &self.vertecies_pos);
+        if self.material.requires_attribute("inTex") {
+            self.material
+                .use_vertex_attribute("inTex", &self.vertecies_uv); //UVs
+        }
+        self.material
+            .draw_elements(self.state, camera.viewport(), &self.indecies);
+        Ok(())
+    }
+
+    pub fn set_data<T: BufferDataType, U: BufferDataType>(
+        &mut self,
+        context: &three_d::Context,
+        pos: &[T],
+        uv: &[U],
+    ) {
+        self.set_data_indexed(context, pos, uv, &[] as &[u32]);
+        self.update_indecies();
+    }
+
+    pub fn set_data_mesh(&mut self, context: &three_d::Context, mesh: &three_d::CpuMesh) {
+        self.aabb = mesh.compute_aabb();
+        if let Some(indicies) = mesh.indices.to_u32() {
+            self.set_data_indexed(
+                context,
+                &mesh.positions.to_f32(),
+                mesh.uvs.as_ref().unwrap_or(&vec![]),
+                &indicies,
+            );
+        } else {
+            self.set_data(
+                context,
+                &mesh.positions.to_f32(),
+                mesh.uvs.as_ref().unwrap_or(&vec![]),
+            );
+        }
+    }
+
+    pub fn set_data_indexed<T: BufferDataType, U: BufferDataType, V: ElementBufferDataType>(
+        &mut self,
+        context: &three_d::Context,
+        pos: &[T],
+        uv: &[U],
+        indecies: &[V],
+    ) {
+        self.vertecies_pos = VertexBuffer::new_with_data(context, pos);
+        self.vertecies_uv = VertexBuffer::new_with_data(context, uv);
+        self.indecies = ElementBuffer::new_with_data(context, indecies);
+    }
+
+    pub fn draw_lua_skin(
+        &mut self,
+        frame: &FrameInput,
+        vgfx: &Mutex<Vgfx>,
+    ) -> Result<(), tealr::mlu::mlua::Error> {
+        let t = {
+            let vgfx = vgfx.lock().unwrap();
+            let canvas = vgfx.canvas.lock().unwrap();
+            canvas.transform().to_mat3x4()
+        };
+        self.use_params();
+        self.material.use_uniform(
+            "proj",
+            create_orthographic(
+                0.0,
+                frame.viewport.width as f32,
+                frame.viewport.height as f32,
+                0.0,
+                0.0,
+                100.0,
+            ),
+        );
+        self.material.use_uniform("world", Mat4::from_scale(1.0));
+        self.material
+            .use_vertex_attribute("inPos", &self.vertecies_pos);
+        if self.material.requires_attribute("inTex") {
+            self.material
+                .use_vertex_attribute("inTex", &self.vertecies_uv); //UVs
+        }
+        self.material
+            .draw_elements(self.state, frame.viewport, &self.indecies);
+        Ok(())
+    }
+}
+
+impl Geometry for ShadedMesh {
+    fn render_with_material(
+        &self,
+        material: &dyn three_d::Material,
+        camera: &three_d::Camera,
+        lights: &[&dyn three_d::Light],
+    ) {
+        self.draw_camera(camera);
+    }
+
+    fn render_with_post_material(
+        &self,
+        material: &dyn three_d::PostMaterial,
+        camera: &three_d::Camera,
+        lights: &[&dyn three_d::Light],
+        color_texture: Option<three_d::ColorTexture>,
+        depth_texture: Option<three_d::DepthTexture>,
+    ) {
+        self.draw_camera(camera);
+    }
+
+    fn aabb(&self) -> three_d::AxisAlignedBoundingBox {
+        three_d::AxisAlignedBoundingBox::EMPTY
+    }
+}
+
+impl Object for ShadedMesh {
+    fn render(&self, camera: &three_d::Camera, lights: &[&dyn three_d::Light]) {
+        self.draw_camera(camera);
+    }
+
+    fn material_type(&self) -> three_d::MaterialType {
+        three_d::MaterialType::Transparent
     }
 }
 
@@ -192,47 +401,7 @@ impl TealData for ShadedMesh {
         methods.add_method_mut("Draw", |lua, this, _: ()| {
             let frame = &lua.app_data_ref::<FrameInput>().unwrap();
             let vgfx = &lua.app_data_ref::<Arc<Mutex<Vgfx>>>().unwrap();
-
-            let t = {
-                let vgfx = vgfx.lock().unwrap();
-                let canvas = vgfx.canvas.lock().unwrap();
-                canvas.transform().to_mat3x4()
-            };
-
-            for (name, param) in &this.params {
-                match param {
-                    ShaderParam::Single(v) => this.material.use_uniform(name, v),
-                    ShaderParam::Vec2(v) => this.material.use_uniform(name, v),
-                    ShaderParam::Vec3(v) => this.material.use_uniform(name, v),
-                    ShaderParam::Vec4(v) => this.material.use_uniform(name, v),
-                    ShaderParam::Texture(v) => this.material.use_texture(name, v),
-                }
-            }
-
-            this.material.use_uniform(
-                "proj",
-                create_orthographic(
-                    0.0,
-                    frame.viewport.width as f32,
-                    frame.viewport.height as f32,
-                    0.0,
-                    0.0,
-                    100.0,
-                ),
-            );
-
-            this.material.use_uniform("world", Mat4::from_scale(1.0));
-
-            this.material
-                .use_vertex_attribute("inPos", &this.vertecies_pos); //Vertex positions
-            if this.material.requires_attribute("inTex") {
-                this.material
-                    .use_vertex_attribute("inTex", &this.vertecies_uv); //UVs
-            }
-            this.material
-                .draw_elements(this.state, frame.viewport, &this.indecies);
-
-            Ok(())
+            this.draw_lua_skin(frame, vgfx)
         });
         methods.add_method_mut("AddTexture", |lua, this, params: (String, String)| {
             let context = &lua.app_data_ref::<FrameInput>().unwrap().context;
@@ -259,22 +428,19 @@ impl TealData for ShadedMesh {
         });
 
         methods.add_method_mut("SetParam", |_, this, params: (String, f32)| {
-            this.material.use_uniform(&params.0, params.1);
-            this.params.insert(params.0, ShaderParam::Single(params.1));
+            this.set_param(params.0, params.1);
             Ok(())
         });
         methods.add_method_mut("SetParamVec2", |_, this, params: (String, f32, f32)| {
             let data = vec2(params.1, params.2);
-            this.material.use_uniform(&params.0, data);
-            this.params.insert(params.0, ShaderParam::Vec2(data));
+            this.set_param(params.0, data);
             Ok(())
         });
         methods.add_method_mut(
             "SetParamVec3",
             |_, this, params: (String, f32, f32, f32)| {
                 let data = vec3(params.1, params.2, params.3);
-                this.material.use_uniform(&params.0, data);
-                this.params.insert(params.0, ShaderParam::Vec3(data));
+                this.set_param(params.0, data);
                 Ok(())
             },
         );
@@ -282,8 +448,7 @@ impl TealData for ShadedMesh {
             "SetParamVec4",
             |_, this, params: (String, f32, f32, f32, f32)| {
                 let data = vec4(params.1, params.2, params.3, params.4);
-                this.material.use_uniform(&params.0, data);
-                this.params.insert(params.0, ShaderParam::Vec4(data));
+                this.set_param(params.0, data);
                 Ok(())
             },
         );

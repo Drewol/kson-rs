@@ -16,7 +16,7 @@ use crate::{
 };
 
 use super::{SongProvider, SongProviderEvent};
-use anyhow::Result;
+use anyhow::{bail, Result};
 use kson::Ksh;
 use poll_promise::Promise;
 use serde::{Deserialize, Serialize};
@@ -233,7 +233,10 @@ fn next_songs(path: &str) -> Promise<Result<NauticaSongs>> {
                 let jacket_path = match jacket_response.content_type() {
                     "image/jpeg" => song_path.with_extension("jpg"),
                     "image/png" => song_path.with_extension("png"),
-                    _ => todo!(),
+                    "image/webp" => song_path.with_extension("webp"),
+                    content_type => {
+                        bail!("Can't load jackets of type: {content_type}");
+                    }
                 };
 
                 let file = File::create(&jacket_path)?;

@@ -1,8 +1,7 @@
 use std::borrow::BorrowMut;
 
-use gilrs::{ev::Code, Button};
+use gilrs::Button;
 use kson::{BtLane, Side};
-use tealr::mlu::generics::A;
 
 #[derive(Debug, Clone, Copy)]
 pub enum UscButton {

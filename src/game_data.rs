@@ -1,17 +1,13 @@
-use std::{
-    cell::RefMut,
-    path::PathBuf,
-    sync::{Arc, Mutex},
-};
+use std::path::PathBuf;
 
 use puffin::ProfilerScope;
 use tealr::{
     mlu::{
-        mlua::{self, FromLuaMulti, Lua, Result, ToLuaMulti},
-        MaybeSend, TealDataMethods, UserData,
+        mlua::{self},
+        UserData,
     },
     mlu::{TealData, UserDataProxy},
-    TealMultiValue, TypeName,
+    TypeName,
 };
 
 use crate::{config::GameConfig, help::add_lua_static_method};
@@ -106,7 +102,7 @@ impl TealData for GameData {
         //PlaySample
         tealr::mlu::create_named_parameters!(PlaySampleParams with
           name : String,
-          doLoop : bool,
+          do_loop : bool,
 
         );
         add_lua_static_method(

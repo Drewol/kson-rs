@@ -1,4 +1,7 @@
-use crate::scene::{Scene, SceneData};
+use crate::{
+    scene::{Scene, SceneData},
+    shaded_mesh::ShadedMesh,
+};
 use kson::{Chart, Ksh, Vox};
 pub struct Game {
     view: ChartView,
@@ -6,34 +9,311 @@ pub struct Game {
     camera_pos: Vec3,
     time: i64,
     duration: i64,
+    fx_long_shaders: [ShadedMesh; 2],
+    bt_long_shaders: [ShadedMesh; 2],
+    fx_chip_shaders: [ShadedMesh; 2],
+    laser_shaders: [[ShadedMesh; 2]; 2],
+    track_shader: [ShadedMesh; 1],
+    bt_chip_shader: [ShadedMesh; 1],
+}
+struct TrackRenderMeshes {
+    fx_hold: CpuMesh,
+    fx_hold_active: CpuMesh,
+    bt_hold: CpuMesh,
+    bt_hold_active: CpuMesh,
+    fx_chip: CpuMesh,
+    fx_chip_sample: CpuMesh,
+    bt_chip: CpuMesh,
+    lasers: [CpuMesh; 4],
+}
+pub struct GameData {
+    context: three_d::Context,
+    chart: kson::Chart,
+    skin_folder: PathBuf,
 }
 
-pub struct GameData {
-    pub context: three_d::Context,
-    pub chart: kson::Chart,
-    pub skin_folder: PathBuf,
+pub fn extend_mesh(a: CpuMesh, b: CpuMesh) -> CpuMesh {
+    let CpuMesh {
+        mut name,
+        mut material_name,
+        mut positions,
+        mut indices,
+        mut normals,
+        mut tangents,
+        mut uvs,
+        mut colors,
+    } = a;
+
+    let index_offset = positions.len();
+
+    let CpuMesh {
+        name: b_name,
+        material_name: b_material_name,
+        positions: mut b_positions,
+        indices: b_indices,
+        normals: b_normals,
+        tangents: b_tangents,
+        uvs: mut b_uvs,
+        colors: mut b_colors,
+    } = b;
+
+    let indices = match (indices.into_u32(), b_indices.into_u32()) {
+        (None, None) => Indices::None,
+        (None, Some(mut b)) => {
+            b.iter_mut().for_each(|idx| *idx += index_offset as u32);
+            Indices::U32(b)
+        }
+        (Some(a), None) => Indices::U32(a),
+        (Some(mut a), Some(mut b)) => {
+            b.iter_mut().for_each(|idx| *idx += index_offset as u32);
+            a.append(&mut b);
+            Indices::U32(a)
+        }
+    };
+    {
+        match &mut positions {
+            Positions::F32(a) => a.append(&mut b_positions.into_f32()),
+            Positions::F64(a) => a.append(&mut b_positions.into_f64()),
+        }
+    }
+
+    let uvs: Option<Vec<_>> = Some(uvs.iter().chain(b_uvs.iter()).flatten().copied().collect());
+
+    let mut res = CpuMesh {
+        name,
+        material_name,
+        positions,
+        indices,
+        normals,
+        tangents,
+        uvs,
+        colors,
+    };
+
+    res.compute_normals();
+    res.compute_tangents();
+
+    res
+}
+
+impl GameData {
+    pub fn new(
+        context: three_d::Context,
+        chart: kson::Chart,
+        skin_folder: PathBuf,
+    ) -> anyhow::Result<Self> {
+        Ok(Self {
+            context,
+            chart,
+            skin_folder,
+        })
+    }
 }
 
 impl SceneData for GameData {
     fn make_scene(self: Box<Self>) -> Box<dyn Scene> {
-        Box::new(Game::new(self.chart, &self.skin_folder, &self.context).unwrap())
+        let Self {
+            context,
+            chart,
+            skin_folder,
+        } = *self;
+
+        let mut shader_folder = skin_folder.clone();
+        let mut texture_folder = skin_folder.clone();
+        shader_folder.push("shaders");
+        texture_folder.push("textures");
+        texture_folder.push("dummy.png");
+
+        let mut fx_long_shader = ShadedMesh::new(&context, "holdbutton", &shader_folder)
+            .expect("Failed to load shader:");
+        let mut fx_long_shader_active = ShadedMesh::new(&context, "holdbutton", &shader_folder)
+            .expect("Failed to load shader:");
+
+        fx_long_shader.use_texture(
+            &context,
+            "mainTex",
+            texture_folder.with_file_name("fxbuttonhold.png"),
+        );
+        fx_long_shader_active.use_texture(
+            &context,
+            "mainTex",
+            texture_folder.with_file_name("fxbuttonhold.png"),
+        );
+
+        let mut bt_long_shader = ShadedMesh::new(&context, "holdbutton", &shader_folder)
+            .expect("Failed to load shader:");
+        let mut bt_long_shader_active = ShadedMesh::new(&context, "holdbutton", &shader_folder)
+            .expect("Failed to load shader:");
+
+        bt_long_shader.use_texture(
+            &context,
+            "mainTex",
+            texture_folder.with_file_name("buttonhold.png"),
+        );
+        bt_long_shader_active.use_texture(
+            &context,
+            "mainTex",
+            texture_folder.with_file_name("buttonhold.png"),
+        );
+
+        let mut fx_chip_shader =
+            ShadedMesh::new(&context, "button", &shader_folder).expect("Failed to load shader:");
+        let mut fx_chip_shader_sample =
+            ShadedMesh::new(&context, "button", &shader_folder).expect("Failed to load shader:");
+
+        fx_chip_shader.use_texture(
+            &context,
+            "mainTex",
+            texture_folder.with_file_name("fxbutton.png"),
+        );
+        fx_chip_shader_sample.use_texture(
+            &context,
+            "mainTex",
+            texture_folder.with_file_name("fxbutton.png"),
+        );
+
+        let mut bt_chip_shader =
+            ShadedMesh::new(&context, "button", &shader_folder).expect("Failed to load shader:");
+
+        bt_chip_shader.use_texture(
+            &context,
+            "mainTex",
+            texture_folder.with_file_name("button.png"),
+        );
+
+        let mut track_shader =
+            ShadedMesh::new(&context, "track", &shader_folder).expect("Failed to load shader:");
+        track_shader.set_data_mesh(
+            &context,
+            &xz_rect(Vec3::zero(), vec2(1.0, ChartView::TRACK_LENGTH * 2.0)),
+        );
+
+        track_shader.set_param("lCol", Color::BLUE.to_vec4());
+        track_shader.set_param("rCol", Color::RED.to_vec4());
+
+        track_shader.use_texture(
+            &context,
+            "mainTex",
+            texture_folder.with_file_name("track.png"),
+        );
+
+        let mut laser_left =
+            ShadedMesh::new(&context, "laser", &shader_folder).expect("Failed to load shader:");
+        let mut laser_left_active =
+            ShadedMesh::new(&context, "laser", &shader_folder).expect("Failed to load shader:");
+
+        let mut laser_right =
+            ShadedMesh::new(&context, "laser", &shader_folder).expect("Failed to load shader:");
+        let mut laser_right_active =
+            ShadedMesh::new(&context, "laser", &shader_folder).expect("Failed to load shader:");
+
+        laser_left.use_texture(
+            &context,
+            "mainTex",
+            texture_folder.with_file_name("laser_l.png"),
+        );
+        laser_left_active.use_texture(
+            &context,
+            "mainTex",
+            texture_folder.with_file_name("laser_l.png"),
+        );
+        laser_right.use_texture(
+            &context,
+            "mainTex",
+            texture_folder.with_file_name("laser_r.png"),
+        );
+        laser_right_active.use_texture(
+            &context,
+            "mainTex",
+            texture_folder.with_file_name("laser_r.png"),
+        );
+
+        laser_left.set_blend(Blend::ADD);
+        laser_left_active.set_blend(Blend::ADD);
+        laser_right.set_blend(Blend::ADD);
+        laser_right_active.set_blend(Blend::ADD);
+
+        Box::new(
+            Game::new(
+                chart,
+                &skin_folder,
+                &context,
+                [fx_long_shader, fx_long_shader_active],
+                [bt_long_shader, bt_long_shader_active],
+                [fx_chip_shader, fx_chip_shader_sample],
+                [
+                    [laser_left, laser_left_active],
+                    [laser_right, laser_right_active],
+                ],
+                [track_shader],
+                [bt_chip_shader],
+            )
+            .unwrap(),
+        )
     }
 }
 
 impl Game {
-    pub fn new(chart: Chart, skin_root: &PathBuf, td: &three_d::Context) -> Result<Self> {
+    pub fn new(
+        chart: Chart,
+        skin_root: &PathBuf,
+        td: &three_d::Context,
+
+        fx_long_shaders: [ShadedMesh; 2],
+        bt_long_shaders: [ShadedMesh; 2],
+        fx_chip_shaders: [ShadedMesh; 2],
+        laser_shaders: [[ShadedMesh; 2]; 2],
+        track_shader: [ShadedMesh; 1],
+        bt_chip_shader: [ShadedMesh; 1],
+    ) -> Result<Self> {
         let mut view = ChartView::new(skin_root, td);
         view.build_laser_meshes(&chart);
         let duration = chart.get_last_tick();
         let duration = chart.tick_to_ms(duration) as i64;
-
-        Ok(Self {
+        let mut res = Self {
             chart,
             view,
             duration,
             time: 0,
             camera_pos: vec3(0.0, 1.0, -1.0),
-        })
+            bt_chip_shader,
+            track_shader,
+            bt_long_shaders,
+            fx_chip_shaders,
+            fx_long_shaders,
+            laser_shaders,
+        };
+        res.set_track_uniforms();
+        Ok(res)
+    }
+
+    fn set_track_uniforms(&mut self) {
+        self.track_shader
+            .iter_mut()
+            .chain(self.fx_long_shaders.iter_mut())
+            .chain(self.bt_long_shaders.iter_mut())
+            .chain(self.fx_chip_shaders.iter_mut())
+            .chain(self.bt_chip_shader.iter_mut())
+            .chain(self.laser_shaders.iter_mut().flatten())
+            .for_each(|shader| {
+                shader.set_param("trackPos", 0.0);
+                shader.set_param("trackScale", 1.0);
+                shader.set_param("hiddenCutoff", 0.0);
+                shader.set_param("hiddenFadeWindow", 100.0);
+                shader.set_param("suddenCutoff", 10.0);
+                shader.set_param("suddenFadeWindow", 1000.0);
+            });
+
+        self.laser_shaders
+            .iter_mut()
+            .flatten()
+            .for_each(|laser| laser.set_param("objectGlow", 1.0));
+        self.laser_shaders[0]
+            .iter_mut()
+            .for_each(|ll| ll.set_param("color", Color::BLUE.to_vec4()));
+        self.laser_shaders[1]
+            .iter_mut()
+            .for_each(|rl| rl.set_param("color", Color::RED.to_vec4()));
     }
 }
 
@@ -87,8 +367,33 @@ impl Scene for Game {
         );
         self.time += dt as i64;
         self.view.cursor = self.time;
-        let objects = self.view.render(&self.chart, td_context);
-        target.render(&camera, objects, &[]);
+        let render_data = self.view.render(&self.chart, td_context);
+
+        self.bt_chip_shader[0].set_data_mesh(td_context, &render_data.bt_chip);
+        self.bt_long_shaders[0].set_data_mesh(td_context, &render_data.bt_hold);
+        self.bt_long_shaders[1].set_data_mesh(td_context, &render_data.bt_hold_active);
+
+        self.fx_chip_shaders[0].set_data_mesh(td_context, &render_data.fx_chip);
+        self.fx_chip_shaders[1].set_data_mesh(td_context, &render_data.fx_chip_sample);
+        self.fx_long_shaders[0].set_data_mesh(td_context, &render_data.fx_hold);
+        self.fx_long_shaders[1].set_data_mesh(td_context, &render_data.fx_hold_active);
+
+        self.laser_shaders[0][0].set_data_mesh(td_context, &render_data.lasers[0]);
+        self.laser_shaders[0][1].set_data_mesh(td_context, &render_data.lasers[1]);
+        self.laser_shaders[1][0].set_data_mesh(td_context, &render_data.lasers[2]);
+        self.laser_shaders[1][1].set_data_mesh(td_context, &render_data.lasers[3]);
+
+        target.render(
+            &camera,
+            self.track_shader
+                .iter()
+                .chain(self.fx_long_shaders.iter())
+                .chain(self.bt_long_shaders.iter())
+                .chain(self.fx_chip_shaders.iter())
+                .chain(self.bt_chip_shader.iter())
+                .chain(self.laser_shaders.iter().flatten()),
+            &[],
+        );
         let axes = three_d::Axes::new(td_context, 0.01, 0.30);
         target.render(&camera, [axes], &[]);
     }
@@ -104,10 +409,7 @@ pub struct ChartView {
     pub hispeed: f32,
     pub cursor: i64,
     laser_meshes: [Vec<Vec<GlVertex>>; 2],
-    laser_material: [Rc<ColorMaterial>; 2],
-    bt_mat: Rc<ColorMaterial>,
-    fx_mat: Rc<ColorMaterial>,
-    track: (CpuMesh, Rc<ColorMaterial>),
+    track: CpuMesh,
     pub state: i32,
 }
 
@@ -437,11 +739,7 @@ impl ChartView {
             ..Default::default()
         });
 
-        let track = (
-            xz_rect(vec3(0.0, 0.0, 0.0), vec2(1.0, Self::TRACK_LENGTH * 2.0)),
-            track_mat.clone(),
-        );
-
+        let track = xz_rect(vec3(0.0, 0.0, 0.0), vec2(1.0, Self::TRACK_LENGTH * 2.0));
         let button_render_states = RenderStates {
             depth_test: DepthTest::Always,
             ..Default::default()
@@ -451,39 +749,7 @@ impl ChartView {
             cursor: 0,
             hispeed: 1.0,
             laser_meshes: [Vec::new(), Vec::new()],
-            laser_material: [
-                Rc::new(ColorMaterial {
-                    color: Color::from_rgb_slice(&hsl_to_rgb(0.55, 1.0, 0.5)),
-                    texture: laser_texture.clone(),
-                    render_states: laser_render_states,
-                    ..Default::default()
-                }),
-                Rc::new(ColorMaterial {
-                    color: Color::from_rgb_slice(&hsl_to_rgb(0.95, 1.0, 0.5)),
-                    texture: laser_texture,
-                    render_states: laser_render_states,
-                    ..Default::default()
-                }),
-            ],
             track,
-            bt_mat: Rc::new(ColorMaterial {
-                color: Color::WHITE,
-                texture: Some(Arc::new(Texture2D::new(
-                    td,
-                    &textures.deserialize("button").unwrap(),
-                ))),
-                render_states: button_render_states,
-                ..Default::default()
-            }),
-            fx_mat: Rc::new(ColorMaterial {
-                color: Color::WHITE,
-                texture: Some(Arc::new(Texture2D::new(
-                    td,
-                    &textures.deserialize("fxbutton").unwrap(),
-                ))),
-                render_states: button_render_states,
-                ..Default::default()
-            }),
             state: 0,
         }
     }
@@ -562,13 +828,9 @@ impl ChartView {
             }
         }
     }
-    pub fn render(
-        &mut self,
-        chart: &kson::Chart,
-        td: &three_d::Context,
-    ) -> Vec<Gm<Mesh, Rc<ColorMaterial>>> {
+
+    fn render(&mut self, chart: &kson::Chart, td: &three_d::Context) -> TrackRenderMeshes {
         use three_d::prelude::*;
-        let mut drawing = vec![];
         let view_time = self.cursor - chart.audio.clone().bgm.unwrap().offset as i64;
         let view_offset = if view_time < 0 {
             chart.ms_to_tick(view_time.abs() as f64) as i64 //will be weird with early bpm changes
@@ -588,37 +850,21 @@ impl ChartView {
             color: Color::WHITE,
             ..Default::default()
         });
+
+        #[derive(Debug, PartialEq, Eq, Clone, Copy)]
+        enum NoteType {
+            BtChip,
+            BtHold,
+            BtHoldActive,
+            FxChip,
+            FxChipSample,
+            FxHold,
+            FxHoldActive,
+        }
         let mut notes = Vec::new();
         let chip_h = 0.05;
 
-        drawing.push(Gm::new(
-            Mesh::new(
-                td,
-                &draw_line_3d(
-                    vec3(-0.5, 0.0, 0.0),
-                    vec3(-0.5, 0.0, Self::TRACK_LENGTH),
-                    0.05,
-                ),
-            ),
-            white_mat.clone(),
-        ));
-
-        drawing.push(Gm::new(
-            Mesh::new(
-                td,
-                &draw_line_3d(
-                    vec3(0.5, 0.0, 0.0),
-                    vec3(0.5, 0.0, Self::TRACK_LENGTH),
-                    0.05,
-                ),
-            ),
-            white_mat.clone(),
-        ));
-
-        drawing.push(Gm::new(Mesh::new(td, &self.track.0), self.track.1.clone()));
-
-        let bt_mat = self.bt_mat.clone();
-        let fx_mat = self.fx_mat.clone();
+        let track = self.track.clone();
 
         for i in 0..4 {
             for n in &chart.note.bt[i] {
@@ -638,7 +884,15 @@ impl ChartView {
                 let yoff = (n.y as i64 - view_tick as i64) as f32;
                 let y = yoff / y_view_div + h;
                 let p = if n.l == 0 { 2 } else { 1 }; //sorting priority
-                notes.push((vec3(x, 0.0, y), vec2(w, h), bt_mat.clone(), p));
+                notes.push((
+                    vec3(x, 0.0, y),
+                    vec2(w, h),
+                    if n.l > 0 {
+                        NoteType::BtHold
+                    } else {
+                        NoteType::BtChip
+                    },
+                ));
             }
         }
         for i in 0..2 {
@@ -658,24 +912,51 @@ impl ChartView {
                 let yoff = (n.y as i64 - view_tick as i64) as f32;
                 let y = yoff / y_view_div + h;
                 let p = if n.l == 0 { 3 } else { 0 }; //sorting priority
-                notes.push((vec3(x, 0.0, y), vec2(w, h), fx_mat.clone(), p));
+                notes.push((
+                    vec3(x, 0.0, y),
+                    vec2(w, h),
+                    if n.l > 0 {
+                        NoteType::FxHold
+                    } else {
+                        NoteType::FxChip
+                    },
+                ));
             }
         }
 
-        notes.sort_by(|a, b| a.3.cmp(&b.3));
+        let notes = notes
+            .iter()
+            .map(|n| (xz_rect(n.0 - vec3(0.5, 0.0, 0.0), n.1), n.2));
+
+        let mut fx_hold = xz_rect(Vec3::zero(), Vec2::zero());
+        let mut fx_hold_active = xz_rect(Vec3::zero(), Vec2::zero());
+        let mut bt_hold = xz_rect(Vec3::zero(), Vec2::zero());
+        let mut bt_hold_active = xz_rect(Vec3::zero(), Vec2::zero());
+        let mut fx_chip = xz_rect(Vec3::zero(), Vec2::zero());
+        let mut fx_chip_sample = xz_rect(Vec3::zero(), Vec2::zero());
+        let mut bt_chip = xz_rect(Vec3::zero(), Vec2::zero());
+        let mut lasers = [
+            xz_rect(Vec3::zero(), Vec2::zero()),
+            xz_rect(Vec3::zero(), Vec2::zero()),
+            xz_rect(Vec3::zero(), Vec2::zero()),
+            xz_rect(Vec3::zero(), Vec2::zero()),
+        ];
 
         for n in notes {
-            drawing.push(Gm::new(
-                Mesh::new(td, &xz_rect(n.0 - vec3(0.5, 0.0, 0.0), n.1)),
-                n.2,
-            ));
+            match n.1 {
+                NoteType::BtChip => bt_chip = extend_mesh(bt_chip, n.0),
+                NoteType::BtHold => bt_hold = extend_mesh(bt_hold, n.0),
+                NoteType::BtHoldActive => bt_hold_active = extend_mesh(bt_hold_active, n.0),
+                NoteType::FxChip => fx_chip = extend_mesh(fx_chip, n.0),
+                NoteType::FxChipSample => fx_chip_sample = extend_mesh(fx_chip_sample, n.0),
+                NoteType::FxHold => fx_hold = extend_mesh(fx_hold, n.0),
+                NoteType::FxHoldActive => fx_hold_active = extend_mesh(fx_hold_active, n.0),
+            }
         }
-        draw_line_3d(vec3(0.0, 0.0, 0.0), vec3(0.0, 0.0, 1.0), 0.05);
 
         //lasers
         {
             for i in 0..2 {
-                let c = self.laser_material[i].clone();
                 for (sidx, s) in chart.note.laser[i].iter().enumerate() {
                     let end_y = s.tick() + s.last().unwrap().ry;
                     if (s.tick() as i64) > last_view_tick {
@@ -686,7 +967,7 @@ impl ChartView {
                     let vertices = self.laser_meshes[i].get(sidx).unwrap();
                     let yoff = (s.tick() as i64 - view_tick as i64) as f32;
                     let laser_mesh = CpuMesh {
-                        indices: three_d::Indices::None,
+                        indices: Indices::U32((0u32..(vertices.len() as u32)).collect()),
                         positions: three_d::Positions::F32(
                             vertices
                                 .iter()
@@ -697,10 +978,22 @@ impl ChartView {
                         ..Default::default()
                     };
 
-                    drawing.push(Gm::new(Mesh::new(td, &laser_mesh), c.clone()));
+                    let active = 0;
+                    let extending = std::mem::take(&mut lasers[i * 2 + active]);
+                    let extended = extend_mesh(extending, laser_mesh);
+                    lasers[i * 2 + active] = extended;
                 }
             }
         }
-        drawing
+        TrackRenderMeshes {
+            fx_hold,
+            fx_hold_active,
+            bt_hold,
+            bt_hold_active,
+            fx_chip,
+            fx_chip_sample,
+            bt_chip,
+            lasers,
+        }
     }
 }

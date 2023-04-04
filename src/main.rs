@@ -2,7 +2,7 @@ use std::{
     io::Write,
     path::{Path, PathBuf},
     rc::Rc,
-    sync::{Arc, Mutex, RwLock},
+    sync::{Arc, Mutex, MutexGuard, RwLock},
 };
 
 use crate::{
@@ -15,19 +15,15 @@ use crate::{
 use directories::ProjectDirs;
 use femtovg as vg;
 use generational_arena::{Arena, Index};
-use gilrs::{ev::filter::Jitter, Filter, Mapping};
+use gilrs::ev::filter::Jitter;
 use kson::Chart;
 use log::*;
 use main_menu::MainMenuButton;
 use puffin::{profile_function, profile_scope};
 use scene::Scene;
-use songselect::SongSelect;
-use td::{egui, FrameInput};
+
 use td::{FrameOutput, HasContext};
-use tealr::mlu::{
-    mlua::{Function, Lua, LuaSerdeExt},
-    UserDataProxy,
-};
+use tealr::mlu::mlua::{Lua, LuaSerdeExt};
 use three_d as td;
 use ureq::json;
 
@@ -45,6 +41,7 @@ mod shaded_mesh;
 mod song_provider;
 mod songselect;
 mod transition;
+mod util;
 mod vg_ui;
 
 pub fn project_dirs() -> ProjectDirs {
@@ -59,7 +56,7 @@ pub enum ControlMessage {
         diff: usize,
         loader: Box<dyn FnOnce() -> (Chart, Box<dyn rodio::Source<Item = i16>>) + Send>,
     },
-    TransitionComplete(Box<dyn scene::SceneData>),
+    TransitionComplete(Box<dyn scene::Scene>),
     Result {
         song: songselect::Song,
         diff_idx: usize,
@@ -81,7 +78,7 @@ fn main() -> anyhow::Result<()> {
 
     let window = td::Window::new(td::WindowSettings {
         title: "Test".to_string(),
-        max_size: None,
+        max_size: Some((1280, 720)),
         multisamples: 4,
         vsync: false,
         ..Default::default()
@@ -115,7 +112,7 @@ fn main() -> anyhow::Result<()> {
         vg::Canvas::new(renderer).expect("Failed to create canvas"),
     ));
     let vgfx = Arc::new(Mutex::new(vg_ui::Vgfx::new(
-        canvas,
+        canvas.clone(),
         std::env::current_dir()?,
     )));
 
@@ -213,6 +210,7 @@ fn main() -> anyhow::Result<()> {
     let mut knob_state = LaserState::default();
 
     let (control_tx, control_rx) = std::sync::mpsc::channel();
+    let mut second_frame = false;
 
     window.render_loop(move |mut frame_input| {
         poll_promise::tick(); //Tick async runtime at least once per frame
@@ -268,7 +266,6 @@ fn main() -> anyhow::Result<()> {
                         real_script_path.as_os_str().to_string_lossy(),
                         real_script_path.as_os_str().to_string_lossy()
                     );
-                    info!("lua package.path: {}", &package_path);
                     package.set("path", package_path).unwrap();
 
                     lua.globals().set("package", package).unwrap();
@@ -294,12 +291,37 @@ fn main() -> anyhow::Result<()> {
         };
 
         if frame_input.first_frame {
+            frame_input
+                .screen()
+                .clear(td::ClearState::color(0.0, 0.0, 0.0, 1.0));
+            let mut canvas = canvas.lock().unwrap();
+            canvas.reset();
+            canvas.set_size(frame_input.viewport.width, frame_input.viewport.height, 1.0);
+            canvas.fill_text(
+                10.0,
+                10.0,
+                "Loading...",
+                &vg::Paint::color(vg::Color::white())
+                    .with_font_size(32.0)
+                    .with_text_baseline(vg::Baseline::Top),
+            );
+            canvas.flush();
+            second_frame = true;
+
+            return FrameOutput {
+                swap_buffers: true,
+                wait_next_event: false,
+                ..Default::default()
+            };
+        }
+        if second_frame {
             let transition_lua = Rc::new(Lua::new());
             let loader_fn = load_lua(game_data.clone(), vgfx.clone(), lua_arena.clone());
             transition_lua_idx = loader_fn(transition_lua, "transition.lua").unwrap();
 
             let transition_song_lua = Rc::new(Lua::new());
             transition_song_lua_idx = loader_fn(transition_song_lua, "songtransition.lua").unwrap();
+            second_frame = false;
         }
 
         //Initialize loaded scenes
@@ -330,6 +352,7 @@ fn main() -> anyhow::Result<()> {
                                 control_tx.clone(),
                                 frame_input.context.clone(),
                                 vgfx.clone(),
+                                frame_input.viewport,
                             )))
                         }
                     }
@@ -351,11 +374,18 @@ fn main() -> anyhow::Result<()> {
                             control_tx.clone(),
                             frame_input.context.clone(),
                             vgfx.clone(),
+                            frame_input.viewport.clone(),
                         )))
                     }
                 }
-                ControlMessage::TransitionComplete(scene_data) => {
-                    scenes_loaded.push(scene_data.make_scene());
+                ControlMessage::TransitionComplete(mut scene_data) => {
+                    match scene_data.init(
+                        load_lua(game_data.clone(), vgfx.clone(), lua_arena.clone()),
+                        control_tx.clone(),
+                    ) {
+                        Ok(_) => scenes.insert(scenes.len() - 1, scene_data),
+                        Err(e) => error!("Failed to load {}: {:?}", scene_data.name(), e),
+                    }
                 }
                 ControlMessage::Result {
                     song,
@@ -445,6 +475,7 @@ fn main() -> anyhow::Result<()> {
                 c.save()
             }
         }
+
         td::FrameOutput {
             exit,
             swap_buffers: true,
@@ -535,7 +566,7 @@ fn render_frame(scenes: &mut Vec<Box<dyn Scene>>, frame_input: &td::FrameInput) 
                 Ok(_) => true,
                 Err(e) => {
                     error!("{:?}", e);
-                    false
+                    true
                 }
             }
         }
