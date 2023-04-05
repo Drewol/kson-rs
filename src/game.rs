@@ -133,11 +133,13 @@ impl SceneData for GameData {
             &context,
             "mainTex",
             texture_folder.with_file_name("fxbuttonhold.png"),
+            (false, false),
         );
         fx_long_shader_active.use_texture(
             &context,
             "mainTex",
             texture_folder.with_file_name("fxbuttonhold.png"),
+            (false, false),
         );
 
         let mut bt_long_shader = ShadedMesh::new(&context, "holdbutton", &shader_folder)
@@ -149,11 +151,13 @@ impl SceneData for GameData {
             &context,
             "mainTex",
             texture_folder.with_file_name("buttonhold.png"),
+            (false, false),
         );
         bt_long_shader_active.use_texture(
             &context,
             "mainTex",
             texture_folder.with_file_name("buttonhold.png"),
+            (false, false),
         );
 
         let mut fx_chip_shader =
@@ -165,11 +169,13 @@ impl SceneData for GameData {
             &context,
             "mainTex",
             texture_folder.with_file_name("fxbutton.png"),
+            (false, false),
         );
         fx_chip_shader_sample.use_texture(
             &context,
             "mainTex",
             texture_folder.with_file_name("fxbutton.png"),
+            (false, false),
         );
 
         let mut bt_chip_shader =
@@ -179,6 +185,7 @@ impl SceneData for GameData {
             &context,
             "mainTex",
             texture_folder.with_file_name("button.png"),
+            (false, false),
         );
 
         let mut track_shader =
@@ -195,6 +202,7 @@ impl SceneData for GameData {
             &context,
             "mainTex",
             texture_folder.with_file_name("track.png"),
+            (false, false),
         );
 
         let mut laser_left =
@@ -211,21 +219,25 @@ impl SceneData for GameData {
             &context,
             "mainTex",
             texture_folder.with_file_name("laser_l.png"),
+            (false, true),
         );
         laser_left_active.use_texture(
             &context,
             "mainTex",
             texture_folder.with_file_name("laser_l.png"),
+            (false, true),
         );
         laser_right.use_texture(
             &context,
             "mainTex",
             texture_folder.with_file_name("laser_r.png"),
+            (false, true),
         );
         laser_right_active.use_texture(
             &context,
             "mainTex",
             texture_folder.with_file_name("laser_r.png"),
+            (false, true),
         );
 
         laser_left.set_blend(Blend::ADD);
@@ -881,8 +893,8 @@ impl ChartView {
                 } else {
                     (n.l as f32) / y_view_div
                 };
-                let yoff = (n.y as i64 - view_tick as i64) as f32;
-                let y = yoff / y_view_div + h;
+                let yoff = (view_tick as i64 - n.y as i64) as f32;
+                let y = yoff / y_view_div - h;
                 let p = if n.l == 0 { 2 } else { 1 }; //sorting priority
                 notes.push((
                     vec3(x, 0.0, y),
@@ -909,8 +921,8 @@ impl ChartView {
                 } else {
                     (n.l as f32) / y_view_div
                 };
-                let yoff = (n.y as i64 - view_tick as i64) as f32;
-                let y = yoff / y_view_div + h;
+                let yoff = (view_tick as i64 - n.y as i64) as f32;
+                let y = yoff / y_view_div - h;
                 let p = if n.l == 0 { 3 } else { 0 }; //sorting priority
                 notes.push((
                     vec3(x, 0.0, y),
@@ -926,7 +938,7 @@ impl ChartView {
 
         let notes = notes
             .iter()
-            .map(|n| (xz_rect(n.0 - vec3(0.5, 0.0, 0.0), n.1), n.2));
+            .map(|n| (xz_rect(n.0 - vec3(0.5, 0.0, n.1.y / -2.0), n.1), n.2));
 
         let mut fx_hold = xz_rect(Vec3::zero(), Vec2::zero());
         let mut fx_hold_active = xz_rect(Vec3::zero(), Vec2::zero());
@@ -965,16 +977,16 @@ impl ChartView {
                         continue;
                     }
                     let vertices = self.laser_meshes[i].get(sidx).unwrap();
-                    let yoff = (s.tick() as i64 - view_tick as i64) as f32;
+                    let yoff = (view_tick as i64 - s.tick() as i64) as f32;
                     let laser_mesh = CpuMesh {
                         indices: Indices::U32((0u32..(vertices.len() as u32)).collect()),
                         positions: three_d::Positions::F32(
                             vertices
                                 .iter()
-                                .map(|v| vec3(v.pos.z, v.pos.y, (yoff + v.pos.x) / y_view_div))
+                                .map(|v| vec3(v.pos.z, v.pos.y, (yoff - v.pos.x) / y_view_div))
                                 .collect(),
                         ),
-                        uvs: Some(vertices.iter().map(|v| vec2(v.uv.y, v.uv.x)).collect()),
+                        uvs: Some(vertices.iter().map(|v| vec2(v.uv.x, v.uv.y)).collect()),
                         ..Default::default()
                     };
 

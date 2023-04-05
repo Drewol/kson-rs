@@ -15,7 +15,7 @@ use tealr::{
 use three_d::{
     vec2, vec3, vec4, AxisAlignedBoundingBox, Blend, BufferDataType, CpuTexture, ElementBuffer,
     ElementBufferDataType, FrameInput, Geometry, Mat4, Object, Program, RenderStates, SquareMatrix,
-    Texture2D, Vec2, Vec3, Vec4, VertexBuffer, Zero,
+    Texture2D, Vec2, Vec3, Vec4, VertexBuffer, Wrapping, Zero,
 };
 use three_d_asset::geometry;
 
@@ -156,13 +156,16 @@ impl ShadedMesh {
         context: &three_d::Context,
         name: impl Into<String>,
         path: impl AsRef<Path>,
+        wrap_xy: (bool, bool),
     ) -> anyhow::Result<()> {
         let name = name.into();
         let mut texture: CpuTexture = three_d_asset::io::load_and_deserialize(path)?;
 
+        log::info!("{}", &texture.name);
+        dbg!(&texture.data);
         texture.data = match texture.data {
             three_d::TextureData::RU8(luma) => {
-                three_d::TextureData::RgbU8(luma.into_iter().map(|v| [v, v, v]).collect())
+                three_d::TextureData::RgbaU8(luma.into_iter().map(|v| [v, v, v, 255u8]).collect())
             }
             three_d::TextureData::RgU8(luma_alpha) => three_d::TextureData::RgbaU8(
                 luma_alpha
@@ -173,6 +176,26 @@ impl ShadedMesh {
 
             data => data,
         };
+
+        match wrap_xy {
+            (true, true) => {
+                texture.wrap_s = Wrapping::Repeat;
+                texture.wrap_t = Wrapping::Repeat;
+            }
+            (true, false) => {
+                texture.wrap_s = Wrapping::Repeat;
+                texture.wrap_t = Wrapping::ClampToEdge;
+            }
+            (false, true) => {
+                texture.wrap_s = Wrapping::ClampToEdge;
+                texture.wrap_t = Wrapping::Repeat;
+            }
+            (false, false) => {
+                texture.wrap_s = Wrapping::ClampToEdge;
+                texture.wrap_t = Wrapping::ClampToEdge;
+            }
+        }
+
         let texture = three_d::Texture2D::new(context, &texture);
         self.material.use_texture(&name, &texture);
         self.params.insert(name, ShaderParam::Texture(texture));
@@ -405,7 +428,7 @@ impl TealData for ShadedMesh {
         });
         methods.add_method_mut("AddTexture", |lua, this, params: (String, String)| {
             let context = &lua.app_data_ref::<FrameInput>().unwrap().context;
-            this.use_texture(context, params.0, params.1)
+            this.use_texture(context, params.0, params.1, (false, false))
                 .map_err(tealr::mlu::mlua::Error::external)
         });
         methods.add_method_mut("AddSkinTexture", |lua, this, params: (String, String)| {
@@ -418,12 +441,12 @@ impl TealData for ShadedMesh {
             path.push("textures");
             path.push(params.1);
 
-            this.use_texture(context, params.0, path)
+            this.use_texture(context, params.0, path, (false, false))
                 .map_err(tealr::mlu::mlua::Error::external)
         });
         methods.add_method_mut("AddSharedTexture", |lua, this, params: (String, String)| {
             let context = &lua.app_data_ref::<FrameInput>().unwrap().context;
-            this.use_texture(context, params.0, params.1)
+            this.use_texture(context, params.0, params.1, (false, false))
                 .map_err(tealr::mlu::mlua::Error::external)
         });
 

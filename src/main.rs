@@ -358,10 +358,8 @@ fn main() -> anyhow::Result<()> {
                     }
                     MainMenuButton::Downloads => {}
                     MainMenuButton::Exit => {
-                        return FrameOutput {
-                            exit: true,
-                            ..Default::default()
-                        }
+                        scenes.clear();
+                        scenes_loaded.clear();
                     }
                     _ => {}
                 },
