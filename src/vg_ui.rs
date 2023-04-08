@@ -40,10 +40,17 @@ impl From<&VgImage> for ImageId {
     }
 }
 
+struct VgfxPoint {
+    path: Option<Path>,
+    fill_paint: Option<Paint>,
+    stroke_paint: Paint,
+}
+
 #[derive(UserData)]
 pub struct Vgfx {
     pub canvas: Arc<Mutex<Canvas<OpenGl>>>,
     skin: String,
+    restore_stack: Vec<VgfxPoint>,
     path: Option<Path>,
     fill_paint: Option<Paint>,
     stroke_paint: Paint,
@@ -107,6 +114,7 @@ impl Vgfx {
         let config = &GameConfig::get().unwrap();
 
         Self {
+            restore_stack: vec![],
             canvas,
             game_folder,
             skin: config.skin.clone(),
@@ -1235,6 +1243,11 @@ impl TealData for Vgfx {
         //Save
         add_lua_static_method(methods, "Save", |_l, _vgfx, _: ()| {
             _vgfx.with_canvas(|canvas| canvas.save())?;
+            _vgfx.restore_stack.push(VgfxPoint {
+                path: _vgfx.path.clone(),
+                fill_paint: _vgfx.fill_paint.clone(),
+                stroke_paint: _vgfx.stroke_paint.clone(),
+            });
             //TODO: stacks for custom stuff
             Ok(())
         });
@@ -1242,12 +1255,26 @@ impl TealData for Vgfx {
         //Restore
         add_lua_static_method(methods, "Restore", |_, _vgfx, _: ()| {
             _vgfx.with_canvas(|canvas| canvas.restore())?;
+
+            if let Some(restore) = _vgfx.restore_stack.pop() {
+                let VgfxPoint {
+                    path,
+                    fill_paint,
+                    stroke_paint,
+                } = restore;
+
+                _vgfx.path = path;
+                _vgfx.fill_paint = fill_paint;
+                _vgfx.stroke_paint = stroke_paint;
+            }
+
             //TODO: stacks for custom stuff
             Ok(())
         });
 
         //Reset
         add_lua_static_method(methods, "Reset", |_, _vgfx, _: ()| {
+            _vgfx.restore_stack.clear();
             _vgfx.with_canvas(|canvas| canvas.reset())
         });
 
@@ -1752,7 +1779,7 @@ impl TealData for Vgfx {
         );
 
         tealr::mlu::create_named_parameters!(CreateShadedMeshParams with
-            material: String,
+            material: Option<String>,
             path: Option<String>,
         );
 
@@ -1768,7 +1795,7 @@ impl TealData for Vgfx {
 
             ShadedMesh::new(
                 context,
-                &p.material,
+                &p.material.unwrap_or_else(|| "guiTex".to_string()),
                 p.path.map(PathBuf::from).unwrap_or(shader_path),
             )
             .map_err(mlua::Error::external)

@@ -31,10 +31,10 @@ where
 
         //TODO: Render effects
         let effects = chart.get_effect_tracks();
-        for _effect in effects
-            .iter()
-            .filter(|x| matches!(x.track, Some(kson::Track::FX(_))))
-        {}
+        // for _effect in effects
+        //     .iter()
+        //     .filter(|x| matches!(x.track, Some(kson::Track::FX(_))))
+        // {}
 
         chart_audio
     }

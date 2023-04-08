@@ -68,7 +68,7 @@ local RECT_FILL = "fill"
 local RECT_STROKE = "stroke"
 local RECT_FILL_STROKE = RECT_FILL .. RECT_STROKE
 
-gfx._ImageAlpha = 1
+_ImageAlpha = 1
 if gfx._FillColor == nil then
     gfx._FillColor = gfx.FillColor
     gfx._StrokeColor = gfx.StrokeColor

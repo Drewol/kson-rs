@@ -1,8 +1,11 @@
 use crate::{
     scene::{Scene, SceneData},
     shaded_mesh::ShadedMesh,
+    vg_ui::Vgfx,
 };
 use kson::{Chart, Ksh, Vox};
+use serde::{Deserialize, Serialize};
+use tealr::mlu::mlua::{Function, Lua, LuaSerdeExt};
 pub struct Game {
     view: ChartView,
     chart: kson::Chart,
@@ -15,6 +18,10 @@ pub struct Game {
     laser_shaders: [[ShadedMesh; 2]; 2],
     track_shader: [ShadedMesh; 1],
     bt_chip_shader: [ShadedMesh; 1],
+    camera: three_d::Camera,
+    lua_game_state: LuaGameState,
+    lua: Rc<Lua>,
+    intro_done: bool,
 }
 struct TrackRenderMeshes {
     fx_hold: CpuMesh,
@@ -265,6 +272,16 @@ impl SceneData for GameData {
     }
 }
 
+fn camera_to_screen(camera: &Camera, point: Vec3, screen: Vec2) -> Vec2 {
+    let Vector3 { x, y, z } = point;
+    let cameraSpace = camera.view().transform_point(three_d::Point3 { x, y, z });
+    let mut screenSpace = camera.projection().transform_point(cameraSpace);
+    screenSpace.y = -screenSpace.y;
+    screenSpace *= 0.5f32;
+    screenSpace += vec3(0.5, 0.5, 0.5);
+    vec2(screenSpace.x * screen.x, screenSpace.y * screen.y)
+}
+
 impl Game {
     pub fn new(
         chart: Chart,
@@ -283,17 +300,34 @@ impl Game {
         let duration = chart.get_last_tick();
         let duration = chart.tick_to_ms(duration) as i64;
         let mut res = Self {
+            intro_done: false,
+            lua: Rc::new(Lua::new()),
             chart,
             view,
             duration,
             time: 0,
-            camera_pos: vec3(0.0, 1.0, -1.0),
+            camera_pos: vec3(0.0, 1.0, 1.0),
             bt_chip_shader,
             track_shader,
             bt_long_shaders,
             fx_chip_shaders,
             fx_long_shaders,
             laser_shaders,
+            camera: Camera::new_orthographic(
+                Viewport {
+                    x: 0,
+                    y: 0,
+                    width: 1,
+                    height: 1,
+                },
+                Vec3::zero(),
+                Vec3::unit_x(),
+                Vec3::unit_z(),
+                1.0,
+                1.0,
+                10.0,
+            ),
+            lua_game_state: LuaGameState::default(),
         };
         res.set_track_uniforms();
         Ok(res)
@@ -327,6 +361,79 @@ impl Game {
             .iter_mut()
             .for_each(|rl| rl.set_param("color", Color::RED.to_vec4()));
     }
+
+    fn lua_game_state(&self, viewport: Viewport) -> LuaGameState {
+        let screen = vec2(viewport.width as f32, viewport.height as f32);
+        let track_center = camera_to_screen(&self.camera, Vec3::zero(), screen);
+
+        let track_left = camera_to_screen(&self.camera, Vec3::unit_x() * -1.0, screen);
+        let track_right = camera_to_screen(&self.camera, Vec3::unit_x(), screen);
+        let crit_line = track_right - track_left;
+        let rotation = crit_line.y.atan2(crit_line.x);
+
+        LuaGameState {
+            title: self.chart.meta.title.clone(),
+            artist: self.chart.meta.artist.clone(),
+            jacket_path: self.chart.meta.jacket_filename.clone(),
+            demo_mode: false,
+            difficulty: self.chart.meta.difficulty,
+            level: self.chart.meta.level,
+            progress: self.time as f32 / self.duration as f32,
+            hispeed: self.view.hispeed,
+            hispeed_adjust: 0,
+            bpm: self
+                .chart
+                .bpm_at_tick(self.chart.ms_to_tick(self.time as f64)) as f32,
+            gauge: Gauge {
+                gauge_type: 0,
+                options: 0,
+                value: 0.5,
+                name: "Normal".to_string(),
+            },
+            hidden_cutoff: 0.0,
+            sudden_cutoff: 0.0,
+            hidden_fade: 0.0,
+            sudden_fade: 0.0,
+            autoplay: false,
+            combo_state: 0,
+            note_held: [false; 6],
+            laser_active: [false; 2],
+            score_replays: Vec::new(),
+            crit_line: CritLine {
+                x: track_center.x as i32,
+                y: track_center.y as i32,
+                x_offset: 0.0,
+                rotation,
+                cursors: [Cursor::default(), Cursor::default()],
+                line: Line {
+                    x1: track_left.x,
+                    y1: track_left.y,
+                    x2: track_right.x,
+                    y2: track_right.y,
+                },
+            },
+            hit_window: HitWindow {
+                variant: 1,
+                perfect: 1,
+                good: 2,
+                hold: 3,
+                miss: 4,
+            },
+            multiplayer: false,
+            user_id: "Player".into(),
+            practice_setup: false,
+        }
+    }
+
+    fn reset_canvas(&mut self) {
+        let vgfx = self.lua.app_data_mut::<Arc<Mutex<Vgfx>>>().unwrap();
+        let vgfx = vgfx.lock().unwrap();
+        let canvas = &mut vgfx.canvas.lock().unwrap();
+        canvas.flush();
+        canvas.reset();
+        canvas.reset_transform();
+        canvas.reset_scissor();
+    }
 }
 
 impl Scene for Game {
@@ -339,6 +446,16 @@ impl Scene for Game {
 
     fn is_suspended(&self) -> bool {
         false
+    }
+
+    fn init(
+        &mut self,
+        load_lua: Box<dyn Fn(Rc<Lua>, &'static str) -> Result<generational_arena::Index>>,
+        app_control_tx: std::sync::mpsc::Sender<crate::ControlMessage>,
+    ) -> Result<()> {
+        load_lua(self.lua.clone(), "gameplay.lua")?;
+
+        Ok(())
     }
 
     fn debug_ui(&mut self, ctx: &three_d::egui::Context) -> anyhow::Result<()> {
@@ -368,17 +485,28 @@ impl Scene for Game {
         target: &mut three_d::RenderTarget,
         viewport: Viewport,
     ) {
-        let camera = Camera::new_perspective(
+        self.camera = Camera::new_perspective(
             viewport,
             self.camera_pos,
-            Vec3::zero(),
+            self.camera_pos + vec3(0.0, -1.0, -4.0),
             Vec3::unit_y(),
             Rad(90.0_f32.to_radians()),
             0.01,
             10000.0,
         );
-        self.time += dt as i64;
+        if self.intro_done {
+            self.time += dt as i64;
+        }
         self.view.cursor = self.time;
+
+        let new_lua_state = self.lua_game_state(viewport);
+        if new_lua_state != self.lua_game_state {
+            self.lua_game_state = new_lua_state;
+            self.lua
+                .globals()
+                .set("gameplay", self.lua.to_value(&self.lua_game_state).unwrap());
+        }
+
         let render_data = self.view.render(&self.chart, td_context);
 
         self.bt_chip_shader[0].set_data_mesh(td_context, &render_data.bt_chip);
@@ -396,7 +524,7 @@ impl Scene for Game {
         self.laser_shaders[1][1].set_data_mesh(td_context, &render_data.lasers[3]);
 
         target.render(
-            &camera,
+            &self.camera,
             self.track_shader
                 .iter()
                 .chain(self.fx_long_shaders.iter())
@@ -406,8 +534,41 @@ impl Scene for Game {
                 .chain(self.laser_shaders.iter().flatten()),
             &[],
         );
+
+        if !self.intro_done {
+            if let Ok(func) = self.lua.globals().get::<_, Function>("render_intro") {
+                match func.call::<_, bool>(dt / 1000.0) {
+                    Err(e) => {
+                        log::error!("{:?}", e.to_string());
+                    }
+                    Ok(intro_complete) => self.intro_done = intro_complete,
+                };
+            }
+        }
+
+        if let Ok(func) = self.lua.globals().get::<_, Function>("render_crit_base") {
+            if let Err(e) = func.call::<_, ()>(dt / 1000.0) {
+                log::error!("{:?}", e.to_string());
+            };
+        }
+        self.reset_canvas();
+
+        if let Ok(func) = self.lua.globals().get::<_, Function>("render_crit_overlay") {
+            if let Err(e) = func.call::<_, ()>(dt / 1000.0) {
+                log::error!("{:?}", e.to_string());
+            };
+        }
+        self.reset_canvas();
+
+        if let Ok(func) = self.lua.globals().get::<_, Function>("render") {
+            if let Err(e) = func.call::<_, ()>(dt / 1000.0) {
+                log::error!("{:?}", e.to_string());
+            };
+        }
+        self.reset_canvas();
+
         let axes = three_d::Axes::new(td_context, 0.01, 0.30);
-        target.render(&camera, [axes], &[]);
+        target.render(&self.camera, [axes], &[]);
     }
 
     fn name(&self) -> &str {
@@ -415,7 +576,13 @@ impl Scene for Game {
     }
 }
 
-use std::{collections::HashMap, path::PathBuf, rc::Rc, sync::Arc};
+use std::{
+    collections::HashMap,
+    ops::MulAssign,
+    path::PathBuf,
+    rc::Rc,
+    sync::{Arc, Mutex},
+};
 
 pub struct ChartView {
     pub hispeed: f32,
@@ -429,7 +596,7 @@ use anyhow::Result;
 use three_d::{
     context::Texture, vec2, vec3, Blend, Camera, Color, ColorMaterial, CpuMesh, CpuTexture,
     DepthTest, Gm, Indices, InnerSpace, Matrix4, Mesh, Positions, Rad, RenderStates, Texture2D,
-    Vec2, Vec3, Vec4, Vector3, Viewport, Zero,
+    Transform, Vec2, Vec3, Vec4, Vector3, Viewport, Zero,
 };
 
 #[derive(Debug)]
@@ -1008,4 +1175,89 @@ impl ChartView {
             lasers,
         }
     }
+}
+
+#[derive(Debug, Serialize, Default, Deserialize, Clone, PartialEq)]
+#[serde(rename_all = "camelCase")]
+struct LuaGameState {
+    title: String,
+    artist: String,
+    jacket_path: String,
+    demo_mode: bool,
+    difficulty: u8,
+    level: u8,
+    progress: f32, // 0.0 at the start of a song, 1.0 at the end
+    hispeed: f32,
+    hispeed_adjust: u32, // 0 = not adjusting, 1 = coarse (xmod) adjustment, 2 = fine (mmod) adjustment
+    bpm: f32,
+    gauge: Gauge,
+    hidden_cutoff: f32,
+    sudden_cutoff: f32,
+    hidden_fade: f32,
+    sudden_fade: f32,
+    autoplay: bool,
+    combo_state: u32,                // 2 = puc, 1 = uc, 0 = normal
+    note_held: [bool; 6], // Array indicating wether a hold note is being held, in order: ABCDLR
+    laser_active: [bool; 2], // Array indicating if the laser cursor is on a laser, in order: LR
+    score_replays: Vec<ScoreReplay>, //Array of previous scores for the current song
+    crit_line: CritLine,  // info about crit line and everything attached to it
+    hit_window: HitWindow, // This may be absent (== nil) for the default timing window (46 / 92 / 138 / 250ms)
+    multiplayer: bool,
+    user_id: String,
+    practice_setup: bool, // true: it's the setup, false: practicing n
+}
+
+#[derive(Debug, Serialize, Default, Deserialize, Clone, PartialEq)]
+#[serde(rename_all = "camelCase")]
+struct Gauge {
+    #[serde(rename = "type")]
+    gauge_type: i32,
+    options: i32,
+    value: f32,
+    name: String,
+}
+
+#[derive(Debug, Serialize, Default, Deserialize, Clone, PartialEq)]
+#[serde(rename_all = "camelCase")]
+struct HitWindow {
+    #[serde(rename = "type")]
+    variant: i32,
+    perfect: i32,
+    good: i32,
+    hold: i32,
+    miss: i32,
+}
+
+#[derive(Debug, Serialize, Default, Deserialize, Clone, PartialEq)]
+#[serde(rename_all = "camelCase")]
+struct CritLine {
+    x: i32,
+    y: i32,
+    rotation: f32,
+    cursors: [Cursor; 2],
+    line: Line,
+    x_offset: f32,
+}
+
+#[derive(Debug, Default, Serialize, Deserialize, Clone, PartialEq)]
+struct Cursor {
+    pos: f32,
+    alpha: f32,
+    skew: f32,
+}
+
+#[derive(Debug, Serialize, Default, Deserialize, Clone, PartialEq)]
+#[serde(rename_all = "camelCase")]
+struct Line {
+    x1: f32,
+    y1: f32,
+    x2: f32,
+    y2: f32,
+}
+
+#[derive(Debug, Serialize, Default, Deserialize, Clone, PartialEq)]
+#[serde(rename_all = "camelCase")]
+struct ScoreReplay {
+    max_score: i32,
+    current_score: i32,
 }
