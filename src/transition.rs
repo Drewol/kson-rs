@@ -8,8 +8,8 @@ use femtovg::{rgb::ComponentSlice, Canvas};
 use poll_promise::Promise;
 use tealr::mlu::mlua::{Function, Lua, LuaSerdeExt};
 use three_d::{
-    camera2d, vec3, Camera, ColorMaterial, FrameInput, Gm, HasContext, Matrix4, Mesh, Rad,
-    Rectangle, RenderTarget, Texture2D, Vec2, Vec3, Zero,
+    camera2d, vec3, Camera, ColorMaterial, FrameInput, Gm, HasContext, Mat3, Matrix4, Mesh, Rad,
+    Rectangle, RenderTarget, Texture2D, Texture2DRef, Vec2, Vec3, Zero,
 };
 use ureq::json;
 
@@ -52,11 +52,13 @@ fn load_chart(
     context: three_d::Context,
     chart: kson::Chart,
     skin_folder: PathBuf,
+    jacket_path: PathBuf,
 ) -> anyhow::Result<Box<dyn SceneData + Send>> {
     Ok(Box::new(crate::game::GameData::new(
         context,
         chart,
         skin_folder,
+        jacket_path,
     )?))
 }
 
@@ -84,7 +86,10 @@ impl Transition {
             Some(three_d::Gm::new(
                 Rectangle::new(&context, Vec2::zero(), Rad::zero(), 1.0, 1.0),
                 three_d::ColorMaterial {
-                    texture: Some(Arc::new(three_d::Texture2D::new(&context, &screen_tex))),
+                    texture: Some(Texture2DRef {
+                        texture: Arc::new(three_d::Texture2D::new(&context, &screen_tex)),
+                        transformation: Mat3::from_scale(1.0),
+                    }),
                     color: three_d::Color::WHITE,
                     ..Default::default()
                 },
@@ -176,7 +181,12 @@ impl Scene for Transition {
                             let skin_folder = self.vgfx.lock().unwrap().skin_folder();
                             Some(Promise::spawn_thread("Load song", move || {
                                 let (chart, audio) = loader();
-                                load_chart(context, chart, skin_folder)
+                                load_chart(
+                                    context,
+                                    chart,
+                                    skin_folder,
+                                    song.difficulties[diff].jacket_path.clone(),
+                                )
                             }))
                         }
                         _ => None,

@@ -22,7 +22,7 @@ use main_menu::MainMenuButton;
 use puffin::{profile_function, profile_scope};
 use scene::Scene;
 
-use td::{FrameOutput, HasContext};
+use td::{FrameOutput, HasContext, SurfaceSettings};
 use tealr::mlu::mlua::{Lua, LuaSerdeExt};
 use three_d as td;
 use ureq::json;
@@ -73,14 +73,17 @@ impl Default for ControlMessage {
 fn main() -> anyhow::Result<()> {
     simple_logger::init_with_level(Level::Info)?;
     puffin::set_scopes_on(true);
-    let server_addr = format!("0.0.0.0:{}", puffin_http::DEFAULT_PORT);
-    let _server = puffin_http::Server::new(&server_addr)?;
 
     let window = td::Window::new(td::WindowSettings {
         title: "Test".to_string(),
         max_size: Some((1280, 720)),
-        multisamples: 4,
-        vsync: false,
+        surface_settings: SurfaceSettings {
+            multisamples: 4,
+            stencil_buffer: 8,
+            vsync: true,
+            depth_buffer: 8,
+            hardware_acceleration: td::HardwareAcceleration::Required,
+        },
         ..Default::default()
     })
     .unwrap();
@@ -285,7 +288,10 @@ fn main() -> anyhow::Result<()> {
                 real_script_path.push(script_path);
                 info!("Loading: {:?}", &real_script_path);
                 let test_code = std::fs::read_to_string(real_script_path)?;
-                lua.load(&test_code).set_name(script_path)?.eval::<()>()?;
+                {
+                    profile_scope!("evaluate lua file");
+                    lua.load(&test_code).set_name(script_path)?.eval::<()>()?;
+                }
                 Ok(idx)
             })
         };
@@ -344,6 +350,10 @@ fn main() -> anyhow::Result<()> {
                 ControlMessage::None => {}
                 ControlMessage::MainMenu(b) => match b {
                     MainMenuButton::Start => {
+                        if let Some(top) = scenes.last_mut() {
+                            top.suspend();
+                        }
+
                         if let Ok(arena) = lua_arena.read() {
                             let transition_lua = arena.get(transition_lua_idx).unwrap().clone();
                             scenes_loaded.push(Box::new(Transition::new(
@@ -509,7 +519,11 @@ fn run_lua_gc(lua_arena: &Rc<RwLock<Arena<Rc<Lua>>>>) {
     }
 }
 
-fn debug_ui(gui: &mut td::GUI, mut frame_input: td::FrameInput, scenes: &mut Vec<Box<dyn Scene>>) {
+fn debug_ui(
+    gui: &mut td::GUI,
+    mut frame_input: td::FrameInput<()>,
+    scenes: &mut Vec<Box<dyn Scene>>,
+) {
     profile_function!();
     gui.update(
         &mut frame_input.events,
@@ -520,6 +534,7 @@ fn debug_ui(gui: &mut td::GUI, mut frame_input: td::FrameInput, scenes: &mut Vec
             if let Some(s) = scenes.last_mut() {
                 s.debug_ui(gui_context);
             }
+            puffin_egui::profiler_window(gui_context);
         },
     );
     frame_input.screen().write(|| gui.render());
@@ -527,7 +542,7 @@ fn debug_ui(gui: &mut td::GUI, mut frame_input: td::FrameInput, scenes: &mut Vec
 
 fn render_overlays(
     vgfx: &Arc<Mutex<Vgfx>>,
-    frame_input: &td::FrameInput,
+    frame_input: &td::FrameInput<()>,
     fps: f64,
     fps_paint: &vg::Paint,
 ) {
@@ -548,7 +563,7 @@ fn render_overlays(
     }
 }
 
-fn render_frame(scenes: &mut Vec<Box<dyn Scene>>, frame_input: &td::FrameInput) {
+fn render_frame(scenes: &mut Vec<Box<dyn Scene>>, frame_input: &td::FrameInput<()>) {
     profile_scope!("Render");
     scenes.retain_mut(|s| {
         if s.is_suspended() {
@@ -571,7 +586,11 @@ fn render_frame(scenes: &mut Vec<Box<dyn Scene>>, frame_input: &td::FrameInput) 
     })
 }
 
-fn tick(scenes: &mut Vec<Box<dyn Scene>>, frame_input: &td::FrameInput, knob_state: LaserState) {
+fn tick(
+    scenes: &mut Vec<Box<dyn Scene>>,
+    frame_input: &td::FrameInput<()>,
+    knob_state: LaserState,
+) {
     profile_scope!("Tick");
 
     scenes.retain_mut(|s| match s.tick(frame_input.elapsed_time, knob_state) {
@@ -587,7 +606,7 @@ fn update_game_data_and_clear(
     game_data: &Arc<Mutex<GameData>>,
     mousex: f64,
     mousey: f64,
-    frame_input: &td::FrameInput,
+    frame_input: &td::FrameInput<()>,
 ) {
     {
         let lock = game_data.lock();
@@ -608,7 +627,7 @@ fn update_game_data_and_clear(
     }
 }
 
-fn reset_viewport_size(vgfx: &Arc<Mutex<Vgfx>>, frame_input: &td::FrameInput) {
+fn reset_viewport_size(vgfx: &Arc<Mutex<Vgfx>>, frame_input: &td::FrameInput<()>) {
     let vgfx_lock = vgfx.try_lock();
     if let Ok(vgfx) = vgfx_lock {
         let mut canvas_lock = vgfx.canvas.try_lock();

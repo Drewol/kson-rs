@@ -144,13 +144,12 @@ impl Scene for MainMenu {
                 .unwrap()
                 .send(ControlMessage::MainMenu(button))
                 .map_err(|_| anyhow!("Failed to send button"))?;
-            self.should_suspended = true;
         }
 
         Ok(())
     }
 
-    fn on_event(&mut self, event: &mut three_d::Event) {
+    fn on_event(&mut self, event: &mut three_d::Event<()>) {
         if let three_d::Event::MousePress {
             button,
             position,
@@ -164,6 +163,10 @@ impl Scene for MainMenu {
                 };
             }
         }
+    }
+
+    fn suspend(&mut self) {
+        self.should_suspended = true;
     }
 
     fn is_suspended(&self) -> bool {

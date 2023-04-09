@@ -17,7 +17,7 @@ kson = { path = "../kson-rs" }
 kson-audio = { path = "../kson-rs/kson-audio"}
 rodio = "0.16.0"
 tealr = { git = "https://github.com/lenscas/tealr.git", features = ["mlua", "tealr_derive", "mlua_lua54", "mlua_vendored", "mlua_serialize"] }
-three-d = {version = "0.14.0", features = ["egui-gui", "window"]}
+three-d = {version = "0.15.0", features = ["egui-gui", "window"]}
 anyhow = "1"
 bitflags = "1"
 generational-arena = "*"
@@ -33,10 +33,11 @@ poll-promise = { git = "https://github.com/EmbarkStudios/poll-promise", features
 serde = { version = "1.0.152", features = ["derive"] }
 toml = "0.7.2"
 ureq = { version = "2.6.2", features = ["json", "native-tls"] }
-three-d-asset = { version = "0.4.0", features = ["image", "png", "jpeg", "tga", "tiff"] }
+three-d-asset = { version = "0.5.0", features = ["image", "png", "jpeg", "tga", "tiff"] }
 directories = "4.0.1"
 zip = "0.6.4"
 rayon = "1.7.0"
+puffin_egui = "0.20.0"
 
 [profile.release]
 debug = true

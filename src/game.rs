@@ -4,6 +4,7 @@ use crate::{
     vg_ui::Vgfx,
 };
 use kson::{Chart, Ksh, Vox};
+use puffin::profile_function;
 use serde::{Deserialize, Serialize};
 use tealr::mlu::mlua::{Function, Lua, LuaSerdeExt};
 pub struct Game {
@@ -22,6 +23,7 @@ pub struct Game {
     lua_game_state: LuaGameState,
     lua: Rc<Lua>,
     intro_done: bool,
+    jacket_path: PathBuf,
 }
 struct TrackRenderMeshes {
     fx_hold: CpuMesh,
@@ -37,12 +39,11 @@ pub struct GameData {
     context: three_d::Context,
     chart: kson::Chart,
     skin_folder: PathBuf,
+    jacket_path: PathBuf,
 }
 
 pub fn extend_mesh(a: CpuMesh, b: CpuMesh) -> CpuMesh {
     let CpuMesh {
-        mut name,
-        mut material_name,
         mut positions,
         mut indices,
         mut normals,
@@ -54,8 +55,6 @@ pub fn extend_mesh(a: CpuMesh, b: CpuMesh) -> CpuMesh {
     let index_offset = positions.len();
 
     let CpuMesh {
-        name: b_name,
-        material_name: b_material_name,
         positions: mut b_positions,
         indices: b_indices,
         normals: b_normals,
@@ -87,8 +86,6 @@ pub fn extend_mesh(a: CpuMesh, b: CpuMesh) -> CpuMesh {
     let uvs: Option<Vec<_>> = Some(uvs.iter().chain(b_uvs.iter()).flatten().copied().collect());
 
     let mut res = CpuMesh {
-        name,
-        material_name,
         positions,
         indices,
         normals,
@@ -108,11 +105,13 @@ impl GameData {
         context: three_d::Context,
         chart: kson::Chart,
         skin_folder: PathBuf,
+        jacket_path: PathBuf,
     ) -> anyhow::Result<Self> {
         Ok(Self {
             context,
             chart,
             skin_folder,
+            jacket_path,
         })
     }
 }
@@ -123,7 +122,9 @@ impl SceneData for GameData {
             context,
             chart,
             skin_folder,
+            jacket_path,
         } = *self;
+        profile_function!();
 
         let mut shader_folder = skin_folder.clone();
         let mut texture_folder = skin_folder.clone();
@@ -257,6 +258,7 @@ impl SceneData for GameData {
                 chart,
                 &skin_folder,
                 &context,
+                jacket_path,
                 [fx_long_shader, fx_long_shader_active],
                 [bt_long_shader, bt_long_shader_active],
                 [fx_chip_shader, fx_chip_shader_sample],
@@ -287,7 +289,7 @@ impl Game {
         chart: Chart,
         skin_root: &PathBuf,
         td: &three_d::Context,
-
+        jacket_path: PathBuf,
         fx_long_shaders: [ShadedMesh; 2],
         bt_long_shaders: [ShadedMesh; 2],
         fx_chip_shaders: [ShadedMesh; 2],
@@ -300,6 +302,7 @@ impl Game {
         let duration = chart.get_last_tick();
         let duration = chart.tick_to_ms(duration) as i64;
         let mut res = Self {
+            jacket_path,
             intro_done: false,
             lua: Rc::new(Lua::new()),
             chart,
@@ -374,7 +377,7 @@ impl Game {
         LuaGameState {
             title: self.chart.meta.title.clone(),
             artist: self.chart.meta.artist.clone(),
-            jacket_path: self.chart.meta.jacket_filename.clone(),
+            jacket_path: self.jacket_path.clone(),
             demo_mode: false,
             difficulty: self.chart.meta.difficulty,
             level: self.chart.meta.level,
@@ -453,8 +456,8 @@ impl Scene for Game {
         load_lua: Box<dyn Fn(Rc<Lua>, &'static str) -> Result<generational_arena::Index>>,
         app_control_tx: std::sync::mpsc::Sender<crate::ControlMessage>,
     ) -> Result<()> {
+        profile_function!();
         load_lua(self.lua.clone(), "gameplay.lua")?;
-
         Ok(())
     }
 
@@ -485,6 +488,7 @@ impl Scene for Game {
         target: &mut three_d::RenderTarget,
         viewport: Viewport,
     ) {
+        profile_function!();
         self.camera = Camera::new_perspective(
             viewport,
             self.camera_pos,
@@ -595,8 +599,8 @@ pub struct ChartView {
 use anyhow::Result;
 use three_d::{
     context::Texture, vec2, vec3, Blend, Camera, Color, ColorMaterial, CpuMesh, CpuTexture,
-    DepthTest, Gm, Indices, InnerSpace, Matrix4, Mesh, Positions, Rad, RenderStates, Texture2D,
-    Transform, Vec2, Vec3, Vec4, Vector3, Viewport, Zero,
+    DepthTest, Gm, Indices, InnerSpace, Mat3, Matrix3, Matrix4, Mesh, Positions, Rad, RenderStates,
+    Texture2D, Transform, Vec2, Vec3, Vec4, Vector3, Viewport, Zero,
 };
 
 #[derive(Debug)]
@@ -789,7 +793,6 @@ pub fn xz_rect(center: Vec3, size: Vec2) -> CpuMesh {
         Vec2::new(0.0, 1.0),
     ];
     CpuMesh {
-        name: "square".to_string(),
         indices: Indices::U8(indices),
         positions: Positions::F32(positions),
         normals: Some(normals),
@@ -910,7 +913,10 @@ impl ChartView {
 
         let track_mat = Rc::new(ColorMaterial {
             color: Color::WHITE,
-            texture: Some(track_texture),
+            texture: Some(three_d::Texture2DRef {
+                texture: track_texture,
+                transformation: Mat3::from_scale(1.0),
+            }),
             render_states: RenderStates {
                 depth_test: three_d::DepthTest::Always,
                 ..Default::default()
@@ -1182,7 +1188,7 @@ impl ChartView {
 struct LuaGameState {
     title: String,
     artist: String,
-    jacket_path: String,
+    jacket_path: PathBuf,
     demo_mode: bool,
     difficulty: u8,
     level: u8,

@@ -27,7 +27,7 @@ pub trait Scene {
     fn tick(&mut self, dt: f64, knob_state: LaserState) -> Result<()> {
         Ok(())
     }
-    fn on_event(&mut self, event: &mut Event) {}
+    fn on_event(&mut self, event: &mut Event<()>) {}
     fn on_button_pressed(&mut self, button: UscButton) {}
     fn on_button_released(&mut self, button: UscButton) {}
     fn render(

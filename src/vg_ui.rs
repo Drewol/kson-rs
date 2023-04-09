@@ -11,6 +11,7 @@ use std::{
 use femtovg::{renderer::OpenGl, Canvas, Color, FontId, ImageFlags, ImageId, Paint, Path};
 use once_cell::unsync::OnceCell;
 use poll_promise::Promise;
+use puffin::profile_scope;
 use tealr::{
     mlu::{TealData, UserData, UserDataProxy},
     TypeName,
@@ -311,6 +312,7 @@ impl TealData for Vgfx {
                                 ImageFlags::from_bits(imageflags).unwrap_or(ImageFlags::empty()),
                             )
                             .or_else(|_| {
+                                profile_scope!("reformat image");
                                 let img = image::open(&path)?;
                                 canvas.create_image(
                                     femtovg::ImageSource::try_from(
@@ -1784,7 +1786,7 @@ impl TealData for Vgfx {
         );
 
         methods.add_function_mut("CreateShadedMesh", |lua, p: CreateShadedMeshParams| {
-            let context = &lua.app_data_ref::<FrameInput>().unwrap().context;
+            let context = &lua.app_data_ref::<FrameInput<()>>().unwrap().context;
             let vgfx = &lua.app_data_ref::<Arc<Mutex<Vgfx>>>().unwrap();
             let vgfx = vgfx.lock().unwrap();
 

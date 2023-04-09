@@ -5,6 +5,7 @@ use std::{
 };
 
 use anyhow::ensure;
+use puffin::profile_function;
 use tealr::{
     mlu::{
         mlua::{FromLua, Lua},
@@ -86,6 +87,7 @@ impl ShadedMesh {
         let mut shader_path = path.as_ref().to_path_buf();
         shader_path.push(material);
         shader_path.set_extension("vs");
+        profile_function!();
 
         let vertex_shader_source = std::fs::read_to_string(&shader_path)?;
         let fragment_shader_source = std::fs::read_to_string(shader_path.with_extension("fs"))?;
@@ -99,7 +101,7 @@ impl ShadedMesh {
             )?,
             state: RenderStates {
                 cull: three_d::Cull::None,
-                blend: Blend::STANDARD_TRANSPARENCY,
+                blend: Blend::TRANSPARENCY,
                 depth_test: three_d::DepthTest::Always,
                 write_mask: three_d::WriteMask::COLOR,
             },
@@ -158,6 +160,7 @@ impl ShadedMesh {
         path: impl AsRef<Path>,
         wrap_xy: (bool, bool),
     ) -> anyhow::Result<()> {
+        profile_function!();
         let name = name.into();
         let mut texture: CpuTexture = three_d_asset::io::load_and_deserialize(path)?;
 
@@ -216,7 +219,7 @@ impl ShadedMesh {
         }
     }
 
-    fn draw(&self, frame: &FrameInput) -> Result<(), tealr::mlu::mlua::Error> {
+    fn draw(&self, frame: &FrameInput<()>) -> Result<(), tealr::mlu::mlua::Error> {
         self.use_params();
         self.material
             .use_vertex_attribute("inPos", &self.vertecies_pos);
@@ -287,7 +290,7 @@ impl ShadedMesh {
 
     pub fn draw_lua_skin(
         &mut self,
-        frame: &FrameInput,
+        frame: &FrameInput<()>,
         vgfx: &Mutex<Vgfx>,
     ) -> Result<(), tealr::mlu::mlua::Error> {
         let t = {
@@ -422,17 +425,17 @@ fn create_orthographic(
 impl TealData for ShadedMesh {
     fn add_methods<'lua, T: tealr::mlu::TealDataMethods<'lua, Self>>(methods: &mut T) {
         methods.add_method_mut("Draw", |lua, this, _: ()| {
-            let frame = &lua.app_data_ref::<FrameInput>().unwrap();
+            let frame = &lua.app_data_ref::<FrameInput<()>>().unwrap();
             let vgfx = &lua.app_data_ref::<Arc<Mutex<Vgfx>>>().unwrap();
             this.draw_lua_skin(frame, vgfx)
         });
         methods.add_method_mut("AddTexture", |lua, this, params: (String, String)| {
-            let context = &lua.app_data_ref::<FrameInput>().unwrap().context;
+            let context = &lua.app_data_ref::<FrameInput<()>>().unwrap().context;
             this.use_texture(context, params.0, params.1, (false, false))
                 .map_err(tealr::mlu::mlua::Error::external)
         });
         methods.add_method_mut("AddSkinTexture", |lua, this, params: (String, String)| {
-            let context = &lua.app_data_ref::<FrameInput>().unwrap().context;
+            let context = &lua.app_data_ref::<FrameInput<()>>().unwrap().context;
 
             let mut path = std::env::current_dir().unwrap();
             let skin = &GameConfig::get().unwrap().skin;
@@ -445,7 +448,7 @@ impl TealData for ShadedMesh {
                 .map_err(tealr::mlu::mlua::Error::external)
         });
         methods.add_method_mut("AddSharedTexture", |lua, this, params: (String, String)| {
-            let context = &lua.app_data_ref::<FrameInput>().unwrap().context;
+            let context = &lua.app_data_ref::<FrameInput<()>>().unwrap().context;
             this.use_texture(context, params.0, params.1, (false, false))
                 .map_err(tealr::mlu::mlua::Error::external)
         });
@@ -483,7 +486,7 @@ impl TealData for ShadedMesh {
                 .map(|vert| (vec2(vert.0 .0, vert.0 .1), vec2(vert.1 .0, vert.1 .1)))
                 .unzip();
 
-            let context = &lua.app_data_ref::<FrameInput>().unwrap().context;
+            let context = &lua.app_data_ref::<FrameInput<()>>().unwrap().context;
             this.vertecies_pos = VertexBuffer::new_with_data(context, &pos);
             this.vertecies_uv = VertexBuffer::new_with_data(context, &uv);
 
