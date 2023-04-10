@@ -22,7 +22,7 @@ use main_menu::MainMenuButton;
 use puffin::{profile_function, profile_scope};
 use scene::Scene;
 
-use td::{FrameOutput, HasContext, SurfaceSettings};
+use td::{FrameInput, FrameOutput, HasContext, SurfaceSettings, Viewport};
 use tealr::mlu::mlua::{Lua, LuaSerdeExt};
 use three_d as td;
 use ureq::json;
@@ -46,6 +46,120 @@ mod vg_ui;
 
 pub fn project_dirs() -> ProjectDirs {
     directories::ProjectDirs::from("", "Drewol", "USC").expect("Failed to get project dirs")
+}
+
+#[derive(Default)]
+pub struct Scenes {
+    pub active: Vec<Box<dyn Scene>>,
+    pub loaded: Vec<Box<dyn Scene>>,
+    pub initialized: Vec<Box<dyn Scene>>,
+    pub transition: Option<Transition>,
+    should_outro: bool,
+}
+
+impl Scenes {
+    pub fn tick(
+        &mut self,
+        dt: f64,
+        knob_state: crate::button_codes::LaserState,
+        load_lua: Rc<dyn Fn(Rc<Lua>, &'static str) -> anyhow::Result<Index>>,
+        app_control_tx: std::sync::mpsc::Sender<ControlMessage>,
+    ) {
+        if self.should_outro {
+            if let Some(tr) = self.transition.as_mut() {
+                tr.do_outro()
+            }
+
+            self.should_outro = false;
+        }
+
+        self.active.retain(|x| !x.closed());
+        if let Some(t) = self.transition.as_mut() {
+            t.tick(dt, knob_state);
+        }
+
+        if self.transition.is_some() && self.transition.as_ref().unwrap().closed() {
+            self.transition = None;
+        }
+
+        for ele in &mut self.active {
+            ele.tick(dt, knob_state);
+        }
+
+        if !self.initialized.is_empty() {
+            for scene in &mut self.active {
+                scene.suspend();
+            }
+
+            self.should_outro = true;
+        }
+
+        self.active.append(&mut self.initialized);
+
+        self.loaded.retain_mut(|x| {
+            let result = x.init(load_lua.clone(), app_control_tx.clone());
+            if let Err(e) = &result {
+                log::error!("{:?}", e);
+            }
+            result.is_ok()
+        });
+
+        self.initialized.append(&mut self.loaded);
+
+        if let Some(x) = self.active.last_mut() {
+            if x.is_suspended()
+                && self.loaded.is_empty()
+                && self.initialized.is_empty()
+                && self.transition.is_none()
+            {
+                x.resume()
+            }
+        }
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.active.is_empty()
+            && self.loaded.is_empty()
+            && self.initialized.is_empty()
+            && self.transition.is_none()
+    }
+
+    pub fn render(&mut self, frame: FrameInput<()>, vgfx: &Arc<Mutex<Vgfx>>) {
+        let dt = frame.elapsed_time;
+        let td_context = &frame.context;
+        let mut target = frame.screen();
+        let viewport = frame.viewport;
+
+        for scene in &mut self.active {
+            if scene.is_suspended() {
+                continue;
+            }
+            scene.render(dt, td_context, &mut target, viewport);
+            if let Err(e) = scene.render_ui(dt) {
+                log::error!("{:?}", e)
+            };
+        }
+
+        if let Some(transition) = self.transition.as_mut() {
+            transition.render(dt, td_context, &mut target, viewport);
+            if let Err(e) = transition.render_ui(dt) {
+                log::error!("{:?}", e)
+            };
+        }
+    }
+
+    pub fn suspend_top(&mut self) {
+        if let Some(top) = self.active.last_mut() {
+            top.suspend()
+        }
+    }
+
+    pub fn clear(&mut self) {
+        self.active.clear();
+        self.initialized.clear();
+        self.loaded.clear();
+        self.transition = None;
+    }
 }
 
 pub enum ControlMessage {
@@ -194,10 +308,9 @@ fn main() -> anyhow::Result<()> {
 
     let fps_paint = vg::Paint::color(vg::Color::white()).with_text_align(vg::Align::Right);
 
-    let mut scenes_loaded: Vec<Box<dyn scene::Scene>> = vec![]; //Uninitialized
-    let mut scenes: Vec<Box<dyn scene::Scene>> = vec![]; //Initialized
+    let mut scenes = Scenes::default();
 
-    scenes_loaded.push(Box::new(main_menu::MainMenu::new()));
+    scenes.loaded.push(Box::new(main_menu::MainMenu::new()));
     let game_data = Arc::new(Mutex::new(game_data::GameData {
         mouse_pos: (mousex, mousey),
         resolution: (800, 600),
@@ -230,7 +343,7 @@ fn main() -> anyhow::Result<()> {
                         vgfx: Arc<Mutex<Vgfx>>,
                         arena: Rc<RwLock<Arena<Rc<Lua>>>>| {
             let lua_frame_input = lua_frame_input.clone();
-            Box::new(move |lua: Rc<Lua>, script_path| {
+            Rc::new(move |lua: Rc<Lua>, script_path| {
                 //Set path for 'require' (https://stackoverflow.com/questions/4125971/setting-the-global-lua-path-variable-from-c-c?lq=1)
                 let skin = &GameConfig::get().unwrap().skin;
                 let mut real_script_path = std::env::current_dir()?;
@@ -331,69 +444,53 @@ fn main() -> anyhow::Result<()> {
         }
 
         //Initialize loaded scenes
-        scenes_loaded.retain_mut(|s| {
-            match s.init(
-                load_lua(game_data.clone(), vgfx.clone(), lua_arena.clone()),
-                control_tx.clone(),
-            ) {
-                Ok(_) => true,
-                Err(e) => {
-                    error!("Failed to init {}: {:?}", s.name(), e);
-                    false
-                }
-            }
-        });
-        scenes.append(&mut scenes_loaded);
+        scenes.tick(
+            frame_input.elapsed_time,
+            knob_state,
+            load_lua(game_data.clone(), vgfx.clone(), lua_arena.clone()),
+            control_tx.clone(),
+        );
 
         while let Ok(control_msg) = control_rx.try_recv() {
             match control_msg {
                 ControlMessage::None => {}
                 ControlMessage::MainMenu(b) => match b {
                     MainMenuButton::Start => {
-                        if let Some(top) = scenes.last_mut() {
-                            top.suspend();
-                        }
+                        scenes.suspend_top();
 
                         if let Ok(arena) = lua_arena.read() {
                             let transition_lua = arena.get(transition_lua_idx).unwrap().clone();
-                            scenes_loaded.push(Box::new(Transition::new(
+                            scenes.transition = Some(Transition::new(
                                 transition_lua,
                                 ControlMessage::MainMenu(MainMenuButton::Start),
                                 control_tx.clone(),
                                 frame_input.context.clone(),
                                 vgfx.clone(),
                                 frame_input.viewport,
-                            )))
+                            ))
                         }
                     }
                     MainMenuButton::Downloads => {}
                     MainMenuButton::Exit => {
                         scenes.clear();
-                        scenes_loaded.clear();
                     }
                     _ => {}
                 },
                 ControlMessage::Song { diff, loader, song } => {
                     if let Ok(arena) = lua_arena.read() {
                         let transition_lua = arena.get(transition_song_lua_idx).unwrap().clone();
-                        scenes_loaded.push(Box::new(Transition::new(
+                        scenes.transition = Some(Transition::new(
                             transition_lua,
                             ControlMessage::Song { diff, loader, song },
                             control_tx.clone(),
                             frame_input.context.clone(),
                             vgfx.clone(),
                             frame_input.viewport.clone(),
-                        )))
+                        ))
                     }
                 }
                 ControlMessage::TransitionComplete(mut scene_data) => {
-                    match scene_data.init(
-                        load_lua(game_data.clone(), vgfx.clone(), lua_arena.clone()),
-                        control_tx.clone(),
-                    ) {
-                        Ok(_) => scenes.insert(scenes.len() - 1, scene_data),
-                        Err(e) => error!("Failed to load {}: {:?}", scene_data.name(), e),
-                    }
+                    scenes.loaded.push(scene_data)
                 }
                 ControlMessage::Result {
                     song,
@@ -425,7 +522,7 @@ fn main() -> anyhow::Result<()> {
                 (mousex, mousey) = position;
             }
 
-            for scene in scenes.iter_mut().filter(|s| !s.is_suspended()) {
+            for scene in scenes.active.iter_mut().filter(|s| !s.is_suspended()) {
                 scene.on_event(event); //TODO: break on event handled
             }
         }
@@ -436,6 +533,7 @@ fn main() -> anyhow::Result<()> {
                     let button = button_codes::UscButton::from(button);
                     info!("{:?}", button);
                     scenes
+                        .active
                         .iter_mut()
                         .filter(|s| !s.is_suspended())
                         .for_each(|s| s.on_button_pressed(button))
@@ -465,10 +563,8 @@ fn main() -> anyhow::Result<()> {
         update_game_data_and_clear(&game_data, mousex, mousey, &frame_input);
 
         reset_viewport_size(&vgfx, &frame_input);
-        close_scenes(&mut scenes, &scenes_loaded);
 
-        tick(&mut scenes, &frame_input, knob_state);
-        render_frame(&mut scenes, &frame_input);
+        scenes.render(frame_input.clone(), &vgfx);
         render_overlays(&vgfx, &frame_input, fps, &fps_paint);
 
         debug_ui(&mut gui, frame_input, &mut scenes);
@@ -477,7 +573,7 @@ fn main() -> anyhow::Result<()> {
 
         game_data.lock().map(|mut a| a.profile_stack.clear());
 
-        let exit = scenes.is_empty() && scenes_loaded.is_empty();
+        let exit = scenes.is_empty();
         if exit {
             if let Some(c) = GameConfig::get() {
                 c.save()
@@ -494,22 +590,6 @@ fn main() -> anyhow::Result<()> {
     Ok(())
 }
 
-fn close_scenes(scenes: &mut Vec<Box<dyn Scene>>, incoming: &Vec<Box<dyn Scene>>) {
-    let top = scenes.pop();
-    let top_closed = top.as_ref().map(|x| x.closed()).unwrap_or(false);
-    scenes.retain_mut(|x| !x.closed());
-
-    if top_closed {
-        if incoming.is_empty() {
-            if let Some(new_top) = scenes.last_mut() {
-                new_top.resume()
-            }
-        }
-    } else if top.is_some() {
-        scenes.push(top.unwrap());
-    }
-}
-
 fn run_lua_gc(lua_arena: &Rc<RwLock<Arena<Rc<Lua>>>>) {
     profile_scope!("Garbage collect");
     for (idx, lua) in lua_arena.read().unwrap().iter() {
@@ -519,11 +599,7 @@ fn run_lua_gc(lua_arena: &Rc<RwLock<Arena<Rc<Lua>>>>) {
     }
 }
 
-fn debug_ui(
-    gui: &mut td::GUI,
-    mut frame_input: td::FrameInput<()>,
-    scenes: &mut Vec<Box<dyn Scene>>,
-) {
+fn debug_ui(gui: &mut td::GUI, mut frame_input: td::FrameInput<()>, scenes: &mut Scenes) {
     profile_function!();
     gui.update(
         &mut frame_input.events,
@@ -531,10 +607,30 @@ fn debug_ui(
         frame_input.viewport,
         frame_input.device_pixel_ratio,
         |gui_context| {
-            if let Some(s) = scenes.last_mut() {
+            if let Some(s) = scenes.active.last_mut() {
                 s.debug_ui(gui_context);
             }
             puffin_egui::profiler_window(gui_context);
+            three_d::egui::Window::new("Scenes").show(gui_context, |ui| {
+                ui.label("Loaded");
+                for ele in &scenes.loaded {
+                    ui.label(ele.name());
+                }
+                ui.separator();
+                ui.label("Initialized");
+                for ele in &scenes.initialized {
+                    ui.label(ele.name());
+                }
+                ui.separator();
+                ui.label("Active");
+                for ele in &scenes.active {
+                    ui.label(ele.name());
+                }
+
+                if scenes.transition.is_some() {
+                    ui.label("Transitioning");
+                }
+            });
         },
     );
     frame_input.screen().write(|| gui.render());
@@ -561,45 +657,6 @@ fn render_overlays(
             canvas.flush();
         }
     }
-}
-
-fn render_frame(scenes: &mut Vec<Box<dyn Scene>>, frame_input: &td::FrameInput<()>) {
-    profile_scope!("Render");
-    scenes.retain_mut(|s| {
-        if s.is_suspended() {
-            true
-        } else {
-            s.render(
-                frame_input.elapsed_time,
-                &frame_input.context,
-                &mut frame_input.screen(),
-                frame_input.viewport,
-            );
-            match s.render_ui(frame_input.elapsed_time) {
-                Ok(_) => true,
-                Err(e) => {
-                    error!("{:?}", e);
-                    true
-                }
-            }
-        }
-    })
-}
-
-fn tick(
-    scenes: &mut Vec<Box<dyn Scene>>,
-    frame_input: &td::FrameInput<()>,
-    knob_state: LaserState,
-) {
-    profile_scope!("Tick");
-
-    scenes.retain_mut(|s| match s.tick(frame_input.elapsed_time, knob_state) {
-        Ok(_) => true,
-        Err(e) => {
-            error!("{:?}", e);
-            false
-        }
-    });
 }
 
 fn update_game_data_and_clear(

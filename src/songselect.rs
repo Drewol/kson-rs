@@ -253,7 +253,7 @@ impl Scene for SongSelectScene {
 
     fn init(
         &mut self,
-        load_lua: Box<dyn Fn(Rc<Lua>, &'static str) -> anyhow::Result<Index>>,
+        load_lua: Rc<dyn Fn(Rc<Lua>, &'static str) -> anyhow::Result<Index>>,
         app_control_tx: Sender<ControlMessage>,
     ) -> anyhow::Result<()> {
         self.lua

@@ -19,7 +19,7 @@ use crate::{
 pub trait Scene {
     fn init(
         &mut self,
-        load_lua: Box<dyn Fn(Rc<Lua>, &'static str) -> Result<Index>>,
+        load_lua: Rc<dyn Fn(Rc<Lua>, &'static str) -> Result<Index>>,
         app_control_tx: Sender<ControlMessage>,
     ) -> Result<()> {
         Ok(())

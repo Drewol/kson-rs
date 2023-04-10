@@ -453,7 +453,7 @@ impl Scene for Game {
 
     fn init(
         &mut self,
-        load_lua: Box<dyn Fn(Rc<Lua>, &'static str) -> Result<generational_arena::Index>>,
+        load_lua: Rc<dyn Fn(Rc<Lua>, &'static str) -> Result<generational_arena::Index>>,
         app_control_tx: std::sync::mpsc::Sender<crate::ControlMessage>,
     ) -> Result<()> {
         profile_function!();

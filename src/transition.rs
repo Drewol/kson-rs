@@ -23,7 +23,7 @@ use crate::{
 };
 
 #[derive(Debug, PartialEq, Eq)]
-enum TransitionState {
+pub enum TransitionState {
     Intro,
     Loading,
     Outro,
@@ -34,7 +34,7 @@ pub struct Transition {
     target: ControlMessage,
     target_state: Option<Promise<anyhow::Result<Box<dyn SceneData + Send>>>>,
     control_tx: Sender<ControlMessage>,
-    state: TransitionState,
+    pub state: TransitionState,
     transition_lua: Rc<Lua>,
     context: three_d::Context,
     vgfx: Arc<Mutex<crate::Vgfx>>,
@@ -63,6 +63,10 @@ fn load_chart(
 }
 
 impl Transition {
+    pub fn do_outro(&mut self) {
+        self.state = TransitionState::Outro;
+    }
+
     pub fn new(
         transition_lua: Rc<Lua>,
         target: ControlMessage,
@@ -198,12 +202,10 @@ impl Scene for Transition {
                 render.call(dt / 1000_f64)?;
                 if let Some(target_state) = self.target_state.take() {
                     match target_state.try_take() {
-                        Ok(Ok(finished)) => {
-                            self.state = TransitionState::Outro;
-                            self.control_tx
-                                .send(ControlMessage::TransitionComplete(finished.make_scene()))
-                                .unwrap()
-                        }
+                        Ok(Ok(finished)) => self
+                            .control_tx
+                            .send(ControlMessage::TransitionComplete(finished.make_scene()))
+                            .unwrap(),
                         Ok(Err(loading_error)) => {
                             log::error!("{:?}", loading_error);
                             self.state = TransitionState::Outro;
@@ -214,7 +216,7 @@ impl Scene for Transition {
             }
             TransitionState::Outro => {
                 let render: Function = self.transition_lua.globals().get("render_out")?;
-                let outro_complete: bool = render.call((dt / 1000_f64).max(0.05))?;
+                let outro_complete: bool = render.call((dt / 1000_f64).min(0.1))?;
                 if outro_complete {
                     self.state = TransitionState::Done;
                 }

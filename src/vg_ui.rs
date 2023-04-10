@@ -1567,7 +1567,6 @@ impl TealData for Vgfx {
                 if let Some(paint) = _vgfx.fill_paint.as_mut() {
                     //Paint::image_tint(id, cx, cy, width, height, angle, tint)
                 }
-                todo!();
                 Ok(0)
             },
         );
