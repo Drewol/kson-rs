@@ -14,6 +14,7 @@ use crate::{
 };
 use directories::ProjectDirs;
 use femtovg as vg;
+use game::HitWindow;
 use generational_arena::{Arena, Index};
 use gilrs::ev::filter::Jitter;
 use kson::Chart;
@@ -36,6 +37,7 @@ mod game_data;
 mod help;
 mod main_menu;
 mod material;
+mod results;
 mod scene;
 mod shaded_mesh;
 mod song_provider;
@@ -172,9 +174,10 @@ pub enum ControlMessage {
     },
     TransitionComplete(Box<dyn scene::Scene>),
     Result {
-        song: songselect::Song,
+        song: Arc<songselect::Song>,
         diff_idx: usize,
         score: u32,
+        gauge: f32,
     },
 }
 
@@ -485,7 +488,7 @@ fn main() -> anyhow::Result<()> {
                             control_tx.clone(),
                             frame_input.context.clone(),
                             vgfx.clone(),
-                            frame_input.viewport.clone(),
+                            frame_input.viewport,
                         ))
                     }
                 }
@@ -496,7 +499,25 @@ fn main() -> anyhow::Result<()> {
                     song,
                     diff_idx,
                     score,
-                } => todo!(),
+                    gauge,
+                } => {
+                    if let Ok(arena) = lua_arena.read() {
+                        let transition_lua = arena.get(transition_lua_idx).unwrap().clone();
+                        scenes.transition = Some(Transition::new(
+                            transition_lua,
+                            ControlMessage::Result {
+                                song,
+                                diff_idx,
+                                score,
+                                gauge,
+                            },
+                            control_tx.clone(),
+                            frame_input.context.clone(),
+                            vgfx.clone(),
+                            frame_input.viewport,
+                        ))
+                    }
+                }
             }
         }
 

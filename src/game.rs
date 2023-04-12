@@ -1,7 +1,9 @@
 use crate::{
     scene::{Scene, SceneData},
     shaded_mesh::ShadedMesh,
+    songselect::Song,
     vg_ui::Vgfx,
+    ControlMessage,
 };
 use kson::{Chart, Ksh, Vox};
 use puffin::profile_function;
@@ -23,7 +25,11 @@ pub struct Game {
     lua_game_state: LuaGameState,
     lua: Rc<Lua>,
     intro_done: bool,
-    jacket_path: PathBuf,
+    song: Arc<Song>,
+    diff_idx: usize,
+    control_tx: Option<Sender<ControlMessage>>,
+    results_requested: bool,
+    closed: bool,
 }
 struct TrackRenderMeshes {
     fx_hold: CpuMesh,
@@ -36,10 +42,11 @@ struct TrackRenderMeshes {
     lasers: [CpuMesh; 4],
 }
 pub struct GameData {
+    song: Arc<Song>,
+    diff_idx: usize,
     context: three_d::Context,
     chart: kson::Chart,
     skin_folder: PathBuf,
-    jacket_path: PathBuf,
 }
 
 pub fn extend_mesh(a: CpuMesh, b: CpuMesh) -> CpuMesh {
@@ -103,15 +110,17 @@ pub fn extend_mesh(a: CpuMesh, b: CpuMesh) -> CpuMesh {
 impl GameData {
     pub fn new(
         context: three_d::Context,
+        song: Arc<Song>,
+        diff_idx: usize,
         chart: kson::Chart,
         skin_folder: PathBuf,
-        jacket_path: PathBuf,
     ) -> anyhow::Result<Self> {
         Ok(Self {
             context,
             chart,
             skin_folder,
-            jacket_path,
+            diff_idx,
+            song,
         })
     }
 }
@@ -122,7 +131,8 @@ impl SceneData for GameData {
             context,
             chart,
             skin_folder,
-            jacket_path,
+            diff_idx,
+            song,
         } = *self;
         profile_function!();
 
@@ -258,7 +268,6 @@ impl SceneData for GameData {
                 chart,
                 &skin_folder,
                 &context,
-                jacket_path,
                 [fx_long_shader, fx_long_shader_active],
                 [bt_long_shader, bt_long_shader_active],
                 [fx_chip_shader, fx_chip_shader_sample],
@@ -268,6 +277,8 @@ impl SceneData for GameData {
                 ],
                 [track_shader],
                 [bt_chip_shader],
+                song,
+                diff_idx,
             )
             .unwrap(),
         )
@@ -289,20 +300,22 @@ impl Game {
         chart: Chart,
         skin_root: &PathBuf,
         td: &three_d::Context,
-        jacket_path: PathBuf,
         fx_long_shaders: [ShadedMesh; 2],
         bt_long_shaders: [ShadedMesh; 2],
         fx_chip_shaders: [ShadedMesh; 2],
         laser_shaders: [[ShadedMesh; 2]; 2],
         track_shader: [ShadedMesh; 1],
         bt_chip_shader: [ShadedMesh; 1],
+        song: Arc<Song>,
+        diff_idx: usize,
     ) -> Result<Self> {
         let mut view = ChartView::new(skin_root, td);
         view.build_laser_meshes(&chart);
         let duration = chart.get_last_tick();
         let duration = chart.tick_to_ms(duration) as i64;
         let mut res = Self {
-            jacket_path,
+            song,
+            diff_idx,
             intro_done: false,
             lua: Rc::new(Lua::new()),
             chart,
@@ -331,6 +344,9 @@ impl Game {
                 10.0,
             ),
             lua_game_state: LuaGameState::default(),
+            control_tx: None,
+            results_requested: false,
+            closed: false,
         };
         res.set_track_uniforms();
         Ok(res)
@@ -377,7 +393,9 @@ impl Game {
         LuaGameState {
             title: self.chart.meta.title.clone(),
             artist: self.chart.meta.artist.clone(),
-            jacket_path: self.jacket_path.clone(),
+            jacket_path: self.song.as_ref().difficulties[self.diff_idx]
+                .jacket_path
+                .clone(),
             demo_mode: false,
             difficulty: self.chart.meta.difficulty,
             level: self.chart.meta.level,
@@ -441,7 +459,7 @@ impl Game {
 
 impl Scene for Game {
     fn closed(&self) -> bool {
-        self.time >= self.duration
+        self.closed
     }
     fn render_ui(&mut self, dt: f64) -> anyhow::Result<()> {
         Ok(())
@@ -451,12 +469,35 @@ impl Scene for Game {
         false
     }
 
+    fn tick(&mut self, dt: f64, knob_state: crate::button_codes::LaserState) -> Result<()> {
+        if self.time >= self.duration && !self.results_requested {
+            self.control_tx
+                .as_ref()
+                .unwrap()
+                .send(ControlMessage::Result {
+                    song: self.song.clone(),
+                    diff_idx: self.diff_idx,
+                    score: 900000,
+                    gauge: 0.5,
+                });
+
+            self.results_requested = true;
+        }
+
+        Ok(())
+    }
+
+    fn suspend(&mut self) {
+        self.closed = true;
+    }
+
     fn init(
         &mut self,
         load_lua: Rc<dyn Fn(Rc<Lua>, &'static str) -> Result<generational_arena::Index>>,
         app_control_tx: std::sync::mpsc::Sender<crate::ControlMessage>,
     ) -> Result<()> {
         profile_function!();
+        self.control_tx = Some(app_control_tx);
         load_lua(self.lua.clone(), "gameplay.lua")?;
         Ok(())
     }
@@ -585,7 +626,7 @@ use std::{
     ops::MulAssign,
     path::PathBuf,
     rc::Rc,
-    sync::{Arc, Mutex},
+    sync::{mpsc::Sender, Arc, Mutex},
 };
 
 pub struct ChartView {
@@ -1225,7 +1266,7 @@ struct Gauge {
 
 #[derive(Debug, Serialize, Default, Deserialize, Clone, PartialEq)]
 #[serde(rename_all = "camelCase")]
-struct HitWindow {
+pub struct HitWindow {
     #[serde(rename = "type")]
     variant: i32,
     perfect: i32,

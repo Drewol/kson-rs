@@ -19,6 +19,7 @@ use tealr::{
 use crate::{
     button_codes::{LaserAxis, LaserState, UscButton},
     config::GameConfig,
+    results::Score,
     scene::{Scene, SceneData},
     song_provider::{FileSongProvider, NauticaSongProvider, SongProvider, SongProviderEvent},
     ControlMessage,
@@ -32,8 +33,8 @@ pub struct Difficulty {
     pub difficulty: u8, // 0 = nov, 1 = adv, etc.
     pub id: u64,        //unique static identifier
     pub effector: String,
-    pub best_badge: i32,  //top badge for this difficulty
-    pub scores: Vec<i32>, //array of all scores on this diff
+    pub best_badge: i32,    //top badge for this difficulty
+    pub scores: Vec<Score>, //array of all scores on this diff
 }
 
 impl TealData for Difficulty {

@@ -6,7 +6,10 @@ use std::{
     sync::Arc,
 };
 
-use crate::songselect::{Difficulty, Song};
+use crate::{
+    results::Score,
+    songselect::{Difficulty, Song},
+};
 
 use super::{SongProvider, SongProviderEvent};
 use kson::{Chart, Ksh};
@@ -77,7 +80,7 @@ impl FileSongProvider {
                             id: id as u64,
                             jacket_path: song_folder.join(&c.0.meta.jacket_filename),
                             level: c.0.meta.level,
-                            scores: vec![99],
+                            scores: vec![Score::default()],
                         })
                         .collect(),
                 })

@@ -16,8 +16,9 @@ use ureq::json;
 use crate::{
     config::GameConfig,
     main_menu::MainMenuButton,
+    results::SongResultData,
     scene::{Scene, SceneData},
-    songselect::{SongSelect, SongSelectScene},
+    songselect::{Song, SongSelect, SongSelectScene},
     util::back_pixels,
     ControlMessage,
 };
@@ -51,14 +52,16 @@ fn load_songs() -> anyhow::Result<Box<dyn SceneData + Send>> {
 fn load_chart(
     context: three_d::Context,
     chart: kson::Chart,
+    song: Arc<Song>,
+    diff_idx: usize,
     skin_folder: PathBuf,
-    jacket_path: PathBuf,
 ) -> anyhow::Result<Box<dyn SceneData + Send>> {
     Ok(Box::new(crate::game::GameData::new(
         context,
+        song,
+        diff_idx,
         chart,
         skin_folder,
-        jacket_path,
     )?))
 }
 
@@ -185,14 +188,20 @@ impl Scene for Transition {
                             let skin_folder = self.vgfx.lock().unwrap().skin_folder();
                             Some(Promise::spawn_thread("Load song", move || {
                                 let (chart, audio) = loader();
-                                load_chart(
-                                    context,
-                                    chart,
-                                    skin_folder,
-                                    song.difficulties[diff].jacket_path.clone(),
-                                )
+                                load_chart(context, chart, song, diff, skin_folder)
                             }))
                         }
+                        ControlMessage::Result {
+                            song,
+                            diff_idx,
+                            score,
+                            gauge,
+                        } => Some(Promise::spawn_thread(
+                            "Load song",
+                            move || -> anyhow::Result<Box<dyn SceneData + Send>> {
+                                Ok(Box::new(SongResultData::from_diff(song, diff_idx, score)))
+                            },
+                        )),
                         _ => None,
                     }
                 }
