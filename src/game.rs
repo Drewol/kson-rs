@@ -477,7 +477,7 @@ impl Scene for Game {
                 .send(ControlMessage::Result {
                     song: self.song.clone(),
                     diff_idx: self.diff_idx,
-                    score: 900000,
+                    score: 90_00000,
                     gauge: 0.5,
                 });
 

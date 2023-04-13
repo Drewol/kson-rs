@@ -143,6 +143,10 @@ impl Transition {
 
 impl Scene for Transition {
     fn tick(&mut self, dt: f64, knob_state: crate::button_codes::LaserState) -> anyhow::Result<()> {
+        if self.state == TransitionState::Loading && self.target_state.is_none() {
+            self.state = TransitionState::Outro
+        }
+
         Ok(())
     }
 
@@ -168,6 +172,9 @@ impl Scene for Transition {
     }
 
     fn render_ui(&mut self, dt: f64) -> anyhow::Result<()> {
+        {
+            self.vgfx.lock().unwrap().canvas.lock().unwrap().reset();
+        }
         //TODO: Render last frame before transition
         //TODO: Handle rendering of next scene during outro
         match self.state {

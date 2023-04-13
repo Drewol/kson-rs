@@ -89,8 +89,17 @@ impl ShadedMesh {
         shader_path.set_extension("vs");
         profile_function!();
 
-        let vertex_shader_source = std::fs::read_to_string(&shader_path)?;
-        let fragment_shader_source = std::fs::read_to_string(shader_path.with_extension("fs"))?;
+        let vertex_shader_source: String = std::fs::read_to_string(&shader_path)?
+            .lines()
+            .filter(|x| !x.to_lowercase().contains("#version"))
+            .collect::<Vec<_>>()
+            .join("\n");
+        let fragment_shader_source: String =
+            std::fs::read_to_string(shader_path.with_extension("fs"))?
+                .lines()
+                .filter(|x| !x.to_lowercase().contains("#version"))
+                .collect::<Vec<_>>()
+                .join("\n");
 
         Ok(Self {
             params: HashMap::new(),

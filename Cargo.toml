@@ -38,6 +38,7 @@ directories = "4.0.1"
 zip = "0.6.4"
 rayon = "1.7.0"
 puffin_egui = "0.20.0"
+serde_json = "1.0.96"
 
 [profile.release]
 debug = true

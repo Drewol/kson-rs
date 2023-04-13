@@ -1,4 +1,5 @@
 use std::{
+    fs::File,
     io::Write,
     path::{Path, PathBuf},
     rc::Rc,
@@ -9,6 +10,7 @@ use crate::{
     button_codes::LaserState,
     config::GameConfig,
     game_data::{ExportGame, GameData},
+    skin_settings::SkinSettingEntry,
     transition::Transition,
     vg_ui::{ExportVgfx, Vgfx},
 };
@@ -40,6 +42,7 @@ mod material;
 mod results;
 mod scene;
 mod shaded_mesh;
+mod skin_settings;
 mod song_provider;
 mod songselect;
 mod transition;
@@ -209,6 +212,30 @@ fn main() -> anyhow::Result<()> {
     config_path.push("Main.cfg");
 
     GameConfig::init(config_path);
+
+    let skin_setting: Vec<SkinSettingEntry> = {
+        let skin = &GameConfig::get().unwrap().skin;
+        let mut config_def_path = std::env::current_dir()?;
+        config_def_path.push("skins");
+        config_def_path.push(skin);
+        config_def_path.push("config-definitions.json");
+        let res = File::open(config_def_path).map(|f| {
+            let res = serde_json::from_reader::<_, Vec<SkinSettingEntry>>(f);
+            if let Err(e) = &res {
+                log::error!("{:?}", e);
+            }
+
+            res.unwrap_or_default()
+        });
+
+        if let Err(e) = &res {
+            log::error!("{:?}", e);
+        }
+
+        res.unwrap_or_default()
+    };
+
+    log::info!("Skin Settings: {:#?}", skin_setting);
 
     let mut input = gilrs::GilrsBuilder::default()
         .add_included_mappings(true)
@@ -644,8 +671,20 @@ fn debug_ui(gui: &mut td::GUI, mut frame_input: td::FrameInput<()>, scenes: &mut
                 }
                 ui.separator();
                 ui.label("Active");
-                for ele in &scenes.active {
-                    ui.label(ele.name());
+
+                let mut closed_scene = None;
+
+                for (i, ele) in scenes.active.iter().enumerate() {
+                    ui.horizontal(|ui| {
+                        ui.label(ele.name());
+                        if ui.button("Close").clicked() {
+                            closed_scene = Some(i);
+                        }
+                    });
+                }
+
+                if let Some(closed) = closed_scene {
+                    scenes.active.remove(closed);
                 }
 
                 if scenes.transition.is_some() {

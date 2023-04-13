@@ -1639,8 +1639,8 @@ impl TealData for Vgfx {
         tealr::mlu::create_named_parameters!(LoadAnimationParams with
           path : String,
           frametime : f64,
-          loopcount : usize,
-          compressed : bool,
+          loopcount : Option<usize>,
+          compressed : Option<bool>,
 
         );
         add_lua_static_method(
@@ -1654,9 +1654,14 @@ impl TealData for Vgfx {
                     compressed,
                 } = p;
 
-                let anim =
-                    VgAnimation::new(path, frametime, _vgfx.canvas.clone(), loopcount, compressed)
-                        .map_err(mlua::Error::external)?;
+                let anim = VgAnimation::new(
+                    path,
+                    frametime,
+                    _vgfx.canvas.clone(),
+                    loopcount.unwrap_or_default(),
+                    compressed.unwrap_or_default(),
+                )
+                .map_err(mlua::Error::external)?;
                 _vgfx
                     .images
                     .insert(_vgfx.next_img_id, VgImage::Animation(anim));
@@ -1700,8 +1705,8 @@ impl TealData for Vgfx {
                     skinned_path,
                     frametime,
                     _vgfx.canvas.clone(),
-                    loopcount,
-                    compressed,
+                    loopcount.unwrap_or_default(),
+                    compressed.unwrap_or_default(),
                 )
                 .map_err(mlua::Error::external)?;
                 _vgfx
