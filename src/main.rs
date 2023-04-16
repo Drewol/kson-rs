@@ -218,7 +218,6 @@ fn main() -> anyhow::Result<()> {
         let mut config_def_path = std::env::current_dir()?;
         config_def_path.push("skins");
         config_def_path.push(skin);
-        config_def_path.push("config-definitions.json");
         let res = File::open(config_def_path).map(|f| {
             let res = serde_json::from_reader::<_, Vec<SkinSettingEntry>>(f);
             if let Err(e) = &res {
@@ -642,7 +641,6 @@ fn run_lua_gc(lua_arena: &Rc<RwLock<Arena<Rc<Lua>>>>) {
     profile_scope!("Garbage collect");
     for (idx, lua) in lua_arena.read().unwrap().iter() {
         //TODO: if reference count = 1, remove loaded gfx assets for state
-        lua.gc_collect();
         lua.gc_collect();
     }
 }

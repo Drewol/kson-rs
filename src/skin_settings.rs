@@ -1,7 +1,11 @@
 use puffin_egui::egui::Color32;
 use serde::{de::Visitor, Deserialize, Serialize};
+use tealr::{
+    mlu::mlua::{FromLua, LuaSerdeExt, ToLua},
+    TypeName,
+};
 
-#[derive(Debug)]
+#[derive(Debug, Clone, Copy)]
 pub struct SettingsColor(Color32);
 
 impl Serialize for SettingsColor {
@@ -89,18 +93,85 @@ pub enum SkinSettingEntry {
     },
 
     Float {
-        default: f32,
+        default: f64,
         label: String,
         name: String,
-        min: f32,
-        max: f32,
+        min: f64,
+        max: f64,
     },
 
     Integer {
-        default: i32,
+        default: i64,
         label: String,
         name: String,
-        min: i32,
-        max: i32,
+        min: i64,
+        max: i64,
     },
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone, TypeName)]
+#[serde(untagged)]
+pub enum SkinSettingValue {
+    None,
+    Integer(i64),
+    Float(f64),
+    Bool(bool),
+    Text(String),
+    Color(SettingsColor),
+}
+
+impl<'lua> FromLua<'lua> for SkinSettingValue {
+    fn from_lua(
+        lua_value: tealr::mlu::mlua::Value<'lua>,
+        _: &'lua tealr::mlu::mlua::Lua,
+    ) -> tealr::mlu::mlua::Result<Self> {
+        match lua_value {
+            tealr::mlu::mlua::Value::Nil => Ok(Self::None),
+            tealr::mlu::mlua::Value::Boolean(b) => Ok(Self::Bool(b)),
+            tealr::mlu::mlua::Value::Integer(n) => Ok(Self::Integer(n)),
+            tealr::mlu::mlua::Value::Number(n) => Ok(Self::Float(n)),
+            tealr::mlu::mlua::Value::String(s) => Ok(Self::Text(String::from(s.to_str()?))),
+            tealr::mlu::mlua::Value::Table(t) => {
+                let a: Result<Vec<u8>, _> = t.sequence_values::<u8>().collect();
+                let a = a?;
+
+                if a.len() == 4 {
+                    Ok(Self::Color(SettingsColor(
+                        Color32::from_rgba_premultiplied(a[0], a[1], a[2], a[3]),
+                    )))
+                } else if a.len() == 3 {
+                    Ok(Self::Color(SettingsColor(Color32::from_rgb(
+                        a[0], a[1], a[2],
+                    ))))
+                } else {
+                    Err(tealr::mlu::mlua::Error::FromLuaConversionError {
+                        from: "table",
+                        to: "SkinSettingValue::Color",
+                        message: Some("Not a color array".to_string()),
+                    })
+                }
+            }
+            v => Err(tealr::mlu::mlua::Error::FromLuaConversionError {
+                from: v.type_name(),
+                to: "SkinSettingValue",
+                message: None,
+            }),
+        }
+    }
+}
+
+impl<'lua> ToLua<'lua> for SkinSettingValue {
+    fn to_lua(
+        self,
+        lua: &'lua tealr::mlu::mlua::Lua,
+    ) -> tealr::mlu::mlua::Result<tealr::mlu::mlua::Value<'lua>> {
+        match self {
+            Self::None => Ok(tealr::mlu::mlua::Value::Nil),
+            Self::Integer(i) => Ok(tealr::mlu::mlua::Value::Integer(i)),
+            Self::Float(v) => Ok(tealr::mlu::mlua::Value::Number(v)),
+            Self::Bool(v) => Ok(tealr::mlu::mlua::Value::Boolean(v)),
+            Self::Text(v) => Ok(tealr::mlu::mlua::Value::String(lua.create_string(&v)?)),
+            Self::Color(c) => Ok(lua.to_value(&[c.0.r(), c.0.g(), c.0.b(), c.0.a()])?),
+        }
+    }
 }

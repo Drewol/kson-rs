@@ -10,7 +10,7 @@ use tealr::{
     TypeName,
 };
 
-use crate::{config::GameConfig, help::add_lua_static_method};
+use crate::{config::GameConfig, help::add_lua_static_method, skin_settings::SkinSettingValue};
 
 #[derive(UserData)]
 pub struct GameData {
@@ -176,14 +176,30 @@ impl TealData for GameData {
 
         //GetSkinSetting
         add_lua_static_method(methods, "GetSkinSetting", |_, _game_data, key: (String)| {
-            Ok((0, 127, 255, 255))
+            if let Some(gc) = GameConfig::get() {
+                Ok(gc
+                    .skin_settings
+                    .get(&key)
+                    .cloned()
+                    .unwrap_or(SkinSettingValue::None))
+            } else {
+                Err(mlua::Error::RuntimeError(
+                    "GameConfig not initialized".to_string(),
+                ))
+            }
         });
 
         //GetSkinSetting
         add_lua_static_method(
             methods,
             "SetSkinSetting",
-            |_, _game_data, key: (String, mlua::Value)| Ok((0, 127, 255, 255)),
+            |_, _game_data, key: (String, SkinSettingValue)| {
+                if let Some(mut config) = GameConfig::get_mut() {
+                    config.skin_settings.insert(key.0, key.1);
+                }
+
+                Ok(())
+            },
         );
 
         //BeginProfile
