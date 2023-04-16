@@ -15,6 +15,7 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::collections::HashSet;
 use std::marker::PhantomData;
+use std::slice::Windows;
 use std::str;
 pub use vox::*;
 
@@ -350,6 +351,23 @@ pub struct LaserSection(
     u8,
 );
 
+impl LaserSection {
+    pub fn tick(&self) -> u32 {
+        self.0
+    }
+    pub fn segments(&self) -> Windows<GraphSectionPoint> {
+        self.1.windows(2)
+    }
+
+    pub fn last(&self) -> Option<&GraphSectionPoint> {
+        self.1.last()
+    }
+
+    pub fn wide(&self) -> u8 {
+        self.2
+    }
+}
+
 //https://github.com/m4saka/ksh2kson/issues/4#issuecomment-573343229
 pub fn do_curve(x: f64, a: f64, b: f64) -> f64 {
     let t = if x < std::f64::EPSILON || a < std::f64::EPSILON {
@@ -413,7 +431,7 @@ pub struct MetaInfo {
 
 #[derive(Serialize, Deserialize, Clone)]
 pub struct GaugeInfo {
-    total: u32,
+    pub total: u32,
 }
 
 impl MetaInfo {
@@ -502,17 +520,17 @@ impl<'de, T: Deserialize<'de>> Deserialize<'de> for ByPulseOption<T> {
 
 #[derive(Serialize, Deserialize, Copy, Clone)]
 pub struct ByNote<T> {
-    y: u32,
-    v: Option<T>,
+    pub y: u32,
+    pub v: Option<T>,
     #[serde(default = "default_true::<bool>")]
-    dom: bool,
+    pub dom: bool,
 }
 
 #[derive(Serialize, Deserialize, Clone)]
 pub struct ByNotes<T> {
-    bt: Option<[Vec<ByNote<T>>; 4]>,
-    fx: Option<[Vec<ByNote<T>>; 2]>,
-    laser: Option<[Vec<ByNote<T>>; 2]>,
+    pub bt: Option<[Vec<ByNote<T>>; 4]>,
+    pub fx: Option<[Vec<ByNote<T>>; 2]>,
+    pub laser: Option<[Vec<ByNote<T>>; 2]>,
 }
 
 impl<'a, T> IntoIterator for &'a ByNotes<T> {
@@ -600,7 +618,7 @@ impl<'a, T> Iterator for ByNotesIter<'a, T> {
 
 /// (Numerator, Denominator)
 #[derive(Serialize, Deserialize, Copy, Clone)]
-pub struct TimeSignature(u32, u32);
+pub struct TimeSignature(pub u32, pub u32);
 
 impl TimeSignature {
     //Parse from "n/d" string
@@ -649,7 +667,7 @@ pub struct BgmInfo {
 
 #[derive(Serialize, Deserialize, Clone, Default)]
 pub struct LegacyBgmInfo {
-    fp_filenames: Vec<String>,
+    pub fp_filenames: Vec<String>,
 }
 
 #[derive(Serialize, Deserialize, Clone, Default)]
@@ -682,17 +700,17 @@ pub struct KeySoundInfo {
 
 #[derive(Serialize, Deserialize, Clone)]
 pub struct KeySoundLaserInfo {
-    vol: ByPulse<f64>,
+    pub vol: ByPulse<f64>,
 }
 
 #[derive(Serialize, Deserialize, Clone)]
 pub struct KeySoundFXInfo {
-    chip_event: HashMap<String, [Vec<ByPulse<KeySoundInvokeFX>>; 2]>,
+    pub chip_event: HashMap<String, [Vec<ByPulse<KeySoundInvokeFX>>; 2]>,
 }
 
 #[derive(Serialize, Deserialize, Clone)]
 pub struct KeySoundInvokeFX {
-    vol: f64,
+    pub vol: f64,
 }
 
 type NoteParamChange = ByPulseOption<Dict<String>>;
@@ -700,11 +718,11 @@ type NoteParamChange = ByPulseOption<Dict<String>>;
 #[derive(Serialize, Deserialize, Clone)]
 pub struct AudioEffectFXInfo {
     #[serde(default, skip_serializing_if = "HashMap::is_empty")]
-    def: Dict<AudioEffect>,
+    pub def: Dict<AudioEffect>,
     #[serde(default, skip_serializing_if = "HashMap::is_empty")]
-    param_change: Dict<Dict<ByPulse<String>>>,
+    pub param_change: Dict<Dict<ByPulse<String>>>,
     #[serde(default, skip_serializing_if = "HashMap::is_empty")]
-    long_event: Dict<[Vec<NoteParamChange>; 2]>,
+    pub long_event: Dict<[Vec<NoteParamChange>; 2]>,
 }
 
 #[derive(Serialize, Deserialize, Clone)]
@@ -712,17 +730,17 @@ pub struct AudioEffectLaserInfo {
     #[serde(default, skip_serializing_if = "HashMap::is_empty")]
     def: Dict<AudioEffect>,
     #[serde(default, skip_serializing_if = "HashMap::is_empty")]
-    param_change: Dict<Dict<ByPulse<String>>>,
+    pub param_change: Dict<Dict<ByPulse<String>>>,
     #[serde(default, skip_serializing_if = "HashMap::is_empty")]
-    pulse_event: Dict<ByPulse<()>>,
+    pub pulse_event: Dict<ByPulse<()>>,
     #[serde(default = "default_zero::<i32>")]
-    peaking_filter_delay: i32,
+    pub peaking_filter_delay: i32,
 }
 
 #[derive(Serialize, Deserialize, Clone)]
 pub struct AudioEffectInfo {
-    fx: AudioEffectFXInfo,
-    laser: AudioEffectLaserInfo,
+    pub fx: AudioEffectFXInfo,
+    pub laser: AudioEffectLaserInfo,
 }
 
 #[derive(Serialize, Deserialize, Clone)]

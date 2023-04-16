@@ -8,7 +8,7 @@ use kson_effect_param_macro::Effect;
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
-use std::{collections::HashMap, f32};
+use std::f32;
 
 #[cfg(feature = "schema")]
 use schemars::JsonSchema;
@@ -172,10 +172,10 @@ pub struct PeakingFilter {
 }
 
 pub struct EffectInterval {
-    interval: Interval,
-    effect: AudioEffect,
-    track: Option<Track>,
-    dom: bool,
+    pub interval: Interval,
+    pub effect: AudioEffect,
+    pub track: Option<Track>,
+    pub dom: bool,
 }
 
 impl Chart {
