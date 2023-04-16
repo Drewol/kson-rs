@@ -124,6 +124,11 @@ impl ShadedMesh {
         })
     }
 
+    pub fn with_transform(mut self, transform: Mat4) -> Self {
+        self.transform = transform;
+        self
+    }
+
     pub fn set_blend(&mut self, blend: Blend) {
         self.state.blend = blend;
     }

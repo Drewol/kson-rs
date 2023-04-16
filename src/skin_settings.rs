@@ -1,7 +1,7 @@
 use puffin_egui::egui::Color32;
 use serde::{de::Visitor, Deserialize, Serialize};
 use tealr::{
-    mlu::mlua::{FromLua, LuaSerdeExt, ToLua},
+    mlu::mlua::{FromLua, LuaSerdeExt, MultiValue, ToLua, ToLuaMulti, Value},
     TypeName,
 };
 
@@ -116,8 +116,8 @@ pub enum SkinSettingValue {
     Integer(i64),
     Float(f64),
     Bool(bool),
-    Text(String),
     Color(SettingsColor),
+    Text(String),
 }
 
 impl<'lua> FromLua<'lua> for SkinSettingValue {
@@ -160,18 +160,25 @@ impl<'lua> FromLua<'lua> for SkinSettingValue {
     }
 }
 
-impl<'lua> ToLua<'lua> for SkinSettingValue {
-    fn to_lua(
+impl<'lua> ToLuaMulti<'lua> for SkinSettingValue {
+    fn to_lua_multi(
         self,
         lua: &'lua tealr::mlu::mlua::Lua,
-    ) -> tealr::mlu::mlua::Result<tealr::mlu::mlua::Value<'lua>> {
+    ) -> tealr::mlu::mlua::Result<tealr::mlu::mlua::MultiValue<'lua>> {
         match self {
-            Self::None => Ok(tealr::mlu::mlua::Value::Nil),
-            Self::Integer(i) => Ok(tealr::mlu::mlua::Value::Integer(i)),
-            Self::Float(v) => Ok(tealr::mlu::mlua::Value::Number(v)),
-            Self::Bool(v) => Ok(tealr::mlu::mlua::Value::Boolean(v)),
-            Self::Text(v) => Ok(tealr::mlu::mlua::Value::String(lua.create_string(&v)?)),
-            Self::Color(c) => Ok(lua.to_value(&[c.0.r(), c.0.g(), c.0.b(), c.0.a()])?),
+            SkinSettingValue::Color(c) => Ok(MultiValue::from_vec(vec![
+                Value::Integer(c.0.r() as i64),
+                Value::Integer(c.0.g() as i64),
+                Value::Integer(c.0.b() as i64),
+                Value::Integer(c.0.a() as i64),
+            ])),
+            SkinSettingValue::None => Ok(MultiValue::default()),
+            SkinSettingValue::Integer(v) => Ok(MultiValue::from_vec(vec![Value::Integer(v)])),
+            SkinSettingValue::Float(v) => Ok(MultiValue::from_vec(vec![Value::Number(v)])),
+            SkinSettingValue::Bool(v) => Ok(MultiValue::from_vec(vec![Value::Boolean(v)])),
+            SkinSettingValue::Text(v) => Ok(MultiValue::from_vec(vec![Value::String(
+                lua.create_string(&v)?,
+            )])),
         }
     }
 }

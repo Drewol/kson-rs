@@ -177,11 +177,13 @@ impl TealData for GameData {
         //GetSkinSetting
         add_lua_static_method(methods, "GetSkinSetting", |_, _game_data, key: (String)| {
             if let Some(gc) = GameConfig::get() {
-                Ok(gc
+                let skin_setting_value = gc
                     .skin_settings
                     .get(&key)
                     .cloned()
-                    .unwrap_or(SkinSettingValue::None))
+                    .unwrap_or(SkinSettingValue::None);
+
+                Ok(skin_setting_value)
             } else {
                 Err(mlua::Error::RuntimeError(
                     "GameConfig not initialized".to_string(),

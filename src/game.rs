@@ -136,6 +136,8 @@ impl SceneData for GameData {
         } = *self;
         profile_function!();
 
+        let mesh_transform = Mat4::from_angle_x(Deg(90.0));
+
         let mut shader_folder = skin_folder.clone();
         let mut texture_folder = skin_folder.clone();
         shader_folder.push("shaders");
@@ -210,7 +212,7 @@ impl SceneData for GameData {
             ShadedMesh::new(&context, "track", &shader_folder).expect("Failed to load shader:");
         track_shader.set_data_mesh(
             &context,
-            &xz_rect(Vec3::zero(), vec2(1.0, ChartView::TRACK_LENGTH * 2.0)),
+            &xy_rect(Vec3::zero(), vec2(1.0, ChartView::TRACK_LENGTH * 2.0)),
         );
 
         track_shader.set_param("lCol", Color::BLUE.to_vec4());
@@ -268,15 +270,30 @@ impl SceneData for GameData {
                 chart,
                 &skin_folder,
                 &context,
-                [fx_long_shader, fx_long_shader_active],
-                [bt_long_shader, bt_long_shader_active],
-                [fx_chip_shader, fx_chip_shader_sample],
                 [
-                    [laser_left, laser_left_active],
-                    [laser_right, laser_right_active],
+                    fx_long_shader.with_transform(mesh_transform),
+                    fx_long_shader_active.with_transform(mesh_transform),
                 ],
-                [track_shader],
-                [bt_chip_shader],
+                [
+                    bt_long_shader.with_transform(mesh_transform),
+                    bt_long_shader_active.with_transform(mesh_transform),
+                ],
+                [
+                    fx_chip_shader.with_transform(mesh_transform),
+                    fx_chip_shader_sample.with_transform(mesh_transform),
+                ],
+                [
+                    [
+                        laser_left.with_transform(mesh_transform),
+                        laser_left_active.with_transform(mesh_transform),
+                    ],
+                    [
+                        laser_right.with_transform(mesh_transform),
+                        laser_right_active.with_transform(mesh_transform),
+                    ],
+                ],
+                [track_shader.with_transform(mesh_transform)],
+                [bt_chip_shader.with_transform(mesh_transform)],
                 song,
                 diff_idx,
             )
@@ -639,9 +656,9 @@ pub struct ChartView {
 
 use anyhow::Result;
 use three_d::{
-    context::Texture, vec2, vec3, Blend, Camera, Color, ColorMaterial, CpuMesh, CpuTexture,
-    DepthTest, Gm, Indices, InnerSpace, Mat3, Matrix3, Matrix4, Mesh, Positions, Rad, RenderStates,
-    Texture2D, Transform, Vec2, Vec3, Vec4, Vector3, Viewport, Zero,
+    context::Texture, vec2, vec3, Blend, Camera, Color, ColorMaterial, CpuMesh, CpuTexture, Deg,
+    DepthTest, Gm, Indices, InnerSpace, Mat3, Mat4, Matrix3, Matrix4, Mesh, Positions, Rad,
+    RenderStates, Texture2D, Transform, Vec2, Vec3, Vec4, Vector3, Viewport, Zero,
 };
 
 #[derive(Debug)]
@@ -843,6 +860,31 @@ pub fn xz_rect(center: Vec3, size: Vec2) -> CpuMesh {
     }
 }
 
+pub fn xy_rect(center: Vec3, size: Vec2) -> CpuMesh {
+    let indices = vec![0u8, 1, 2, 2, 3, 0];
+    let halfsize_x = size.x / 2.0;
+    let halfsize_z = size.y / 2.0;
+    let positions = vec![
+        center + Vec3::new(-halfsize_x, -halfsize_z, 0.0),
+        center + Vec3::new(halfsize_x, -halfsize_z, 0.0),
+        center + Vec3::new(halfsize_x, halfsize_z, 0.0),
+        center + Vec3::new(-halfsize_x, halfsize_z, 0.0),
+    ];
+
+    let uvs = vec![
+        Vec2::new(0.0, 0.0),
+        Vec2::new(1.0, 0.0),
+        Vec2::new(1.0, 1.0),
+        Vec2::new(0.0, 1.0),
+    ];
+    CpuMesh {
+        indices: Indices::U8(indices),
+        positions: Positions::F32(positions),
+        uvs: Some(uvs),
+        ..Default::default()
+    }
+}
+
 fn plane_normal(a: Vec3, b: Vec3, c: Vec3) -> Vector3<f32> {
     // Calculate the edge vectors formed by the three points
     let ab = b - a;
@@ -965,7 +1007,7 @@ impl ChartView {
             ..Default::default()
         });
 
-        let track = xz_rect(vec3(0.0, 0.0, 0.0), vec2(1.0, Self::TRACK_LENGTH * 2.0));
+        let track = xy_rect(vec3(0.0, 0.0, 0.0), vec2(1.0, Self::TRACK_LENGTH * 2.0));
         let button_render_states = RenderStates {
             depth_test: DepthTest::Always,
             ..Default::default()
@@ -1111,7 +1153,7 @@ impl ChartView {
                 let y = yoff / y_view_div - h;
                 let p = if n.l == 0 { 2 } else { 1 }; //sorting priority
                 notes.push((
-                    vec3(x, 0.0, y),
+                    vec3(x, y, 0.0),
                     vec2(w, h),
                     if n.l > 0 {
                         NoteType::BtHold
@@ -1139,7 +1181,7 @@ impl ChartView {
                 let y = yoff / y_view_div - h;
                 let p = if n.l == 0 { 3 } else { 0 }; //sorting priority
                 notes.push((
-                    vec3(x, 0.0, y),
+                    vec3(x, y, 0.0),
                     vec2(w, h),
                     if n.l > 0 {
                         NoteType::FxHold
@@ -1152,20 +1194,20 @@ impl ChartView {
 
         let notes = notes
             .iter()
-            .map(|n| (xz_rect(n.0 - vec3(0.5, 0.0, n.1.y / -2.0), n.1), n.2));
+            .map(|n| (xy_rect(n.0 - vec3(0.5, n.1.y / -2.0, 0.0), n.1), n.2));
 
-        let mut fx_hold = xz_rect(Vec3::zero(), Vec2::zero());
-        let mut fx_hold_active = xz_rect(Vec3::zero(), Vec2::zero());
-        let mut bt_hold = xz_rect(Vec3::zero(), Vec2::zero());
-        let mut bt_hold_active = xz_rect(Vec3::zero(), Vec2::zero());
-        let mut fx_chip = xz_rect(Vec3::zero(), Vec2::zero());
-        let mut fx_chip_sample = xz_rect(Vec3::zero(), Vec2::zero());
-        let mut bt_chip = xz_rect(Vec3::zero(), Vec2::zero());
+        let mut fx_hold = xy_rect(Vec3::zero(), Vec2::zero());
+        let mut fx_hold_active = xy_rect(Vec3::zero(), Vec2::zero());
+        let mut bt_hold = xy_rect(Vec3::zero(), Vec2::zero());
+        let mut bt_hold_active = xy_rect(Vec3::zero(), Vec2::zero());
+        let mut fx_chip = xy_rect(Vec3::zero(), Vec2::zero());
+        let mut fx_chip_sample = xy_rect(Vec3::zero(), Vec2::zero());
+        let mut bt_chip = xy_rect(Vec3::zero(), Vec2::zero());
         let mut lasers = [
-            xz_rect(Vec3::zero(), Vec2::zero()),
-            xz_rect(Vec3::zero(), Vec2::zero()),
-            xz_rect(Vec3::zero(), Vec2::zero()),
-            xz_rect(Vec3::zero(), Vec2::zero()),
+            xy_rect(Vec3::zero(), Vec2::zero()),
+            xy_rect(Vec3::zero(), Vec2::zero()),
+            xy_rect(Vec3::zero(), Vec2::zero()),
+            xy_rect(Vec3::zero(), Vec2::zero()),
         ];
 
         for n in notes {
@@ -1197,7 +1239,7 @@ impl ChartView {
                         positions: three_d::Positions::F32(
                             vertices
                                 .iter()
-                                .map(|v| vec3(v.pos.z, v.pos.y, (yoff - v.pos.x) / y_view_div))
+                                .map(|v| vec3(v.pos.z, (yoff - v.pos.x) / y_view_div, v.pos.y))
                                 .collect(),
                         ),
                         uvs: Some(vertices.iter().map(|v| vec2(v.uv.x, v.uv.y)).collect()),

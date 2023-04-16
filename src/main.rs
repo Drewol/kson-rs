@@ -208,6 +208,7 @@ fn main() -> anyhow::Result<()> {
     })
     .unwrap();
 
+    let mut show_debug_ui = false;
     let mut config_path = std::env::current_dir().unwrap();
     config_path.push("Main.cfg");
 
@@ -558,15 +559,22 @@ fn main() -> anyhow::Result<()> {
         let fps = 1000_f64 / (frame_times.iter().sum::<f64>() / FRAME_ACC_SIZE as f64);
 
         for event in &mut frame_input.events {
-            if let td::Event::MouseMotion {
-                button: _,
-                delta: _,
-                position,
-                modifiers: _,
-                handled: _,
-            } = *event
-            {
-                (mousex, mousey) = position;
+            match *event {
+                td::Event::MouseMotion {
+                    button: _,
+                    delta: _,
+                    position,
+                    modifiers: _,
+                    handled: _,
+                } => {
+                    (mousex, mousey) = position;
+                }
+                td::Event::KeyPress {
+                    kind,
+                    modifiers,
+                    handled,
+                } if kind == td::Key::D => show_debug_ui = !show_debug_ui,
+                _ => (),
             }
 
             for scene in scenes.active.iter_mut().filter(|s| !s.is_suspended()) {
@@ -614,7 +622,9 @@ fn main() -> anyhow::Result<()> {
         scenes.render(frame_input.clone(), &vgfx);
         render_overlays(&vgfx, &frame_input, fps, &fps_paint);
 
-        debug_ui(&mut gui, frame_input, &mut scenes);
+        if show_debug_ui {
+            debug_ui(&mut gui, frame_input, &mut scenes);
+        }
 
         run_lua_gc(&lua_arena);
 
