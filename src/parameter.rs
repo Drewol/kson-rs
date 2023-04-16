@@ -6,17 +6,12 @@ use serde::{de::Visitor, Deserialize, Serialize};
 #[cfg(feature = "schema")]
 use schemars::JsonSchema;
 
-#[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq)]
+#[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq, Default)]
 pub enum InterpolationShape {
+    #[default]
     Linear,
     Logarithmic,
     Smooth,
-}
-
-impl Default for InterpolationShape {
-    fn default() -> Self {
-        InterpolationShape::Linear
-    }
 }
 
 #[derive(Clone, Copy, PartialEq, Debug, PartialOrd)]

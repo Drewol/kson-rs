@@ -243,13 +243,13 @@ impl Ksh for crate::Chart {
                             laser_builder[i].0 = y;
                             laser_builder[i].1.push(GraphSectionPoint::new(
                                 0,
-                                laser_char_to_value(chars[i + 8] as u8)?,
+                                laser_char_to_value(chars[i + 8])?,
                             ));
                         } else if chars[i + 8] != b':' && chars[i + 8] != b'-' {
                             // new point
                             laser_builder[i].1.push(GraphSectionPoint::new(
                                 y - laser_builder[i].0,
-                                laser_char_to_value(chars[i + 8] as u8)?,
+                                laser_char_to_value(chars[i + 8])?,
                             ));
                         }
 

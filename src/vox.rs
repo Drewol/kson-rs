@@ -61,7 +61,7 @@ fn time_sig_accumulator(
     line_data: Vec<&str>,
 ) -> Result<ByMeasureIdx<TimeSignature>, VoxReadError> {
     let measure = line_data
-        .get(0)
+        .first()
         .and_then(|v| v.split(',').next().map(|i| i.parse::<u32>()));
     if let Some(Ok(m)) = measure {
         accu.push((
