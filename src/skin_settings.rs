@@ -1,7 +1,7 @@
 use puffin_egui::egui::Color32;
 use serde::{de::Visitor, Deserialize, Serialize};
 use tealr::{
-    mlu::mlua::{FromLua, LuaSerdeExt, MultiValue, ToLua, ToLuaMulti, Value},
+    mlu::mlua::{FromLua, MultiValue, ToLuaMulti, Value},
     TypeName,
 };
 

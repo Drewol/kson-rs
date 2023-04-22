@@ -1,8 +1,6 @@
 use std::{
     collections::{HashMap, VecDeque},
-    ops::Index,
     path::PathBuf,
-    rc::Rc,
     sync::Arc,
 };
 
@@ -108,26 +106,26 @@ impl SongProvider for FileSongProvider {
         }
     }
 
-    fn set_search(&mut self, query: &str) {
+    fn set_search(&mut self, _query: &str) {
         todo!()
     }
 
-    fn set_sort(&mut self, sort: super::SongSort) {
+    fn set_sort(&mut self, _sort: super::SongSort) {
         todo!()
     }
 
-    fn set_filter(&mut self, filter: super::SongFilter) {
+    fn set_filter(&mut self, _filter: super::SongFilter) {
         todo!()
     }
 
-    fn set_current_index(&mut self, index: u64) {
+    fn set_current_index(&mut self, _index: u64) {
         todo!()
     }
 
     fn load_song(
         &self,
-        index: u64,
-        diff_index: u64,
+        _index: u64,
+        _diff_index: u64,
     ) -> Box<dyn FnOnce() -> (kson::Chart, Box<dyn rodio::Source<Item = i16>>) + Send> {
         todo!()
     }

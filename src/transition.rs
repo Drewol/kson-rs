@@ -1,24 +1,19 @@
 use std::{
-    path::{Path, PathBuf},
+    path::PathBuf,
     rc::Rc,
     sync::{mpsc::Sender, Arc, Mutex},
 };
 
-use femtovg::{rgb::ComponentSlice, Canvas};
 use poll_promise::Promise;
 use tealr::mlu::mlua::{Function, Lua, LuaSerdeExt};
-use three_d::{
-    camera2d, vec3, Camera, ColorMaterial, FrameInput, Gm, HasContext, Mat3, Matrix4, Mesh, Rad,
-    Rectangle, RenderTarget, Texture2D, Texture2DRef, Vec2, Vec3, Zero,
-};
+use three_d::{ColorMaterial, Gm, Mat3, Rad, Rectangle, Texture2DRef, Vec2, Zero};
 use ureq::json;
 
 use crate::{
-    config::GameConfig,
     main_menu::MainMenuButton,
     results::SongResultData,
     scene::{Scene, SceneData},
-    songselect::{Song, SongSelect, SongSelectScene},
+    songselect::{Song, SongSelect},
     util::back_pixels,
     ControlMessage,
 };
@@ -142,7 +137,11 @@ impl Transition {
 }
 
 impl Scene for Transition {
-    fn tick(&mut self, dt: f64, knob_state: crate::button_codes::LaserState) -> anyhow::Result<()> {
+    fn tick(
+        &mut self,
+        _dt: f64,
+        _knob_state: crate::button_codes::LaserState,
+    ) -> anyhow::Result<()> {
         if self.state == TransitionState::Loading && self.target_state.is_none() {
             self.state = TransitionState::Outro
         }
@@ -152,8 +151,8 @@ impl Scene for Transition {
 
     fn render(
         &mut self,
-        dt: f64,
-        td_context: &three_d::Context,
+        _dt: f64,
+        _td_context: &three_d::Context,
         target: &mut three_d::RenderTarget,
         viewport: three_d::Viewport,
     ) {
@@ -194,7 +193,7 @@ impl Scene for Transition {
                             let context = self.context.clone();
                             let skin_folder = self.vgfx.lock().unwrap().skin_folder();
                             Some(Promise::spawn_thread("Load song", move || {
-                                let (chart, audio) = loader();
+                                let (chart, _audio) = loader();
                                 load_chart(context, chart, song, diff, skin_folder)
                             }))
                         }
@@ -202,7 +201,7 @@ impl Scene for Transition {
                             song,
                             diff_idx,
                             score,
-                            gauge,
+                            gauge: _,
                         } => Some(Promise::spawn_thread(
                             "Load song",
                             move || -> anyhow::Result<Box<dyn SceneData + Send>> {
@@ -247,7 +246,7 @@ impl Scene for Transition {
         false
     }
 
-    fn debug_ui(&mut self, ctx: &egui::Context) -> anyhow::Result<()> {
+    fn debug_ui(&mut self, _ctx: &egui::Context) -> anyhow::Result<()> {
         Ok(())
     }
 

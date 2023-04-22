@@ -1,17 +1,15 @@
 use std::{
-    path::Path,
     rc::Rc,
-    sync::{mpsc::Sender, Arc},
+    sync::{mpsc::Sender},
 };
 
 use anyhow::Result;
 use generational_arena::Index;
 use tealr::mlu::mlua::Lua;
-use three_d::{ColorMaterial, Event, Gm, Mesh, RenderTarget, Viewport};
+use three_d::{Event, RenderTarget, Viewport};
 
 use crate::{
     button_codes::{LaserState, UscButton},
-    game_data::GameData,
     ControlMessage,
 };
 

@@ -16,9 +16,9 @@ use tealr::{
 use three_d::{
     vec2, vec3, vec4, AxisAlignedBoundingBox, Blend, BufferDataType, CpuTexture, ElementBuffer,
     ElementBufferDataType, FrameInput, Geometry, Mat4, Object, Program, RenderStates, SquareMatrix,
-    Texture2D, Vec2, Vec3, Vec4, VertexBuffer, Wrapping, Zero,
+    Texture2D, Vec2, Vec3, Vec4, VertexBuffer, Wrapping,
 };
-use three_d_asset::geometry;
+
 
 use crate::{config::GameConfig, vg_ui::Vgfx};
 
@@ -307,7 +307,7 @@ impl ShadedMesh {
         frame: &FrameInput<()>,
         vgfx: &Mutex<Vgfx>,
     ) -> Result<(), tealr::mlu::mlua::Error> {
-        let t = {
+        let _t = {
             let vgfx = vgfx.lock().unwrap();
             let canvas = vgfx.canvas.lock().unwrap();
             canvas.transform().to_mat3x4()
@@ -340,20 +340,20 @@ impl ShadedMesh {
 impl Geometry for ShadedMesh {
     fn render_with_material(
         &self,
-        material: &dyn three_d::Material,
+        _material: &dyn three_d::Material,
         camera: &three_d::Camera,
-        lights: &[&dyn three_d::Light],
+        _lights: &[&dyn three_d::Light],
     ) {
         self.draw_camera(camera);
     }
 
     fn render_with_post_material(
         &self,
-        material: &dyn three_d::PostMaterial,
+        _material: &dyn three_d::PostMaterial,
         camera: &three_d::Camera,
-        lights: &[&dyn three_d::Light],
-        color_texture: Option<three_d::ColorTexture>,
-        depth_texture: Option<three_d::DepthTexture>,
+        _lights: &[&dyn three_d::Light],
+        _color_texture: Option<three_d::ColorTexture>,
+        _depth_texture: Option<three_d::DepthTexture>,
     ) {
         self.draw_camera(camera);
     }
@@ -364,7 +364,7 @@ impl Geometry for ShadedMesh {
 }
 
 impl Object for ShadedMesh {
-    fn render(&self, camera: &three_d::Camera, lights: &[&dyn three_d::Light]) {
+    fn render(&self, camera: &three_d::Camera, _lights: &[&dyn three_d::Light]) {
         self.draw_camera(camera);
     }
 

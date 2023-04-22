@@ -2,7 +2,7 @@ use std::{
     collections::{HashMap, VecDeque},
     fmt::Debug,
     fs::File,
-    io::{BufReader, BufWriter, Read, Seek},
+    io::{BufReader, BufWriter, Read},
     path::PathBuf,
     str::FromStr,
     sync::Arc,
@@ -117,25 +117,25 @@ impl Datum {
     fn as_song(&self) -> Song {
         let Datum {
             id,
-            user_id,
+            user_id: _,
             title,
             artist,
-            jacket_filename,
-            description,
-            download_link,
-            downloads,
-            has_preview,
-            hidden,
-            mojibake,
-            uploaded_at,
-            created_at,
-            updated_at,
+            jacket_filename: _,
+            description: _,
+            download_link: _,
+            downloads: _,
+            has_preview: _,
+            hidden: _,
+            mojibake: _,
+            uploaded_at: _,
+            created_at: _,
+            updated_at: _,
             jacket_url,
-            preview_url,
-            cdn_download_url,
-            user,
+            preview_url: _,
+            cdn_download_url: _,
+            user: _,
             charts,
-            tags,
+            tags: _,
         } = self;
 
         let mut song_path = project_dirs().cache_dir().to_path_buf();
@@ -168,14 +168,14 @@ impl Chart {
     fn as_diff(&self, jacket_path: PathBuf) -> Difficulty {
         let Chart {
             id,
-            user_id,
-            song_id,
+            user_id: _,
+            song_id: _,
             difficulty,
             level,
             effector,
-            video_link,
-            created_at,
-            updated_at,
+            video_link: _,
+            created_at: _,
+            updated_at: _,
         } = self;
 
         let (id_0, id_1) = id.as_u64_pair();
@@ -309,15 +309,15 @@ impl SongProvider for NauticaSongProvider {
         self.events.pop_front()
     }
 
-    fn set_search(&mut self, query: &str) {
+    fn set_search(&mut self, _query: &str) {
         todo!()
     }
 
-    fn set_sort(&mut self, sort: super::SongSort) {
+    fn set_sort(&mut self, _sort: super::SongSort) {
         todo!()
     }
 
-    fn set_filter(&mut self, filter: super::SongFilter) {
+    fn set_filter(&mut self, _filter: super::SongFilter) {
         todo!()
     }
 
@@ -393,7 +393,7 @@ fn download_song(
             .expect("Failed to download song zip")
             .into_reader();
 
-        let mut file = File::create(&song_path).expect("Failed to create song zip for downloading");
+        let file = File::create(&song_path).expect("Failed to create song zip for downloading");
         {
             let mut file_writer = BufWriter::new(&file);
             std::io::copy(&mut data, &mut file_writer);

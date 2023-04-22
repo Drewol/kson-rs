@@ -4,7 +4,7 @@ use std::{
     sync::{mpsc::Sender, Arc},
 };
 
-use kson::Chart;
+
 use serde::Serialize;
 
 use crate::{

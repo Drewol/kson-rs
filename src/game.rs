@@ -5,7 +5,7 @@ use crate::{
     vg_ui::Vgfx,
     ControlMessage,
 };
-use kson::{Chart, Ksh, Vox};
+use kson::{Chart};
 use puffin::profile_function;
 use serde::{Deserialize, Serialize};
 use tealr::mlu::mlua::{Function, Lua, LuaSerdeExt};
@@ -52,22 +52,22 @@ pub struct GameData {
 pub fn extend_mesh(a: CpuMesh, b: CpuMesh) -> CpuMesh {
     let CpuMesh {
         mut positions,
-        mut indices,
-        mut normals,
-        mut tangents,
-        mut uvs,
-        mut colors,
+        indices,
+        normals,
+        tangents,
+        uvs,
+        colors,
     } = a;
 
     let index_offset = positions.len();
 
     let CpuMesh {
-        positions: mut b_positions,
+        positions: b_positions,
         indices: b_indices,
-        normals: b_normals,
-        tangents: b_tangents,
-        uvs: mut b_uvs,
-        colors: mut b_colors,
+        normals: _b_normals,
+        tangents: _b_tangents,
+        uvs: b_uvs,
+        colors: _b_colors,
     } = b;
 
     let indices = match (indices.into_u32(), b_indices.into_u32()) {
@@ -478,7 +478,7 @@ impl Scene for Game {
     fn closed(&self) -> bool {
         self.closed
     }
-    fn render_ui(&mut self, dt: f64) -> anyhow::Result<()> {
+    fn render_ui(&mut self, _dt: f64) -> anyhow::Result<()> {
         Ok(())
     }
 
@@ -486,7 +486,7 @@ impl Scene for Game {
         false
     }
 
-    fn tick(&mut self, dt: f64, knob_state: crate::button_codes::LaserState) -> Result<()> {
+    fn tick(&mut self, _dt: f64, _knob_state: crate::button_codes::LaserState) -> Result<()> {
         if self.time >= self.duration && !self.results_requested {
             self.control_tx
                 .as_ref()
@@ -639,8 +639,6 @@ impl Scene for Game {
 }
 
 use std::{
-    collections::HashMap,
-    ops::MulAssign,
     path::PathBuf,
     rc::Rc,
     sync::{mpsc::Sender, Arc, Mutex},
@@ -656,8 +654,8 @@ pub struct ChartView {
 
 use anyhow::Result;
 use three_d::{
-    context::Texture, vec2, vec3, Blend, Camera, Color, ColorMaterial, CpuMesh, CpuTexture, Deg,
-    DepthTest, Gm, Indices, InnerSpace, Mat3, Mat4, Matrix3, Matrix4, Mesh, Positions, Rad,
+    vec2, vec3, Blend, Camera, Color, ColorMaterial, CpuMesh, Deg,
+    DepthTest, Indices, InnerSpace, Mat3, Mat4, Matrix4, Positions, Rad,
     RenderStates, Texture2D, Transform, Vec2, Vec3, Vec4, Vector3, Viewport, Zero,
 };
 
@@ -967,7 +965,7 @@ impl ChartView {
     pub const TRACK_LENGTH: f32 = 12.0;
 
     pub fn new(skin_root: &PathBuf, td: &three_d::Context) -> Self {
-        let indices: [u16; 6] = [0, 1, 2, 0, 2, 3];
+        let _indices: [u16; 6] = [0, 1, 2, 0, 2, 3];
         let mut texure_path = skin_root.clone();
         texure_path.push("textures");
         texure_path.push("file.png");
@@ -982,11 +980,11 @@ impl ChartView {
         ])
         .unwrap();
 
-        let laser_texture = Some(Arc::new(Texture2D::new(
+        let _laser_texture = Some(Arc::new(Texture2D::new(
             td,
             &textures.deserialize("laser_l").unwrap(),
         )));
-        let laser_render_states = RenderStates {
+        let _laser_render_states = RenderStates {
             blend: Blend::ADD,
             depth_test: DepthTest::Always,
             ..Default::default()
@@ -994,7 +992,7 @@ impl ChartView {
 
         let track_texture = Arc::new(Texture2D::new(td, &textures.deserialize("track").unwrap()));
 
-        let track_mat = Rc::new(ColorMaterial {
+        let _track_mat = Rc::new(ColorMaterial {
             color: Color::WHITE,
             texture: Some(three_d::Texture2DRef {
                 texture: track_texture,
@@ -1008,7 +1006,7 @@ impl ChartView {
         });
 
         let track = xy_rect(vec3(0.0, 0.0, 0.0), vec2(1.0, Self::TRACK_LENGTH * 2.0));
-        let button_render_states = RenderStates {
+        let _button_render_states = RenderStates {
             depth_test: DepthTest::Always,
             ..Default::default()
         };
@@ -1108,13 +1106,13 @@ impl ChartView {
 
         td.set_depth_test(three_d::DepthTest::Never);
 
-        let glow_state = if (0.0_f32 * 8.0).fract() > 0.5 { 2 } else { 3 };
+        let _glow_state = if (0.0_f32 * 8.0).fract() > 0.5 { 2 } else { 3 };
         let view_tick = chart.ms_to_tick(view_time as f64) as i64 - view_offset;
         let view_distance = (chart.beat.resolution as f32 * 4.0) / self.hispeed;
         let last_view_tick = view_distance.ceil() as i64 + view_tick;
         let first_view_tick = view_tick - view_distance as i64;
         let y_view_div = ((chart.beat.resolution as f32 * 4.0) / self.hispeed) / Self::TRACK_LENGTH;
-        let white_mat = Rc::new(ColorMaterial {
+        let _white_mat = Rc::new(ColorMaterial {
             color: Color::WHITE,
             ..Default::default()
         });
@@ -1132,7 +1130,7 @@ impl ChartView {
         let mut notes = Vec::new();
         let chip_h = 0.05;
 
-        let track = self.track.clone();
+        let _track = self.track.clone();
 
         for i in 0..4 {
             for n in &chart.note.bt[i] {
@@ -1151,7 +1149,7 @@ impl ChartView {
                 };
                 let yoff = (view_tick as i64 - n.y as i64) as f32;
                 let y = yoff / y_view_div - h;
-                let p = if n.l == 0 { 2 } else { 1 }; //sorting priority
+                let _p = if n.l == 0 { 2 } else { 1 }; //sorting priority
                 notes.push((
                     vec3(x, y, 0.0),
                     vec2(w, h),
@@ -1179,7 +1177,7 @@ impl ChartView {
                 };
                 let yoff = (view_tick as i64 - n.y as i64) as f32;
                 let y = yoff / y_view_div - h;
-                let p = if n.l == 0 { 3 } else { 0 }; //sorting priority
+                let _p = if n.l == 0 { 3 } else { 0 }; //sorting priority
                 notes.push((
                     vec3(x, y, 0.0),
                     vec2(w, h),

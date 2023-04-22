@@ -3,7 +3,6 @@ use std::{
     rc::Rc,
     sync::{
         mpsc::{Receiver, Sender},
-        Arc, Mutex,
     },
 };
 
@@ -131,7 +130,7 @@ impl Scene for MainMenu {
         Ok(())
     }
 
-    fn tick(&mut self, dt: f64, knob_state: LaserState) -> Result<()> {
+    fn tick(&mut self, _dt: f64, _knob_state: LaserState) -> Result<()> {
         if self.should_suspended {
             self.suspended = true;
             self.should_suspended = false;
@@ -152,9 +151,9 @@ impl Scene for MainMenu {
     fn on_event(&mut self, event: &mut three_d::Event<()>) {
         if let three_d::Event::MousePress {
             button,
-            position,
-            modifiers,
-            handled,
+            position: _,
+            modifiers: _,
+            handled: _,
         } = event
         {
             if let Ok(mouse_pressed) = self.lua.globals().get::<_, Function>("mouse_pressed") {
@@ -177,7 +176,7 @@ impl Scene for MainMenu {
         self.suspended = false;
     }
 
-    fn debug_ui(&mut self, ctx: &egui::Context) -> anyhow::Result<()> {
+    fn debug_ui(&mut self, _ctx: &egui::Context) -> anyhow::Result<()> {
         Ok(())
     }
 

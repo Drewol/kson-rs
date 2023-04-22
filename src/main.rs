@@ -1,56 +1,45 @@
 use std::{
     fs::File,
     io::Write,
-    num::NonZeroU32,
-    path::{Path, PathBuf},
+    path::{Path},
     rc::Rc,
-    sync::{Arc, Mutex, MutexGuard, RwLock},
+    sync::{Arc, Mutex, RwLock},
 };
 
 use crate::{
     button_codes::LaserState,
     config::GameConfig,
-    game_data::{ExportGame, GameData},
     game_main::GameMain,
     skin_settings::SkinSettingEntry,
     transition::Transition,
-    vg_ui::{ExportVgfx, Vgfx},
+    vg_ui::{Vgfx},
 };
 use directories::ProjectDirs;
 use femtovg as vg;
-use game::HitWindow;
-use game_loop::winit::platform::windows::EventLoopBuilderExtWindows;
+
+
 use game_main::ControlMessage;
 use generational_arena::{Arena, Index};
 use gilrs::ev::filter::Jitter;
-use kson::Chart;
+
 use log::*;
-use main_menu::MainMenuButton;
-use puffin::{profile_function, profile_scope};
+
+
 use scene::Scene;
 
-use game_loop::winit;
-use td::{FrameInput, FrameOutput, HasContext, SurfaceSettings, Viewport};
-use tealr::mlu::mlua::{Lua, LuaSerdeExt};
-use three_d as td;
-use ureq::json;
 
-use glow::{Context, NativeFramebuffer, NativeProgram, NativeTexture, Program};
+use td::{FrameInput, HasContext, Viewport};
+use tealr::mlu::mlua::{Lua};
+use three_d as td;
+
+
+
 use glutin::{
-    config::ConfigTemplateBuilder,
-    context::{ContextApi, ContextAttributesBuilder},
-    display::GetGlDisplay,
     prelude::*,
-    surface::{SurfaceAttributesBuilder, WindowSurface},
 };
-use glutin_winit::DisplayBuilder;
-use raw_window_handle::HasRawWindowHandle;
-use winit::{
-    event::Event,
-    event::WindowEvent,
-    event_loop::{ControlFlow, EventLoop},
-    window::WindowBuilder,
-};
+
+
+
 
 mod animation;
 mod audio;
@@ -153,7 +142,7 @@ impl Scenes {
             && self.transition.is_none()
     }
 
-    pub fn render(&mut self, frame: FrameInput<()>, vgfx: &Arc<Mutex<Vgfx>>) {
+    pub fn render(&mut self, frame: FrameInput<()>, _vgfx: &Arc<Mutex<Vgfx>>) {
         let dt = frame.elapsed_time;
         let td_context = &frame.context;
         let mut target = frame.screen();
@@ -244,8 +233,8 @@ fn main() -> anyhow::Result<()> {
         std::env::current_dir()?,
     )));
 
-    let mut mousex = 0.0;
-    let mut mousey = 0.0;
+    let mousex = 0.0;
+    let mousey = 0.0;
 
     let typedef_folder = Path::new("types");
     if !typedef_folder.exists() {
@@ -278,10 +267,10 @@ fn main() -> anyhow::Result<()> {
     write!(typedef_file, "{}", file_content)?;
     typedef_file.flush()?;
     drop(typedef_file);
-    let mut gui = egui_glow::EguiGlow::new(&eventloop, gl_context.clone(), None);
+    let gui = egui_glow::EguiGlow::new(&eventloop, gl_context.clone(), None);
 
-    let mut frame_times = [16.0; FRAME_ACC_SIZE];
-    let mut frame_time_index = 0;
+    let frame_times = [16.0; FRAME_ACC_SIZE];
+    let frame_time_index = 0;
 
     let fps_paint = vg::Paint::color(vg::Color::white()).with_text_align(vg::Align::Right);
 
@@ -296,14 +285,14 @@ fn main() -> anyhow::Result<()> {
 
     let lua_arena: Rc<RwLock<Arena<Rc<Lua>>>> = Rc::new(RwLock::new(Arena::new()));
 
-    let mut transition_lua_idx = Index::from_raw_parts(0, 0);
-    let mut transition_song_lua_idx = Index::from_raw_parts(0, 0);
+    let transition_lua_idx = Index::from_raw_parts(0, 0);
+    let transition_song_lua_idx = Index::from_raw_parts(0, 0);
 
-    let jitter_filter = Jitter { threshold: 0.005 };
-    let mut knob_state = LaserState::default();
+    let _jitter_filter = Jitter { threshold: 0.005 };
+    let knob_state = LaserState::default();
 
     let (control_tx, control_rx) = std::sync::mpsc::channel();
-    let mut second_frame = false;
+    let _second_frame = false;
 
     let game = GameMain::new(
         lua_arena,

@@ -96,7 +96,7 @@ impl TealData for GameData {
         add_lua_static_method(
             methods,
             "LoadSkinSample",
-            |_, _game_data, p: LoadSkinSampleParams| Ok(()),
+            |_, _game_data, _p: LoadSkinSampleParams| Ok(()),
         );
 
         //PlaySample
@@ -108,7 +108,7 @@ impl TealData for GameData {
         add_lua_static_method(
             methods,
             "PlaySample",
-            |_, _game_data, p: PlaySampleParams| Ok(()),
+            |_, _game_data, _p: PlaySampleParams| Ok(()),
         );
 
         //StopSample
@@ -119,7 +119,7 @@ impl TealData for GameData {
         add_lua_static_method(
             methods,
             "StopSample",
-            |_, _game_data, p: StopSampleParams| Ok(()),
+            |_, _game_data, _p: StopSampleParams| Ok(()),
         );
 
         //IsSamplePlaying
@@ -130,7 +130,7 @@ impl TealData for GameData {
         add_lua_static_method(
             methods,
             "IsSamplePlaying",
-            |_, _game_data, p: IsSamplePlayingParams| Ok(false),
+            |_, _game_data, _p: IsSamplePlayingParams| Ok(false),
         );
 
         //GetLaserColor
@@ -141,7 +141,7 @@ impl TealData for GameData {
         add_lua_static_method(
             methods,
             "GetLaserColor",
-            |_, _game_data, p: GetLaserColorParams| Ok((0, 127, 255, 255)),
+            |_, _game_data, _p: GetLaserColorParams| Ok((0, 127, 255, 255)),
         );
 
         //GetButton
@@ -149,7 +149,7 @@ impl TealData for GameData {
           button : i32,
 
         );
-        add_lua_static_method(methods, "GetButton", |_, _game_data, p: GetButtonParams| {
+        add_lua_static_method(methods, "GetButton", |_, _game_data, _p: GetButtonParams| {
             Ok(false)
         });
 
@@ -158,7 +158,7 @@ impl TealData for GameData {
           knob : i32,
 
         );
-        add_lua_static_method(methods, "GetKnob", |_, _game_data, p: GetKnobParams| {
+        add_lua_static_method(methods, "GetKnob", |_, _game_data, _p: GetKnobParams| {
             Ok(0.5)
         });
 
@@ -175,7 +175,7 @@ impl TealData for GameData {
         });
 
         //GetSkinSetting
-        add_lua_static_method(methods, "GetSkinSetting", |_, _game_data, key: (String)| {
+        add_lua_static_method(methods, "GetSkinSetting", |_, _game_data, key: String| {
             if let Some(gc) = GameConfig::get() {
                 let skin_setting_value = gc
                     .skin_settings

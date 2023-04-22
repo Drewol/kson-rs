@@ -1,14 +1,12 @@
 use std::num::NonZeroU32;
 
-use femtovg::{renderer::OpenGl, Canvas, Color, Paint, Path};
+use femtovg::{renderer::OpenGl, Canvas};
 use game_loop::winit::{
     self,
-    event::Event,
-    event::WindowEvent,
-    event_loop::{ControlFlow, EventLoop},
+    event_loop::{EventLoop},
     window::WindowBuilder,
 };
-use glow::{Context, HasContext, NativeFramebuffer, NativeProgram, NativeTexture, Program};
+use glow::{Context};
 use glutin::{
     config::ConfigTemplateBuilder,
     context::{ContextApi, ContextAttributesBuilder, PossiblyCurrentContext},

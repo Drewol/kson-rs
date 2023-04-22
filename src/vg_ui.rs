@@ -1,15 +1,11 @@
 use std::{
-    borrow::BorrowMut,
-    cell::RefCell,
     collections::HashMap,
     path::PathBuf,
     sync::{Arc, Mutex},
-    thread::{JoinHandle, Thread},
-    time::Duration,
 };
 
 use femtovg::{renderer::OpenGl, Canvas, Color, FontId, ImageFlags, ImageId, Paint, Path};
-use once_cell::unsync::OnceCell;
+
 use poll_promise::Promise;
 use puffin::profile_scope;
 use tealr::{
@@ -22,7 +18,7 @@ use three_d::FrameInput;
 
 use crate::{
     animation::VgAnimation,
-    config::{self, GameConfig},
+    config::{GameConfig},
     help::add_lua_static_method,
     shaded_mesh::ShadedMesh,
 };
@@ -1285,7 +1281,7 @@ impl TealData for Vgfx {
           dir : i32,
 
         );
-        add_lua_static_method(methods, "PathWinding", |_, _vgfx, p: PathWindingParams| {
+        add_lua_static_method(methods, "PathWinding", |_, _vgfx, _p: PathWindingParams| {
             todo!();
             Ok(0)
         });
@@ -1386,7 +1382,7 @@ impl TealData for Vgfx {
         add_lua_static_method(
             methods,
             "LoadWebImageJob",
-            |_, _vgfx, p: LoadWebImageJobParams| {
+            |_, _vgfx, _p: LoadWebImageJobParams| {
                 todo!();
                 Ok(0)
             },
@@ -1490,7 +1486,7 @@ impl TealData for Vgfx {
         add_lua_static_method(
             methods,
             "FastTextSize",
-            |_, _vgfx, p: FastTextSizeParams| {
+            |_, _vgfx, _p: FastTextSizeParams| {
                 todo!();
                 Ok(0)
             },
@@ -1563,8 +1559,8 @@ impl TealData for Vgfx {
         add_lua_static_method(
             methods,
             "SetImageTint",
-            |_, _vgfx, p: SetImageTintParams| {
-                if let Some(paint) = _vgfx.fill_paint.as_mut() {
+            |_, _vgfx, _p: SetImageTintParams| {
+                if let Some(_paint) = _vgfx.fill_paint.as_mut() {
                     //Paint::image_tint(id, cx, cy, width, height, angle, tint)
                 }
                 Ok(0)
@@ -1629,7 +1625,7 @@ impl TealData for Vgfx {
         add_lua_static_method(
             methods,
             "GlobalCompositeBlendFuncSeparate",
-            |_, _vgfx, p: GlobalCompositeBlendFuncSeparateParams| {
+            |_, _vgfx, _p: GlobalCompositeBlendFuncSeparateParams| {
                 todo!();
                 Ok(0)
             },
@@ -1749,7 +1745,7 @@ impl TealData for Vgfx {
         add_lua_static_method(
             methods,
             "LoadSharedTexture",
-            |_, _vgfx, p: LoadSharedTextureParams| {
+            |_, _vgfx, _p: LoadSharedTextureParams| {
                 todo!();
                 Ok(0)
             },
@@ -1764,7 +1760,7 @@ impl TealData for Vgfx {
         add_lua_static_method(
             methods,
             "LoadSharedSkinTexture",
-            |_, _vgfx, p: LoadSharedSkinTextureParams| {
+            |_, _vgfx, _p: LoadSharedSkinTextureParams| {
                 todo!();
                 Ok(0)
             },
@@ -1778,7 +1774,7 @@ impl TealData for Vgfx {
         add_lua_static_method(
             methods,
             "GetSharedTexture",
-            |_, _vgfx, p: GetSharedTextureParams| {
+            |_, _vgfx, _p: GetSharedTextureParams| {
                 todo!();
                 Ok(0)
             },

@@ -30,7 +30,7 @@ where
         };
 
         //TODO: Render effects
-        let effects = chart.get_effect_tracks();
+        let _effects = chart.get_effect_tracks();
         // for _effect in effects
         //     .iter()
         //     .filter(|x| matches!(x.track, Some(kson::Track::FX(_))))

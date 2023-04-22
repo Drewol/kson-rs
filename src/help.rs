@@ -1,10 +1,8 @@
 use std::{
-    borrow::Borrow,
-    fmt::Debug,
     sync::{Arc, Mutex},
 };
 
-use puffin::profile_scope;
+
 use tealr::{
     mlu::{
         mlua::{self, FromLuaMulti, Lua, Result, ToLuaMulti},

@@ -158,7 +158,7 @@ impl GameMain {
         puffin::profile_scope!("Frame");
         puffin::GlobalProfiler::lock().new_frame();
 
-        for (idx, lua) in lua_arena.read().unwrap().iter() {
+        for (_idx, lua) in lua_arena.read().unwrap().iter() {
             lua.set_app_data(frame_input.clone());
         }
         let lua_frame_input = frame_input.clone();
@@ -314,7 +314,7 @@ impl GameMain {
                         ))
                     }
                 }
-                ControlMessage::TransitionComplete(mut scene_data) => {
+                ControlMessage::TransitionComplete(scene_data) => {
                     scenes.loaded.push(scene_data)
                 }
                 ControlMessage::Result {
@@ -360,8 +360,8 @@ impl GameMain {
                 }
                 td::Event::KeyPress {
                     kind,
-                    modifiers,
-                    handled,
+                    modifiers: _,
+                    handled: _,
                 } if kind == td::Key::D => *show_debug_ui = !*show_debug_ui,
                 _ => (),
             }
@@ -434,7 +434,7 @@ impl GameMain {
     }
     pub fn handle(&mut self, event: &game_loop::winit::event::Event<()>) {
         use game_loop::winit::event::*;
-        if let Event::WindowEvent { window_id, event } = event {
+        if let Event::WindowEvent { window_id: _, event } = event {
             let event_response = self.gui.on_event(event);
             if event_response.consumed {
                 return;
@@ -444,7 +444,7 @@ impl GameMain {
 
     fn run_lua_gc(lua_arena: &Rc<RwLock<Arena<Rc<Lua>>>>) {
         profile_scope!("Garbage collect");
-        for (idx, lua) in lua_arena.read().unwrap().iter() {
+        for (_idx, lua) in lua_arena.read().unwrap().iter() {
             //TODO: if reference count = 1, remove loaded gfx assets for state
             lua.gc_collect();
         }
