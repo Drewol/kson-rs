@@ -419,13 +419,13 @@ dependencies = [
 
 [[package]]
 name = "bytemuck_derive"
-version = "1.4.0"
+version = "1.4.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "1aca418a974d83d40a0c1f0c5cba6ff4bc28d8df099109ca459a2118d40b6322"
+checksum = "fdde5c9cd29ebd706ce1b35600920a33550e402fc998a2e53ad3b42c3c47a192"
 dependencies = [
  "proc-macro2",
  "quote",
- "syn 1.0.109",
+ "syn 2.0.2",
 ]
 
 [[package]]
@@ -898,6 +898,20 @@ dependencies = [
  "ahash 0.8.3",
  "epaint",
  "nohash-hasher",
+ "tracing",
+]
+
+[[package]]
+name = "egui-winit"
+version = "0.21.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "ab43597ba41f0ce39a364ad83185594578bfd8b3409b99dbcbb01df23afc3dbb"
+dependencies = [
+ "android-activity",
+ "egui",
+ "instant",
+ "tracing",
+ "winit",
 ]
 
 [[package]]
@@ -908,6 +922,7 @@ checksum = "8257332fb168a965b3dca81d6a344e053153773c889cabdba0b3b76f1629ae81"
 dependencies = [
  "bytemuck",
  "egui",
+ "egui-winit",
  "glow",
  "memoffset 0.6.5",
  "tracing",
@@ -1079,6 +1094,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "game-loop"
+version = "0.10.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "d96fac7dbca77aeb9f72968756770bdba2063a016166fa130d99232a8988bc36"
+dependencies = [
+ "wasm-bindgen",
+ "web-sys",
+ "winit",
+]
+
+[[package]]
 name = "gdk-pixbuf-sys"
 version = "0.16.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1134,10 +1160,8 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c05aeb6a22b8f62540c194aac980f2115af067bfe15a0734d7277a768d396b31"
 dependencies = [
  "cfg-if 1.0.0",
- "js-sys",
  "libc",
  "wasi",
- "wasm-bindgen",
 ]
 
 [[package]]
@@ -1246,6 +1270,18 @@ dependencies = [
  "wayland-sys 0.30.1",
  "windows-sys 0.45.0",
  "x11-dl",
+]
+
+[[package]]
+name = "glutin-winit"
+version = "0.3.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "629a873fc04062830bfe8f97c03773bcd7b371e23bcc465d0a61448cd1588fa4"
+dependencies = [
+ "cfg_aliases",
+ "glutin",
+ "raw-window-handle",
+ "winit",
 ]
 
 [[package]]
@@ -2444,9 +2480,9 @@ checksum = "ec0be4795e2f6a28069bec0b5ff3e2ac9bafc99e6a9a7dc3547996c5c816922c"
 
 [[package]]
 name = "raw-window-handle"
-version = "0.5.1"
+version = "0.5.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "4f851a03551ceefd30132e447f07f96cb7011d6b658374f3aed847333adb5559"
+checksum = "f2ff9a1f06a88b01621b7ae906ef0211290d1c8a168a15542486a8f61c0833b9"
 
 [[package]]
 name = "rayon"
@@ -2581,9 +2617,15 @@ dependencies = [
  "anyhow",
  "bitflags 1.3.2",
  "directories",
+ "egui",
+ "egui_glow",
  "femtovg",
+ "game-loop",
  "generational-arena",
  "gilrs",
+ "glow",
+ "glutin",
+ "glutin-winit",
  "hecs",
  "image",
  "kson",
@@ -2594,6 +2636,7 @@ dependencies = [
  "puffin",
  "puffin_egui",
  "puffin_http",
+ "raw-window-handle",
  "rayon",
  "rfd",
  "rodio",
@@ -3172,9 +3215,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "37c44a2d417a283d95821e72965b7752f8edc1d48b9233258e3ff18f166d4190"
 dependencies = [
  "cgmath",
- "egui",
- "egui_glow",
- "getrandom",
  "glow",
  "glutin",
  "instant",

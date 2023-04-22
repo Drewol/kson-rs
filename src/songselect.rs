@@ -192,9 +192,7 @@ impl Scene for SongSelectScene {
         self.suspended
     }
 
-    fn debug_ui(&mut self, ctx: &three_d::egui::Context) -> Result<()> {
-        use three_d::egui;
-
+    fn debug_ui(&mut self, ctx: &egui::Context) -> Result<()> {
         let song_count = if let Ok(state) = &mut self.state.lock() {
             state.songs.len()
         } else {

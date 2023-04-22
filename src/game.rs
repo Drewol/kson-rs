@@ -519,8 +519,8 @@ impl Scene for Game {
         Ok(())
     }
 
-    fn debug_ui(&mut self, ctx: &three_d::egui::Context) -> anyhow::Result<()> {
-        use three_d::egui::*;
+    fn debug_ui(&mut self, ctx: &egui::Context) -> anyhow::Result<()> {
+        use egui::*;
         Window::new("Debug").show(ctx, |ui| {
             let Vector3 {
                 mut x,

@@ -18,7 +18,7 @@ use tealr::{
 };
 
 use tealr::mlu::mlua;
-use three_d::{egui::Id, FrameInput};
+use three_d::FrameInput;
 
 use crate::{
     animation::VgAnimation,

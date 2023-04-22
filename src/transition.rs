@@ -247,7 +247,7 @@ impl Scene for Transition {
         false
     }
 
-    fn debug_ui(&mut self, ctx: &three_d::egui::Context) -> anyhow::Result<()> {
+    fn debug_ui(&mut self, ctx: &egui::Context) -> anyhow::Result<()> {
         Ok(())
     }
 

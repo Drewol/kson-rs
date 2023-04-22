@@ -17,7 +17,7 @@ kson = { path = "../kson-rs" }
 kson-audio = { path = "../kson-rs/kson-audio"}
 rodio = "0.16.0"
 tealr = { git = "https://github.com/lenscas/tealr.git", features = ["mlua", "tealr_derive", "mlua_lua54", "mlua_vendored", "mlua_serialize"] }
-three-d = {version = "0.15.0", features = ["egui-gui", "window"]}
+three-d = {version = "0.15.0"}
 anyhow = "1"
 bitflags = "1"
 generational-arena = "*"
@@ -39,6 +39,13 @@ zip = "0.6.4"
 rayon = "1.7.0"
 puffin_egui = "0.20.0"
 serde_json = "1.0.96"
+game-loop = { version = "*", features = ["winit"] }
+glutin = "0.30.7"
+glutin-winit = "0.3.0"
+glow = "0.12.1"
+raw-window-handle = "0.5.2"
+egui = "0.21.0"
+egui_glow = { version = "0.21.0", features = ["winit"] }
 
 [profile.release]
 debug = true

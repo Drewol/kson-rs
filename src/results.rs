@@ -209,8 +209,8 @@ impl Scene for SongResult {
         false
     }
 
-    fn debug_ui(&mut self, ctx: &three_d::egui::Context) -> anyhow::Result<()> {
-        three_d::egui::Window::new("Song Results").show(ctx, |ui| {
+    fn debug_ui(&mut self, ctx: &egui::Context) -> anyhow::Result<()> {
+        egui::Window::new("Song Results").show(ctx, |ui| {
             if ui.button("Close").clicked() {
                 self.close = true;
             }
