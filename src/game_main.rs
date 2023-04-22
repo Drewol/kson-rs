@@ -314,9 +314,7 @@ impl GameMain {
                         ))
                     }
                 }
-                ControlMessage::TransitionComplete(scene_data) => {
-                    scenes.loaded.push(scene_data)
-                }
+                ControlMessage::TransitionComplete(scene_data) => scenes.loaded.push(scene_data),
                 ControlMessage::Result {
                     song,
                     diff_idx,
@@ -346,30 +344,6 @@ impl GameMain {
         frame_times[*frame_time_index] = frame_input.elapsed_time;
         *frame_time_index = (*frame_time_index + 1) % FRAME_ACC_SIZE;
         let fps = 1000_f64 / (frame_times.iter().sum::<f64>() / FRAME_ACC_SIZE as f64);
-
-        for event in &mut frame_input.events {
-            match *event {
-                td::Event::MouseMotion {
-                    button: _,
-                    delta: _,
-                    position,
-                    modifiers: _,
-                    handled: _,
-                } => {
-                    (*mousex, *mousey) = position;
-                }
-                td::Event::KeyPress {
-                    kind,
-                    modifiers: _,
-                    handled: _,
-                } if kind == td::Key::D => *show_debug_ui = !*show_debug_ui,
-                _ => (),
-            }
-
-            for scene in scenes.active.iter_mut().filter(|s| !s.is_suspended()) {
-                scene.on_event(event); //TODO: break on event handled
-            }
-        }
 
         while let Some(e) = input.next_event() {
             match e.event {
@@ -434,12 +408,46 @@ impl GameMain {
     }
     pub fn handle(&mut self, event: &game_loop::winit::event::Event<()>) {
         use game_loop::winit::event::*;
-        if let Event::WindowEvent { window_id: _, event } = event {
+        if let Event::WindowEvent {
+            window_id: _,
+            event,
+        } = event
+        {
             let event_response = self.gui.on_event(event);
             if event_response.consumed {
                 return;
             }
         }
+
+        match event {
+            Event::WindowEvent {
+                event: WindowEvent::CursorMoved { position, .. },
+                ..
+            } => {
+                self.mousex = position.x;
+                self.mousey = position.y;
+            }
+            Event::WindowEvent {
+                event: WindowEvent::CloseRequested,
+                ..
+            } => self.scenes.clear(),
+            Event::DeviceEvent {
+                event:
+                    DeviceEvent::Key(KeyboardInput {
+                        virtual_keycode: Some(VirtualKeyCode::D),
+                        state: ElementState::Pressed,
+                        ..
+                    }),
+                ..
+            } => self.show_debug_ui = !self.show_debug_ui,
+            _ => (),
+        }
+
+        self.scenes
+            .active
+            .iter_mut()
+            .filter(|x| !x.is_suspended())
+            .for_each(|x| x.on_event(event));
     }
 
     fn run_lua_gc(lua_arena: &Rc<RwLock<Arena<Rc<Lua>>>>) {

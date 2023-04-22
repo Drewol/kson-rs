@@ -1,22 +1,17 @@
 use std::{
     fs::File,
     io::Write,
-    path::{Path},
+    path::Path,
     rc::Rc,
     sync::{Arc, Mutex, RwLock},
 };
 
 use crate::{
-    button_codes::LaserState,
-    config::GameConfig,
-    game_main::GameMain,
-    skin_settings::SkinSettingEntry,
-    transition::Transition,
-    vg_ui::{Vgfx},
+    button_codes::LaserState, config::GameConfig, game_main::GameMain,
+    skin_settings::SkinSettingEntry, transition::Transition, vg_ui::Vgfx,
 };
 use directories::ProjectDirs;
 use femtovg as vg;
-
 
 use game_main::ControlMessage;
 use generational_arena::{Arena, Index};
@@ -24,22 +19,13 @@ use gilrs::ev::filter::Jitter;
 
 use log::*;
 
-
 use scene::Scene;
 
-
 use td::{FrameInput, HasContext, Viewport};
-use tealr::mlu::mlua::{Lua};
+use tealr::mlu::mlua::Lua;
 use three_d as td;
 
-
-
-use glutin::{
-    prelude::*,
-};
-
-
-
+use glutin::prelude::*;
 
 mod animation;
 mod audio;
@@ -351,6 +337,4 @@ fn main() -> anyhow::Result<()> {
         },
         move |g, e| g.game.handle(e),
     );
-
-    Ok(())
 }

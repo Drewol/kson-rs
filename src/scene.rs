@@ -1,12 +1,10 @@
-use std::{
-    rc::Rc,
-    sync::{mpsc::Sender},
-};
+use std::{rc::Rc, sync::mpsc::Sender};
 
 use anyhow::Result;
+use game_loop::winit::event::Event;
 use generational_arena::Index;
 use tealr::mlu::mlua::Lua;
-use three_d::{Event, RenderTarget, Viewport};
+use three_d::{RenderTarget, Viewport};
 
 use crate::{
     button_codes::{LaserState, UscButton},
@@ -25,7 +23,7 @@ pub trait Scene {
     fn tick(&mut self, dt: f64, knob_state: LaserState) -> Result<()> {
         Ok(())
     }
-    fn on_event(&mut self, event: &mut Event<()>) {}
+    fn on_event(&mut self, event: &Event<()>) {}
     fn on_button_pressed(&mut self, button: UscButton) {}
     fn on_button_released(&mut self, button: UscButton) {}
     fn render(

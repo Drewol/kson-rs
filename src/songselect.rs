@@ -1,4 +1,5 @@
 use anyhow::{ensure, Result};
+use game_loop::winit::event::Event;
 use generational_arena::Index;
 use puffin::profile_function;
 use serde::Serialize;
@@ -310,7 +311,7 @@ impl Scene for SongSelectScene {
         Ok(())
     }
 
-    fn on_event(&mut self, _event: &mut three_d::Event<()>) {}
+    fn on_event(&mut self, _event: &Event<()>) {}
 
     fn on_button_pressed(&mut self, button: crate::button_codes::UscButton) {
         if let UscButton::Start = button {

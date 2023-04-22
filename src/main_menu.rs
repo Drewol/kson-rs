@@ -1,12 +1,11 @@
 use std::{
     cell::Ref,
     rc::Rc,
-    sync::{
-        mpsc::{Receiver, Sender},
-    },
+    sync::mpsc::{Receiver, Sender},
 };
 
 use anyhow::{anyhow, Result};
+use game_loop::winit::event::{ElementState, Event, WindowEvent};
 use generational_arena::Index;
 use tealr::{
     mlu::{
@@ -148,16 +147,24 @@ impl Scene for MainMenu {
         Ok(())
     }
 
-    fn on_event(&mut self, event: &mut three_d::Event<()>) {
-        if let three_d::Event::MousePress {
-            button,
-            position: _,
-            modifiers: _,
-            handled: _,
+    fn on_event(&mut self, event: &Event<()>) {
+        if let Event::WindowEvent {
+            event:
+                WindowEvent::MouseInput {
+                    state: ElementState::Pressed,
+                    button,
+                    ..
+                },
+            ..
         } = event
         {
             if let Ok(mouse_pressed) = self.lua.globals().get::<_, Function>("mouse_pressed") {
-                if let Err(e) = mouse_pressed.call::<_, ()>(*button as u8) {
+                if let Err(e) = mouse_pressed.call::<_, ()>(match button {
+                    game_loop::winit::event::MouseButton::Left => 0,
+                    game_loop::winit::event::MouseButton::Right => 2,
+                    game_loop::winit::event::MouseButton::Middle => 1,
+                    game_loop::winit::event::MouseButton::Other(b) => *b,
+                }) {
                     log::error!("{:?}", e);
                 };
             }
