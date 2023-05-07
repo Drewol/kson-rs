@@ -112,7 +112,7 @@ impl Transition {
                 "song",
                 transition_lua
                     .to_value(&json!({
-                        "jacket": vgfx.load_image(&diff.jacket_path, &*lua_idx).unwrap_or(0),
+                        "jacket": vgfx.load_image(&diff.jacket_path, &lua_idx).unwrap_or(0),
                         "title": song.title,
                         "artist": song.artist,
                         "bpm": song.bpm,

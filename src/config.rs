@@ -157,7 +157,7 @@ impl GameConfig {
         }
 
         if let Ok(data) = toml::to_string_pretty(&self.skin_settings) {
-            std::fs::write(&self.skin_config_path(), data);
+            std::fs::write(self.skin_config_path(), data);
         }
     }
 }

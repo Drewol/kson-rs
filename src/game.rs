@@ -950,11 +950,11 @@ fn hsl_to_rgb(h: f32, s: f32, l: f32) -> [f32; 3] {
     let m = l - c / 2.0;
 
     let (r, g, b) = match h {
-        h if h < 0.16666666666666666 => (c, x, 0.0),
-        h if h < 0.3333333333333333 => (x, c, 0.0),
+        h if h < 0.166_666_67 => (c, x, 0.0),
+        h if h < 0.333_333_34 => (x, c, 0.0),
         h if h < 0.5 => (0.0, c, x),
-        h if h < 0.6666666666666666 => (0.0, x, c),
-        h if h < 0.8333333333333334 => (x, 0.0, c),
+        h if h < 0.666_666_7 => (0.0, x, c),
+        h if h < 0.833_333_3 => (x, 0.0, c),
         _ => (c, 0.0, x),
     };
 
@@ -1035,7 +1035,7 @@ impl ChartView {
                 for se in section.segments() {
                     let s = se[0];
                     let e = se[1];
-                    let mut syoff = 0.0 as f32;
+                    let mut syoff = 0.0_f32;
                     let mut start_value = s.v as f32 * track_w;
 
                     if let Some(value) = s.vf {
@@ -1052,7 +1052,7 @@ impl ChartView {
                             is_first,
                             false,
                         );
-                        start_value = value as f32;
+                        start_value = value;
                     }
                     let end_value = e.v as f32 * track_w;
                     let x00 = end_value - w - xoff;
@@ -1147,7 +1147,7 @@ impl ChartView {
                 } else {
                     (n.l as f32) / y_view_div
                 };
-                let yoff = (view_tick as i64 - n.y as i64) as f32;
+                let yoff = (view_tick - n.y as i64) as f32;
                 let y = yoff / y_view_div - h;
                 let _p = if n.l == 0 { 2 } else { 1 }; //sorting priority
                 notes.push((
@@ -1175,7 +1175,7 @@ impl ChartView {
                 } else {
                     (n.l as f32) / y_view_div
                 };
-                let yoff = (view_tick as i64 - n.y as i64) as f32;
+                let yoff = (view_tick - n.y as i64) as f32;
                 let y = yoff / y_view_div - h;
                 let _p = if n.l == 0 { 3 } else { 0 }; //sorting priority
                 notes.push((
@@ -1231,7 +1231,7 @@ impl ChartView {
                         continue;
                     }
                     let vertices = self.laser_meshes[i].get(sidx).unwrap();
-                    let yoff = (view_tick as i64 - s.tick() as i64) as f32;
+                    let yoff = (view_tick - s.tick() as i64) as f32;
                     let laser_mesh = CpuMesh {
                         indices: Indices::U32((0u32..(vertices.len() as u32)).collect()),
                         positions: three_d::Positions::F32(

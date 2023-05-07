@@ -1,5 +1,4 @@
 use std::{
-    cell::Ref,
     collections::HashMap,
     path::PathBuf,
     sync::{Arc, Mutex},
@@ -318,7 +317,7 @@ impl TealData for Vgfx {
         add_lua_static_method(
             methods,
             "CreateImage",
-            |lua, lua_index, _vgfx, p: CreateImageParams| {
+            |_lua, lua_index, _vgfx, p: CreateImageParams| {
                 let CreateImageParams {
                     filename,
                     imageflags,
@@ -354,7 +353,7 @@ impl TealData for Vgfx {
         add_lua_static_method(
             methods,
             "CreateSkinImage",
-            |lua, lua_index, _vgfx, p: CreateSkinImageParams| {
+            |_lua, lua_index, _vgfx, p: CreateSkinImageParams| {
                 let CreateSkinImageParams {
                     filename,
                     imageflags,
@@ -416,7 +415,7 @@ impl TealData for Vgfx {
         add_lua_static_method(
             methods,
             "ImageRect",
-            |lua, lua_index, _vgfx, p: ImageRectParams| {
+            |_lua, lua_index, _vgfx, p: ImageRectParams| {
                 let ImageRectParams {
                     x,
                     y,
@@ -676,7 +675,7 @@ impl TealData for Vgfx {
         add_lua_static_method(
             methods,
             "CreateLabel",
-            |lua, lua_index, _vgfx, p: CreateLabelParams| {
+            |_lua, lua_index, _vgfx, p: CreateLabelParams| {
                 let CreateLabelParams {
                     text,
                     size,
@@ -715,7 +714,7 @@ impl TealData for Vgfx {
         add_lua_static_method(
             methods,
             "DrawLabel",
-            |lua, lua_index, _vgfx, p: DrawLabelParams| {
+            |_lua, lua_index, _vgfx, p: DrawLabelParams| {
                 let DrawLabelParams {
                     label_id,
                     x,
@@ -762,7 +761,7 @@ impl TealData for Vgfx {
         add_lua_static_method(
             methods,
             "MoveTo",
-            |lua, lua_index, _vgfx, p: MoveToParams| {
+            |_lua, _lua_index, _vgfx, p: MoveToParams| {
                 let MoveToParams { x, y } = p;
                 if let Some(path) = _vgfx.path.as_mut() {
                     path.move_to(x, y);
@@ -782,7 +781,7 @@ impl TealData for Vgfx {
         add_lua_static_method(
             methods,
             "LineTo",
-            |lua, lua_index, _vgfx, p: LineToParams| {
+            |_lua, _lua_index, _vgfx, p: LineToParams| {
                 let LineToParams { x, y } = p;
                 if let Some(path) = _vgfx.path.as_mut() {
                     path.line_to(x, y);
@@ -806,7 +805,7 @@ impl TealData for Vgfx {
         add_lua_static_method(
             methods,
             "BezierTo",
-            |lua, lua_index, _vgfx, p: BezierToParams| {
+            |_lua, _lua_index, _vgfx, p: BezierToParams| {
                 let BezierToParams {
                     c_1x,
                     c_1y,
@@ -835,7 +834,7 @@ impl TealData for Vgfx {
         add_lua_static_method(
             methods,
             "QuadTo",
-            |lua, lua_index, _vgfx, p: QuadToParams| {
+            |_lua, _lua_index, _vgfx, p: QuadToParams| {
                 let QuadToParams { cx, cy, x, y } = p;
                 if let Some(path) = _vgfx.path.as_mut() {
                     path.quad_to(cx, cy, x, y);
@@ -855,7 +854,7 @@ impl TealData for Vgfx {
           radius : f32,
 
         );
-        add_lua_static_method(methods, "ArcTo", |lua, lua_index, _vgfx, p: ArcToParams| {
+        add_lua_static_method(methods, "ArcTo", |_lua, _lua_index, _vgfx, p: ArcToParams| {
             let ArcToParams {
                 x_1,
                 y_1,
@@ -872,7 +871,7 @@ impl TealData for Vgfx {
         });
 
         //ClosePath
-        add_lua_static_method(methods, "ClosePath", |lua, lua_index, _vgfx, _: ()| {
+        add_lua_static_method(methods, "ClosePath", |_lua, _lua_index, _vgfx, _: ()| {
             if let Some(path) = _vgfx.path.as_mut() {
                 path.close();
                 Ok(())
@@ -889,7 +888,7 @@ impl TealData for Vgfx {
         add_lua_static_method(
             methods,
             "MiterLimit",
-            |lua, lua_index, _vgfx, p: MiterLimitParams| {
+            |_lua, _lua_index, _vgfx, p: MiterLimitParams| {
                 _vgfx.stroke_paint.set_miter_limit(p.limit);
                 Ok(())
             },
@@ -903,7 +902,7 @@ impl TealData for Vgfx {
         add_lua_static_method(
             methods,
             "StrokeWidth",
-            |lua, lua_index, _vgfx, p: StrokeWidthParams| {
+            |_lua, _lua_index, _vgfx, p: StrokeWidthParams| {
                 _vgfx.stroke_paint.set_line_width(p.size);
                 Ok(())
             },
@@ -917,7 +916,7 @@ impl TealData for Vgfx {
         add_lua_static_method(
             methods,
             "LineCap",
-            |lua, lua_index, _vgfx, p: LineCapParams| {
+            |_lua, _lua_index, _vgfx, p: LineCapParams| {
                 _vgfx
                     .stroke_paint
                     .set_line_cap(unsafe { std::mem::transmute(p.cap) });
@@ -933,7 +932,7 @@ impl TealData for Vgfx {
         add_lua_static_method(
             methods,
             "LineJoin",
-            |lua, lua_index, _vgfx, p: LineJoinParams| {
+            |_lua, _lua_index, _vgfx, p: LineJoinParams| {
                 _vgfx
                     .stroke_paint
                     .set_line_join(unsafe { std::mem::transmute(p.join) });
@@ -942,7 +941,7 @@ impl TealData for Vgfx {
         );
 
         //Stroke
-        add_lua_static_method(methods, "Stroke", |lua, lua_index, _vgfx, _: ()| {
+        add_lua_static_method(methods, "Stroke", |_lua, _lua_index, _vgfx, _: ()| {
             if let Some(path) = _vgfx.path.as_mut() {
                 let canvas = &mut _vgfx
                     .canvas
@@ -964,7 +963,7 @@ impl TealData for Vgfx {
         add_lua_static_method(
             methods,
             "StrokeColor",
-            |lua, lua_index, _vgfx, p: StrokeColorParams| {
+            |_lua, _lua_index, _vgfx, p: StrokeColorParams| {
                 let StrokeColorParams { r, g, b, a } = p;
                 _vgfx
                     .stroke_paint
@@ -983,7 +982,7 @@ impl TealData for Vgfx {
         add_lua_static_method(
             methods,
             "UpdateLabel",
-            |lua, lua_index, _vgfx, p: UpdateLabelParams| {
+            |_lua, lua_index, _vgfx, p: UpdateLabelParams| {
                 if let Some(label) = _vgfx
                     .scoped_assets
                     .get_mut(lua_index)
@@ -1016,7 +1015,7 @@ impl TealData for Vgfx {
         add_lua_static_method(
             methods,
             "DrawGauge",
-            |lua, lua_index, _vgfx, _: DrawGaugeParams| -> Result<(), mlua::Error> {
+            |_lua, _lua_index, _vgfx, _: DrawGaugeParams| -> Result<(), mlua::Error> {
                 Err(mlua::Error::external("Function removed".to_string()))
             },
         );
@@ -1032,7 +1031,7 @@ impl TealData for Vgfx {
         add_lua_static_method(
             methods,
             "SetGaugeColor",
-            |lua, lua_index, _vgfx, _: SetGaugeColorParams| -> Result<(), mlua::Error> {
+            |_lua, _lua_index, _vgfx, _: SetGaugeColorParams| -> Result<(), mlua::Error> {
                 Err(mlua::Error::external("Function removed".to_string()))
             },
         );
@@ -1049,7 +1048,7 @@ impl TealData for Vgfx {
         add_lua_static_method(
             methods,
             "RoundedRect",
-            |lua, lua_index, _vgfx, p: RoundedRectParams| {
+            |_lua, _lua_index, _vgfx, p: RoundedRectParams| {
                 let RoundedRectParams { x, y, w, h, r } = p;
                 if let Some(path) = _vgfx.path.as_mut() {
                     path.rounded_rect(x, y, w, h, r);
@@ -1075,7 +1074,7 @@ impl TealData for Vgfx {
         add_lua_static_method(
             methods,
             "RoundedRectVarying",
-            |lua, lua_index, _vgfx, p: RoundedRectVaryingParams| {
+            |_lua, _lua_index, _vgfx, p: RoundedRectVaryingParams| {
                 let RoundedRectVaryingParams {
                     x,
                     y,
@@ -1115,7 +1114,7 @@ impl TealData for Vgfx {
         add_lua_static_method(
             methods,
             "Ellipse",
-            |lua, lua_index, _vgfx, p: EllipseParams| {
+            |_lua, _lua_index, _vgfx, p: EllipseParams| {
                 let EllipseParams { cx, cy, rx, ry } = p;
                 if let Some(path) = _vgfx.path.as_mut() {
                     path.ellipse(cx, cy, rx, ry);
@@ -1136,7 +1135,7 @@ impl TealData for Vgfx {
         add_lua_static_method(
             methods,
             "Circle",
-            |lua, lua_index, _vgfx, p: CircleParams| {
+            |_lua, _lua_index, _vgfx, p: CircleParams| {
                 let CircleParams { cx, cy, r } = p;
                 if let Some(path) = _vgfx.path.as_mut() {
                     path.circle(cx, cy, r);
@@ -1152,7 +1151,7 @@ impl TealData for Vgfx {
           angle : f32,
 
         );
-        add_lua_static_method(methods, "SkewX", |lua, lua_index, _vgfx, p: SkewXParams| {
+        add_lua_static_method(methods, "SkewX", |_lua, _lua_index, _vgfx, p: SkewXParams| {
             _vgfx.with_canvas(|canvas| canvas.skew_x(p.angle))?;
             Ok(())
         });
@@ -1162,7 +1161,7 @@ impl TealData for Vgfx {
           angle : f32,
 
         );
-        add_lua_static_method(methods, "SkewY", |lua, lua_index, _vgfx, p: SkewYParams| {
+        add_lua_static_method(methods, "SkewY", |_lua, _lua_index, _vgfx, p: SkewYParams| {
             _vgfx.with_canvas(|canvas| canvas.skew_y(p.angle))?;
             Ok(())
         });
@@ -1178,7 +1177,7 @@ impl TealData for Vgfx {
         add_lua_static_method(
             methods,
             "LinearGradient",
-            |lua, lua_index, _vgfx, p: LinearGradientParams| {
+            |_lua, lua_index, _vgfx, p: LinearGradientParams| {
                 let LinearGradientParams { sx, sy, ex, ey } = p;
 
                 _vgfx
@@ -1217,7 +1216,7 @@ impl TealData for Vgfx {
         add_lua_static_method(
             methods,
             "BoxGradient",
-            |lua, lua_index, _vgfx, p: BoxGradientParams| {
+            |_lua, _lua_index, _vgfx, p: BoxGradientParams| {
                 let BoxGradientParams { x, y, w, h, r, f } = p;
                 _vgfx.fill_paint = Some(Paint::box_gradient(
                     x,
@@ -1244,7 +1243,7 @@ impl TealData for Vgfx {
         add_lua_static_method(
             methods,
             "RadialGradient",
-            |lua, lua_index, _vgfx, p: RadialGradientParams| {
+            |_lua, lua_index, _vgfx, p: RadialGradientParams| {
                 let RadialGradientParams { cx, cy, inr, outr } = p;
 
                 _vgfx
@@ -1284,7 +1283,7 @@ impl TealData for Vgfx {
         add_lua_static_method(
             methods,
             "ImagePattern",
-            |lua, lua_index, _vgfx, p: ImagePatternParams| {
+            |_lua, lua_index, _vgfx, p: ImagePatternParams| {
                 let ImagePatternParams {
                     ox,
                     oy,
@@ -1332,7 +1331,7 @@ impl TealData for Vgfx {
         add_lua_static_method(
             methods,
             "UpdateImagePattern",
-            |lua, lua_index, _vgfx, p: UpdateImagePatternParams| {
+            |_lua, lua_index, _vgfx, p: UpdateImagePatternParams| {
                 let UpdateImagePatternParams {
                     paint,
                     ox,
@@ -1368,7 +1367,7 @@ impl TealData for Vgfx {
         add_lua_static_method(
             methods,
             "GradientColors",
-            |lua, lua_index, _vgfx, p: GradientColorsParams| {
+            |_lua, _lua_index, _vgfx, p: GradientColorsParams| {
                 let GradientColorsParams {
                     ri,
                     gi,
@@ -1395,7 +1394,7 @@ impl TealData for Vgfx {
         add_lua_static_method(
             methods,
             "FillPaint",
-            |lua, lua_index, _vgfx, p: FillPaintParams| {
+            |_lua, lua_index, _vgfx, p: FillPaintParams| {
                 if let Some(paint) = _vgfx.scoped_assets[lua_index].paints.get(&p.paint) {
                     _vgfx.fill_paint = Some(paint.clone());
                 }
@@ -1411,7 +1410,7 @@ impl TealData for Vgfx {
         add_lua_static_method(
             methods,
             "StrokePaint",
-            |lua, lua_index, _vgfx, p: StrokePaintParams| {
+            |_lua, lua_index, _vgfx, p: StrokePaintParams| {
                 if let Some(paint) = _vgfx.scoped_assets[lua_index].paints.get(&p.paint) {
                     _vgfx.stroke_paint = paint.clone();
                 }
@@ -1433,7 +1432,7 @@ impl TealData for Vgfx {
         });
 
         //Restore
-        add_lua_static_method(methods, "Restore", |lua, lua_index, _vgfx, _: ()| {
+        add_lua_static_method(methods, "Restore", |_lua, _lua_index, _vgfx, _: ()| {
             _vgfx.with_canvas(|canvas| canvas.restore())?;
 
             if let Some(restore) = _vgfx.restore_stack.pop() {
@@ -1453,7 +1452,7 @@ impl TealData for Vgfx {
         });
 
         //Reset
-        add_lua_static_method(methods, "Reset", |lua, lua_index, _vgfx, _: ()| {
+        add_lua_static_method(methods, "Reset", |_lua, _lua_index, _vgfx, _: ()| {
             _vgfx.restore_stack.clear();
             _vgfx.with_canvas(|canvas| canvas.reset())
         });
@@ -1466,14 +1465,14 @@ impl TealData for Vgfx {
         add_lua_static_method(
             methods,
             "PathWinding",
-            |lua, lua_index, _vgfx, _p: PathWindingParams| {
+            |_lua, _lua_index, _vgfx, _p: PathWindingParams| {
                 todo!();
                 Ok(0)
             },
         );
 
         //ForceRender
-        add_lua_static_method(methods, "ForceRender", |lua, lua_index, _vgfx, _: ()| {
+        add_lua_static_method(methods, "ForceRender", |_lua, _lua_index, _vgfx, _: ()| {
             //TODO: Flush game render as well
             //_vgfx.with_canvas(|canvas| canvas.flush())?;
             Ok(())
@@ -1490,7 +1489,7 @@ impl TealData for Vgfx {
         add_lua_static_method(
             methods,
             "LoadImageJob",
-            |lua, lua_index, _vgfx, p: LoadImageJobParams| {
+            |_lua, lua_index, _vgfx, p: LoadImageJobParams| {
                 let LoadImageJobParams {
                     path,
                     placeholder,
@@ -1579,7 +1578,7 @@ impl TealData for Vgfx {
         add_lua_static_method(
             methods,
             "LoadWebImageJob",
-            |lua, lua_index, _vgfx, _p: LoadWebImageJobParams| {
+            |_lua, _lua_index, _vgfx, _p: LoadWebImageJobParams| {
                 todo!();
                 Ok(0)
             },
@@ -1596,7 +1595,7 @@ impl TealData for Vgfx {
         add_lua_static_method(
             methods,
             "Scissor",
-            |lua, lua_index, _vgfx, p: ScissorParams| {
+            |_lua, _lua_index, _vgfx, p: ScissorParams| {
                 let ScissorParams { x, y, w, h } = p;
                 _vgfx.with_canvas(|canvas| canvas.scissor(x, y, w, h))?;
 
@@ -1615,7 +1614,7 @@ impl TealData for Vgfx {
         add_lua_static_method(
             methods,
             "IntersectScissor",
-            |lua, lua_index, _vgfx, p: IntersectScissorParams| {
+            |_lua, _lua_index, _vgfx, p: IntersectScissorParams| {
                 let IntersectScissorParams { x, y, w, h } = p;
                 _vgfx.with_canvas(|canvas| canvas.intersect_scissor(x, y, w, h))?;
                 Ok(())
@@ -1623,7 +1622,7 @@ impl TealData for Vgfx {
         );
 
         //ResetScissor
-        add_lua_static_method(methods, "ResetScissor", |lua, lua_index, _vgfx, _: ()| {
+        add_lua_static_method(methods, "ResetScissor", |_lua, _lua_index, _vgfx, _: ()| {
             _vgfx.with_canvas(|canvas| canvas.reset_scissor())?;
             Ok(())
         });
@@ -1638,7 +1637,7 @@ impl TealData for Vgfx {
         add_lua_static_method(
             methods,
             "TextBounds",
-            |lua, lua_index, _vgfx, p: TextBoundsParams| {
+            |_lua, _lua_index, _vgfx, p: TextBoundsParams| {
                 let TextBoundsParams { x, y, s } = p;
 
                 if let Some(paint) = _vgfx.fill_paint.as_ref() {
@@ -1665,7 +1664,7 @@ impl TealData for Vgfx {
         add_lua_static_method(
             methods,
             "LabelSize",
-            |lua, lua_index, _vgfx, p: LabelSizeParams| {
+            |_lua, lua_index, _vgfx, p: LabelSizeParams| {
                 let mut paint = _vgfx
                     .fill_paint
                     .clone()
@@ -1695,7 +1694,7 @@ impl TealData for Vgfx {
         add_lua_static_method(
             methods,
             "FastTextSize",
-            |lua, lua_index, _vgfx, _p: FastTextSizeParams| {
+            |_lua, _lua_index, _vgfx, _p: FastTextSizeParams| {
                 todo!();
                 Ok(0)
             },
@@ -1709,7 +1708,7 @@ impl TealData for Vgfx {
         add_lua_static_method(
             methods,
             "ImageSize",
-            |lua, lua_index, _vgfx, p: ImageSizeParams| {
+            |_lua, lua_index, _vgfx, p: ImageSizeParams| {
                 if let Some(id) = _vgfx.scoped_assets[lua_index].images.get(&p.image) {
                     let id: ImageId = id.into();
                     _vgfx
@@ -1734,7 +1733,7 @@ impl TealData for Vgfx {
           dir : i32,
 
         );
-        add_lua_static_method(methods, "Arc", |lua, lua_index, _vgfx, p: ArcParams| {
+        add_lua_static_method(methods, "Arc", |_lua, _lua_index, _vgfx, p: ArcParams| {
             let ArcParams {
                 cx,
                 cy,
@@ -1772,7 +1771,7 @@ impl TealData for Vgfx {
         add_lua_static_method(
             methods,
             "SetImageTint",
-            |lua, lua_index, _vgfx, _p: SetImageTintParams| {
+            |_lua, _lua_index, _vgfx, _p: SetImageTintParams| {
                 if let Some(_paint) = _vgfx.fill_paint.as_mut() {
                     //Paint::image_tint(id, cx, cy, width, height, angle, tint)
                 }
@@ -1788,7 +1787,7 @@ impl TealData for Vgfx {
         add_lua_static_method(
             methods,
             "GlobalCompositeOperation",
-            |lua, lua_index, _vgfx, p: GlobalCompositeOperationParams| {
+            |_lua, _lua_index, _vgfx, p: GlobalCompositeOperationParams| {
                 if p.op <= femtovg::CompositeOperation::Xor as u8 {
                     unsafe {
                         _vgfx.with_canvas(|canvas| {
@@ -1810,7 +1809,7 @@ impl TealData for Vgfx {
         add_lua_static_method(
             methods,
             "GlobalCompositeBlendFunc",
-            |lua, lua_index, _vgfx, p: GlobalCompositeBlendFuncParams| {
+            |_lua, _lua_index, _vgfx, p: GlobalCompositeBlendFuncParams| {
                 let last_factor = femtovg::BlendFactor::SrcAlphaSaturate as u8;
                 if p.dfactor <= last_factor && p.sfactor <= last_factor {
                     unsafe {
@@ -1838,7 +1837,7 @@ impl TealData for Vgfx {
         add_lua_static_method(
             methods,
             "GlobalCompositeBlendFuncSeparate",
-            |lua, lua_index, _vgfx, _p: GlobalCompositeBlendFuncSeparateParams| {
+            |_lua, _lua_index, _vgfx, _p: GlobalCompositeBlendFuncSeparateParams| {
                 todo!();
                 Ok(0)
             },
@@ -1855,7 +1854,7 @@ impl TealData for Vgfx {
         add_lua_static_method(
             methods,
             "LoadAnimation",
-            |lua, lua_index, _vgfx, p: LoadAnimationParams| {
+            |_lua, lua_index, _vgfx, p: LoadAnimationParams| {
                 let LoadAnimationParams {
                     path,
                     frametime,
@@ -1892,7 +1891,7 @@ impl TealData for Vgfx {
         add_lua_static_method(
             methods,
             "GlobalAlpha",
-            |lua, lua_index, _vgfx, p: GlobalAlphaParams| {
+            |_lua, _lua_index, _vgfx, p: GlobalAlphaParams| {
                 // todo!();
                 _vgfx.canvas.lock().unwrap().set_global_alpha(p.alpha);
                 Ok(())
@@ -1903,7 +1902,7 @@ impl TealData for Vgfx {
         add_lua_static_method(
             methods,
             "LoadSkinAnimation",
-            |lua, lua_index, _vgfx, p: LoadAnimationParams| {
+            |_lua, lua_index, _vgfx, p: LoadAnimationParams| {
                 let LoadAnimationParams {
                     path,
                     frametime,
@@ -1947,7 +1946,7 @@ impl TealData for Vgfx {
         add_lua_static_method(
             methods,
             "TickAnimation",
-            |lua, lua_index, _vgfx, p: TickAnimationParams| {
+            |_lua, lua_index, _vgfx, p: TickAnimationParams| {
                 let TickAnimationParams {
                     animation,
                     delta_time,
@@ -1975,7 +1974,7 @@ impl TealData for Vgfx {
         add_lua_static_method(
             methods,
             "LoadSharedTexture",
-            |lua, lua_index, _vgfx, _p: LoadSharedTextureParams| {
+            |_lua, _lua_index, _vgfx, _p: LoadSharedTextureParams| {
                 todo!();
                 Ok(0)
             },

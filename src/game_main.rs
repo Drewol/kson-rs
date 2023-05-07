@@ -9,7 +9,7 @@ use std::{
 use egui_glow::EguiGlow;
 use femtovg::Paint;
 use generational_arena::{Arena, Index};
-use gilrs::Gilrs;
+
 use kson::Chart;
 use log::*;
 use puffin::{profile_function, profile_scope};
@@ -25,7 +25,7 @@ use vg::{renderer::OpenGl, Canvas};
 use tealr::mlu::mlua::LuaSerdeExt;
 
 use crate::{
-    button_codes::{self, LaserState, UscButton, UscInputEvent},
+    button_codes::{LaserState, UscInputEvent},
     config::GameConfig,
     game_data::{ExportGame, GameData},
     main_menu::MainMenuButton,
@@ -125,7 +125,7 @@ impl GameMain {
     pub fn update(&mut self) {}
     pub fn render(
         &mut self,
-        mut frame_input: FrameInput<()>,
+        frame_input: FrameInput<()>,
         window: &game_loop::winit::window::Window,
     ) -> FrameOutput {
         let GameMain {
@@ -364,7 +364,7 @@ impl GameMain {
             *transition_song_lua_idx,
         );
 
-        game_data.lock().map(|mut a| a.profile_stack.clear());
+        if let Ok(mut a) = game_data.lock() { a.profile_stack.clear() }
 
         let exit = scenes.is_empty();
         if exit {

@@ -232,7 +232,7 @@ fn main() -> anyhow::Result<()> {
 
     let event_proxy = eventloop.create_proxy();
 
-    let input_thread = poll_promise::Promise::spawn_thread("gilrs", move || {
+    let _input_thread = poll_promise::Promise::spawn_thread("gilrs", move || {
         input
             .gamepads()
             .for_each(|(_, g)| info!("{} uuid: {}", g.name(), uuid::Uuid::from_bytes(g.uuid())));
@@ -313,7 +313,7 @@ fn main() -> anyhow::Result<()> {
     write!(typedef_file, "{}", file_content)?;
     typedef_file.flush()?;
     drop(typedef_file);
-    let gui = egui_glow::EguiGlow::new(&eventloop, gl_context.clone(), None);
+    let gui = egui_glow::EguiGlow::new(&eventloop, gl_context, None);
 
     let frame_times = [16.0; FRAME_ACC_SIZE];
     let frame_time_index = 0;

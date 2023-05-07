@@ -17,7 +17,7 @@ use glutin::{
 use glutin_winit::DisplayBuilder;
 use raw_window_handle::HasRawWindowHandle;
 
-use crate::button_codes::{UscButton, UscInputEvent};
+use crate::button_codes::{UscInputEvent};
 
 /// Mostly borrowed code from femtovg/examples
 pub fn create_window() -> (

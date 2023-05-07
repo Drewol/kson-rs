@@ -239,7 +239,7 @@ fn next_songs(path: &str) -> Promise<Result<NauticaSongs>> {
                     }
                 };
 
-                let file = File::create(&jacket_path)?;
+                let file = File::create(jacket_path)?;
                 let mut file = std::io::BufWriter::new(file);
                 std::io::copy(&mut jacket_response.into_reader(), &mut file)?;
 
