@@ -25,7 +25,7 @@ use vg::{renderer::OpenGl, Canvas};
 use tealr::mlu::mlua::LuaSerdeExt;
 
 use crate::{
-    button_codes::{self, LaserState},
+    button_codes::{self, LaserState, UscButton, UscInputEvent},
     config::GameConfig,
     game_data::{ExportGame, GameData},
     main_menu::MainMenuButton,
@@ -73,7 +73,6 @@ pub struct GameMain {
     vgfx: Arc<Mutex<Vgfx>>,
     canvas: Arc<Mutex<Canvas<OpenGl>>>,
     frame_count: u32,
-    input: Gilrs,
     gui: EguiGlow,
     show_debug_ui: bool,
     mousex: f64,
@@ -96,7 +95,6 @@ impl GameMain {
         vgfx: Arc<Mutex<Vgfx>>,
         canvas: Arc<Mutex<Canvas<OpenGl>>>,
         frame_count: u32,
-        input: Gilrs,
         gui: EguiGlow,
         show_debug_ui: bool,
         mousex: f64,
@@ -117,7 +115,6 @@ impl GameMain {
             vgfx,
             canvas,
             frame_count,
-            input,
             gui,
             show_debug_ui,
             mousex,
@@ -145,7 +142,6 @@ impl GameMain {
             frame_count,
             game_data,
             vgfx,
-            input,
             show_debug_ui,
             gui,
             frame_time_index,
@@ -189,6 +185,11 @@ impl GameMain {
                     .write()
                     .expect("Could not get lock to lua arena")
                     .insert(lua.clone());
+
+                {
+                    vgfx.lock().unwrap().init_asset_scope(idx)
+                }
+
                 {
                     lua.set_app_data(vgfx.clone());
                     lua.set_app_data(game_data.clone());
@@ -345,40 +346,7 @@ impl GameMain {
         *frame_time_index = (*frame_time_index + 1) % FRAME_ACC_SIZE;
         let fps = 1000_f64 / (frame_times.iter().sum::<f64>() / FRAME_ACC_SIZE as f64);
 
-        while let Some(e) = input.next_event() {
-            match e.event {
-                gilrs::EventType::ButtonPressed(button, _) => {
-                    let button = button_codes::UscButton::from(button);
-                    info!("{:?}", button);
-                    scenes
-                        .active
-                        .iter_mut()
-                        .filter(|s| !s.is_suspended())
-                        .for_each(|s| s.on_button_pressed(button))
-                }
-                gilrs::EventType::ButtonRepeated(_, _) => {}
-                gilrs::EventType::ButtonReleased(_, _) => {}
-                gilrs::EventType::ButtonChanged(_, _, _) => {}
-                gilrs::EventType::AxisChanged(axis, value, _) => match axis {
-                    gilrs::Axis::LeftStickX => knob_state.update(kson::Side::Left, value),
-                    gilrs::Axis::RightStickX => knob_state.update(kson::Side::Right, value),
-                    e => {
-                        info!("{:?}", e)
-                    }
-                },
-                gilrs::EventType::Connected => {}
-                gilrs::EventType::Disconnected => {}
-                gilrs::EventType::Dropped => {}
-            }
-        }
-
-        if frame_input.first_frame {
-            input.gamepads().for_each(|(_, g)| {
-                info!("{} uuid: {}", g.name(), uuid::Uuid::from_bytes(g.uuid()))
-            });
-        }
-
-        Self::update_game_data_and_clear(game_data, *mousex, *mousey, &frame_input);
+        Self::update_game_data_and_clear(game_data, *mousex, *mousey, &frame_input, *knob_state);
 
         Self::reset_viewport_size(vgfx.clone(), &frame_input);
 
@@ -389,7 +357,12 @@ impl GameMain {
             Self::debug_ui(gui, window, scenes);
         }
 
-        Self::run_lua_gc(lua_arena);
+        Self::run_lua_gc(
+            lua_arena,
+            &mut vgfx.lock().unwrap(),
+            *transition_lua_idx,
+            *transition_song_lua_idx,
+        );
 
         game_data.lock().map(|mut a| a.profile_stack.clear());
 
@@ -406,7 +379,7 @@ impl GameMain {
             wait_next_event: false,
         }
     }
-    pub fn handle(&mut self, event: &game_loop::winit::event::Event<()>) {
+    pub fn handle(&mut self, event: &game_loop::winit::event::Event<UscInputEvent>) {
         use game_loop::winit::event::*;
         if let Event::WindowEvent {
             window_id: _,
@@ -420,6 +393,20 @@ impl GameMain {
         }
 
         match event {
+            Event::UserEvent(e) => {
+                info!("{:?}", e);
+                match e {
+                    UscInputEvent::Laser(ls) => self.knob_state = *ls,
+                    UscInputEvent::Button(b, s) => match s {
+                        ElementState::Pressed => {
+                            self.scenes.for_each_active_mut(|x| x.on_button_pressed(*b))
+                        }
+                        ElementState::Released => self
+                            .scenes
+                            .for_each_active_mut(|x| x.on_button_released(*b)),
+                    },
+                }
+            }
             Event::WindowEvent {
                 event: WindowEvent::CursorMoved { position, .. },
                 ..
@@ -450,12 +437,26 @@ impl GameMain {
             .for_each(|x| x.on_event(event));
     }
 
-    fn run_lua_gc(lua_arena: &Rc<RwLock<Arena<Rc<Lua>>>>) {
+    fn run_lua_gc(
+        lua_arena: &Rc<RwLock<Arena<Rc<Lua>>>>,
+        vgfx: &mut Vgfx,
+        transition_lua_idx: Index,
+        transition_song_lua_idx: Index,
+    ) {
         profile_scope!("Garbage collect");
-        for (_idx, lua) in lua_arena.read().unwrap().iter() {
+        lua_arena.write().unwrap().retain(|idx, lua| {
             //TODO: if reference count = 1, remove loaded gfx assets for state
             lua.gc_collect();
-        }
+            if Rc::strong_count(lua) > 1
+                || idx == transition_lua_idx
+                || idx == transition_song_lua_idx
+            {
+                true
+            } else {
+                vgfx.drop_assets(&idx);
+                false
+            }
+        });
     }
 
     fn debug_ui(
@@ -534,6 +535,7 @@ impl GameMain {
         mousex: f64,
         mousey: f64,
         frame_input: &td::FrameInput<()>,
+        laser_state: LaserState,
     ) {
         {
             let lock = game_data.lock();
@@ -542,6 +544,7 @@ impl GameMain {
                     mouse_pos: (mousex, mousey),
                     resolution: (frame_input.viewport.width, frame_input.viewport.height),
                     profile_stack: std::mem::take(&mut game_data.profile_stack),
+                    laser_state,
                 };
             }
         }

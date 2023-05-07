@@ -10,13 +10,17 @@ use tealr::{
     TypeName,
 };
 
-use crate::{config::GameConfig, help::add_lua_static_method, skin_settings::SkinSettingValue};
+use crate::{
+    button_codes::LaserState, config::GameConfig, help::add_lua_static_method,
+    skin_settings::SkinSettingValue,
+};
 
 #[derive(UserData)]
 pub struct GameData {
     pub resolution: (u32, u32),
     pub mouse_pos: (f64, f64),
     pub profile_stack: Vec<ProfilerScope>,
+    pub laser_state: LaserState,
 }
 
 impl TypeName for GameData {
@@ -34,12 +38,12 @@ impl TypeName for GameData {
 impl TealData for GameData {
     fn add_methods<'lua, T: tealr::mlu::TealDataMethods<'lua, Self>>(methods: &mut T) {
         //GetMousePos
-        add_lua_static_method(methods, "GetMousePos", |_, _game_data, _: ()| {
+        add_lua_static_method(methods, "GetMousePos", |_, _, _game_data, _: ()| {
             Ok(_game_data.mouse_pos)
         });
 
         //GetResolution
-        add_lua_static_method(methods, "GetResolution", |_, _game_data, _: ()| {
+        add_lua_static_method(methods, "GetResolution", |_, _, _game_data, _: ()| {
             Ok(_game_data.resolution)
         });
 
@@ -57,7 +61,7 @@ impl TealData for GameData {
           severity : i32,
 
         );
-        add_lua_static_method(methods, "Log", |lua, _game_data, p: LogParams| {
+        add_lua_static_method(methods, "Log", |lua, _, _game_data, p: LogParams| {
             use log::*;
             let LogParams { message, severity } = p;
             let d = lua
@@ -96,7 +100,7 @@ impl TealData for GameData {
         add_lua_static_method(
             methods,
             "LoadSkinSample",
-            |_, _game_data, _p: LoadSkinSampleParams| Ok(()),
+            |_, _, _game_data, _p: LoadSkinSampleParams| Ok(()),
         );
 
         //PlaySample
@@ -108,7 +112,7 @@ impl TealData for GameData {
         add_lua_static_method(
             methods,
             "PlaySample",
-            |_, _game_data, _p: PlaySampleParams| Ok(()),
+            |_, _, _game_data, _p: PlaySampleParams| Ok(()),
         );
 
         //StopSample
@@ -119,7 +123,7 @@ impl TealData for GameData {
         add_lua_static_method(
             methods,
             "StopSample",
-            |_, _game_data, _p: StopSampleParams| Ok(()),
+            |_, _, _game_data, _p: StopSampleParams| Ok(()),
         );
 
         //IsSamplePlaying
@@ -130,7 +134,7 @@ impl TealData for GameData {
         add_lua_static_method(
             methods,
             "IsSamplePlaying",
-            |_, _game_data, _p: IsSamplePlayingParams| Ok(false),
+            |_, _, _game_data, _p: IsSamplePlayingParams| Ok(false),
         );
 
         //GetLaserColor
@@ -141,7 +145,7 @@ impl TealData for GameData {
         add_lua_static_method(
             methods,
             "GetLaserColor",
-            |_, _game_data, _p: GetLaserColorParams| Ok((0, 127, 255, 255)),
+            |_, _, _game_data, _p: GetLaserColorParams| Ok((0, 127, 255, 255)),
         );
 
         //GetButton
@@ -149,24 +153,35 @@ impl TealData for GameData {
           button : i32,
 
         );
-        add_lua_static_method(methods, "GetButton", |_, _game_data, _p: GetButtonParams| {
-            Ok(false)
-        });
+        add_lua_static_method(
+            methods,
+            "GetButton",
+            |_, _, _game_data, _p: GetButtonParams| Ok(false),
+        );
 
         //GetKnob
         tealr::mlu::create_named_parameters!(GetKnobParams with
           knob : i32,
 
         );
-        add_lua_static_method(methods, "GetKnob", |_, _game_data, _p: GetKnobParams| {
-            Ok(0.5)
-        });
+        add_lua_static_method(
+            methods,
+            "GetKnob",
+            |_, _, game_data, p: GetKnobParams| match p.knob {
+                0 => Ok(game_data.laser_state.get_axis(kson::Side::Left).pos),
+                1 => Ok(game_data.laser_state.get_axis(kson::Side::Right).pos),
+                _ => Err(mlua::Error::RuntimeError(format!(
+                    "Invalid laser index: {}",
+                    p.knob
+                ))),
+            },
+        );
 
         //UpdateAvailable
-        add_lua_static_method(methods, "UpdateAvailable", |_, _game_data, _: ()| Ok(()));
+        add_lua_static_method(methods, "UpdateAvailable", |_, _, _game_data, _: ()| Ok(()));
 
         //GetSkin
-        add_lua_static_method(methods, "GetSkin", |_, _game_data, _: ()| {
+        add_lua_static_method(methods, "GetSkin", |_, _, _game_data, _: ()| {
             GameConfig::get()
                 .map(|x| Ok(x.skin.clone()))
                 .unwrap_or(Err(mlua::Error::RuntimeError(
@@ -175,27 +190,31 @@ impl TealData for GameData {
         });
 
         //GetSkinSetting
-        add_lua_static_method(methods, "GetSkinSetting", |_, _game_data, key: String| {
-            if let Some(gc) = GameConfig::get() {
-                let skin_setting_value = gc
-                    .skin_settings
-                    .get(&key)
-                    .cloned()
-                    .unwrap_or(SkinSettingValue::None);
+        add_lua_static_method(
+            methods,
+            "GetSkinSetting",
+            |_, _, _game_data, key: String| {
+                if let Some(gc) = GameConfig::get() {
+                    let skin_setting_value = gc
+                        .skin_settings
+                        .get(&key)
+                        .cloned()
+                        .unwrap_or(SkinSettingValue::None);
 
-                Ok(skin_setting_value)
-            } else {
-                Err(mlua::Error::RuntimeError(
-                    "GameConfig not initialized".to_string(),
-                ))
-            }
-        });
+                    Ok(skin_setting_value)
+                } else {
+                    Err(mlua::Error::RuntimeError(
+                        "GameConfig not initialized".to_string(),
+                    ))
+                }
+            },
+        );
 
         //GetSkinSetting
         add_lua_static_method(
             methods,
             "SetSkinSetting",
-            |_, _game_data, key: (String, SkinSettingValue)| {
+            |_, _, _game_data, key: (String, SkinSettingValue)| {
                 if let Some(mut config) = GameConfig::get_mut() {
                     config.skin_settings.insert(key.0, key.1);
                 }
@@ -208,7 +227,7 @@ impl TealData for GameData {
         add_lua_static_method(
             methods,
             "BeginProfile",
-            |lua, _game_data, scope: Option<String>| {
+            |lua, _, _game_data, scope: Option<String>| {
                 if puffin::are_scopes_on() {
                     let scope = scope.unwrap_or_else(|| {
                         if let Some(a) = lua.inspect_stack(1) {
@@ -231,7 +250,7 @@ impl TealData for GameData {
         );
 
         //EndProfile
-        add_lua_static_method(methods, "EndProfile", |_, _game_data, _: ()| {
+        add_lua_static_method(methods, "EndProfile", |_, _, _game_data, _: ()| {
             _game_data.profile_stack.pop();
             Ok(())
         })

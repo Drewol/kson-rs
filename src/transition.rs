@@ -4,6 +4,7 @@ use std::{
     sync::{mpsc::Sender, Arc, Mutex},
 };
 
+use generational_arena::Index;
 use poll_promise::Promise;
 use tealr::mlu::mlua::{Function, Lua, LuaSerdeExt};
 use three_d::{ColorMaterial, Gm, Mat3, Rad, Rectangle, Texture2DRef, Vec2, Zero};
@@ -106,12 +107,12 @@ impl Transition {
         {
             let mut vgfx = vgfx.lock().unwrap();
             let diff = &song.difficulties[*diff];
-
+            let lua_idx = transition_lua.app_data_ref::<Index>().unwrap();
             transition_lua.globals().set(
                 "song",
                 transition_lua
                     .to_value(&json!({
-                        "jacket": vgfx.load_image(&diff.jacket_path).unwrap_or(0),
+                        "jacket": vgfx.load_image(&diff.jacket_path, &*lua_idx).unwrap_or(0),
                         "title": song.title,
                         "artist": song.artist,
                         "bpm": song.bpm,

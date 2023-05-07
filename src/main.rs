@@ -4,6 +4,7 @@ use std::{
     path::Path,
     rc::Rc,
     sync::{Arc, Mutex, RwLock},
+    time::Duration,
 };
 
 use crate::{
@@ -158,6 +159,13 @@ impl Scenes {
         }
     }
 
+    pub fn for_each_active_mut(&mut self, f: impl FnMut(&mut Box<dyn Scene>)) {
+        self.active
+            .iter_mut()
+            .filter(|x| !x.is_suspended())
+            .for_each(f);
+    }
+
     pub fn clear(&mut self) {
         self.active.clear();
         self.initialized.clear();
@@ -222,6 +230,58 @@ fn main() -> anyhow::Result<()> {
     let mousex = 0.0;
     let mousey = 0.0;
 
+    let event_proxy = eventloop.create_proxy();
+
+    let input_thread = poll_promise::Promise::spawn_thread("gilrs", move || {
+        input
+            .gamepads()
+            .for_each(|(_, g)| info!("{} uuid: {}", g.name(), uuid::Uuid::from_bytes(g.uuid())));
+        let mut knob_state = LaserState::default();
+
+        loop {
+            use button_codes::*;
+            use game_loop::winit::event::ElementState::*;
+            use gilrs::*;
+            let e = input.next_event();
+            if let Some(e) = e {
+                let sent = match e.event {
+                    EventType::ButtonPressed(button, _) => {
+                        let button = UscButton::from(button);
+                        info!("{:?}", button);
+                        Some(event_proxy.send_event(UscInputEvent::Button(button, Pressed)))
+                    }
+                    EventType::ButtonRepeated(_, _) => None,
+                    EventType::ButtonReleased(button, _) => {
+                        let button = UscButton::from(button);
+                        info!("{:?}", button);
+                        Some(event_proxy.send_event(UscInputEvent::Button(button, Released)))
+                    }
+                    EventType::ButtonChanged(_, _, _) => None,
+                    EventType::AxisChanged(axis, value, _) => {
+                        match axis {
+                            Axis::LeftStickX => knob_state.update(kson::Side::Left, value),
+                            Axis::RightStickX => knob_state.update(kson::Side::Right, value),
+                            e => {
+                                info!("{:?}", e)
+                            }
+                        }
+                        Some(event_proxy.send_event(UscInputEvent::Laser(knob_state)))
+                    }
+                    EventType::Connected => None,
+                    EventType::Disconnected => None,
+                    EventType::Dropped => None,
+                };
+
+                if let Some(Err(send_err)) = sent {
+                    info!("Gilrs thread closing: {:?}", send_err);
+                    return;
+                }
+            } else {
+                std::thread::sleep(Duration::from_millis(1))
+            }
+        }
+    });
+
     let typedef_folder = Path::new("types");
     if !typedef_folder.exists() {
         std::fs::create_dir_all(typedef_folder)?;
@@ -267,6 +327,7 @@ fn main() -> anyhow::Result<()> {
         mouse_pos: (mousex, mousey),
         resolution: (800, 600),
         profile_stack: vec![],
+        laser_state: LaserState::default(),
     }));
 
     let lua_arena: Rc<RwLock<Arena<Rc<Lua>>>> = Rc::new(RwLock::new(Arena::new()));
@@ -295,7 +356,6 @@ fn main() -> anyhow::Result<()> {
         vgfx,
         canvas,
         0,
-        input,
         gui,
         show_debug_ui,
         mousex,

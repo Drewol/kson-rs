@@ -18,7 +18,7 @@ use tealr::{
 };
 
 use crate::{
-    button_codes::{LaserAxis, LaserState, UscButton},
+    button_codes::{LaserAxis, LaserState, UscButton, UscInputEvent},
     config::GameConfig,
     results::Score,
     scene::{Scene, SceneData},
@@ -311,7 +311,7 @@ impl Scene for SongSelectScene {
         Ok(())
     }
 
-    fn on_event(&mut self, _event: &Event<()>) {}
+    fn on_event(&mut self, _event: &Event<UscInputEvent>) {}
 
     fn on_button_pressed(&mut self, button: crate::button_codes::UscButton) {
         if let UscButton::Start = button {

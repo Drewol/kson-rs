@@ -36,6 +36,12 @@ pub struct VgAnimation {
     image_count: usize,
 }
 
+impl std::fmt::Debug for VgAnimation {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("VgAnimation").finish()
+    }
+}
+
 fn loader(rx: Receiver<LoaderRequest>, tx: Sender<LoaderResponse>, paths: Vec<PathBuf>) {
     while let Ok(request) = rx.recv() {
         match request {
@@ -118,6 +124,12 @@ impl VgAnimation {
             loader_tx: request_tx,
             _loader_thread,
         })
+    }
+
+    pub fn delete_imgs(&self, canvas: &mut femtovg::Canvas<OpenGl>) {
+        for img_id in &self.image_buffer {
+            canvas.delete_image(*img_id);
+        }
     }
 
     pub fn tick(&mut self, dt: f64) {

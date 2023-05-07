@@ -6,7 +6,7 @@ edition = "2021"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-femtovg = { path="../femtovg", default-features = false, features = ["image", "image-loading"] }
+femtovg = { version='*', default-features = false, features = ["image", "image-loading"] }
 image = { version = "0.24.0", default-features = false, features = [
     "jpeg",
     "png",

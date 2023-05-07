@@ -15,7 +15,11 @@ use tealr::{
     TypeName,
 };
 
-use crate::{button_codes::LaserState, scene::Scene, ControlMessage};
+use crate::{
+    button_codes::{LaserState, UscInputEvent},
+    scene::Scene,
+    ControlMessage,
+};
 #[derive(Debug, Clone, Copy)]
 pub enum MainMenuButton {
     Start,
@@ -147,7 +151,7 @@ impl Scene for MainMenu {
         Ok(())
     }
 
-    fn on_event(&mut self, event: &Event<()>) {
+    fn on_event(&mut self, event: &Event<UscInputEvent>) {
         if let Event::WindowEvent {
             event:
                 WindowEvent::MouseInput {
@@ -167,6 +171,14 @@ impl Scene for MainMenu {
                 }) {
                     log::error!("{:?}", e);
                 };
+            }
+        }
+    }
+
+    fn on_button_pressed(&mut self, button: crate::button_codes::UscButton) {
+        if let Ok(button_pressed) = self.lua.globals().get::<_, Function>("button_pressed") {
+            if let Some(e) = button_pressed.call::<u8, ()>(button.into()).err() {
+                log::error!("{:?}", e);
             }
         }
     }

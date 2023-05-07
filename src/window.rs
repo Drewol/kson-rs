@@ -3,10 +3,10 @@ use std::num::NonZeroU32;
 use femtovg::{renderer::OpenGl, Canvas};
 use game_loop::winit::{
     self,
-    event_loop::{EventLoop},
+    event_loop::{EventLoop, EventLoopBuilder},
     window::WindowBuilder,
 };
-use glow::{Context};
+use glow::Context;
 use glutin::{
     config::ConfigTemplateBuilder,
     context::{ContextApi, ContextAttributesBuilder, PossiblyCurrentContext},
@@ -17,16 +17,18 @@ use glutin::{
 use glutin_winit::DisplayBuilder;
 use raw_window_handle::HasRawWindowHandle;
 
+use crate::button_codes::{UscButton, UscInputEvent};
+
 /// Mostly borrowed code from femtovg/examples
 pub fn create_window() -> (
     winit::window::Window,
     glutin::surface::Surface<WindowSurface>,
     Canvas<OpenGl>,
     Context,
-    EventLoop<()>,
+    EventLoop<UscInputEvent>,
     PossiblyCurrentContext,
 ) {
-    let event_loop = EventLoop::new();
+    let event_loop = EventLoopBuilder::<UscInputEvent>::with_user_event().build();
 
     let window_builder = WindowBuilder::new()
         .with_inner_size(winit::dpi::PhysicalSize::new(1280, 720))
