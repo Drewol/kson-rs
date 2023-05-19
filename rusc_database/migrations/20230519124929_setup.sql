@@ -1,4 +1,3 @@
--- Your SQL goes here
 CREATE TABLE IF NOT EXISTS "Challenges" (
     "rowid" INTEGER NOT NULL,
     "title" TEXT NOT NULL,
@@ -33,7 +32,7 @@ CREATE TABLE IF NOT EXISTS "Charts" (
     "preview_length" INTEGER NOT NULL,
     "lwt" INTEGER NOT NULL,
     "hash" TEXT NOT NULL,
-    "preview_file" TEXT NOT NULL,
+    "preview_file" TEXT,
     "custom_offset" INTEGER NOT NULL,
     FOREIGN KEY("folderid") REFERENCES "folders"("rowid"),
     PRIMARY KEY("rowid")
@@ -82,13 +81,13 @@ CREATE TABLE IF NOT EXISTS "Scores" (
     "gauge_type" INTEGER NOT NULL,
     "gauge_opt" INTEGER NOT NULL,
     "auto_flags" INTEGER NOT NULL,
-    "mirror" INTEGER NOT NULL,
-    "random" INTEGER NOT NULL,
+    "mirror" BOOLEAN NOT NULL,
+    "random" BOOLEAN NOT NULL,
     "timestamp" INTEGER NOT NULL,
-    "replay" TEXT NOT NULL,
+    "replay" TEXT,
     "user_name" TEXT NOT NULL,
     "user_id" TEXT NOT NULL,
-    "local_score" INTEGER NOT NULL,
+    "local_score" BOOLEAN NOT NULL,
     "window_perfect" INTEGER NOT NULL,
     "window_good" INTEGER NOT NULL,
     "window_hold" INTEGER NOT NULL,
@@ -99,6 +98,5 @@ CREATE TABLE IF NOT EXISTS "Scores" (
     "late" INTEGER NOT NULL,
     "combo" INTEGER NOT NULL,
     "rowid" INTEGER NOT NULL,
-    FOREIGN KEY("chart_hash") REFERENCES "Charts"("hash"),
     PRIMARY KEY("rowid")
 )

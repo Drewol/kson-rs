@@ -1,30 +1,378 @@
-use diesel::prelude::*;
-use diesel::sqlite::SqliteConnection;
-use dotenvy::dotenv;
-use std::{env, error::Error};
+use std::path::Path;
 
-pub fn establish_connection() -> SqliteConnection {
-    dotenv().ok();
-    let database_url = env::var("DATABASE_URL").expect("DATABASE_URL must be set");
-    SqliteConnection::establish(&database_url)
-        .unwrap_or_else(|_| panic!("Error connecting to {}", database_url))
+use sqlx::migrate::Migrator;
+use sqlx::{query, query_as, ConnectOptions, Pool, SqlitePool};
+
+static MIGRATOR: Migrator = sqlx::migrate!("./migrations"); // defaults to "./migrations"
+
+pub struct LocalSongsDb {
+    sqlite_pool: SqlitePool,
 }
 
-use diesel_migrations::{embed_migrations, EmbeddedMigrations, MigrationHarness};
-
-const MIGRATIONS: EmbeddedMigrations = embed_migrations!("migrations");
-
-pub fn run_migrations(
-    connection: &mut impl MigrationHarness<diesel::sqlite::Sqlite>,
-) -> Result<(), Box<dyn Error + Send + Sync + 'static>> {
-    // This will run the necessary migrations.
-    //
-    // See the documentation for `MigrationHarness` for
-    // all available methods.
-    connection.run_pending_migrations(MIGRATIONS)?;
-
-    Ok(())
+pub struct ChartEntry {
+    pub rowid: i64,
+    pub folderid: i64,
+    pub path: String,
+    pub title: String,
+    pub artist: String,
+    pub title_translit: String,
+    pub artist_translit: String,
+    pub jacket_path: String,
+    pub effector: String,
+    pub illustrator: String,
+    pub diff_name: String,
+    pub diff_shortname: String,
+    pub bpm: String,
+    pub diff_index: i64,
+    pub level: i64,
+    pub hash: String,
+    pub preview_file: Option<String>,
+    pub preview_offset: i64,
+    pub preview_length: i64,
+    pub lwt: i64,
+    pub custom_offset: i64,
 }
 
-pub mod models;
-pub mod schema;
+pub struct ChallengeEntry {
+    pub title: String,
+    pub charts: serde_json::Value,
+    pub chart_meta: String,
+    pub clear_mark: String,
+    pub best_score: i32,
+    pub req_text: String,
+    pub path: String,
+    pub hash: String,
+    pub level: i32,
+    pub lwt: i64,
+}
+
+pub struct ScoreEntry {
+    pub rowid: i64,
+    pub score: i64,
+    pub crit: i64,
+    pub near: i64,
+    pub early: i64,
+    pub late: i64,
+    pub combo: i64,
+    pub miss: i64,
+    pub gauge: f64,
+    pub auto_flags: i64,
+    pub replay: Option<String>,
+    pub timestamp: i64,
+    pub chart_hash: String,
+    pub user_name: String,
+    pub user_id: String,
+    pub local_score: bool,
+    pub window_perfect: i64,
+    pub window_good: i64,
+    pub window_hold: i64,
+    pub window_miss: i64,
+    pub window_slam: i64,
+    pub gauge_type: i64,
+    pub gauge_opt: i64,
+    pub mirror: bool,
+    pub random: bool,
+}
+
+impl LocalSongsDb {
+    pub async fn new(db_path: impl AsRef<Path>) -> Result<Self, sqlx::Error> {
+        Ok(Self {
+            sqlite_pool: Pool::connect_with(
+                sqlx::sqlite::SqliteConnectOptions::new().filename(db_path),
+            )
+            .await?,
+        })
+    }
+
+    pub async fn migrate(&self) -> Result<(), sqlx::migrate::MigrateError> {
+        MIGRATOR.run(&self.sqlite_pool).await
+    }
+
+    pub async fn get_songs(&self) -> std::result::Result<std::vec::Vec<ChartEntry>, sqlx::Error> {
+        query_as!(ChartEntry, "SELECT * FROM Charts")
+            .fetch_all(&self.sqlite_pool)
+            .await
+    }
+
+    pub async fn add_score(
+        &self,
+        ScoreEntry {
+            rowid: _,
+            score,
+            crit,
+            near,
+            early,
+            late,
+            combo,
+            miss,
+            gauge,
+            auto_flags,
+            replay,
+            timestamp,
+            chart_hash,
+            user_name,
+            user_id,
+            local_score,
+            window_perfect,
+            window_good,
+            window_hold,
+            window_miss,
+            window_slam,
+            gauge_type,
+            gauge_opt,
+            mirror,
+            random,
+        }: ScoreEntry,
+    ) -> std::result::Result<sqlx::sqlite::SqliteQueryResult, sqlx::Error> {
+        query!("
+            INSERT INTO 
+			Scores(score,crit,near,early,late,combo,miss,gauge,auto_flags,replay,timestamp,chart_hash,user_name,user_id,local_score,window_perfect,window_good,window_hold,window_miss,window_slam,gauge_type,gauge_opt,mirror,random) 
+			VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)", 
+            score,
+            crit,
+            near,
+            early,
+            late,
+            combo,
+            miss,
+            gauge,
+            auto_flags,
+            replay,
+            timestamp,
+            chart_hash,
+            user_name,
+            user_id,
+            local_score,
+            window_perfect,
+            window_good,
+            window_hold,
+            window_miss,
+            window_slam,
+            gauge_type,
+            gauge_opt,
+            mirror,
+            random,
+        ).execute(&self.sqlite_pool).await
+    }
+
+    pub async fn add_chart(
+        &self,
+        ChartEntry {
+            folderid,
+            path,
+            title,
+            artist,
+            title_translit,
+            artist_translit,
+            jacket_path,
+            effector,
+            illustrator,
+            diff_name,
+            diff_shortname,
+            bpm,
+            diff_index,
+            level,
+            hash,
+            preview_file,
+            preview_offset,
+            preview_length,
+            lwt,
+            rowid: _,
+            custom_offset: _,
+        }: ChartEntry,
+    ) -> std::result::Result<sqlx::sqlite::SqliteQueryResult, sqlx::Error> {
+        query!(
+            "INSERT INTO Charts(
+			folderid,path,title,artist,title_translit,artist_translit,jacket_path,effector,illustrator,
+			diff_name,diff_shortname,bpm,diff_index,level,hash,preview_file,preview_offset,preview_length,lwt) 
+			VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+            folderid,
+            path,
+            title,
+            artist,
+            title_translit,
+            artist_translit,
+            jacket_path,
+            effector,
+            illustrator,
+            diff_name,
+            diff_shortname,
+            bpm,
+            diff_index,
+            level,
+            hash,
+            preview_file,
+            preview_offset,
+            preview_length,
+            lwt
+        )
+        .execute(&self.sqlite_pool)
+        .await
+    }
+    pub async fn add_folder(
+        &self,
+        path: String,
+        id: i32,
+    ) -> std::result::Result<sqlx::sqlite::SqliteQueryResult, sqlx::Error> {
+        query!("INSERT INTO Folders(path,rowid) VALUES(?,?)", path, id)
+            .execute(&self.sqlite_pool)
+            .await
+    }
+    pub async fn add_challenge(
+        &self,
+        ChallengeEntry {
+            title,
+            charts,
+            chart_meta,
+            clear_mark,
+            best_score,
+            req_text,
+            path,
+            hash,
+            level,
+            lwt,
+        }: ChallengeEntry,
+    ) -> std::result::Result<sqlx::sqlite::SqliteQueryResult, sqlx::Error> {
+        query!(
+            "INSERT INTO Challenges(
+			title,charts,chart_meta,clear_mark,best_score,req_text,path,hash,level,lwt) 
+			VALUES(?,?,?,?,?,?,?,?,?,?)",
+            title,
+            charts,
+            chart_meta,
+            clear_mark,
+            best_score,
+            req_text,
+            path,
+            hash,
+            level,
+            lwt,
+        )
+        .execute(&self.sqlite_pool)
+        .await
+    }
+    pub async fn update_chart(
+        &self,
+        ChartEntry {
+            folderid: _,
+            path,
+            title,
+            artist,
+            title_translit,
+            artist_translit,
+            jacket_path,
+            effector,
+            illustrator,
+            diff_name,
+            diff_shortname,
+            bpm,
+            diff_index,
+            level,
+            hash,
+            preview_file,
+            preview_offset,
+            preview_length,
+            lwt,
+            rowid: _,
+            custom_offset: _,
+        }: ChartEntry,
+        id: i32,
+    ) -> std::result::Result<sqlx::sqlite::SqliteQueryResult, sqlx::Error> {
+        query!("UPDATE Charts SET path=?,title=?,artist=?,title_translit=?,artist_translit=?,jacket_path=?,effector=?,illustrator=?,
+			diff_name=?,diff_shortname=?,bpm=?,diff_index=?,level=?,hash=?,preview_file=?,preview_offset=?,preview_length=?,lwt=? WHERE rowid=?",
+            path,
+            title,
+            artist,
+            title_translit,
+            artist_translit,
+            jacket_path,
+            effector,
+            illustrator,
+            diff_name,
+            diff_shortname,
+            bpm,
+            diff_index,
+            level,
+            hash,
+            preview_file,
+            preview_offset,
+            preview_length,
+            lwt,
+            id
+
+        ).execute(&self.sqlite_pool).await
+    }
+    pub async fn update_challenge(
+        &self,
+        ChallengeEntry {
+            title,
+            charts,
+            chart_meta,
+            clear_mark,
+            best_score,
+            req_text,
+            path,
+            hash,
+            level,
+            lwt,
+        }: ChallengeEntry,
+        id: i32,
+    ) -> std::result::Result<sqlx::sqlite::SqliteQueryResult, sqlx::Error> {
+        query!("UPDATE Challenges SET title=?,charts=?,chart_meta=?,clear_mark=?,best_score=?,req_text=?,path=?,hash=?,level=?,lwt=? WHERE rowid=?",             title,
+        charts,
+        chart_meta,
+        clear_mark,
+        best_score,
+        req_text,
+        path,
+        hash,
+        level,
+        lwt,id).execute(&self.sqlite_pool).await
+    }
+    pub async fn remove_chart(
+        &self,
+        id: i32,
+    ) -> std::result::Result<sqlx::sqlite::SqliteQueryResult, sqlx::Error> {
+        query!("DELETE FROM Charts WHERE rowid=?", id)
+            .execute(&self.sqlite_pool)
+            .await
+    }
+    pub async fn remove_challenge(
+        &self,
+        id: i32,
+    ) -> std::result::Result<sqlx::sqlite::SqliteQueryResult, sqlx::Error> {
+        query!("DELETE FROM Challenges WHERE rowid=?", id)
+            .execute(&self.sqlite_pool)
+            .await
+    }
+    pub async fn remove_folder(
+        &self,
+        id: i32,
+    ) -> std::result::Result<sqlx::sqlite::SqliteQueryResult, sqlx::Error> {
+        query!("DELETE FROM Folders WHERE rowid=?", id)
+            .execute(&self.sqlite_pool)
+            .await
+    }
+    pub async fn score_scan(
+        &self,
+        chart_hash: &str,
+    ) -> std::result::Result<std::vec::Vec<ScoreEntry>, sqlx::Error> {
+        query_as!(ScoreEntry, "SELECT 
+			rowid,score,crit,near,early,late,combo,miss,gauge,auto_flags,replay,timestamp,chart_hash,user_name,user_id,local_score,window_perfect,window_good,window_hold,window_miss,window_slam,gauge_type,gauge_opt,mirror,random 
+			FROM Scores WHERE chart_hash=?", chart_hash).fetch_all(&self.sqlite_pool).await
+    }
+
+    pub async fn move_scores(
+        &self,
+        from: &str,
+        to: &str,
+    ) -> std::result::Result<sqlx::sqlite::SqliteQueryResult, sqlx::Error> {
+        query!(
+            "UPDATE Scores set chart_hash=? where chart_hash=?",
+            to,
+            from
+        )
+        .execute(&self.sqlite_pool)
+        .await
+    }
+}

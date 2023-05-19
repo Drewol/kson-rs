@@ -35,13 +35,15 @@ use crate::{
     Scenes, FRAME_ACC_SIZE,
 };
 
+type SceneLoader = dyn FnOnce() -> (Chart, Box<dyn rodio::Source<Item = i16>>) + Send;
+
 pub enum ControlMessage {
     None,
     MainMenu(MainMenuButton),
     Song {
         song: Arc<songselect::Song>,
         diff: usize,
-        loader: Box<dyn FnOnce() -> (Chart, Box<dyn rodio::Source<Item = i16>>) + Send>,
+        loader: Box<SceneLoader>,
     },
     TransitionComplete(Box<dyn scene::Scene>),
     Result {
@@ -364,7 +366,9 @@ impl GameMain {
             *transition_song_lua_idx,
         );
 
-        if let Ok(mut a) = game_data.lock() { a.profile_stack.clear() }
+        if let Ok(mut a) = game_data.lock() {
+            a.profile_stack.clear()
+        }
 
         let exit = scenes.is_empty();
         if exit {

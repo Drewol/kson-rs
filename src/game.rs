@@ -5,7 +5,7 @@ use crate::{
     vg_ui::Vgfx,
     ControlMessage,
 };
-use kson::{Chart};
+use kson::Chart;
 use puffin::profile_function;
 use serde::{Deserialize, Serialize};
 use tealr::mlu::mlua::{Function, Lua, LuaSerdeExt};
@@ -639,7 +639,7 @@ impl Scene for Game {
 }
 
 use std::{
-    path::PathBuf,
+    path::{Path, PathBuf},
     rc::Rc,
     sync::{mpsc::Sender, Arc, Mutex},
 };
@@ -654,9 +654,9 @@ pub struct ChartView {
 
 use anyhow::Result;
 use three_d::{
-    vec2, vec3, Blend, Camera, Color, ColorMaterial, CpuMesh, Deg,
-    DepthTest, Indices, InnerSpace, Mat3, Mat4, Matrix4, Positions, Rad,
-    RenderStates, Texture2D, Transform, Vec2, Vec3, Vec4, Vector3, Viewport, Zero,
+    vec2, vec3, Blend, Camera, Color, ColorMaterial, CpuMesh, Deg, DepthTest, Indices, InnerSpace,
+    Mat3, Mat4, Matrix4, Positions, Rad, RenderStates, Texture2D, Transform, Vec2, Vec3, Vec4,
+    Vector3, Viewport, Zero,
 };
 
 #[derive(Debug)]
@@ -964,9 +964,9 @@ fn hsl_to_rgb(h: f32, s: f32, l: f32) -> [f32; 3] {
 impl ChartView {
     pub const TRACK_LENGTH: f32 = 12.0;
 
-    pub fn new(skin_root: &PathBuf, td: &three_d::Context) -> Self {
+    pub fn new(skin_root: impl AsRef<Path>, td: &three_d::Context) -> Self {
         let _indices: [u16; 6] = [0, 1, 2, 0, 2, 3];
-        let mut texure_path = skin_root.clone();
+        let mut texure_path = skin_root.as_ref().to_path_buf();
         texure_path.push("textures");
         texure_path.push("file.png");
         td.set_depth_test(three_d::DepthTest::Never);
