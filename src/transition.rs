@@ -5,6 +5,7 @@ use std::{
 };
 
 use generational_arena::Index;
+use log::warn;
 use poll_promise::Promise;
 use tealr::mlu::mlua::{Function, Lua, LuaSerdeExt};
 use three_d::{ColorMaterial, Gm, Mat3, Rad, Rectangle, Texture2DRef, Vec2, Zero};
@@ -23,6 +24,7 @@ use crate::{
 pub enum TransitionState {
     Intro,
     Loading,
+    Countdown(u8), //TODO: Just a workaround because i'm stupid
     Outro,
     Done,
 }
@@ -63,7 +65,7 @@ fn load_chart(
 
 impl Transition {
     pub fn do_outro(&mut self) {
-        self.state = TransitionState::Outro;
+        self.state = TransitionState::Countdown(5);
     }
 
     pub fn new(
@@ -75,7 +77,9 @@ impl Transition {
         viewport: three_d::Viewport,
     ) -> Self {
         if let Ok(reset_fn) = transition_lua.globals().get::<_, Function>("reset") {
-            reset_fn.call::<(), ()>(());
+            if let Some(e) = reset_fn.call::<(), ()>(()).err() {
+                warn!("Error resetting transition: {}", e);
+            };
         }
 
         let prev_grab = {
@@ -144,7 +148,7 @@ impl Scene for Transition {
         _knob_state: crate::button_codes::LaserState,
     ) -> anyhow::Result<()> {
         if self.state == TransitionState::Loading && self.target_state.is_none() {
-            self.state = TransitionState::Outro
+            self.state = TransitionState::Countdown(5)
         }
 
         Ok(())
@@ -159,15 +163,20 @@ impl Scene for Transition {
     ) {
         use three_d::*;
 
-        if let TransitionState::Intro = self.state {
-            if let Some(screengrab) = &mut self.prev_screengrab {
-                screengrab.set_size(viewport.width as f32, viewport.height as f32);
-                screengrab.set_center(vec2(
-                    viewport.width as f32 / 2.0,
-                    viewport.height as f32 / 2.0,
-                ));
-                target.render(&camera2d(viewport), screengrab.into_iter(), &[]);
+        match self.state {
+            TransitionState::Intro => {
+                if let Some(screengrab) = &mut self.prev_screengrab {
+                    screengrab.set_size(viewport.width as f32, viewport.height as f32);
+                    screengrab.set_center(vec2(
+                        viewport.width as f32 / 2.0,
+                        viewport.height as f32 / 2.0,
+                    ));
+                    target.render(&camera2d(viewport), screengrab.into_iter(), &[]);
+                }
             }
+            TransitionState::Countdown(0) => self.state = TransitionState::Outro,
+            TransitionState::Countdown(c) => self.state = TransitionState::Countdown(c - 1),
+            _ => (),
         }
     }
 
@@ -213,7 +222,7 @@ impl Scene for Transition {
                     }
                 }
             }
-            TransitionState::Loading => {
+            TransitionState::Loading | TransitionState::Countdown(_) => {
                 let render: Function = self.transition_lua.globals().get("render")?;
                 render.call(dt / 1000_f64)?;
                 if let Some(target_state) = self.target_state.take() {
@@ -224,7 +233,7 @@ impl Scene for Transition {
                             .unwrap(),
                         Ok(Err(loading_error)) => {
                             log::error!("{:?}", loading_error);
-                            self.state = TransitionState::Outro;
+                            self.state = TransitionState::Countdown(5);
                         }
                         Err(loading) => self.target_state = Some(loading),
                     }
@@ -237,6 +246,7 @@ impl Scene for Transition {
                     self.state = TransitionState::Done;
                 }
             }
+
             TransitionState::Done => {}
         }
 
