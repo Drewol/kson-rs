@@ -34,8 +34,9 @@ pub struct Difficulty {
     pub difficulty: u8, // 0 = nov, 1 = adv, etc.
     pub id: u64,        //unique static identifier
     pub effector: String,
-    pub best_badge: i32,    //top badge for this difficulty
+    pub top_badge: i32,     //top badge for this difficulty
     pub scores: Vec<Score>, //array of all scores on this diff
+    pub hash: Option<String>,
 }
 
 impl TealData for Difficulty {
@@ -52,12 +53,12 @@ impl TealData for Difficulty {
         fields.add_field_method_get("difficulty", |_, diff| Ok(diff.difficulty));
         fields.add_field_method_get("id", |_, diff| Ok(diff.id));
         fields.add_field_method_get("effector", |_, diff| Ok(diff.effector.clone()));
-        fields.add_field_method_get("bestBadge", |_, diff| Ok(diff.best_badge));
+        fields.add_field_method_get("topBadge", |_, diff| Ok(diff.top_badge));
         fields.add_field_method_get("scores", |_, diff| Ok(diff.scores.clone()));
     }
 }
 
-#[derive(Debug, TypeName, UserData, Clone, Serialize)]
+#[derive(Debug, TypeName, UserData, Clone, Serialize, Default)]
 pub struct Song {
     pub title: String,
     pub artist: String,
@@ -123,7 +124,7 @@ impl SongSelect {
         let mut provider: Box<dyn SongProvider + Send> = if song_path == PathBuf::from("nautica") {
             Box::new(NauticaSongProvider::new())
         } else {
-            Box::new(FileSongProvider::new())
+            Box::new(crate::block_on!(FileSongProvider::new()))
         };
 
         let mut songs = if let Some(SongProviderEvent::SongsAdded(songs)) = provider.poll() {

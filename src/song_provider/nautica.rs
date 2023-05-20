@@ -187,8 +187,9 @@ impl Chart {
             difficulty: *difficulty as u8 - 1,
             id,
             effector: effector.clone(),
-            best_badge: 0,
+            top_badge: 0,
             scores: vec![],
+            hash: None,
         }
     }
 }

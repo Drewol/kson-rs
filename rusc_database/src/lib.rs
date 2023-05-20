@@ -5,6 +5,7 @@ use sqlx::{query, query_as, ConnectOptions, Pool, SqlitePool};
 
 static MIGRATOR: Migrator = sqlx::migrate!("./migrations"); // defaults to "./migrations"
 
+#[derive(Debug)]
 pub struct LocalSongsDb {
     sqlite_pool: SqlitePool,
 }
@@ -76,12 +77,16 @@ pub struct ScoreEntry {
 
 impl LocalSongsDb {
     pub async fn new(db_path: impl AsRef<Path>) -> Result<Self, sqlx::Error> {
-        Ok(Self {
+        let res = Self {
             sqlite_pool: Pool::connect_with(
-                sqlx::sqlite::SqliteConnectOptions::new().filename(db_path),
+                sqlx::sqlite::SqliteConnectOptions::new()
+                    .filename(db_path)
+                    .create_if_missing(true),
             )
             .await?,
-        })
+        };
+        res.migrate().await?;
+        Ok(res)
     }
 
     pub async fn migrate(&self) -> Result<(), sqlx::migrate::MigrateError> {
@@ -89,9 +94,34 @@ impl LocalSongsDb {
     }
 
     pub async fn get_songs(&self) -> std::result::Result<std::vec::Vec<ChartEntry>, sqlx::Error> {
-        query_as!(ChartEntry, "SELECT * FROM Charts")
-            .fetch_all(&self.sqlite_pool)
-            .await
+        query_as!(
+            ChartEntry,
+            "SELECT 
+            rowid,
+            folderid,
+            path,
+            title,
+            artist,
+            title_translit,
+            artist_translit,
+            jacket_path,
+            effector,
+            illustrator,
+            diff_name,
+            diff_shortname,
+            bpm,
+            diff_index,
+            level,
+            hash,
+            preview_file,
+            preview_offset,
+            preview_length,
+            lwt,
+            custom_offset
+         FROM Charts"
+        )
+        .fetch_all(&self.sqlite_pool)
+        .await
     }
 
     pub async fn add_score(
@@ -353,13 +383,43 @@ impl LocalSongsDb {
             .execute(&self.sqlite_pool)
             .await
     }
-    pub async fn score_scan(
+    pub async fn get_scores_for_chart(
         &self,
         chart_hash: &str,
     ) -> std::result::Result<std::vec::Vec<ScoreEntry>, sqlx::Error> {
-        query_as!(ScoreEntry, "SELECT 
-			rowid,score,crit,near,early,late,combo,miss,gauge,auto_flags,replay,timestamp,chart_hash,user_name,user_id,local_score,window_perfect,window_good,window_hold,window_miss,window_slam,gauge_type,gauge_opt,mirror,random 
-			FROM Scores WHERE chart_hash=?", chart_hash).fetch_all(&self.sqlite_pool).await
+        query_as!(
+            ScoreEntry,
+            "SELECT 
+        rowid,
+        score,
+        crit,
+        near,
+        early,
+        late,
+        combo,
+        miss,
+        gauge,
+        auto_flags,
+        replay,
+        timestamp,
+        chart_hash,
+        user_name,
+        user_id,
+        local_score,
+        window_perfect,
+        window_good,
+        window_hold,
+        window_miss,
+        window_slam,
+        gauge_type,
+        gauge_opt,
+        mirror,
+        random
+        FROM Scores WHERE chart_hash=?",
+            chart_hash
+        )
+        .fetch_all(&self.sqlite_pool)
+        .await
     }
 
     pub async fn move_scores(

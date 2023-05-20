@@ -49,6 +49,17 @@ mod util;
 mod vg_ui;
 mod window;
 
+#[macro_export]
+macro_rules! block_on {
+    ($l:expr) => {
+        poll_promise::Promise::spawn_async(async {
+            let x = { $l };
+            x.await
+        })
+        .block_and_take()
+    };
+}
+
 pub fn project_dirs() -> ProjectDirs {
     directories::ProjectDirs::from("", "Drewol", "USC").expect("Failed to get project dirs")
 }

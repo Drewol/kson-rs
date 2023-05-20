@@ -4,7 +4,6 @@ use std::{
     sync::{mpsc::Sender, Arc},
 };
 
-
 use serde::Serialize;
 
 use crate::{
@@ -85,8 +84,9 @@ impl SongResultData {
             difficulty,
             id: _,
             effector,
-            best_badge: _,
+            top_badge: _,
             scores,
+            hash,
         } = song.difficulties[diff_idx].clone();
 
         let Song {
@@ -153,20 +153,20 @@ struct HitStat {
 #[derive(Debug, TypeName, Clone, Serialize, UserData, Default)]
 #[serde(rename_all = "camelCase")]
 pub struct Score {
-    gauge: f32,        //range 0.0 -> 1.0
-    gauge_type: i32,   // 0 = normal, 1 = hard. Should be defined in constants sometime
-    gauge_option: i32, // type specific, such as difficulty level for the same gauge type if available
-    mirror: bool,
-    random: bool,
-    auto_flags: i32, //bits for autoplay settings, 0 = no autoplay
-    score: i32,
-    perfects: i32,
-    goods: i32,
-    misses: i32,
-    badge: i32,
-    timestamp: i32, //timestamp in POSIX time (seconds since Jan 1 1970 00:00:00 UTC)
-    player_name: String,
-    is_local: bool, // Whether this score was set locally
+    pub gauge: f32,        //range 0.0 -> 1.0
+    pub gauge_type: i32,   // 0 = normal, 1 = hard. Should be defined in constants sometime
+    pub gauge_option: i32, // type specific, such as difficulty level for the same gauge type if available
+    pub mirror: bool,
+    pub random: bool,
+    pub auto_flags: i32, //bits for autoplay settings, 0 = no autoplay
+    pub score: i32,
+    pub perfects: i32,
+    pub goods: i32,
+    pub misses: i32,
+    pub badge: i32,
+    pub timestamp: i32, //timestamp in POSIX time (seconds since Jan 1 1970 00:00:00 UTC)
+    pub player_name: String,
+    pub is_local: bool, // Whether this score was set locally
 }
 
 impl TealData for Score {}

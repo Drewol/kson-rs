@@ -5,13 +5,16 @@ use std::{
 };
 
 use crate::{
+    block_on,
     results::Score,
     songselect::{Difficulty, Song},
 };
 
 use super::{SongProvider, SongProviderEvent};
+use itertools::Itertools;
 use kson::{Chart, Ksh};
 use log::info;
+use rusc_database::{LocalSongsDb, ScoreEntry};
 use walkdir::DirEntry;
 
 #[derive(Debug)]
@@ -20,10 +23,95 @@ pub struct FileSongProvider {
     new_songs: Vec<Arc<Song>>,
     difficulty_id_path_map: HashMap<u64, PathBuf>,
     events: VecDeque<SongProviderEvent>,
+    database: rusc_database::LocalSongsDb,
+}
+
+impl From<ScoreEntry> for Score {
+    fn from(value: ScoreEntry) -> Self {
+        Score {
+            gauge: value.gauge as f32,
+            gauge_type: value.gauge_type as i32,
+            gauge_option: value.gauge_opt as i32,
+            mirror: value.mirror,
+            random: value.random,
+            auto_flags: value.auto_flags as i32,
+            score: value.score as i32,
+            perfects: value.crit as i32,
+            goods: value.near as i32,
+            misses: value.miss as i32,
+            badge: 0, //TODO: Calculate
+            timestamp: value.timestamp as i32,
+            player_name: value.user_name,
+            is_local: value.local_score,
+        }
+    }
 }
 
 impl FileSongProvider {
-    pub fn new() -> Self {
+    pub async fn new() -> Self {
+        let database = LocalSongsDb::new("./maps.db")
+            .await
+            .expect("Failed to open database");
+
+        let mut diffs = database
+            .get_songs()
+            .await
+            .expect("Failed to load songs from database");
+
+        let mut difficulty_id_path_map: HashMap<u64, PathBuf> = HashMap::default();
+
+        let mut all_songs: Vec<_> = diffs
+            .drain(0..)
+            .into_grouping_map_by(|x| x.folderid)
+            .fold(Song::default(), |mut song, id, diff| {
+                if song.difficulties.is_empty() {
+                    song.id = *id as u64;
+                    song.artist = diff.artist;
+                    song.bpm = diff.bpm;
+                    song.title = diff.title;
+                }
+
+                difficulty_id_path_map.insert(diff.rowid as u64, PathBuf::from(&diff.path));
+                let diff_path = PathBuf::from(diff.path);
+                song.difficulties.push(Difficulty {
+                    jacket_path: diff_path.with_file_name(diff.jacket_path),
+                    level: diff.level as u8,
+                    difficulty: diff.diff_index as u8,
+                    id: diff.rowid as u64,
+                    effector: diff.effector,
+                    top_badge: 0,           //TODO
+                    scores: Vec::default(), //TODO
+                    hash: Some(diff.hash),
+                });
+
+                song
+            })
+            .drain()
+            .map(|(_, song)| Arc::new(song))
+            .collect();
+
+        for song in &mut all_songs {
+            let song = Arc::make_mut(song);
+            for diff in &mut song.difficulties {
+                if let Ok(mut score_entires) = database
+                    .get_scores_for_chart(diff.hash.as_ref().unwrap())
+                    .await
+                {
+                    diff.scores = score_entires.drain(0..).map_into().collect();
+                }
+            }
+        }
+
+        FileSongProvider {
+            new_songs: all_songs.clone(),
+            all_songs,
+            difficulty_id_path_map,
+            events: Default::default(),
+            database,
+        }
+    }
+
+    fn load_songs_folder() {
         let song_path = crate::config::GameConfig::get().unwrap().songs_path.clone();
         info!("Loading songs from: {:?}", &song_path);
         let song_walker = walkdir::WalkDir::new(song_path);
@@ -72,27 +160,19 @@ impl FileSongProvider {
                         .iter()
                         .enumerate()
                         .map(|(id, c)| Difficulty {
-                            best_badge: 0,
+                            top_badge: 0,
                             difficulty: c.0.meta.difficulty,
                             effector: c.0.meta.chart_author.clone(),
                             id: id as u64,
                             jacket_path: song_folder.join(&c.0.meta.jacket_filename),
                             level: c.0.meta.level,
                             scores: vec![Score::default()],
+                            hash: Some("".into()),
                         })
                         .collect(),
                 })
             })
             .collect();
-
-        songs.sort_by_key(|s| s.title.to_lowercase());
-
-        FileSongProvider {
-            all_songs: songs.clone(),
-            new_songs: songs,
-            difficulty_id_path_map: Default::default(),
-            events: Default::default(),
-        }
     }
 }
 
@@ -118,15 +198,43 @@ impl SongProvider for FileSongProvider {
         todo!()
     }
 
-    fn set_current_index(&mut self, _index: u64) {
-        todo!()
-    }
+    fn set_current_index(&mut self, _index: u64) {}
 
     fn load_song(
         &self,
         _index: u64,
         _diff_index: u64,
     ) -> Box<dyn FnOnce() -> (kson::Chart, Box<dyn rodio::Source<Item = i16>>) + Send> {
-        todo!()
+        let path = self
+            .difficulty_id_path_map
+            .get(&_diff_index)
+            .expect("No diff with that id")
+            .clone();
+
+        Box::new(move || {
+            let chart = kson::Chart::from_ksh(
+                &std::fs::read_to_string(&path).expect("Failed to read file"),
+            )
+            .expect("Failed to parse ksh");
+
+            let audio = rodio::decoder::Decoder::new(
+                std::fs::File::open(
+                    path.with_file_name(
+                        chart
+                            .audio
+                            .bgm
+                            .as_ref()
+                            .expect("Chart has no BGM info")
+                            .filename
+                            .as_ref()
+                            .expect("Chart has no BGM filename"),
+                    ),
+                )
+                .expect("Failed to open file"),
+            )
+            .expect("Failed to open chart audio");
+
+            (chart, Box::new(audio))
+        })
     }
 }
