@@ -1,0 +1,12 @@
+[package]
+name = "kson-music-playback"
+version = "0.1.0"
+edition = "2021"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+rodio = "*"
+kson = { git = "https://github.com/Drewol/kson-rs.git"}
+kson-audio = { git = "https://github.com/Drewol/kson-rs.git" }
+anyhow = "*"

@@ -23,7 +23,6 @@ mod camera_widget;
 mod chart_camera;
 mod chart_editor;
 mod i18n;
-mod playback;
 mod tools;
 mod utils;
 

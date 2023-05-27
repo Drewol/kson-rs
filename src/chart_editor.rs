@@ -20,7 +20,7 @@ use std::io::prelude::*;
 use std::io::BufReader;
 use std::path::Path;
 use std::path::PathBuf;
-
+use kson_music_playback as playback;
 pub const EGUI_ID: &str = "chart_editor";
 
 pub struct MainState {

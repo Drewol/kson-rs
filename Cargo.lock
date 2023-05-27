@@ -1236,6 +1236,7 @@ dependencies = [
  "image",
  "kson",
  "kson-audio",
+ "kson-music-playback",
  "libmath",
  "log",
  "nfd",
@@ -1259,6 +1260,16 @@ dependencies = [
  "proc-macro2",
  "quote",
  "syn",
+]
+
+[[package]]
+name = "kson-music-playback"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "kson",
+ "kson-audio",
+ "rodio",
 ]
 
 [[package]]
