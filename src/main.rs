@@ -63,28 +63,8 @@ impl Widget for &mut kson::MetaInfo {
                 ui.add(DragValue::new(&mut self.level).clamp_range(1..=20));
                 ui.end_row();
 
-                if self.difficulty.name.is_none() {
-                    self.difficulty.name = Some(Default::default());
-                }
-                edit_row(
-                    ui,
-                    &i18n::fl!("name"),
-                    self.difficulty.name.as_mut().unwrap(),
-                );
-
-                if self.difficulty.short_name.is_none() {
-                    self.difficulty.short_name = Some(Default::default());
-                }
-                edit_row(
-                    ui,
-                    &i18n::fl!("short_name"),
-                    self.difficulty.short_name.as_mut().unwrap(),
-                );
-
-                self.difficulty.short_name.as_mut().unwrap().truncate(3);
-
                 ui.label(i18n::fl!("index"));
-                ui.add(DragValue::new(&mut self.difficulty.idx));
+                ui.add(DragValue::new(&mut self.difficulty));
             })
             .response
     }
@@ -157,11 +137,11 @@ impl Widget for &mut kson::BgmInfo {
                 ui.end_row();
 
                 ui.label(i18n::fl!("preview_offset"));
-                ui.add(DragValue::new(&mut self.preview_offset).suffix("ms"));
+                ui.add(DragValue::new(&mut self.preview.offset).suffix("ms"));
                 ui.end_row();
 
                 ui.label(i18n::fl!("preview_duration"));
-                ui.add(DragValue::new(&mut self.preview_duration).suffix("ms"));
+                ui.add(DragValue::new(&mut self.preview.duration).suffix("ms"));
                 ui.end_row();
             })
             .response

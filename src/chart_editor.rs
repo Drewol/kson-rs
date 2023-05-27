@@ -11,6 +11,7 @@ use eframe::egui::{Painter, Rgba};
 use eframe::epaint::FontId;
 use egui::Ui;
 use kson::{GraphPoint, GraphSectionPoint, Interval, Ksh, Vox};
+use kson_music_playback as playback;
 use log::debug;
 use puffin::profile_scope;
 use std::collections::VecDeque;
@@ -20,7 +21,6 @@ use std::io::prelude::*;
 use std::io::BufReader;
 use std::path::Path;
 use std::path::PathBuf;
-use kson_music_playback as playback;
 pub const EGUI_ID: &str = "chart_editor";
 
 pub struct MainState {
@@ -65,12 +65,12 @@ impl ScreenState {
     ) -> Result<()> {
         //TODO: Draw sections as a single `Mesh`
         profile_scope!("Section");
-        let y_base = section.y;
+        let y_base = section.tick();
         let slam_uv = Rect {
             min: pos2(0.0, 0.0),
             max: pos2(1.0, 1.0),
         };
-        let wide = section.wide == 2;
+        let wide = section.wide() == 2;
         let slam_height = 6.0_f32 * self.note_height_mult();
         let half_lane = self.lane_width() / 2.0;
         let half_track = self.track_width / 2.0;
@@ -118,7 +118,7 @@ impl ScreenState {
             });
         };
 
-        for se in section.v.windows(2) {
+        for se in section.segments() {
             profile_scope!("Window");
             let s = &se[0];
             let e = &se[1];
@@ -266,7 +266,7 @@ impl ScreenState {
             }
         }
 
-        if let Some(l) = section.v.last() {
+        if let Some(l) = section.last() {
             if let Some(vf) = l.vf {
                 profile_scope!("End Slam");
                 //draw slam
@@ -317,7 +317,7 @@ impl ScreenState {
             }
         }
 
-        if let Some(l) = section.v.first() {
+        if let Some(l) = section.first() {
             if l.vf.is_some() {
                 let mut sv: f32 = l.v as f32;
                 if wide {
@@ -400,7 +400,8 @@ impl ScreenState {
         (x * 6.0).min(6.0) as f32
     }
 
-    pub fn update(&mut self, delta_time: f32) -> bool {
+    pub fn update(&mut self, delta_time: f32, beat_res: u32) -> bool {
+        self.beat_res = beat_res;
         self.x_offset = self.x_offset + (self.x_offset_target - self.x_offset) * delta_time;
         if (self.x_offset_target - self.x_offset).abs() < 0.5 {
             self.x_offset = self.x_offset_target;
@@ -542,11 +543,9 @@ impl MainState {
             (chart, Some(path))
         } else {
             let mut c = kson::Chart::new();
-            c.beat.bpm.push(kson::ByPulse { y: 0, v: 120.0 });
-            c.beat.time_sig.push(kson::ByMeasureIndex {
-                idx: 0,
-                v: kson::TimeSignature { d: 4, n: 4 },
-            });
+            c.beat.bpm.push((0, 120.0));
+            c.beat.time_sig.push((0, kson::TimeSignature(4, 4)));
+
             (c, None)
         };
 
@@ -784,11 +783,8 @@ impl MainState {
                 GuiEvent::Redo => self.actions.redo(),
                 GuiEvent::NewChart(new_chart_opts) => {
                     let mut new_chart = kson::Chart::new();
-                    new_chart.beat.bpm.push(kson::ByPulse { y: 0, v: 120.0 });
-                    new_chart.beat.time_sig.push(kson::ByMeasureIndex {
-                        idx: 0,
-                        v: kson::TimeSignature { d: 4, n: 4 },
-                    });
+                    new_chart.beat.bpm.push((0, 120.0));
+                    new_chart.beat.time_sig.push((0, kson::TimeSignature(4, 4)));
 
                     let audio_pathbuf = std::path::PathBuf::from(new_chart_opts.audio);
                     new_chart.audio.bgm = Some(kson::BgmInfo {
@@ -797,9 +793,16 @@ impl MainState {
                         )),
                         offset: 0,
                         vol: 1.0,
-                        preview_duration: 15000,
-                        preview_filename: None,
-                        preview_offset: 0,
+                        preview: {
+                            kson::PreviewInfo {
+                                offset: 0,
+                                duration: 15000,
+                                preview_filename: None,
+                            }
+                        },
+                        legacy: kson::LegacyBgmInfo {
+                            fp_filenames: vec![],
+                        },
                     });
                     self.save_path = if let Some(save_path) = new_chart_opts.destination {
                         //copy audio file
@@ -890,9 +893,9 @@ impl MainState {
                     //check pos of last lasers
                     for i in 0..2 {
                         if let Some(section) = self.chart.note.laser[i].last() {
-                            if let Some(segment) = section.v.last() {
+                            if let Some(segment) = section.last() {
                                 target = target.max(
-                                    self.screen.tick_to_pos(segment.ry + section.y).0
+                                    self.screen.tick_to_pos(segment.ry + section.tick()).0
                                         + self.screen.x_offset,
                                 )
                             }
@@ -918,7 +921,9 @@ impl MainState {
         }
 
         let delta_time = (10.0 * ctx.input().unstable_dt).min(1.0);
-        if self.screen.update(delta_time) || self.audio_playback.is_playing() {
+        if self.screen.update(delta_time, self.chart.beat.resolution)
+            || self.audio_playback.is_playing()
+        {
             ctx.request_repaint();
         }
         let tick = self.audio_playback.get_tick(&self.chart);
@@ -1096,8 +1101,8 @@ impl MainState {
                 profile_scope!("Laser Components");
                 for (lane, color) in self.chart.note.laser.iter().zip(self.laser_colors.iter()) {
                     for section in lane {
-                        let y_base = section.y;
-                        if section.v.last().unwrap().ry + y_base < min_tick_render {
+                        let y_base = section.tick();
+                        if section.last().unwrap().ry + y_base < min_tick_render {
                             continue;
                         }
                         if y_base > max_tick_render {
@@ -1177,23 +1182,23 @@ impl MainState {
                     let color = Color32::from_rgba_unmultiplied(0, 128, 255, 255);
 
                     let entry = (
-                        emath::format_with_decimals_in_range(bpm_change.v, 0..=3),
+                        emath::format_with_decimals_in_range(bpm_change.1, 0..=3),
                         color,
                     );
-                    match changes.binary_search_by(|c| c.0.cmp(&bpm_change.y)) {
+                    match changes.binary_search_by(|c| c.0.cmp(&bpm_change.0)) {
                         Ok(idx) => changes.get_mut(idx).unwrap().1.push(entry),
                         Err(new_idx) => {
                             let new_vec = vec![entry];
-                            changes.insert(new_idx, (bpm_change.y, new_vec));
+                            changes.insert(new_idx, (bpm_change.0, new_vec));
                         }
                     }
                 }
 
                 for ts_change in &self.chart.beat.time_sig {
-                    let tick = self.chart.measure_to_tick(ts_change.idx);
+                    let tick = self.chart.measure_to_tick(ts_change.0);
 
                     let color = Color32::from_rgba_premultiplied(255, 255, 0, 255);
-                    let entry = (format!("{}/{}", ts_change.v.n, ts_change.v.d), color);
+                    let entry = (format!("{}/{}", ts_change.1 .0, ts_change.1 .1), color);
 
                     match changes.binary_search_by(|c| c.0.cmp(&tick)) {
                         Ok(idx) => changes.get_mut(idx).unwrap().1.push(entry),

@@ -34,11 +34,7 @@ impl LaserTool {
         LaserTool {
             right,
             mode: LaserEditMode::None,
-            section: LaserSection {
-                y: 0,
-                wide: 0,
-                v: Vec::new(),
-            },
+            section: LaserSection(0, Vec::new(), 0),
         }
     }
 
@@ -58,9 +54,9 @@ impl LaserTool {
     }
 
     fn get_second_to_last(&self) -> Option<&GraphSectionPoint> {
-        let len = self.section.v.len();
+        let len = self.section.1.len();
         let idx = len.checked_sub(2);
-        idx.and_then(|i| self.section.v.get(i))
+        idx.and_then(|i| self.section.1.get(i))
     }
 
     /*
@@ -73,10 +69,10 @@ impl LaserTool {
     */
 
     fn calc_ry(&self, tick: u32) -> u32 {
-        let ry = if tick <= self.section.y {
+        let ry = if tick <= self.section.tick() {
             0
         } else {
-            tick - self.section.y
+            tick - self.section.tick()
         };
 
         if let Some(secont_last) = self.get_second_to_last() {
@@ -127,10 +123,10 @@ impl CursorObject for LaserTool {
                         curving_index: None,
                     });
                 } else {
-                    self.section.y = tick;
-                    self.section.v.push(LaserTool::gsp(0, v));
-                    self.section.v.push(LaserTool::gsp(0, v));
-                    self.section.wide = if wide { 2 } else { 1 };
+                    self.section.0 = tick;
+                    self.section.1.push(LaserTool::gsp(0, v));
+                    self.section.1.push(LaserTool::gsp(0, v));
+                    self.section.2 = if wide { 2 } else { 1 };
                     self.mode = LaserEditMode::New;
                 }
             }
@@ -143,15 +139,8 @@ impl CursorObject for LaserTool {
                 }
                 if finalize {
                     self.mode = LaserEditMode::None;
-                    self.section.v.pop();
-                    let v = std::mem::replace(
-                        &mut self.section,
-                        LaserSection {
-                            y: 0,
-                            v: Vec::new(),
-                            wide: 1,
-                        },
-                    );
+                    self.section.1.pop();
+                    let v = std::mem::replace(&mut self.section, LaserSection(0, Vec::new(), 1));
                     let v = std::rc::Rc::new(v); //Can't capture by clone so use RC
                     let i = if self.right { 1 } else { 0 };
                     let new_action = actions.new_action();
@@ -165,24 +154,24 @@ impl CursorObject for LaserTool {
                     );
                     new_action.action = Box::new(move |edit_chart| {
                         edit_chart.note.laser[i].push(v.as_ref().clone());
-                        edit_chart.note.laser[i].sort_by(|a, b| a.y.partial_cmp(&b.y).unwrap());
+                        edit_chart.note.laser[i].sort_by(|a, b| a.0.partial_cmp(&b.0).unwrap());
                         Ok(())
                     });
 
                     return;
                 }
 
-                self.section.v.push(LaserTool::gsp(
+                self.section.1.push(LaserTool::gsp(
                     ry,
-                    LaserTool::lane_to_pos(lane, self.section.wide),
+                    LaserTool::lane_to_pos(lane, self.section.wide()),
                 ));
             }
             LaserEditMode::Edit(edit_state) => {
                 if self.hit_test(chart, tick) == Some(edit_state.section_index) {
-                    for (i, points) in self.section.v.windows(2).enumerate() {
+                    for (i, points) in self.section.segments().enumerate() {
                         if let Some(control_point) = screen.get_control_point_pos_section(
                             points,
-                            self.section.y,
+                            self.section.tick(),
                             (0.0, 1.0),
                             Some((0.5 / 6.0, 5.5 / 6.0)),
                         ) {
@@ -197,11 +186,7 @@ impl CursorObject for LaserTool {
                 //TODO: Subdivide and stuff
                 } else {
                     self.mode = LaserEditMode::None;
-                    self.section = LaserSection {
-                        y: tick,
-                        v: Vec::new(),
-                        wide: 1,
-                    }
+                    self.section = LaserSection(tick, Vec::new(), 1)
                 }
             }
         }
@@ -226,12 +211,12 @@ impl CursorObject for LaserTool {
                 };
                 let section_index = edit_state.section_index;
                 let laser_i = if right { 1 } else { 0 };
-                let updated_point = self.section.v[curving_index];
+                let updated_point = self.section.1[curving_index];
 
                 let new_action = actions.new_action();
                 new_action.description = i18n::fl!("adjust_laser_curve", side = laser_text);
                 new_action.action = Box::new(move |c| {
-                    c.note.laser[laser_i][section_index].v[curving_index] = updated_point;
+                    c.note.laser[laser_i][section_index].1[curving_index] = updated_point;
                     Ok(())
                 });
             }
@@ -274,9 +259,9 @@ impl CursorObject for LaserTool {
         match self.mode {
             LaserEditMode::New => {
                 let ry = self.calc_ry(tick);
-                let v = LaserTool::lane_to_pos(lane, self.section.wide);
+                let v = LaserTool::lane_to_pos(lane, self.section.wide());
                 let second_last: Option<GraphSectionPoint> = self.get_second_to_last().copied();
-                if let Some(last) = self.section.v.last_mut() {
+                if let Some(last) = self.section.1.last_mut() {
                     (*last).ry = ry;
                     (*last).v = v;
 
@@ -292,7 +277,7 @@ impl CursorObject for LaserTool {
             }
             LaserEditMode::None => {}
             LaserEditMode::Edit(edit_state) => {
-                for gp in &mut self.section.v {
+                for gp in &mut self.section.1 {
                     if gp.a.is_none() {
                         gp.a = Some(0.5);
                     }
@@ -301,10 +286,10 @@ impl CursorObject for LaserTool {
                     }
                 }
                 if let Some(curving_index) = edit_state.curving_index {
-                    let end_point = self.section.v[curving_index + 1];
-                    let point = &mut self.section.v[curving_index];
-                    let start_tick = (self.section.y + point.ry) as f64;
-                    let end_tick = (self.section.y + end_point.ry) as f64;
+                    let end_point = self.section.1[curving_index + 1];
+                    let point = &mut self.section.1[curving_index];
+                    let start_tick = (self.section.0 + point.ry) as f64;
+                    let end_tick = (self.section.0 + end_point.ry) as f64;
                     point.a = Some(
                         ((tick_f - start_tick) / (end_tick - start_tick))
                             .max(0.0)
@@ -315,13 +300,13 @@ impl CursorObject for LaserTool {
                     let in_value = lane as f64 / 5.0 - 0.5 / 6.0;
                     let value = (in_value - start_value) / (end_point.v - start_value);
 
-                    self.section.v[curving_index].b = Some(value.min(1.0).max(0.0));
+                    self.section.1[curving_index].b = Some(value.min(1.0).max(0.0));
                 }
             }
         }
     }
     fn draw(&self, state: &MainState, painter: &Painter) -> Result<()> {
-        if self.section.v.len() > 1 {
+        if self.section.1.len() > 1 {
             //Draw laser mesh
             if let Some(color) = match self.mode {
                 LaserEditMode::None => None,
@@ -349,7 +334,7 @@ impl CursorObject for LaserTool {
 
             //Draw curve control points
             if let LaserEditMode::Edit(edit_state) = self.mode {
-                for (i, start_end) in self.section.v.windows(2).enumerate() {
+                for (i, start_end) in self.section.1.windows(2).enumerate() {
                     let color = if edit_state.curving_index == Some(i) {
                         Rgba::from_rgba_premultiplied(0.0, 1.0, 0.0, 1.0)
                     } else {
@@ -358,7 +343,7 @@ impl CursorObject for LaserTool {
 
                     if let Some(pos) = state.screen.get_control_point_pos_section(
                         start_end,
-                        self.section.y,
+                        self.section.tick(),
                         (0.0, 1.0),
                         Some((0.5 / 6.0, 5.5 / 6.0)),
                     ) {

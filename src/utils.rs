@@ -15,17 +15,18 @@ impl Overlaps for kson::Interval {
 
 impl Overlaps for kson::LaserSection {
     fn overlaps(&self, other: &Self) -> bool {
-        match (self.v.last(), other.v.last()) {
+        match (self.last(), other.last()) {
             (Some(self_last), Some(other_last)) => {
-                self.y <= other.y + other_last.ry && other.y <= self.y + self_last.ry
+                self.tick() <= other.tick() + other_last.ry
+                    && other.tick() <= self.tick() + self_last.ry
             }
             _ => false,
         }
     }
 
     fn contains(&self, y: u32) -> bool {
-        if let Some(last) = self.v.last() {
-            (self.y..=self.y + last.ry).contains(&y)
+        if let Some(last) = self.last() {
+            (self.tick()..=self.tick() + last.ry).contains(&y)
         } else {
             false
         }

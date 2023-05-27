@@ -43,9 +43,9 @@ impl CursorObject for BpmTool {
         if let CursorToolStates::None = self.state {
             //check for bpm changes on selected tick
             for (i, change) in chart.beat.bpm.iter().enumerate() {
-                if change.y == tick {
+                if change.0 == tick {
                     self.state = CursorToolStates::Edit(i);
-                    self.bpm = change.v;
+                    self.bpm = change.1;
                     return;
                 }
             }
@@ -77,8 +77,8 @@ impl CursorObject for BpmTool {
 
                     new_action.description = String::from(i18n::fl!("add_bpm_change"));
                     new_action.action = Box::new(move |c| {
-                        c.beat.bpm.push(kson::ByPulse { y, v });
-                        c.beat.bpm.sort_by(|a, b| a.y.cmp(&b.y));
+                        c.beat.bpm.push((y, v));
+                        c.beat.bpm.sort_by(|a, b| a.0.cmp(&b.0));
                         Ok(())
                     });
                 }))
@@ -91,7 +91,7 @@ impl CursorObject for BpmTool {
                     new_action.description = String::from(i18n::fl!("edit_bpm_change"));
                     new_action.action = Box::new(move |c| {
                         if let Some(change) = c.beat.bpm.get_mut(index) {
-                            change.v = v;
+                            change.1 = v;
                             Ok(())
                         } else {
                             bail!("Tried to edit non existing BPM Change")
@@ -138,7 +138,7 @@ impl CursorObject for BpmTool {
         actions: &mut ActionStack<Chart>,
         _pos: Pos2,
     ) {
-        if let Ok(index) = chart.beat.bpm.binary_search_by_key(&tick, |f| f.y) {
+        if let Ok(index) = chart.beat.bpm.binary_search_by_key(&tick, |f| f.0) {
             let new_action = actions.new_action();
             new_action.description = i18n::fl!("remove_bpm_change").into();
             new_action.action = Box::new(move |chart: &mut Chart| {
@@ -158,7 +158,7 @@ pub struct TimeSigTool {
 impl TimeSigTool {
     pub fn new() -> Self {
         TimeSigTool {
-            ts: kson::TimeSignature { d: 4, n: 4 },
+            ts: kson::TimeSignature(4, 4),
             state: CursorToolStates::None,
             cursor_tick: 0,
         }
@@ -182,13 +182,13 @@ impl CursorObject for TimeSigTool {
             if let Ok(idx) = chart
                 .beat
                 .time_sig
-                .binary_search_by(|tsc| tsc.idx.cmp(&measure))
+                .binary_search_by(|tsc| tsc.0.cmp(&measure))
             {
                 self.state = CursorToolStates::Edit(idx);
-                self.ts = chart.beat.time_sig.get(idx).unwrap().v;
+                self.ts = chart.beat.time_sig.get(idx).unwrap().1;
             } else {
                 self.state = CursorToolStates::Add(measure);
-                self.ts = kson::TimeSignature { d: 4, n: 4 };
+                self.ts = kson::TimeSignature(4, 4);
             }
         }
     }
@@ -204,11 +204,7 @@ impl CursorObject for TimeSigTool {
         _pos: Pos2,
     ) {
         let measure = chart.tick_to_measure(tick);
-        if let Ok(index) = chart
-            .beat
-            .time_sig
-            .binary_search_by_key(&measure, |f| f.idx)
-        {
+        if let Ok(index) = chart.beat.time_sig.binary_search_by_key(&measure, |f| f.0) {
             let new_action = actions.new_action();
             new_action.description = i18n::fl!("remove_time_signature_change").into();
             new_action.action = Box::new(move |chart: &mut Chart| {
@@ -237,17 +233,14 @@ impl CursorObject for TimeSigTool {
         {
             CursorToolStates::None => None,
             CursorToolStates::Add(measure) => Some(Box::new(move |a, ts| {
-                let v = kson::TimeSignature {
-                    n: ts[0] as u32,
-                    d: ts[1] as u32,
-                };
+                let v = kson::TimeSignature(ts[0] as u32, ts[1] as u32);
                 let idx = measure;
 
                 let new_action = a.new_action();
                 new_action.description = String::from(i18n::fl!("add_time_signature_change"));
                 new_action.action = Box::new(move |c| {
-                    c.beat.time_sig.push(kson::ByMeasureIndex { idx, v });
-                    c.beat.time_sig.sort_by(|a, b| a.idx.cmp(&b.idx));
+                    c.beat.time_sig.push((idx, v));
+                    c.beat.time_sig.sort_by(|a, b| a.0.cmp(&b.0));
                     Ok(())
                 });
             })),
@@ -256,8 +249,8 @@ impl CursorObject for TimeSigTool {
                 new_action.description = String::from(i18n::fl!("edit_time_signature_change"));
                 new_action.action = Box::new(move |c| {
                     if let Some(change) = c.beat.time_sig.get_mut(index) {
-                        change.v.n = ts[0] as u32;
-                        change.v.d = ts[1] as u32;
+                        change.1 .0 = ts[0] as u32;
+                        change.1 .1 = ts[1] as u32;
                         Ok(())
                     } else {
                         bail!("Tried to edit non existing Time Signature Change")
@@ -273,7 +266,7 @@ impl CursorObject for TimeSigTool {
                 .default_pos([100.0, 100.0])
                 .show(ctx, |ui| {
                     ui.horizontal_wrapped(|ui| {
-                        let (mut ts_n, mut ts_d) = (self.ts.n, self.ts.d);
+                        let (mut ts_n, mut ts_d) = (self.ts.0, self.ts.1);
 
                         ui.add(egui::widgets::DragValue::new(&mut ts_n).speed(0.2));
                         ui.add(egui::Label::new("/"));
@@ -281,8 +274,8 @@ impl CursorObject for TimeSigTool {
                         ui.end_row();
                         ui.end_row();
 
-                        self.ts.n = ts_n;
-                        self.ts.d = ts_d;
+                        self.ts.0 = ts_n;
+                        self.ts.1 = ts_d;
 
                         if ui.button(i18n::fl!("ok")).clicked() {
                             complete(&mut state.actions, [ts_n as i32, ts_d as i32]);

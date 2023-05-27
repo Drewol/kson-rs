@@ -204,13 +204,13 @@ impl AudioPlayback {
         for i in 0..2 {
             self.laser_funcs[i].clear();
             for section in &chart.note.laser[i] {
-                for se in section.v.windows(2) {
-                    let s = section.y + se[0].ry;
-                    let e = section.y + se[1].ry;
+                for se in section.segments() {
+                    let s = section.tick() + se[0].ry;
+                    let e = section.tick() + se[1].ry;
                     self.laser_funcs[i].push((
                         s,
                         e,
-                        AudioPlayback::make_laser_fn(section.y, &se[0], &se[1]),
+                        AudioPlayback::make_laser_fn(section.tick(), &se[0], &se[1]),
                     ));
                 }
             }
@@ -332,16 +332,28 @@ impl AudioPlayback {
 
         let laser_dsp = kson_audio::dsp_from_definition(AudioEffect::PeakingFilter(
             kson::effects::PeakingFilter {
-                env: 0.0_f32.into(),
-                lo_freq: 100.0_f32.into(),
-                hi_freq: 16000.0_f32.into(),
-                q: 1.0_f32.into(),
-                delay: 0.0_f32.into(),
-                mix: EffectParameter {
-                    off: 0.0_f32.into(),
-                    min: 1.0_f32.into(),
+                freq: EffectParameter {
+                    off: EffectParameterValue::Freq(EffectFreq::Hz(100)..=EffectFreq::Hz(100)),
                     ..Default::default()
                 },
+                freq_max: EffectParameter {
+                    off: EffectParameterValue::Freq(EffectFreq::Hz(16000)..=EffectFreq::Hz(16000)),
+                    ..Default::default()
+                },
+                q: EffectParameter {
+                    off: EffectParameterValue::Float(1.0..=1.0),
+                    ..Default::default()
+                },
+                delay: EffectParameter {
+                    off: EffectParameterValue::Float(1.0..=1.0),
+                    ..Default::default()
+                },
+                mix: EffectParameter {
+                    off: EffectParameterValue::Float(0.0..=0.0),
+                    on: Some(EffectParameterValue::Float(1.0..=1.0)),
+                    ..Default::default()
+                },
+                ..Default::default()
             },
         ));
 
