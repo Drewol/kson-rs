@@ -340,15 +340,16 @@ fn serde_def_n<T: From<u32> + Copy, const N: u32>() -> T {
 //     T::from(false)
 // }
 
+/// (tick, section points, wide)
 #[derive(Serialize, Deserialize, Clone)]
 pub struct LaserSection(
-    u32,
-    Vec<GraphSectionPoint>,
+    pub u32,
+    pub Vec<GraphSectionPoint>,
     #[serde(
         default = "default_one::<u8>",
         skip_serializing_if = "serde_eq::<_, 1>"
     )]
-    u8,
+    pub u8,
 );
 
 impl LaserSection {
@@ -361,6 +362,10 @@ impl LaserSection {
 
     pub fn last(&self) -> Option<&GraphSectionPoint> {
         self.1.last()
+    }
+
+    pub fn first(&self) -> Option<&GraphSectionPoint> {
+        self.1.first()
     }
 
     pub fn wide(&self) -> u8 {
