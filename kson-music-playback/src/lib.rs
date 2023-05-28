@@ -6,8 +6,9 @@ use kson::{Chart, GraphSectionPoint};
 use kson_audio::Dsp;
 use kson_audio::*;
 use rodio::*;
+use std::fmt::Debug;
 use std::fs::File;
-use std::io::BufReader;
+use std::io::{BufReader, Read, Seek};
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 
@@ -313,21 +314,10 @@ impl AudioPlayback {
             false
         }
     }
-
-    pub fn open(&mut self, path: &str) -> Result<()> {
-        let new_file = String::from(path);
-        if self.file.is_some() && self.last_file.eq(&new_file) {
-            //don't reopen already opened file
-            return Ok(());
-        }
-
-        self.close();
-        let file = File::open(path)?;
-        let source = rodio::Decoder::new(BufReader::new(file))?;
+    pub fn open(&mut self, source: impl Source<Item = f32>, filename: &str) -> Result<()> {
         let rate = source.sample_rate();
         let channels = source.channels();
-        let dataref: Arc<Mutex<Vec<f32>>> =
-            Arc::new(Mutex::new(source.convert_samples().collect()));
+        let dataref: Arc<Mutex<Vec<f32>>> = Arc::new(Mutex::new(source.collect()));
         let data = dataref.lock().unwrap();
 
         let laser_dsp = kson_audio::dsp_from_definition(AudioEffect::PeakingFilter(
@@ -371,8 +361,21 @@ impl AudioPlayback {
             fx_dsp: [None, None],
             laser_dsp: Arc::new(Mutex::new(laser_dsp)),
         });
-        self.last_file = new_file;
+        self.last_file = filename.to_string();
         Ok(())
+    }
+
+    pub fn open_path(&mut self, path: &str) -> Result<()> {
+        let new_file = String::from(path);
+        if self.file.is_some() && self.last_file.eq(&new_file) {
+            //don't reopen already opened file
+            return Ok(());
+        }
+
+        self.close();
+        let file = File::open(path)?;
+        let source = rodio::Decoder::new(BufReader::new(file))?;
+        self.open(source.convert_samples(), path)
     }
 
     pub fn stop(&mut self) {

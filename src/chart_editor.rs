@@ -851,7 +851,7 @@ impl MainState {
                                 let path = path.join(Path::new(filename));
                                 debug!("Playing file: {}", path.display());
                                 let path = path.to_str().unwrap();
-                                match self.audio_playback.open(path) {
+                                match self.audio_playback.open_path(path) {
                                     Ok(_) => {
                                         let ms = self.chart.tick_to_ms(self.cursor_line)
                                             + bgm.offset as f64;
