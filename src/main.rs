@@ -193,7 +193,7 @@ fn main() -> anyhow::Result<()> {
     config_path.push("Main.cfg");
     GameConfig::init(config_path);
 
-    let show_debug_ui = false;
+    let show_debug_ui = true;
 
     let (window, surface, canvas, gl_context, eventloop, window_gl) = window::create_window();
 

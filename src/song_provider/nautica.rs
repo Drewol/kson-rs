@@ -9,6 +9,7 @@ use std::{
 };
 
 use rayon::prelude::*;
+use rodio::Source;
 
 use crate::{
     project_dirs,
@@ -338,7 +339,7 @@ impl SongProvider for NauticaSongProvider {
         &self,
         index: u64,
         diff_id: u64,
-    ) -> Box<dyn FnOnce() -> (kson::Chart, Box<dyn rodio::Source<Item = i16>>) + Send> {
+    ) -> Box<dyn FnOnce() -> (kson::Chart, Box<dyn rodio::Source<Item = f32> + Send>) + Send> {
         if let Some(song_uuid) = self.id_map.get(&index) {
             let mut song_path = project_dirs().cache_dir().to_path_buf();
 
@@ -369,7 +370,7 @@ impl SongProvider for NauticaSongProvider {
 fn download_song(
     id: Uuid,
     diff: u8,
-) -> Box<dyn FnOnce() -> (kson::Chart, Box<dyn rodio::Source<Item = i16>>) + Send> {
+) -> Box<dyn FnOnce() -> (kson::Chart, Box<dyn rodio::Source<Item = f32> + Send>) + Send> {
     Box::new(move || {
         let mut song_path = project_dirs().cache_dir().to_path_buf();
 
@@ -408,7 +409,7 @@ fn download_song(
 fn song_from_zip(
     data: impl std::io::Read + std::io::Seek,
     diff: u8,
-) -> Result<(kson::Chart, Box<dyn rodio::Source<Item = i16>>)> {
+) -> Result<(kson::Chart, Box<dyn rodio::Source<Item = f32> + Send>)> {
     let mut archive = zip::read::ZipArchive::new(data)?;
     for i in 0..archive.len() {
         let mut file = archive.by_index(i)?;
@@ -437,7 +438,10 @@ fn song_from_zip(
                 bgm_entry.read_to_end(&mut bgm_buf)?;
                 let bgm_cursor = std::io::Cursor::new(bgm_buf);
 
-                return Ok((chart, Box::new(rodio::Decoder::new(bgm_cursor)?)));
+                return Ok((
+                    chart,
+                    Box::new(rodio::Decoder::new(bgm_cursor)?.convert_samples()),
+                ));
             }
         }
     }

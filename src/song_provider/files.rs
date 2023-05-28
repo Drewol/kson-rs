@@ -14,6 +14,7 @@ use super::{SongProvider, SongProviderEvent};
 use itertools::Itertools;
 use kson::{Chart, Ksh};
 use log::info;
+use rodio::Source;
 use rusc_database::{LocalSongsDb, ScoreEntry};
 use walkdir::DirEntry;
 
@@ -204,7 +205,7 @@ impl SongProvider for FileSongProvider {
         &self,
         _index: u64,
         _diff_index: u64,
-    ) -> Box<dyn FnOnce() -> (kson::Chart, Box<dyn rodio::Source<Item = i16>>) + Send> {
+    ) -> Box<dyn FnOnce() -> (kson::Chart, Box<dyn rodio::Source<Item = f32> + Send>) + Send> {
         let path = self
             .difficulty_id_path_map
             .get(&_diff_index)
@@ -234,7 +235,7 @@ impl SongProvider for FileSongProvider {
             )
             .expect("Failed to open chart audio");
 
-            (chart, Box::new(audio))
+            (chart, Box::new(audio.convert_samples()))
         })
     }
 }

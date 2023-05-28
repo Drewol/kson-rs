@@ -1,7 +1,7 @@
 use std::path::Path;
 
 use sqlx::migrate::Migrator;
-use sqlx::{query, query_as, ConnectOptions, Pool, SqlitePool};
+use sqlx::{query, query_as, ConnectOptions, Pool, Row, SqlitePool};
 
 static MIGRATOR: Migrator = sqlx::migrate!("./migrations"); // defaults to "./migrations"
 
@@ -434,5 +434,34 @@ impl LocalSongsDb {
         )
         .execute(&self.sqlite_pool)
         .await
+    }
+
+    pub async fn get_or_insert_folder(
+        &self,
+        folder: impl AsRef<Path>,
+    ) -> std::result::Result<i64, sqlx::Error> {
+        if let Some(folder) = folder.as_ref().to_str() {
+            let count: i64 = sqlx::query("SELECT COUNT(*) as v FROM FOLDERS WHERE PATH=?")
+                .bind(folder)
+                .fetch_one(&self.sqlite_pool)
+                .await?
+                .try_get(0)?;
+
+            if count > 0 {
+                sqlx::query("SELECT rowid FROM FOLDERS WHERE PATH=?")
+                    .bind(folder)
+                    .fetch_one(&self.sqlite_pool)
+                    .await?
+                    .try_get(0)
+            } else {
+                sqlx::query("INSERT INTO FOLDERS(path) VALUES(?) RETURNING rowid")
+                    .bind(folder)
+                    .fetch_one(&self.sqlite_pool)
+                    .await?
+                    .try_get(0)
+            }
+        } else {
+            Err(sqlx::Error::RowNotFound)
+        }
     }
 }

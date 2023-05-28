@@ -7,6 +7,7 @@ use crate::{
 };
 use kson::Chart;
 use puffin::profile_function;
+use rodio::Source;
 use serde::{Deserialize, Serialize};
 use tealr::mlu::mlua::{Function, Lua, LuaSerdeExt};
 pub struct Game {
@@ -30,6 +31,7 @@ pub struct Game {
     control_tx: Option<Sender<ControlMessage>>,
     results_requested: bool,
     closed: bool,
+    playback: kson_music_playback::AudioPlayback,
 }
 struct TrackRenderMeshes {
     fx_hold: CpuMesh,
@@ -47,6 +49,7 @@ pub struct GameData {
     context: three_d::Context,
     chart: kson::Chart,
     skin_folder: PathBuf,
+    audio: Box<dyn Source<Item = f32> + Send>,
 }
 
 pub fn extend_mesh(a: CpuMesh, b: CpuMesh) -> CpuMesh {
@@ -114,6 +117,7 @@ impl GameData {
         diff_idx: usize,
         chart: kson::Chart,
         skin_folder: PathBuf,
+        audio: Box<dyn Source<Item = f32> + Send>,
     ) -> anyhow::Result<Self> {
         Ok(Self {
             context,
@@ -121,6 +125,7 @@ impl GameData {
             skin_folder,
             diff_idx,
             song,
+            audio,
         })
     }
 }
@@ -133,6 +138,7 @@ impl SceneData for GameData {
             skin_folder,
             diff_idx,
             song,
+            audio,
         } = *self;
         profile_function!();
 
@@ -265,6 +271,12 @@ impl SceneData for GameData {
         laser_right.set_blend(Blend::ADD);
         laser_right_active.set_blend(Blend::ADD);
 
+        let mut playback =
+            kson_music_playback::AudioPlayback::try_new().expect("Failed to open playback channel");
+
+        playback.open(audio, "Game").expect("Failed to load audio");
+        playback.build_effects(&chart);
+
         Box::new(
             Game::new(
                 chart,
@@ -296,6 +308,7 @@ impl SceneData for GameData {
                 [bt_chip_shader.with_transform(mesh_transform)],
                 song,
                 diff_idx,
+                playback,
             )
             .unwrap(),
         )
@@ -325,6 +338,7 @@ impl Game {
         bt_chip_shader: [ShadedMesh; 1],
         song: Arc<Song>,
         diff_idx: usize,
+        playback: kson_music_playback::AudioPlayback,
     ) -> Result<Self> {
         let mut view = ChartView::new(skin_root, td);
         view.build_laser_meshes(&chart);
@@ -364,6 +378,7 @@ impl Game {
             control_tx: None,
             results_requested: false,
             closed: false,
+            playback,
         };
         res.set_track_uniforms();
         Ok(res)
@@ -533,7 +548,12 @@ impl Scene for Game {
 
             self.camera_pos = vec3(x, y, z);
 
-            ui.add(Slider::new(&mut self.time, 0..=self.duration));
+            if ui
+                .add(Slider::new(&mut self.time, 0..=self.duration))
+                .changed()
+            {
+                self.playback.set_poistion(self.time as f64);
+            }
             ui.add(Slider::new(&mut self.view.hispeed, 0.001..=2.0));
         });
         Ok(())
@@ -556,10 +576,11 @@ impl Scene for Game {
             0.01,
             10000.0,
         );
-        if self.intro_done {
-            self.time += dt as i64;
+        if self.intro_done && !self.playback.is_playing() {
+            self.playback.play();
         }
-        self.view.cursor = self.time;
+        self.view.cursor = self.playback.get_ms().round() as i64;
+        self.time = self.view.cursor;
 
         let new_lua_state = self.lua_game_state(viewport);
         if new_lua_state != self.lua_game_state {

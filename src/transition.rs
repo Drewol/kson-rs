@@ -7,6 +7,7 @@ use std::{
 use generational_arena::Index;
 use log::warn;
 use poll_promise::Promise;
+use rodio::Source;
 use tealr::mlu::mlua::{Function, Lua, LuaSerdeExt};
 use three_d::{ColorMaterial, Gm, Mat3, Rad, Rectangle, Texture2DRef, Vec2, Zero};
 use ureq::json;
@@ -53,6 +54,7 @@ fn load_chart(
     song: Arc<Song>,
     diff_idx: usize,
     skin_folder: PathBuf,
+    audio: Box<dyn Source<Item = f32> + Send>,
 ) -> anyhow::Result<Box<dyn SceneData + Send>> {
     Ok(Box::new(crate::game::GameData::new(
         context,
@@ -60,6 +62,7 @@ fn load_chart(
         diff_idx,
         chart,
         skin_folder,
+        audio,
     )?))
 }
 
@@ -203,8 +206,8 @@ impl Scene for Transition {
                             let context = self.context.clone();
                             let skin_folder = self.vgfx.lock().unwrap().skin_folder();
                             Some(Promise::spawn_thread("Load song", move || {
-                                let (chart, _audio) = loader();
-                                load_chart(context, chart, song, diff, skin_folder)
+                                let (chart, audio) = loader();
+                                load_chart(context, chart, song, diff, skin_folder, audio)
                             }))
                         }
                         ControlMessage::Result {

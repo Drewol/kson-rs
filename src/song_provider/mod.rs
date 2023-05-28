@@ -1,8 +1,6 @@
 use std::{collections::HashSet, fmt::Debug, sync::Arc};
 
-
 use kson::Chart;
-
 
 use crate::songselect::Song;
 mod files;
@@ -40,7 +38,7 @@ pub trait SongProvider: Debug {
         &self,
         song_index: u64,
         diff_index: u64,
-    ) -> Box<dyn FnOnce() -> (Chart, Box<dyn rodio::Source<Item = i16>>) + Send>;
+    ) -> Box<dyn FnOnce() -> (Chart, Box<dyn rodio::Source<Item = f32> + Send>) + Send>;
 }
 
 pub use files::FileSongProvider;

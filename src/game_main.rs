@@ -35,7 +35,7 @@ use crate::{
     Scenes, FRAME_ACC_SIZE,
 };
 
-type SceneLoader = dyn FnOnce() -> (Chart, Box<dyn rodio::Source<Item = i16>>) + Send;
+type SceneLoader = dyn FnOnce() -> (Chart, Box<dyn rodio::Source<Item = f32> + Send>) + Send;
 
 pub enum ControlMessage {
     None,
