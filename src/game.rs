@@ -572,26 +572,39 @@ impl Game {
     }
 
     fn on_hit(&mut self, hit_rating: HitRating) {
+        let last_score = self.real_score;
         self.real_score += match hit_rating {
             HitRating::Crit(_) => 2,
             HitRating::Good(_) => 1,
             _ => 0,
         };
 
-        match hit_rating {
+        let combo_updated = match hit_rating {
             HitRating::Crit(_) | HitRating::Good(_) => {
                 self.combo += 1;
+                true
             }
-            HitRating::Miss(_) => self.combo = 0,
-            HitRating::None => {}
+            HitRating::Miss(_) => {
+                if self.combo == 0 {
+                    false
+                } else {
+                    self.combo = 0;
+                    true
+                }
+            }
+            HitRating::None => false,
+        };
+
+        if combo_updated {
+            if let Ok(update_score) = self.lua.globals().get::<_, Function>("update_combo") {
+                update_score.call::<_, ()>(self.combo);
+            }
         }
 
-        if let Ok(update_score) = self.lua.globals().get::<_, Function>("update_combo") {
-            update_score.call::<_, ()>(self.combo);
-        }
-
-        if let Ok(update_score) = self.lua.globals().get::<_, Function>("update_score") {
-            update_score.call::<_, ()>(self.calculate_display_score());
+        if last_score != self.real_score {
+            if let Ok(update_score) = self.lua.globals().get::<_, Function>("update_score") {
+                update_score.call::<_, ()>(self.calculate_display_score());
+            }
         }
 
         self.gauge.on_hit(hit_rating);
@@ -799,6 +812,7 @@ impl Scene for Game {
             miss,
         } = self.lua_game_state.hit_window;
 
+        //TODO: chart offset shenanigans
         let last_tick = self.chart.ms_to_tick(self.time + miss) + 1;
         let mut hittable_ticks = self.score_ticks.iter().take_while(|x| x.y < last_tick);
         match button {
@@ -810,7 +824,8 @@ impl Scene for Game {
                         false
                     }
                 }) {
-                    let ms = self.chart.tick_to_ms(score_tick.y);
+                    let ms = self.chart.tick_to_ms(score_tick.y)
+                        + self.chart.audio.bgm.as_ref().unwrap().offset as f64;
                     let abs_delta = (ms - self.time).abs();
 
                     let hit_rating = if abs_delta <= perfect {
@@ -833,7 +848,7 @@ impl Scene for Game {
                     }
                 }
             }
-            crate::button_codes::UscButton::FX(side) => todo!(),
+            crate::button_codes::UscButton::FX(side) => {}
             crate::button_codes::UscButton::Back => self.closed = true,
             _ => {}
         }
