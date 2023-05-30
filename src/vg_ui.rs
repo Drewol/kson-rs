@@ -854,21 +854,25 @@ impl TealData for Vgfx {
           radius : f32,
 
         );
-        add_lua_static_method(methods, "ArcTo", |_lua, _lua_index, _vgfx, p: ArcToParams| {
-            let ArcToParams {
-                x_1,
-                y_1,
-                x_2,
-                y_2,
-                radius,
-            } = p;
-            if let Some(path) = _vgfx.path.as_mut() {
-                path.arc_to(x_1, y_1, x_2, y_2, radius);
-                Ok(())
-            } else {
-                Err(mlua::Error::external("No path started".to_string()))
-            }
-        });
+        add_lua_static_method(
+            methods,
+            "ArcTo",
+            |_lua, _lua_index, _vgfx, p: ArcToParams| {
+                let ArcToParams {
+                    x_1,
+                    y_1,
+                    x_2,
+                    y_2,
+                    radius,
+                } = p;
+                if let Some(path) = _vgfx.path.as_mut() {
+                    path.arc_to(x_1, y_1, x_2, y_2, radius);
+                    Ok(())
+                } else {
+                    Err(mlua::Error::external("No path started".to_string()))
+                }
+            },
+        );
 
         //ClosePath
         add_lua_static_method(methods, "ClosePath", |_lua, _lua_index, _vgfx, _: ()| {
@@ -1151,20 +1155,28 @@ impl TealData for Vgfx {
           angle : f32,
 
         );
-        add_lua_static_method(methods, "SkewX", |_lua, _lua_index, _vgfx, p: SkewXParams| {
-            _vgfx.with_canvas(|canvas| canvas.skew_x(p.angle))?;
-            Ok(())
-        });
+        add_lua_static_method(
+            methods,
+            "SkewX",
+            |_lua, _lua_index, _vgfx, p: SkewXParams| {
+                _vgfx.with_canvas(|canvas| canvas.skew_x(p.angle))?;
+                Ok(())
+            },
+        );
 
         //SkewY
         tealr::mlu::create_named_parameters!(SkewYParams with
           angle : f32,
 
         );
-        add_lua_static_method(methods, "SkewY", |_lua, _lua_index, _vgfx, p: SkewYParams| {
-            _vgfx.with_canvas(|canvas| canvas.skew_y(p.angle))?;
-            Ok(())
-        });
+        add_lua_static_method(
+            methods,
+            "SkewY",
+            |_lua, _lua_index, _vgfx, p: SkewYParams| {
+                _vgfx.with_canvas(|canvas| canvas.skew_y(p.angle))?;
+                Ok(())
+            },
+        );
 
         //LinearGradient
         tealr::mlu::create_named_parameters!(LinearGradientParams with

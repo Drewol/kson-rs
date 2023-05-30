@@ -19,7 +19,6 @@ use three_d::{
     Texture2D, Vec2, Vec3, Vec4, VertexBuffer, Wrapping,
 };
 
-
 use crate::{config::GameConfig, vg_ui::Vgfx};
 
 pub enum ShaderParam {
