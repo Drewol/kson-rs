@@ -41,6 +41,7 @@ pub struct Game {
     score_summary: ScoreTickSummary,
     real_score: u64,
     combo: u64,
+    current_tick: u32,
 }
 
 #[derive(Debug, Default)]
@@ -70,6 +71,16 @@ impl Gauge {
                 HitRating::Miss(HitType::Hold | HitType::Laser) => *value -= 0.02 / 4.0,
                 HitRating::None => {}
             },
+        }
+
+        //Clamp
+        match self {
+            Gauge::None => todo!(),
+            Gauge::Normal {
+                chip_gain: _,
+                tick_gain: _,
+                value,
+            } => *value = value.clamp(0.0, 1.0),
         }
     }
 }
@@ -467,6 +478,7 @@ impl Game {
             gauge: Gauge::default(),
             real_score: 0,
             combo: 0,
+            current_tick: 0,
         };
         res.set_track_uniforms();
         Ok(res)
@@ -644,6 +656,30 @@ impl Scene for Game {
             self.results_requested = true;
         }
 
+        //TODO: Handle non-chip ticks
+
+        let missed_chip_tick = self
+            .chart
+            .ms_to_tick(self.time - self.lua_game_state.hit_window.good);
+        let missed_index = match self
+            .score_ticks
+            .binary_search_by_key(&missed_chip_tick, |x| x.y)
+        {
+            Ok(i) => i,
+            Err(i) => i.saturating_sub(1),
+        };
+        if missed_index > 0 {
+            let drain: Vec<_> = self.score_ticks.drain(0..=missed_index).collect();
+            for missed_note in drain {
+                self.on_hit(HitRating::Miss(match missed_note.tick {
+                    ScoreTick::Laser { lane, pos } => HitType::Laser,
+                    ScoreTick::Slam { lane, start, end } => HitType::Slam,
+                    ScoreTick::Chip { lane } => HitType::Chip,
+                    ScoreTick::Hold { lane } => HitType::Hold,
+                }));
+            }
+        }
+
         Ok(())
     }
 
@@ -685,7 +721,7 @@ impl Scene for Game {
 
     fn debug_ui(&mut self, ctx: &egui::Context) -> anyhow::Result<()> {
         use egui::*;
-        Window::new("Debug").show(ctx, |ui| {
+        Window::new("Camera").show(ctx, |ui| {
             let Vector3 {
                 mut x,
                 mut y,
@@ -696,15 +732,61 @@ impl Scene for Game {
             ui.add(Slider::new(&mut z, -10.0..=10.0).logarithmic(true));
 
             self.camera_pos = vec3(x, y, z);
-
-            if ui
-                .add(Slider::new(&mut self.time, 0.0..=self.duration))
-                .changed()
-            {
-                self.playback.set_poistion(self.time as f64);
-            }
-            ui.add(Slider::new(&mut self.view.hispeed, 0.001..=2.0));
         });
+        Window::new("Game Data").show(ctx, |ui| {
+            egui::Grid::new("gameplay_data")
+                .num_columns(2)
+                .spacing([40.0, 4.0])
+                .show(ui, |ui| {
+                    let current_tick = self.chart.ms_to_tick(self.time);
+
+                    ui.label("Time");
+
+                    if ui
+                        .add(Slider::new(&mut self.time, 0.0..=self.duration))
+                        .changed()
+                    {
+                        self.playback.set_poistion(self.time);
+                    }
+
+                    ui.end_row();
+
+                    ui.label("HiSpeed");
+                    ui.add(Slider::new(&mut self.view.hispeed, 0.001..=2.0));
+
+                    ui.separator();
+                    ui.end_row();
+
+                    ui.label("Note Data");
+                    ui.end_row();
+
+                    for i in 0..6 {
+                        let mut next_tick = self
+                            .score_ticks
+                            .iter()
+                            .filter(|x| x.y > current_tick)
+                            .find(|x| match x.tick {
+                                ScoreTick::Chip { lane } | ScoreTick::Hold { lane } => lane == i,
+                                _ => false,
+                            })
+                            .map(|x| self.chart.tick_to_ms(x.y))
+                            .unwrap_or(f64::INFINITY)
+                            - self.time;
+                        ui.label(match i {
+                            0 => "BT A",
+                            1 => "BT B",
+                            2 => "BT C",
+                            3 => "BT D",
+                            4 => "FX L",
+                            5 => "FX R",
+                            _ => unreachable!(),
+                        });
+                        ui.add(Slider::new(&mut next_tick, 0.0..=10000.0).logarithmic(true));
+                        ui.end_row();
+                    }
+                });
+        });
+
         Ok(())
     }
 
@@ -729,7 +811,15 @@ impl Scene for Game {
             self.playback.play();
         }
         self.view.cursor = self.playback.get_ms();
-        self.time = self.view.cursor;
+        self.time = self.view.cursor
+            - self
+                .chart
+                .audio
+                .bgm
+                .as_ref()
+                .map(|x| x.offset as f64)
+                .unwrap_or(0.0);
+        self.current_tick = self.chart.ms_to_tick(self.time);
 
         let new_lua_state = self.lua_game_state(viewport);
         if new_lua_state != self.lua_game_state {
@@ -824,9 +914,9 @@ impl Scene for Game {
                         false
                     }
                 }) {
-                    let ms = self.chart.tick_to_ms(score_tick.y)
-                        + self.chart.audio.bgm.as_ref().unwrap().offset as f64;
+                    let ms = self.chart.tick_to_ms(score_tick.y);
                     let abs_delta = (ms - self.time).abs();
+                    log::info!("Hit delta: {}", ms - self.time);
 
                     let hit_rating = if abs_delta <= perfect {
                         HitRating::Crit(HitType::Chip)
