@@ -28,6 +28,7 @@ use crate::{
     button_codes::{LaserState, UscInputEvent},
     config::GameConfig,
     game_data::{ExportGame, GameData},
+    input_state::InputState,
     main_menu::MainMenuButton,
     scene, songselect,
     transition::Transition,
@@ -79,6 +80,7 @@ pub struct GameMain {
     show_debug_ui: bool,
     mousex: f64,
     mousey: f64,
+    input_state: Arc<InputState>,
 }
 
 impl GameMain {
@@ -101,6 +103,7 @@ impl GameMain {
         show_debug_ui: bool,
         mousex: f64,
         mousey: f64,
+        input_state: Arc<InputState>,
     ) -> Self {
         Self {
             lua_arena,
@@ -121,6 +124,7 @@ impl GameMain {
             show_debug_ui,
             mousex,
             mousey,
+            input_state,
         }
     }
 
@@ -149,6 +153,7 @@ impl GameMain {
             frame_time_index,
             mousex,
             mousey,
+            input_state,
         } = self;
 
         poll_promise::tick(); //Tick async runtime at least once per frame
@@ -295,6 +300,7 @@ impl GameMain {
                                 frame_input.context.clone(),
                                 vgfx.clone(),
                                 frame_input.viewport,
+                                self.input_state.clone(),
                             ))
                         }
                     }
@@ -314,6 +320,7 @@ impl GameMain {
                             frame_input.context.clone(),
                             vgfx.clone(),
                             frame_input.viewport,
+                            self.input_state.clone(),
                         ))
                     }
                 }
@@ -338,6 +345,7 @@ impl GameMain {
                             frame_input.context.clone(),
                             vgfx.clone(),
                             frame_input.viewport,
+                            self.input_state.clone(),
                         ))
                     }
                 }

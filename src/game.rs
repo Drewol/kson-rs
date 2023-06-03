@@ -1,4 +1,6 @@
 use crate::{
+    button_codes::UscInputEvent,
+    input_state::InputState,
     scene::{Scene, SceneData},
     shaded_mesh::ShadedMesh,
     songselect::Song,
@@ -8,7 +10,7 @@ use crate::{
 use itertools::Itertools;
 use kson::{
     score_ticks::{PlacedScoreTick, ScoreTick, ScoreTickSummary, ScoreTicker},
-    Chart,
+    Chart, Graph,
 };
 use puffin::profile_function;
 use rodio::Source;
@@ -42,6 +44,9 @@ pub struct Game {
     real_score: u64,
     combo: u64,
     current_tick: u32,
+    input_state: Arc<InputState>,
+    laser_cursors: [f64; 2],
+    laser_active: [bool; 2],
 }
 
 #[derive(Debug, Default)]
@@ -222,7 +227,7 @@ impl GameData {
 }
 
 impl SceneData for GameData {
-    fn make_scene(self: Box<Self>) -> Box<dyn Scene> {
+    fn make_scene(self: Box<Self>, input_state: Arc<InputState>) -> Box<dyn Scene> {
         let Self {
             context,
             chart,
@@ -400,6 +405,7 @@ impl SceneData for GameData {
                 song,
                 diff_idx,
                 playback,
+                input_state,
             )
             .unwrap(),
         )
@@ -430,6 +436,7 @@ impl Game {
         song: Arc<Song>,
         diff_idx: usize,
         playback: kson_music_playback::AudioPlayback,
+        input_state: Arc<InputState>,
     ) -> Result<Self> {
         let mut view = ChartView::new(skin_root, td);
         view.build_laser_meshes(&chart);
@@ -479,6 +486,9 @@ impl Game {
             real_score: 0,
             combo: 0,
             current_tick: 0,
+            input_state,
+            laser_cursors: [0.0, 1.0],
+            laser_active: [false, false],
         };
         res.set_track_uniforms();
         Ok(res)
@@ -552,7 +562,18 @@ impl Game {
                 y: track_center.y as i32,
                 x_offset: 0.0,
                 rotation,
-                cursors: [Cursor::default(), Cursor::default()],
+                cursors: [
+                    Cursor::new(
+                        self.laser_cursors[0] as f32,
+                        &self.camera,
+                        if self.laser_active[0] { 1.0 } else { 0.0 },
+                    ),
+                    Cursor::new(
+                        self.laser_cursors[1] as f32,
+                        &self.camera,
+                        if self.laser_active[1] { 1.0 } else { 0.0 },
+                    ),
+                ],
                 line: Line {
                     x1: track_left.x,
                     y1: track_left.y,
@@ -627,6 +648,34 @@ impl Game {
 
         10_000_000_u64 * self.real_score / max
     }
+
+    fn process_tick(&self, tick: &PlacedScoreTick, chip_miss_tick: u32) -> HitRating {
+        match tick.tick {
+            ScoreTick::Hold { lane } => {
+                if self.input_state.is_button_held((lane as u8).into()) {
+                    HitRating::Crit(HitType::Hold)
+                } else {
+                    HitRating::Miss(HitType::Hold)
+                }
+            }
+            ScoreTick::Laser { lane, pos } => {
+                const LASER_WIDTH: f64 = 1.0 / 6.0;
+                if (self.laser_cursors[lane] - pos).abs() < LASER_WIDTH {
+                    HitRating::Crit(HitType::Laser)
+                } else {
+                    HitRating::Miss(HitType::Laser)
+                }
+            }
+            ScoreTick::Slam { lane, start, end } => HitRating::Miss(HitType::Slam),
+            ScoreTick::Chip { lane: _ } => {
+                if tick.y < chip_miss_tick {
+                    HitRating::Miss(HitType::Chip)
+                } else {
+                    HitRating::None
+                }
+            }
+        }
+    }
 }
 
 impl Scene for Game {
@@ -649,35 +698,36 @@ impl Scene for Game {
                 .send(ControlMessage::Result {
                     song: self.song.clone(),
                     diff_idx: self.diff_idx,
-                    score: 90_00000,
+                    score: self.calculate_display_score() as u32,
                     gauge: 0.5,
                 });
 
             self.results_requested = true;
         }
-
-        //TODO: Handle non-chip ticks
-
         let missed_chip_tick = self
             .chart
             .ms_to_tick(self.time - self.lua_game_state.hit_window.good);
-        let missed_index = match self
-            .score_ticks
-            .binary_search_by_key(&missed_chip_tick, |x| x.y)
-        {
-            Ok(i) => i,
-            Err(i) => i.saturating_sub(1),
-        };
-        if missed_index > 0 {
-            let drain: Vec<_> = self.score_ticks.drain(0..=missed_index).collect();
-            for missed_note in drain {
-                self.on_hit(HitRating::Miss(match missed_note.tick {
-                    ScoreTick::Laser { lane, pos } => HitType::Laser,
-                    ScoreTick::Slam { lane, start, end } => HitType::Slam,
-                    ScoreTick::Chip { lane } => HitType::Chip,
-                    ScoreTick::Hold { lane } => HitType::Hold,
-                }));
+
+        let mut i = 0;
+        while i < self.score_ticks.len() {
+            if self.score_ticks[i].y > self.current_tick {
+                break;
             }
+
+            match self.process_tick(&self.score_ticks[i], missed_chip_tick) {
+                HitRating::None => i += 1,
+                r => {
+                    self.on_hit(r);
+                    self.score_ticks.remove(i);
+                }
+            }
+        }
+
+        for (side, laser_active) in self.laser_active.iter_mut().enumerate() {
+            *laser_active = self.chart.note.laser[side]
+                .value_at(self.current_tick as f64)
+                .is_some();
+            //TODO: Also check ahead
         }
 
         Ok(())
@@ -891,6 +941,26 @@ impl Scene for Game {
 
         let axes = three_d::Axes::new(td_context, 0.01, 0.30);
         target.render(&self.camera, [axes], &[]);
+    }
+
+    fn on_event(
+        &mut self,
+        event: &game_loop::winit::event::Event<crate::button_codes::UscInputEvent>,
+    ) {
+        if let game_loop::winit::event::Event::UserEvent(UscInputEvent::Laser(ls)) = event {
+            self.laser_cursors[0] = if self.laser_active[0] {
+                (self.laser_cursors[0] + ls.get_axis(kson::Side::Left).delta as f64).clamp(0.0, 1.0)
+            } else {
+                0.0
+            };
+
+            self.laser_cursors[1] = if self.laser_active[1] {
+                (self.laser_cursors[1] + ls.get_axis(kson::Side::Right).delta as f64)
+                    .clamp(0.0, 1.0)
+            } else {
+                1.0
+            };
+        }
     }
 
     fn on_button_pressed(&mut self, button: crate::button_codes::UscButton) {
@@ -1642,6 +1712,29 @@ struct Cursor {
     pos: f32,
     alpha: f32,
     skew: f32,
+}
+
+impl Cursor {
+    pub fn new(pos: f32, camera: &Camera, alpha: f32) -> Self {
+        let pos = (pos - 0.5) * (5.0 / 6.0);
+
+        let crit_pos = Vec2::from(camera.pixel_at_position(vec3(0.0, 0.0, 0.0)));
+        let c_pos = Vec2::from(camera.pixel_at_position(vec3(pos, 0.0, 0.0)));
+        let c_pos_up = Vec2::from(camera.pixel_at_position(vec3(pos, 1.0, 0.0)));
+        let c_pos_down = Vec2::from(camera.pixel_at_position(vec3(pos, -1.0, 0.0)));
+        let dist_from_crit_center =
+            (crit_pos - c_pos).magnitude() * if pos < 0.0 { -1.0 } else { 1.0 };
+        let cursor_angle_vector = c_pos_up - c_pos_down;
+
+        let skew =
+            -cursor_angle_vector.y.atan2(cursor_angle_vector.x) + std::f32::consts::FRAC_PI_2;
+
+        Self {
+            pos: dist_from_crit_center,
+            alpha,
+            skew,
+        }
+    }
 }
 
 #[derive(Debug, Serialize, Default, Deserialize, Clone, PartialEq)]

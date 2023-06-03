@@ -8,7 +8,7 @@ use std::{
 };
 
 use crate::{
-    button_codes::LaserState, config::GameConfig, game_main::GameMain,
+    button_codes::LaserState, config::GameConfig, game_main::GameMain, input_state::InputState,
     skin_settings::SkinSettingEntry, transition::Transition, vg_ui::Vgfx,
 };
 use directories::ProjectDirs;
@@ -36,6 +36,7 @@ mod game;
 mod game_data;
 mod game_main;
 mod help;
+mod input_state;
 mod main_menu;
 mod material;
 mod results;
@@ -64,7 +65,6 @@ pub fn project_dirs() -> ProjectDirs {
     directories::ProjectDirs::from("", "Drewol", "USC").expect("Failed to get project dirs")
 }
 
-#[derive(Default)]
 pub struct Scenes {
     pub active: Vec<Box<dyn Scene>>,
     pub loaded: Vec<Box<dyn Scene>>,
@@ -74,6 +74,16 @@ pub struct Scenes {
 }
 
 impl Scenes {
+    pub fn new() -> Self {
+        Self {
+            active: Default::default(),
+            loaded: Default::default(),
+            initialized: Default::default(),
+            transition: Default::default(),
+            should_outro: Default::default(),
+        }
+    }
+
     pub fn tick(
         &mut self,
         dt: f64,
@@ -232,11 +242,18 @@ fn main() -> anyhow::Result<()> {
 
     while input.next_event().is_some() {} //empty events
     let context = td::Context::from_gl_context(gl_context.clone())?;
-
     let vgfx = Arc::new(Mutex::new(vg_ui::Vgfx::new(
         canvas.clone(),
         std::env::current_dir()?,
     )));
+
+    input
+        .gamepads()
+        .for_each(|(_, g)| info!("{} uuid: {}", g.name(), uuid::Uuid::from_bytes(g.uuid())));
+
+    let input = Arc::new(Mutex::new(input));
+    let gilrs_state = input.clone();
+    let input_state = Arc::new(InputState::new(gilrs_state));
 
     let mousex = 0.0;
     let mousey = 0.0;
@@ -244,16 +261,19 @@ fn main() -> anyhow::Result<()> {
     let event_proxy = eventloop.create_proxy();
 
     let _input_thread = poll_promise::Promise::spawn_thread("gilrs", move || {
-        input
-            .gamepads()
-            .for_each(|(_, g)| info!("{} uuid: {}", g.name(), uuid::Uuid::from_bytes(g.uuid())));
         let mut knob_state = LaserState::default();
 
         loop {
             use button_codes::*;
             use game_loop::winit::event::ElementState::*;
             use gilrs::*;
-            let e = input.next_event();
+            let e = {
+                if let Ok(mut input) = input.lock() {
+                    input.next_event()
+                } else {
+                    None
+                }
+            };
             if let Some(e) = e {
                 let sent = match e.event {
                     EventType::ButtonPressed(button, _) => {
@@ -331,7 +351,7 @@ fn main() -> anyhow::Result<()> {
 
     let fps_paint = vg::Paint::color(vg::Color::white()).with_text_align(vg::Align::Right);
 
-    let mut scenes = Scenes::default();
+    let mut scenes = Scenes::new();
 
     scenes.loaded.push(Box::new(main_menu::MainMenu::new()));
     let game_data = Arc::new(Mutex::new(game_data::GameData {
@@ -371,6 +391,7 @@ fn main() -> anyhow::Result<()> {
         show_debug_ui,
         mousex,
         mousey,
+        input_state,
     );
 
     game_loop::game_loop(

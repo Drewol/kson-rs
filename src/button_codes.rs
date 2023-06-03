@@ -71,6 +71,26 @@ impl From<Button> for UscButton {
     }
 }
 
+impl From<UscButton> for Button {
+    fn from(val: UscButton) -> Self {
+        match val {
+            UscButton::BT(bt) => match bt {
+                BtLane::A => Button::South,
+                BtLane::B => Button::East,
+                BtLane::C => Button::North,
+                BtLane::D => Button::West,
+            },
+            UscButton::FX(side) => match side {
+                Side::Left => Button::LeftTrigger,
+                Side::Right => Button::RightTrigger,
+            },
+            UscButton::Start => Button::Start,
+            UscButton::Back => Button::Select,
+            UscButton::Other(c) => c,
+        }
+    }
+}
+
 #[derive(Debug, Clone, Copy, Default)]
 pub struct LaserAxis {
     pub delta: f32,

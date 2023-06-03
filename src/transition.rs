@@ -13,6 +13,7 @@ use three_d::{ColorMaterial, Gm, Mat3, Rad, Rectangle, Texture2DRef, Vec2, Zero}
 use ureq::json;
 
 use crate::{
+    input_state::InputState,
     main_menu::MainMenuButton,
     results::SongResultData,
     scene::{Scene, SceneData},
@@ -39,6 +40,7 @@ pub struct Transition {
     context: three_d::Context,
     vgfx: Arc<Mutex<crate::Vgfx>>,
     prev_screengrab: Option<Gm<Rectangle, ColorMaterial>>,
+    input_state: Arc<InputState>,
 }
 
 fn load_songs() -> anyhow::Result<Box<dyn SceneData + Send>> {
@@ -78,6 +80,7 @@ impl Transition {
         context: three_d::Context,
         vgfx: Arc<Mutex<crate::Vgfx>>,
         viewport: three_d::Viewport,
+        input_state: Arc<InputState>,
     ) -> Self {
         if let Ok(reset_fn) = transition_lua.globals().get::<_, Function>("reset") {
             if let Some(e) = reset_fn.call::<(), ()>(()).err() {
@@ -140,6 +143,7 @@ impl Transition {
             context,
             vgfx,
             prev_screengrab: prev_grab,
+            input_state,
         }
     }
 }
@@ -232,7 +236,9 @@ impl Scene for Transition {
                     match target_state.try_take() {
                         Ok(Ok(finished)) => self
                             .control_tx
-                            .send(ControlMessage::TransitionComplete(finished.make_scene()))
+                            .send(ControlMessage::TransitionComplete(
+                                finished.make_scene(self.input_state.clone()),
+                            ))
                             .unwrap(),
                         Ok(Err(loading_error)) => {
                             log::error!("{:?}", loading_error);

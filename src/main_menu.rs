@@ -1,7 +1,10 @@
 use std::{
     cell::Ref,
     rc::Rc,
-    sync::mpsc::{Receiver, Sender},
+    sync::{
+        mpsc::{Receiver, Sender},
+        Arc,
+    },
 };
 
 use anyhow::{anyhow, Result};
@@ -17,6 +20,7 @@ use tealr::{
 
 use crate::{
     button_codes::{LaserState, UscInputEvent},
+    input_state::InputState,
     scene::Scene,
     ControlMessage,
 };

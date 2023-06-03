@@ -8,6 +8,7 @@ use serde::Serialize;
 
 use crate::{
     game::HitWindow,
+    input_state::InputState,
     scene::{Scene, SceneData},
     songselect::{Difficulty, Song},
     ControlMessage,
@@ -129,7 +130,7 @@ impl SongResultData {
 }
 
 impl SceneData for SongResultData {
-    fn make_scene(self: Box<Self>) -> Box<dyn Scene> {
+    fn make_scene(self: Box<Self>, input_state: Arc<InputState>) -> Box<dyn Scene> {
         Box::new(SongResult {
             close: false,
             control_tx: None,

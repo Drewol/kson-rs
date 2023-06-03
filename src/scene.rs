@@ -1,4 +1,7 @@
-use std::{rc::Rc, sync::mpsc::Sender};
+use std::{
+    rc::Rc,
+    sync::{mpsc::Sender, Arc},
+};
 
 use anyhow::Result;
 use game_loop::winit::event::Event;
@@ -8,6 +11,7 @@ use three_d::{RenderTarget, Viewport};
 
 use crate::{
     button_codes::{LaserState, UscButton, UscInputEvent},
+    input_state::InputState,
     ControlMessage,
 };
 
@@ -47,11 +51,11 @@ pub trait SceneData
 where
     Self: Send,
 {
-    fn make_scene(self: Box<Self>) -> Box<dyn Scene>;
+    fn make_scene(self: Box<Self>, input_state: Arc<InputState>) -> Box<dyn Scene>;
 }
 
 impl SceneData for dyn Scene + Send {
-    fn make_scene(self: Box<Self>) -> Box<dyn Scene> {
+    fn make_scene(self: Box<Self>, _: Arc<InputState>) -> Box<dyn Scene> {
         self
     }
 }

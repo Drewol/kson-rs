@@ -20,6 +20,7 @@ use tealr::{
 use crate::{
     button_codes::{LaserAxis, LaserState, UscButton, UscInputEvent},
     config::GameConfig,
+    input_state::InputState,
     results::Score,
     scene::{Scene, SceneData},
     song_provider::{FileSongProvider, NauticaSongProvider, SongProvider, SongProviderEvent},
@@ -147,7 +148,7 @@ impl SongSelect {
 }
 
 impl SceneData for SongSelect {
-    fn make_scene(self: Box<Self>) -> Box<dyn Scene> {
+    fn make_scene(self: Box<Self>, input_state: Arc<InputState>) -> Box<dyn Scene> {
         Box::new(SongSelectScene::new(self))
     }
 }
