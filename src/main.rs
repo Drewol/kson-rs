@@ -274,6 +274,7 @@ fn main() -> anyhow::Result<()> {
                     None
                 }
             };
+            knob_state.zero_deltas();
             if let Some(e) = e {
                 let sent = match e.event {
                     EventType::ButtonPressed(button, _) => {

@@ -87,6 +87,7 @@ pub struct Vgfx {
     restore_stack: Vec<VgfxPoint>,
     path: Option<Path>,
     fill_paint: Option<Paint>,
+    image_tint: Option<Color>,
     stroke_paint: Paint,
     gradient_colors: [Color; 2],
     game_folder: std::path::PathBuf,
@@ -160,6 +161,7 @@ impl Vgfx {
             image_jobs: Default::default(),
             fallback_img,
             scoped_assets: Default::default(),
+            image_tint: None,
         }
     }
 
@@ -428,6 +430,7 @@ impl TealData for Vgfx {
 
                 if let Some(img_id) = _vgfx.scoped_assets[lua_index].images.get(&image) {
                     let img_id = img_id.into();
+                    let tint = _vgfx.image_tint;
                     _vgfx.with_canvas(|canvas| {
                         canvas.save_with(|canvas| {
                             let (img_w, img_h) = canvas
@@ -439,20 +442,33 @@ impl TealData for Vgfx {
                             canvas.translate(x, y);
                             canvas.rotate(angle);
                             canvas.scale(scale_x, scale_y);
-                            let paint = Paint::image_tint(
-                                img_id,
-                                0.0,
-                                0.0,
-                                img_w as f32,
-                                img_h as f32,
-                                0.0,
-                                Color {
-                                    r: 1.0,
-                                    g: 1.0,
-                                    b: 1.0,
-                                    a: alpha,
-                                },
-                            ); //TODO: Set from tint
+                            let paint = if let Some(mut tint) = tint {
+                                tint.set_alphaf(alpha);
+                                Paint::image_tint(
+                                    img_id,
+                                    0.0,
+                                    0.0,
+                                    img_w as f32,
+                                    img_h as f32,
+                                    0.0,
+                                    tint,
+                                )
+                            } else {
+                                Paint::image_tint(
+                                    img_id,
+                                    0.0,
+                                    0.0,
+                                    img_w as f32,
+                                    img_h as f32,
+                                    0.0,
+                                    Color {
+                                        r: 1.0,
+                                        g: 1.0,
+                                        b: 1.0,
+                                        a: alpha,
+                                    },
+                                )
+                            };
                             let mut rect = Path::new();
                             rect.rect(0.0, 0.0, img_w as f32, img_h as f32);
                             canvas.fill_path(&mut rect, &paint);
@@ -1775,17 +1791,18 @@ impl TealData for Vgfx {
 
         //SetImageTint
         tealr::mlu::create_named_parameters!(SetImageTintParams with
-          r : i32,
-          g : i32,
-          b : i32,
+          r : u8,
+          g : u8,
+          b : u8,
 
         );
         add_lua_static_method(
             methods,
             "SetImageTint",
             |_lua, _lua_index, _vgfx, _p: SetImageTintParams| {
+                let SetImageTintParams { r, g, b } = _p;
                 if let Some(_paint) = _vgfx.fill_paint.as_mut() {
-                    //Paint::image_tint(id, cx, cy, width, height, angle, tint)
+                    _vgfx.image_tint = Some(Color::rgb(r, g, b));
                 }
                 Ok(0)
             },

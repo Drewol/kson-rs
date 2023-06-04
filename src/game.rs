@@ -60,6 +60,15 @@ enum Gauge {
     },
 }
 
+fn tick_is_short(score_tick: PlacedScoreTick) -> bool {
+    match score_tick.tick {
+        ScoreTick::Laser { lane, pos } => true,
+        ScoreTick::Slam { lane, start, end } => false,
+        ScoreTick::Chip { lane } => true,
+        ScoreTick::Hold { lane } => false,
+    }
+}
+
 impl Gauge {
     pub fn on_hit(&mut self, rating: HitRating) {
         match self {
@@ -69,11 +78,11 @@ impl Gauge {
                 tick_gain,
                 value,
             } => match rating {
-                HitRating::Crit(HitType::Chip | HitType::Slam) => *value += *chip_gain,
-                HitRating::Crit(HitType::Hold | HitType::Laser) => *value += *tick_gain,
-                HitRating::Good(_) => *value += *chip_gain / 3.0, //Only chips can have a "good" rating
-                HitRating::Miss(HitType::Chip | HitType::Slam) => *value -= 0.02,
-                HitRating::Miss(HitType::Hold | HitType::Laser) => *value -= 0.02 / 4.0,
+                HitRating::Crit(t, _) if tick_is_short(t) => *value += *chip_gain,
+                HitRating::Crit(_, _) => *value += *tick_gain,
+                HitRating::Good(_, _) => *value += *chip_gain / 3.0, //Only chips can have a "good" rating
+                HitRating::Miss(t) if tick_is_short(t) => *value -= 0.02,
+                HitRating::Miss(_) => *value -= 0.02 / 4.0,
                 HitRating::None => {}
             },
         }
@@ -93,17 +102,9 @@ impl Gauge {
 #[derive(Debug, Clone, Copy)]
 enum HitRating {
     None,
-    Crit(HitType),
-    Good(HitType),
-    Miss(HitType),
-}
-
-#[derive(Debug, Clone, Copy)]
-enum HitType {
-    Laser,
-    Hold,
-    Chip,
-    Slam,
+    Crit(PlacedScoreTick, f64),
+    Good(PlacedScoreTick, f64),
+    Miss(PlacedScoreTick),
 }
 
 impl From<&Gauge> for LuaGauge {
@@ -607,13 +608,13 @@ impl Game {
     fn on_hit(&mut self, hit_rating: HitRating) {
         let last_score = self.real_score;
         self.real_score += match hit_rating {
-            HitRating::Crit(_) => 2,
-            HitRating::Good(_) => 1,
+            HitRating::Crit(_, _) => 2,
+            HitRating::Good(_, _) => 1,
             _ => 0,
         };
 
         let combo_updated = match hit_rating {
-            HitRating::Crit(_) | HitRating::Good(_) => {
+            HitRating::Crit(_, _) | HitRating::Good(_, _) => {
                 self.combo += 1;
                 true
             }
@@ -649,27 +650,27 @@ impl Game {
         10_000_000_u64 * self.real_score / max
     }
 
-    fn process_tick(&self, tick: &PlacedScoreTick, chip_miss_tick: u32) -> HitRating {
+    fn process_tick(&self, tick: PlacedScoreTick, chip_miss_tick: u32) -> HitRating {
         match tick.tick {
             ScoreTick::Hold { lane } => {
                 if self.input_state.is_button_held((lane as u8).into()) {
-                    HitRating::Crit(HitType::Hold)
+                    HitRating::Crit(tick, 0.0)
                 } else {
-                    HitRating::Miss(HitType::Hold)
+                    HitRating::Miss(tick)
                 }
             }
             ScoreTick::Laser { lane, pos } => {
                 const LASER_WIDTH: f64 = 1.0 / 6.0;
                 if (self.laser_cursors[lane] - pos).abs() < LASER_WIDTH {
-                    HitRating::Crit(HitType::Laser)
+                    HitRating::Crit(tick, 0.0)
                 } else {
-                    HitRating::Miss(HitType::Laser)
+                    HitRating::Miss(tick)
                 }
             }
-            ScoreTick::Slam { lane, start, end } => HitRating::Miss(HitType::Slam),
+            ScoreTick::Slam { lane, start, end } => HitRating::Miss(tick),
             ScoreTick::Chip { lane: _ } => {
                 if tick.y < chip_miss_tick {
-                    HitRating::Miss(HitType::Chip)
+                    HitRating::Miss(tick)
                 } else {
                     HitRating::None
                 }
@@ -714,7 +715,7 @@ impl Scene for Game {
                 break;
             }
 
-            match self.process_tick(&self.score_ticks[i], missed_chip_tick) {
+            match self.process_tick(self.score_ticks[i], missed_chip_tick) {
                 HitRating::None => i += 1,
                 r => {
                     self.on_hit(r);
@@ -976,24 +977,25 @@ impl Scene for Game {
         let last_tick = self.chart.ms_to_tick(self.time + miss) + 1;
         let mut hittable_ticks = self.score_ticks.iter().take_while(|x| x.y < last_tick);
         match button {
-            crate::button_codes::UscButton::BT(input_lane) => {
+            crate::button_codes::UscButton::BT(_) | crate::button_codes::UscButton::FX(_) => {
                 if let Some((index, score_tick)) = hittable_ticks.find_position(|x| {
                     if let ScoreTick::Chip { lane } = x.tick {
-                        lane == input_lane as usize
+                        lane == Into::<u8>::into(button) as usize
                     } else {
                         false
                     }
                 }) {
                     let ms = self.chart.tick_to_ms(score_tick.y);
-                    let abs_delta = (ms - self.time).abs();
-                    log::info!("Hit delta: {}", ms - self.time);
+                    let delta = ms - self.time;
+                    let abs_delta = delta.abs();
+                    log::info!("Hit delta: {}", delta);
 
                     let hit_rating = if abs_delta <= perfect {
-                        HitRating::Crit(HitType::Chip)
+                        HitRating::Crit(*score_tick, delta)
                     } else if abs_delta <= good {
-                        HitRating::Good(HitType::Chip)
+                        HitRating::Good(*score_tick, delta)
                     } else if abs_delta <= miss {
-                        HitRating::Miss(HitType::Chip)
+                        HitRating::Miss(*score_tick)
                     } else {
                         HitRating::None
                     };
@@ -1008,7 +1010,6 @@ impl Scene for Game {
                     }
                 }
             }
-            crate::button_codes::UscButton::FX(side) => {}
             crate::button_codes::UscButton::Back => self.closed = true,
             _ => {}
         }

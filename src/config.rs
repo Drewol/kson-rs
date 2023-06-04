@@ -12,6 +12,7 @@ pub struct GameConfig {
     config_file: PathBuf,
     pub songs_path: PathBuf,
     pub skin: String,
+    pub laser_hues: [f32; 2],
     #[serde(skip_serializing, skip_deserializing)]
     pub skin_settings: HashMap<String, SkinSettingValue>,
 }
@@ -23,6 +24,7 @@ impl Default for GameConfig {
             songs_path: PathBuf::from_iter([".", "songs"]),
             skin: "Default".into(),
             skin_settings: HashMap::new(),
+            laser_hues: [200.0, 330.0],
         }
     }
 }

@@ -268,9 +268,6 @@ impl Scene for SongSelectScene {
     }
 
     fn tick(&mut self, _dt: f64, knob_state: LaserState) -> Result<()> {
-        self.song_advance += LaserAxis::from(knob_state.get(kson::Side::Right)).delta;
-        self.diff_advance += LaserAxis::from(knob_state.get(kson::Side::Left)).delta;
-
         const KNOB_NAV_THRESHOLD: f32 = std::f32::consts::PI / 3.0;
         let song_advance_steps = (self.song_advance / KNOB_NAV_THRESHOLD).trunc() as i32;
         self.song_advance -= song_advance_steps as f32 * KNOB_NAV_THRESHOLD;
@@ -313,7 +310,12 @@ impl Scene for SongSelectScene {
         Ok(())
     }
 
-    fn on_event(&mut self, _event: &Event<UscInputEvent>) {}
+    fn on_event(&mut self, event: &Event<UscInputEvent>) {
+        if let Event::UserEvent(UscInputEvent::Laser(ls)) = event {
+            self.song_advance += LaserAxis::from(ls.get(kson::Side::Right)).delta;
+            self.diff_advance += LaserAxis::from(ls.get(kson::Side::Left)).delta;
+        }
+    }
 
     fn on_button_pressed(&mut self, button: crate::button_codes::UscButton) {
         if let UscButton::Start = button {

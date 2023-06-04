@@ -1,5 +1,6 @@
 use std::path::PathBuf;
 
+use egui::{ecolor::rgb_from_hsv, epaint::Hsva};
 use puffin::ProfilerScope;
 use tealr::{
     mlu::{
@@ -145,7 +146,16 @@ impl TealData for GameData {
         add_lua_static_method(
             methods,
             "GetLaserColor",
-            |_, _, _game_data, _p: GetLaserColorParams| Ok((0, 127, 255, 255)),
+            |_, _, _game_data, _p: GetLaserColorParams| {
+                if let Some(hue) =
+                    GameConfig::get().and_then(|a| a.laser_hues.get(_p.laser as usize).copied())
+                {
+                    let [r, g, b] = Hsva::new(hue / 360.0, 1.0, 1.0, 1.0).to_rgb();
+                    Ok((r * 255.0, g * 255.0, b * 255.0, 255.0))
+                } else {
+                    Err(mlua::Error::external("Bad laser index"))
+                }
+            },
         );
 
         //GetButton
