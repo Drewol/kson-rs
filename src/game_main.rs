@@ -207,11 +207,8 @@ impl GameMain {
 
                 {
                     let package: tealr::mlu::mlua::Table = lua.globals().get("package").unwrap();
-                    let package_path: String = package.get("path").unwrap();
                     let package_path = format!(
-                        "{};{}/scripts/?.lua;{}/scripts/?",
-                        package_path,
-                        real_script_path.as_os_str().to_string_lossy(),
+                        "{0}/scripts/?.lua;{0}/scripts/?",
                         real_script_path.as_os_str().to_string_lossy()
                     );
                     package.set("path", package_path).unwrap();

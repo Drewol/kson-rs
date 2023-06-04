@@ -13,9 +13,11 @@ image = { version = "0.24.0", default-features = false, features = [
 ] }
 gilrs = "0.10.0"
 hecs = { version = "0.9.0", features = ["macros", "lazy_static"] }
+#kson = {path = "../kson-rs"}
+#kson-audio = {path = "../kson-rs/kson-audio"}
 kson ={git = "https://github.com/Drewol/kson-rs.git"}
 kson-audio = {git = "https://github.com/Drewol/kson-rs.git"}
-rodio = "0.16.0"
+rodio = "0.17.1"
 tealr = { git = "https://github.com/lenscas/tealr.git", features = ["mlua", "tealr_derive", "mlua_lua54", "mlua_vendored", "mlua_serialize"] }
 three-d = {version = "0.15.0"}
 anyhow = "1"
@@ -49,6 +51,7 @@ egui_glow = { version = "0.21.0", features = ["winit"] }
 rusc_database = {path = "./rusc_database"}
 itertools = "0.10.5"
 kson-music-playback = {git = "https://github.com/Drewol/kson-editor.git"}
+
 
 [profile.release]
 debug = true

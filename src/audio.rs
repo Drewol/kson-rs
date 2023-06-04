@@ -1,4 +1,5 @@
-use rodio::{Sample, Source};
+use cpal::{FromSample, Sample as CpalSample};
+use rodio::{cpal, Sample, Source};
 
 pub struct ChartAudio {
     /// twice the length of the song, second half is effected
@@ -18,7 +19,10 @@ where
     fn chart_audio(self, chart: kson::Chart) -> ChartAudio {
         let channels = self.channels();
         let sample_rate = self.sample_rate();
-        let samples = self.convert_samples().collect::<Vec<f32>>().repeat(2);
+        let samples = self
+            .map(|s| s.to_float_sample().to_sample()) //TODO: idk but it works, should probably make it a generic "Sample" all the way down
+            .collect::<Vec<_>>()
+            .repeat(2);
         let effect_offset = samples.len();
         let chart_audio = ChartAudio {
             samples,

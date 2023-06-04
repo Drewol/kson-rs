@@ -16,6 +16,9 @@ use puffin::profile_function;
 use rodio::Source;
 use serde::{Deserialize, Serialize};
 use tealr::mlu::mlua::{Function, Lua, LuaSerdeExt};
+
+const LASER_THRESHOLD: f64 = 1.0 / 12.0;
+
 pub struct Game {
     view: ChartView,
     chart: kson::Chart,
@@ -47,6 +50,7 @@ pub struct Game {
     input_state: Arc<InputState>,
     laser_cursors: [f64; 2],
     laser_active: [bool; 2],
+    laser_assist_ticks: [u8; 2],
 }
 
 #[derive(Debug, Default)]
@@ -146,7 +150,7 @@ pub struct GameData {
     context: three_d::Context,
     chart: kson::Chart,
     skin_folder: PathBuf,
-    audio: Box<dyn Source<Item = f32> + Send>,
+    audio: std::boxed::Box<(dyn rodio::source::Source<Item = f32> + std::marker::Send + 'static)>,
 }
 
 pub fn extend_mesh(a: CpuMesh, b: CpuMesh) -> CpuMesh {
@@ -490,6 +494,7 @@ impl Game {
             input_state,
             laser_cursors: [0.0, 1.0],
             laser_active: [false, false],
+            laser_assist_ticks: [0; 2],
         };
         res.set_track_uniforms();
         Ok(res)
@@ -660,8 +665,7 @@ impl Game {
                 }
             }
             ScoreTick::Laser { lane, pos } => {
-                const LASER_WIDTH: f64 = 1.0 / 6.0;
-                if (self.laser_cursors[lane] - pos).abs() < LASER_WIDTH {
+                if (self.laser_cursors[lane] - pos).abs() < LASER_THRESHOLD {
                     HitRating::Crit(tick, 0.0)
                 } else {
                     HitRating::Miss(tick)
@@ -708,6 +712,16 @@ impl Scene for Game {
         let missed_chip_tick = self
             .chart
             .ms_to_tick(self.time - self.lua_game_state.hit_window.good);
+
+        for (side, assist_ticks) in self.laser_assist_ticks.iter_mut().enumerate() {
+            //TODO: If on straight laser, keep assist high
+            if *assist_ticks > 0 {
+                self.laser_cursors[side] = self.chart.note.laser[side]
+                    .value_at(self.current_tick as f64)
+                    .unwrap_or(self.laser_cursors[side]);
+            }
+            *assist_ticks = assist_ticks.saturating_sub(1);
+        }
 
         let mut i = 0;
         while i < self.score_ticks.len() {
@@ -835,6 +849,44 @@ impl Scene for Game {
                         ui.add(Slider::new(&mut next_tick, 0.0..=10000.0).logarithmic(true));
                         ui.end_row();
                     }
+
+                    ui.label("Laser Values");
+                    ui.end_row();
+
+                    ui.label("Left");
+                    ui.label(format!(
+                        "{:?}",
+                        self.chart.note.laser[0].value_at(self.current_tick as f64)
+                    ));
+                    ui.end_row();
+
+                    ui.label("Right");
+                    ui.label(format!(
+                        "{:?}",
+                        self.chart.note.laser[1].value_at(self.current_tick as f64)
+                    ));
+                    ui.end_row();
+
+                    ui.label("Laser Direction");
+                    ui.end_row();
+
+                    ui.label("Left");
+                    ui.label(format!(
+                        "{:?}",
+                        self.chart.note.laser[0]
+                            .direction_at(self.current_tick as f64)
+                            .map(|x| x.total_cmp(&0.0))
+                    ));
+                    ui.end_row();
+
+                    ui.label("Right");
+                    ui.label(format!(
+                        "{:?}",
+                        self.chart.note.laser[1]
+                            .direction_at(self.current_tick as f64)
+                            .map(|x| x.total_cmp(&0.0))
+                    ));
+                    ui.end_row();
                 });
         });
 
@@ -949,18 +1001,56 @@ impl Scene for Game {
         event: &game_loop::winit::event::Event<crate::button_codes::UscInputEvent>,
     ) {
         if let game_loop::winit::event::Event::UserEvent(UscInputEvent::Laser(ls)) = event {
-            self.laser_cursors[0] = if self.laser_active[0] {
-                (self.laser_cursors[0] + ls.get_axis(kson::Side::Left).delta as f64).clamp(0.0, 1.0)
-            } else {
-                0.0
-            };
+            //TODO: Slam detection
 
-            self.laser_cursors[1] = if self.laser_active[1] {
-                (self.laser_cursors[1] + ls.get_axis(kson::Side::Right).delta as f64)
-                    .clamp(0.0, 1.0)
-            } else {
-                1.0
-            };
+            for (side, index) in [(kson::Side::Left, 0), (kson::Side::Right, 1)] {
+                self.laser_cursors[index] = if self.laser_active[index] {
+                    let delta = ls.get_axis(side).delta as f64;
+                    let new_pos = (self.laser_cursors[index] + delta).clamp(0.0, 1.0);
+                    let target_value =
+                        self.chart.note.laser[index].value_at(self.current_tick as f64);
+
+                    let target_dir = self.chart.note.laser[index]
+                        .direction_at(self.current_tick as f64)
+                        .map(|x| x.total_cmp(&0.0))
+                        .unwrap_or(std::cmp::Ordering::Equal);
+
+                    // overshooting logic
+                    let new_pos = if let Some(target_value) = target_value {
+                        match (
+                            self.laser_cursors[index].total_cmp(&target_value),
+                            new_pos.total_cmp(&target_value),
+                            target_dir,
+                        ) {
+                            (a, Ordering::Equal, b) if a != b => target_value,
+                            (a, b, Ordering::Equal) if a != b => target_value,
+                            (Ordering::Equal, a, b) if a == b => target_value,
+                            (Ordering::Less, Ordering::Greater, Ordering::Less) => new_pos, // old \ new
+                            (Ordering::Less, Ordering::Greater, Ordering::Greater) => target_value, // old / new
+                            (Ordering::Greater, Ordering::Less, Ordering::Less) => target_value, // new \ old
+                            (Ordering::Greater, Ordering::Less, Ordering::Greater) => new_pos, // new / old
+                            (a, b, _) if a == b => new_pos,
+                            _ => new_pos,
+                        }
+                    } else {
+                        new_pos
+                    };
+
+                    let on_laser = target_value
+                        .map(|v| (v - new_pos).abs() < LASER_THRESHOLD)
+                        .unwrap_or(false);
+
+                    let input_dir = delta.total_cmp(&0.0);
+
+                    if on_laser && input_dir == target_dir {
+                        self.laser_assist_ticks[index] = 20;
+                    }
+
+                    new_pos
+                } else {
+                    0.0
+                };
+            }
         }
     }
 
@@ -973,7 +1063,6 @@ impl Scene for Game {
             miss,
         } = self.lua_game_state.hit_window;
 
-        //TODO: chart offset shenanigans
         let last_tick = self.chart.ms_to_tick(self.time + miss) + 1;
         let mut hittable_ticks = self.score_ticks.iter().take_while(|x| x.y < last_tick);
         match button {
@@ -1021,6 +1110,7 @@ impl Scene for Game {
 }
 
 use std::{
+    cmp::Ordering,
     path::{Path, PathBuf},
     rc::Rc,
     sync::{mpsc::Sender, Arc, Mutex},
