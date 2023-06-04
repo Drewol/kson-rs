@@ -51,6 +51,7 @@ pub struct Game {
     laser_cursors: [f64; 2],
     laser_active: [bool; 2],
     laser_assist_ticks: [u8; 2],
+    laser_latest_dir_inputs: [[f64; 2]; 2], //last left/right turn timestamps for both knobs, for checking slam hits
 }
 
 #[derive(Debug, Default)]
@@ -67,7 +68,11 @@ enum Gauge {
 fn tick_is_short(score_tick: PlacedScoreTick) -> bool {
     match score_tick.tick {
         ScoreTick::Laser { lane: _, pos: _ } => true,
-        ScoreTick::Slam { lane: _, start: _, end: _ } => false,
+        ScoreTick::Slam {
+            lane: _,
+            start: _,
+            end: _,
+        } => false,
         ScoreTick::Chip { lane: _ } => true,
         ScoreTick::Hold { lane: _ } => false,
     }
@@ -495,6 +500,7 @@ impl Game {
             laser_cursors: [0.0, 1.0],
             laser_active: [false, false],
             laser_assist_ticks: [0; 2],
+            laser_latest_dir_inputs: [[f64::NEG_INFINITY; 2]; 2],
         };
         res.set_track_uniforms();
         Ok(res)
@@ -550,9 +556,7 @@ impl Game {
             progress: self.time as f32 / self.duration as f32,
             hispeed: self.view.hispeed,
             hispeed_adjust: 0,
-            bpm: self
-                .chart
-                .bpm_at_tick(self.chart.ms_to_tick(self.time)) as f32,
+            bpm: self.chart.bpm_at_tick(self.chart.ms_to_tick(self.time)) as f32,
             gauge: LuaGauge::from(&self.gauge),
             hidden_cutoff: 0.0,
             sudden_cutoff: 0.0,
@@ -655,7 +659,12 @@ impl Game {
         10_000_000_u64 * self.real_score / max
     }
 
-    fn process_tick(&self, tick: PlacedScoreTick, chip_miss_tick: u32) -> HitRating {
+    fn process_tick(
+        &mut self,
+        tick: PlacedScoreTick,
+        chip_miss_tick: u32,
+        slam_miss_tick: u32,
+    ) -> HitRating {
         match tick.tick {
             ScoreTick::Hold { lane } => {
                 if self.input_state.is_button_held((lane as u8).into()) {
@@ -671,7 +680,27 @@ impl Game {
                     HitRating::Miss(tick)
                 }
             }
-            ScoreTick::Slam { lane: _, start: _, end: _ } => HitRating::Miss(tick),
+            ScoreTick::Slam { lane, start, end } => {
+                assert!(end != start);
+                let ms = self.chart.tick_to_ms(tick.y);
+                let dir = match end.total_cmp(&start) {
+                    Ordering::Less => 0,
+                    Ordering::Greater => 1,
+                    Ordering::Equal => unreachable!(),
+                };
+                let delta = ms - self.laser_latest_dir_inputs[lane][dir];
+                let contains_cursor =
+                    (start.min(end)..=start.max(end)).contains(&self.laser_cursors[lane]);
+                if tick.y < slam_miss_tick {
+                    HitRating::Miss(tick)
+                } else if delta.abs() < self.lua_game_state.hit_window.good && contains_cursor {
+                    self.laser_cursors[lane] = end;
+                    self.laser_assist_ticks[lane] = 24;
+                    HitRating::Crit(tick, delta)
+                } else {
+                    HitRating::None
+                }
+            }
             ScoreTick::Chip { lane: _ } => {
                 if tick.y < chip_miss_tick {
                     HitRating::Miss(tick)
@@ -713,6 +742,19 @@ impl Scene for Game {
             .chart
             .ms_to_tick(self.time - self.lua_game_state.hit_window.good);
 
+        for (side, laser_active) in self.laser_active.iter_mut().enumerate() {
+            let was_active = *laser_active;
+
+            *laser_active = self.chart.note.laser[side]
+                .value_at(self.current_tick as f64)
+                .is_some();
+
+            if !was_active && *laser_active {
+                self.laser_assist_ticks[side] = 10;
+            }
+            //TODO: Also check ahead
+        }
+
         for (side, assist_ticks) in self.laser_assist_ticks.iter_mut().enumerate() {
             //TODO: If on straight laser, keep assist high
             if *assist_ticks > 0 {
@@ -729,20 +771,13 @@ impl Scene for Game {
                 break;
             }
 
-            match self.process_tick(self.score_ticks[i], missed_chip_tick) {
+            match self.process_tick(self.score_ticks[i], missed_chip_tick, missed_chip_tick) {
                 HitRating::None => i += 1,
                 r => {
                     self.on_hit(r);
                     self.score_ticks.remove(i);
                 }
             }
-        }
-
-        for (side, laser_active) in self.laser_active.iter_mut().enumerate() {
-            *laser_active = self.chart.note.laser[side]
-                .value_at(self.current_tick as f64)
-                .is_some();
-            //TODO: Also check ahead
         }
 
         Ok(())
@@ -1009,6 +1044,13 @@ impl Scene for Game {
                     let new_pos = (self.laser_cursors[index] + delta).clamp(0.0, 1.0);
                     let target_value =
                         self.chart.note.laser[index].value_at(self.current_tick as f64);
+                    let input_dir = delta.total_cmp(&0.0);
+
+                    match input_dir {
+                        Ordering::Less => self.laser_latest_dir_inputs[index][0] = self.time,
+                        Ordering::Equal => {}
+                        Ordering::Greater => self.laser_latest_dir_inputs[index][1] = self.time,
+                    }
 
                     let target_dir = self.chart.note.laser[index]
                         .direction_at(self.current_tick as f64)
@@ -1039,8 +1081,6 @@ impl Scene for Game {
                     let on_laser = target_value
                         .map(|v| (v - new_pos).abs() < LASER_THRESHOLD)
                         .unwrap_or(false);
-
-                    let input_dir = delta.total_cmp(&0.0);
 
                     if on_laser && input_dir == target_dir {
                         self.laser_assist_ticks[index] = 20;

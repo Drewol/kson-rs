@@ -35,7 +35,9 @@ pub fn create_window() -> (
         .with_resizable(true)
         .with_title("Test");
 
-    let template = ConfigTemplateBuilder::new().with_alpha_size(8);
+    let template = ConfigTemplateBuilder::new()
+        .with_alpha_size(8)
+        .with_multisampling(4);
 
     let display_builder = DisplayBuilder::new().with_window_builder(Some(window_builder));
 
