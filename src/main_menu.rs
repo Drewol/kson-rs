@@ -3,7 +3,6 @@ use std::{
     rc::Rc,
     sync::{
         mpsc::{Receiver, Sender},
-        Arc,
     },
 };
 
@@ -20,7 +19,6 @@ use tealr::{
 
 use crate::{
     button_codes::{LaserState, UscInputEvent},
-    input_state::InputState,
     scene::Scene,
     ControlMessage,
 };

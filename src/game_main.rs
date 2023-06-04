@@ -153,7 +153,7 @@ impl GameMain {
             frame_time_index,
             mousex,
             mousey,
-            input_state,
+            input_state: _,
         } = self;
 
         poll_promise::tick(); //Tick async runtime at least once per frame

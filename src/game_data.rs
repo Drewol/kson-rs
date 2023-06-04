@@ -1,6 +1,6 @@
 use std::path::PathBuf;
 
-use egui::{ecolor::rgb_from_hsv, epaint::Hsva};
+use egui::{epaint::Hsva};
 use puffin::ProfilerScope;
 use tealr::{
     mlu::{

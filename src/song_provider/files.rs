@@ -5,7 +5,6 @@ use std::{
 };
 
 use crate::{
-    block_on,
     results::Score,
     songselect::{Difficulty, Song},
 };
@@ -148,7 +147,7 @@ impl FileSongProvider {
             },
         );
 
-        let mut songs: Vec<Arc<Song>> = song_folders
+        let _songs: Vec<Arc<Song>> = song_folders
             .into_iter()
             .enumerate()
             .map(|(id, (song_folder, charts))| {

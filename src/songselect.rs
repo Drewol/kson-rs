@@ -148,7 +148,7 @@ impl SongSelect {
 }
 
 impl SceneData for SongSelect {
-    fn make_scene(self: Box<Self>, input_state: Arc<InputState>) -> Box<dyn Scene> {
+    fn make_scene(self: Box<Self>, _input_state: Arc<InputState>) -> Box<dyn Scene> {
         Box::new(SongSelectScene::new(self))
     }
 }
@@ -267,7 +267,7 @@ impl Scene for SongSelectScene {
         Ok(())
     }
 
-    fn tick(&mut self, _dt: f64, knob_state: LaserState) -> Result<()> {
+    fn tick(&mut self, _dt: f64, _knob_state: LaserState) -> Result<()> {
         const KNOB_NAV_THRESHOLD: f32 = std::f32::consts::PI / 3.0;
         let song_advance_steps = (self.song_advance / KNOB_NAV_THRESHOLD).trunc() as i32;
         self.song_advance -= song_advance_steps as f32 * KNOB_NAV_THRESHOLD;

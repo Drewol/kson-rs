@@ -1,4 +1,4 @@
-use cpal::{FromSample, Sample as CpalSample};
+use cpal::{Sample as CpalSample};
 use rodio::{cpal, Sample, Source};
 
 pub struct ChartAudio {

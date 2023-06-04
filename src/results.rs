@@ -87,7 +87,7 @@ impl SongResultData {
             effector,
             top_badge: _,
             scores,
-            hash,
+            hash: _,
         } = song.difficulties[diff_idx].clone();
 
         let Song {
@@ -130,7 +130,7 @@ impl SongResultData {
 }
 
 impl SceneData for SongResultData {
-    fn make_scene(self: Box<Self>, input_state: Arc<InputState>) -> Box<dyn Scene> {
+    fn make_scene(self: Box<Self>, _input_state: Arc<InputState>) -> Box<dyn Scene> {
         Box::new(SongResult {
             close: false,
             control_tx: None,

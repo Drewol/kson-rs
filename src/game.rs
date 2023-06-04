@@ -66,10 +66,10 @@ enum Gauge {
 
 fn tick_is_short(score_tick: PlacedScoreTick) -> bool {
     match score_tick.tick {
-        ScoreTick::Laser { lane, pos } => true,
-        ScoreTick::Slam { lane, start, end } => false,
-        ScoreTick::Chip { lane } => true,
-        ScoreTick::Hold { lane } => false,
+        ScoreTick::Laser { lane: _, pos: _ } => true,
+        ScoreTick::Slam { lane: _, start: _, end: _ } => false,
+        ScoreTick::Chip { lane: _ } => true,
+        ScoreTick::Hold { lane: _ } => false,
     }
 }
 
@@ -115,8 +115,8 @@ impl From<&Gauge> for LuaGauge {
     fn from(value: &Gauge) -> Self {
         match value {
             Gauge::Normal {
-                chip_gain,
-                tick_gain,
+                chip_gain: _,
+                tick_gain: _,
                 value,
             } => LuaGauge {
                 gauge_type: 0,
@@ -552,7 +552,7 @@ impl Game {
             hispeed_adjust: 0,
             bpm: self
                 .chart
-                .bpm_at_tick(self.chart.ms_to_tick(self.time as f64)) as f32,
+                .bpm_at_tick(self.chart.ms_to_tick(self.time)) as f32,
             gauge: LuaGauge::from(&self.gauge),
             hidden_cutoff: 0.0,
             sudden_cutoff: 0.0,
@@ -671,7 +671,7 @@ impl Game {
                     HitRating::Miss(tick)
                 }
             }
-            ScoreTick::Slam { lane, start, end } => HitRating::Miss(tick),
+            ScoreTick::Slam { lane: _, start: _, end: _ } => HitRating::Miss(tick),
             ScoreTick::Chip { lane: _ } => {
                 if tick.y < chip_miss_tick {
                     HitRating::Miss(tick)
@@ -1571,7 +1571,7 @@ impl ChartView {
         use three_d::prelude::*;
         let view_time = self.cursor - chart.audio.clone().bgm.unwrap().offset as f64;
         let view_offset = if view_time < 0.0 {
-            chart.ms_to_tick(view_time.abs() as f64) as i64 //will be weird with early bpm changes
+            chart.ms_to_tick(view_time.abs()) as i64 //will be weird with early bpm changes
         } else {
             0
         };
@@ -1579,7 +1579,7 @@ impl ChartView {
         td.set_depth_test(three_d::DepthTest::Never);
 
         let _glow_state = if (0.0_f32 * 8.0).fract() > 0.5 { 2 } else { 3 };
-        let view_tick = chart.ms_to_tick(view_time as f64) as i64 - view_offset;
+        let view_tick = chart.ms_to_tick(view_time) as i64 - view_offset;
         let view_distance = (chart.beat.resolution as f32 * 4.0) / self.hispeed;
         let last_view_tick = view_distance.ceil() as i64 + view_tick;
         let first_view_tick = view_tick - view_distance as i64;
