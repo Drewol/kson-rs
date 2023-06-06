@@ -1,5 +1,6 @@
 use crate::{
     button_codes::UscInputEvent,
+    game_camera::ChartCamera,
     input_state::InputState,
     scene::{Scene, SceneData},
     shaded_mesh::ShadedMesh,
@@ -34,7 +35,7 @@ pub struct Game {
     track_shader: [ShadedMesh; 1],
     bt_chip_shader: [ShadedMesh; 1],
     lane_beam_shader: [ShadedMesh; 1],
-    camera: three_d::Camera,
+    camera: ChartCamera,
     lua_game_state: LuaGameState,
     lua: Rc<Lua>,
     intro_done: bool,
@@ -57,6 +58,7 @@ pub struct Game {
     laser_latest_dir_inputs: [[f64; 2]; 2], //last left/right turn timestamps for both knobs, for checking slam hits
     beam_colors: Vec<Vec4>,
     beam_colors_current: [[f32; 4]; 6],
+    draw_axis_guides: bool,
 }
 
 #[derive(Debug, Default)]
@@ -503,20 +505,15 @@ impl Game {
             fx_long_shaders,
             laser_shaders,
             lane_beam_shader,
-            camera: Camera::new_orthographic(
-                Viewport {
-                    x: 0,
-                    y: 0,
-                    width: 1,
-                    height: 1,
-                },
-                Vec3::zero(),
-                Vec3::unit_x(),
-                Vec3::unit_z(),
-                1.0,
-                1.0,
-                10.0,
-            ),
+            camera: ChartCamera {
+                fov: 90.0,
+                radius: 1.1,
+                angle: 130.0,
+                center: Vec3::zero(),
+                track_length: ChartView::TRACK_LENGTH,
+                tilt: 0.0,
+                view_size: vec2(0.0, 0.0),
+            },
             lua_game_state: LuaGameState::default(),
             control_tx: None,
             results_requested: false,
@@ -541,6 +538,7 @@ impl Game {
                 })
                 .collect(),
             beam_colors_current: [[0.0; 4]; 6],
+            draw_axis_guides: false,
         };
         res.set_track_uniforms();
         Ok(res)
@@ -575,14 +573,14 @@ impl Game {
             .for_each(|rl| rl.set_param("color", Color::RED.to_vec4()));
     }
 
-    fn lua_game_state(&self, viewport: Viewport) -> LuaGameState {
+    fn lua_game_state(&self, viewport: Viewport, camera: &Camera) -> LuaGameState {
         let screen = vec2(viewport.width as f32, viewport.height as f32);
-        let track_center = camera_to_screen(&self.camera, Vec3::zero(), screen);
+        let track_center = camera_to_screen(&camera, Vec3::zero(), screen);
 
-        let track_left = camera_to_screen(&self.camera, Vec3::unit_x() * -1.0, screen);
-        let track_right = camera_to_screen(&self.camera, Vec3::unit_x(), screen);
+        let track_left = camera_to_screen(&camera, Vec3::unit_x() * -0.5, screen);
+        let track_right = camera_to_screen(&camera, Vec3::unit_x() * 0.5, screen);
         let crit_line = track_right - track_left;
-        let rotation = crit_line.y.atan2(crit_line.x);
+        let rotation = -crit_line.y.atan2(crit_line.x);
 
         LuaGameState {
             title: self.chart.meta.title.clone(),
@@ -615,12 +613,12 @@ impl Game {
                 cursors: [
                     Cursor::new(
                         self.laser_cursors[0] as f32,
-                        &self.camera,
+                        &camera,
                         if self.laser_active[0] { 1.0 } else { 0.0 },
                     ),
                     Cursor::new(
                         self.laser_cursors[1] as f32,
-                        &self.camera,
+                        &camera,
                         if self.laser_active[1] { 1.0 } else { 0.0 },
                     ),
                 ],
@@ -690,20 +688,49 @@ impl Game {
             }
         }
 
+        let button_hit = self.lua.globals().get::<_, Function>("button_hit");
+        let laser_slam_hit = self.lua.globals().get::<_, Function>("laser_slam_hit");
+
         match hit_rating {
-            HitRating::Crit(tick, _) => {
-                if let ScoreTick::Chip { lane } = tick.tick {
-                    self.beam_colors_current[lane] = (self.beam_colors[2] / 255.0).into()
+            HitRating::Crit(tick, delta) => match tick.tick {
+                ScoreTick::Chip { lane } => {
+                    self.beam_colors_current[lane] = (self.beam_colors[2] / 255.0).into();
+                    if let Ok(button_hit) = button_hit {
+                        button_hit.call::<_, ()>((lane, 2, delta));
+                    }
                 }
-            }
-            HitRating::Good(tick, _) => {
+                ScoreTick::Slam { lane, start, end } => {
+                    //TODO: Camera shake
+                    if let Ok(laser_slam_hit) = laser_slam_hit {
+                        laser_slam_hit.call::<_, ()>((end - start, start, end, lane));
+                    }
+                }
+                _ => (),
+            },
+            HitRating::Good(tick, delta) => {
                 if let ScoreTick::Chip { lane } = tick.tick {
+                    if let Ok(near_hit) = self.lua.globals().get::<_, Function>("near_hit") {
+                        near_hit.call::<_, ()>(delta < 0.0);
+                    }
+                    if let Ok(button_hit) = button_hit {
+                        button_hit.call::<_, ()>((lane, 1, delta));
+                    }
                     self.beam_colors_current[lane] = (self.beam_colors[1] / 255.0).into()
                 }
             }
             HitRating::Miss(tick) if tick.y > self.current_tick => {
                 if let ScoreTick::Chip { lane } = tick.tick {
-                    self.beam_colors_current[lane] = (self.beam_colors[0] / 255.0).into()
+                    self.beam_colors_current[lane] = (self.beam_colors[0] / 255.0).into();
+                    if let Ok(button_hit) = button_hit {
+                        button_hit.call::<_, ()>((lane, 0, 0));
+                    }
+                }
+            }
+            HitRating::Miss(tick) => {
+                if let ScoreTick::Chip { lane } = tick.tick {
+                    if let Ok(button_hit) = button_hit {
+                        button_hit.call::<_, ()>((lane, 0, 0));
+                    }
                 }
             }
             _ => {}
@@ -881,16 +908,8 @@ impl Scene for Game {
     fn debug_ui(&mut self, ctx: &egui::Context) -> anyhow::Result<()> {
         use egui::*;
         Window::new("Camera").show(ctx, |ui| {
-            let Vector3 {
-                mut x,
-                mut y,
-                mut z,
-            } = self.camera_pos;
-            ui.add(Slider::new(&mut x, -10.0..=10.0).logarithmic(true));
-            ui.add(Slider::new(&mut y, -10.0..=10.0).logarithmic(true));
-            ui.add(Slider::new(&mut z, -10.0..=10.0).logarithmic(true));
-
-            self.camera_pos = vec3(x, y, z);
+            self.camera.egui_widget(ui);
+            ui.checkbox(&mut self.draw_axis_guides, "Draw axies guides")
         });
         Window::new("Game Data")
             .scroll2([false, true])
@@ -1009,15 +1028,7 @@ impl Scene for Game {
         viewport: Viewport,
     ) {
         profile_function!();
-        self.camera = Camera::new_perspective(
-            viewport,
-            self.camera_pos,
-            self.camera_pos + vec3(0.0, -1.0, -4.0),
-            Vec3::unit_y(),
-            Rad(90.0_f32.to_radians()),
-            0.01,
-            10000.0,
-        );
+        self.camera.view_size = vec2(viewport.width as f32, viewport.height as f32);
         if self.intro_done && !self.playback.is_playing() {
             self.playback.play();
         }
@@ -1031,12 +1042,32 @@ impl Scene for Game {
                 .map(|x| x.offset as f64)
                 .unwrap_or(0.0);
         self.current_tick = self.chart.ms_to_tick(self.time);
+        self.camera.radius = 1.1
+            + 0.6
+                * self
+                    .chart
+                    .camera
+                    .cam
+                    .body
+                    .zoom
+                    .value_at(self.current_tick as f64) as f32;
+        self.camera.angle = (130.0
+            + self
+                .chart
+                .camera
+                .cam
+                .body
+                .rotation_x
+                .value_at(self.current_tick as f64)
+                * 30.0) as f32;
+
+        let td_camera: Camera = Camera::from(&self.camera);
 
         self.beam_colors_current
             .iter_mut()
             .for_each(|c| c[3] = (c[3] - dt as f32 / 200.0).max(0.0));
 
-        let new_lua_state = self.lua_game_state(viewport);
+        let new_lua_state = self.lua_game_state(viewport, &td_camera);
         if new_lua_state != self.lua_game_state {
             self.lua_game_state = new_lua_state;
             self.lua
@@ -1064,7 +1095,7 @@ impl Scene for Game {
         self.lane_beam_shader[0].set_data_mesh(td_context, &render_data.lane_beams);
 
         target.render(
-            &self.camera,
+            &td_camera,
             self.track_shader
                 .iter()
                 .chain(self.fx_long_shaders.iter())
@@ -1107,9 +1138,10 @@ impl Scene for Game {
             };
         }
         self.reset_canvas();
-
-        let axes = three_d::Axes::new(td_context, 0.01, 0.30);
-        target.render(&self.camera, [axes], &[]);
+        if self.draw_axis_guides {
+            let axes = three_d::Axes::new(td_context, 0.01, 0.30);
+            target.render(&td_camera, [axes], &[]);
+        }
     }
 
     fn on_event(
@@ -1571,6 +1603,9 @@ fn hsl_to_rgb(h: f32, s: f32, l: f32) -> [f32; 3] {
 
 impl ChartView {
     pub const TRACK_LENGTH: f32 = 12.0;
+    pub const UP: Vec3 = vec3(0.0, 1.0, 0.0);
+    pub const TRACK_DIRECTION: Vec3 = vec3(0.0, 0.0, 1.0);
+    pub const Z_NEAR: f32 = 0.01;
 
     pub fn new(skin_root: impl AsRef<Path>, td: &three_d::Context) -> Self {
         let _indices: [u16; 6] = [0, 1, 2, 0, 2, 3];
@@ -1994,8 +2029,8 @@ impl Cursor {
 
         let crit_pos = Vec2::from(camera.pixel_at_position(vec3(0.0, 0.0, 0.0)));
         let c_pos = Vec2::from(camera.pixel_at_position(vec3(pos, 0.0, 0.0)));
-        let c_pos_up = Vec2::from(camera.pixel_at_position(vec3(pos, 1.0, 0.0)));
-        let c_pos_down = Vec2::from(camera.pixel_at_position(vec3(pos, -1.0, 0.0)));
+        let c_pos_up = Vec2::from(camera.pixel_at_position(vec3(pos, 0.2, 0.0)));
+        let c_pos_down = Vec2::from(camera.pixel_at_position(vec3(pos, -0.2, 0.0)));
         let dist_from_crit_center =
             (crit_pos - c_pos).magnitude() * if pos < 0.0 { -1.0 } else { 1.0 };
         let cursor_angle_vector = c_pos_up - c_pos_down;

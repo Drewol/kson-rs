@@ -33,6 +33,7 @@ mod audio;
 mod button_codes;
 mod config;
 mod game;
+mod game_camera;
 mod game_data;
 mod game_main;
 mod help;
