@@ -114,7 +114,8 @@ pub fn create_window() -> (
     };
 
     let mut canvas = Canvas::new(renderer).expect("Cannot create canvas");
-    canvas.set_size(width, height, window.scale_factor() as f32);
+    let scale_factor = window.scale_factor();
+    canvas.set_size(width, height, scale_factor as f32);
 
     (window, surface, canvas, context, event_loop, gl_context)
 }

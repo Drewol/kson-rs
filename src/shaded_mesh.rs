@@ -73,6 +73,7 @@ pub struct ShadedMesh {
     indecies: ElementBuffer,
     vertecies_pos: VertexBuffer,
     vertecies_uv: VertexBuffer,
+    vertecies_color: Option<VertexBuffer>,
     aabb: AxisAlignedBoundingBox,
     transform: Mat4,
 }
@@ -120,6 +121,7 @@ impl ShadedMesh {
             vertecies_uv: VertexBuffer::new(context),
             aabb: AxisAlignedBoundingBox::EMPTY,
             transform: Mat4::identity(),
+            vertecies_color: None,
         })
     }
 
@@ -240,6 +242,13 @@ impl ShadedMesh {
             self.material
                 .use_vertex_attribute("inTex", &self.vertecies_uv); //UVs
         }
+
+        if let Some(colors) = self.vertecies_color.as_ref() {
+            if self.material.requires_attribute("inColor") {
+                self.material.use_vertex_attribute("inColor", colors);
+            }
+        }
+
         self.material
             .draw_elements(self.state, frame.viewport, &self.indecies);
         Ok(())
@@ -256,48 +265,68 @@ impl ShadedMesh {
             self.material
                 .use_vertex_attribute("inTex", &self.vertecies_uv); //UVs
         }
+
+        if let Some(colors) = self.vertecies_color.as_ref() {
+            if self.material.requires_attribute("inColor") {
+                self.material.use_vertex_attribute("inColor", colors);
+            }
+        }
+
         self.material
             .draw_elements(self.state, camera.viewport(), &self.indecies);
         Ok(())
     }
 
-    pub fn set_data<T: BufferDataType, U: BufferDataType>(
+    pub fn set_data<T: BufferDataType, U: BufferDataType, V: BufferDataType>(
         &mut self,
         context: &three_d::Context,
         pos: &[T],
         uv: &[U],
+        colors: &Option<Vec<V>>,
     ) {
-        self.set_data_indexed(context, pos, uv, &[] as &[u32]);
+        self.set_data_indexed(context, pos, uv, &[] as &[u32], colors);
         self.update_indecies();
     }
 
     pub fn set_data_mesh(&mut self, context: &three_d::Context, mesh: &three_d::CpuMesh) {
         self.aabb = mesh.compute_aabb();
+
         if let Some(indicies) = mesh.indices.to_u32() {
             self.set_data_indexed(
                 context,
                 &mesh.positions.to_f32(),
                 mesh.uvs.as_ref().unwrap_or(&vec![]),
                 &indicies,
+                &mesh.colors,
             );
         } else {
             self.set_data(
                 context,
                 &mesh.positions.to_f32(),
                 mesh.uvs.as_ref().unwrap_or(&vec![]),
+                &mesh.colors,
             );
         }
     }
 
-    pub fn set_data_indexed<T: BufferDataType, U: BufferDataType, V: ElementBufferDataType>(
+    pub fn set_data_indexed<
+        T: BufferDataType,
+        U: BufferDataType,
+        V: ElementBufferDataType,
+        W: BufferDataType,
+    >(
         &mut self,
         context: &three_d::Context,
         pos: &[T],
         uv: &[U],
         indecies: &[V],
+        colors: &Option<Vec<W>>,
     ) {
         self.vertecies_pos = VertexBuffer::new_with_data(context, pos);
         self.vertecies_uv = VertexBuffer::new_with_data(context, uv);
+        self.vertecies_color = colors
+            .as_ref()
+            .map(|x| VertexBuffer::new_with_data(context, x.as_slice()));
         self.indecies = ElementBuffer::new_with_data(context, indecies);
     }
 

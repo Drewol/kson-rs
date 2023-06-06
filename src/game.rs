@@ -7,6 +7,7 @@ use crate::{
     vg_ui::Vgfx,
     ControlMessage,
 };
+use image::GenericImageView;
 use itertools::Itertools;
 use kson::{
     score_ticks::{PlacedScoreTick, ScoreTick, ScoreTickSummary, ScoreTicker},
@@ -16,6 +17,7 @@ use puffin::profile_function;
 use rodio::Source;
 use serde::{Deserialize, Serialize};
 use tealr::mlu::mlua::{Function, Lua, LuaSerdeExt};
+use three_d_asset::vec4;
 
 const LASER_THRESHOLD: f64 = 1.0 / 12.0;
 
@@ -31,6 +33,7 @@ pub struct Game {
     laser_shaders: [[ShadedMesh; 2]; 2],
     track_shader: [ShadedMesh; 1],
     bt_chip_shader: [ShadedMesh; 1],
+    lane_beam_shader: [ShadedMesh; 1],
     camera: three_d::Camera,
     lua_game_state: LuaGameState,
     lua: Rc<Lua>,
@@ -52,6 +55,8 @@ pub struct Game {
     laser_active: [bool; 2],
     laser_assist_ticks: [u8; 2],
     laser_latest_dir_inputs: [[f64; 2]; 2], //last left/right turn timestamps for both knobs, for checking slam hits
+    beam_colors: Vec<Vec4>,
+    beam_colors_current: [[f32; 4]; 6],
 }
 
 #[derive(Debug, Default)]
@@ -148,6 +153,7 @@ struct TrackRenderMeshes {
     fx_chip_sample: CpuMesh,
     bt_chip: CpuMesh,
     lasers: [CpuMesh; 4],
+    lane_beams: CpuMesh,
 }
 pub struct GameData {
     song: Arc<Song>,
@@ -165,7 +171,7 @@ pub fn extend_mesh(a: CpuMesh, b: CpuMesh) -> CpuMesh {
         normals,
         tangents,
         uvs,
-        colors,
+        mut colors,
     } = a;
 
     let index_offset = positions.len();
@@ -176,7 +182,7 @@ pub fn extend_mesh(a: CpuMesh, b: CpuMesh) -> CpuMesh {
         normals: _b_normals,
         tangents: _b_tangents,
         uvs: b_uvs,
-        colors: _b_colors,
+        colors: mut b_colors,
     } = b;
 
     let indices = match (indices.into_u32(), b_indices.into_u32()) {
@@ -197,6 +203,12 @@ pub fn extend_mesh(a: CpuMesh, b: CpuMesh) -> CpuMesh {
             Positions::F32(a) => a.append(&mut b_positions.into_f32()),
             Positions::F64(a) => a.append(&mut b_positions.into_f64()),
         }
+    }
+
+    if let (Some(a), Some(b)) = (colors.as_mut(), b_colors.as_mut()) {
+        a.append(b)
+    } else {
+        colors = None;
     }
 
     let uvs: Option<Vec<_>> = Some(uvs.iter().chain(b_uvs.iter()).flatten().copied().collect());
@@ -260,6 +272,15 @@ impl SceneData for GameData {
             .expect("Failed to load shader:");
         let mut fx_long_shader_active = ShadedMesh::new(&context, "holdbutton", &shader_folder)
             .expect("Failed to load shader:");
+
+        let mut beam_shader =
+            ShadedMesh::new(&context, "sprite", &shader_folder).expect("Failed to load shader:");
+        beam_shader.use_texture(
+            &context,
+            "mainTex",
+            texture_folder.with_file_name("scorehit.png"),
+            (false, false),
+        );
 
         fx_long_shader.use_texture(
             &context,
@@ -372,6 +393,12 @@ impl SceneData for GameData {
             (false, true),
         );
 
+        let beam_colors: Vec<_> = image::open(texture_folder.with_file_name("hitcolors.png"))
+            .expect("Failed to load hitcolors.png")
+            .pixels()
+            .map(|x| x.2)
+            .collect();
+
         laser_left.set_blend(Blend::ADD);
         laser_left_active.set_blend(Blend::ADD);
         laser_right.set_blend(Blend::ADD);
@@ -412,10 +439,12 @@ impl SceneData for GameData {
                 ],
                 [track_shader.with_transform(mesh_transform)],
                 [bt_chip_shader.with_transform(mesh_transform)],
+                [beam_shader.with_transform(mesh_transform)],
                 song,
                 diff_idx,
                 playback,
                 input_state,
+                beam_colors,
             )
             .unwrap(),
         )
@@ -443,10 +472,12 @@ impl Game {
         laser_shaders: [[ShadedMesh; 2]; 2],
         track_shader: [ShadedMesh; 1],
         bt_chip_shader: [ShadedMesh; 1],
+        lane_beam_shader: [ShadedMesh; 1],
         song: Arc<Song>,
         diff_idx: usize,
         playback: kson_music_playback::AudioPlayback,
         input_state: Arc<InputState>,
+        beam_colors: Vec<image::Rgba<u8>>,
     ) -> Result<Self> {
         let mut view = ChartView::new(skin_root, td);
         view.build_laser_meshes(&chart);
@@ -471,6 +502,7 @@ impl Game {
             fx_chip_shaders,
             fx_long_shaders,
             laser_shaders,
+            lane_beam_shader,
             camera: Camera::new_orthographic(
                 Viewport {
                     x: 0,
@@ -501,6 +533,14 @@ impl Game {
             laser_active: [false, false],
             laser_assist_ticks: [0; 2],
             laser_latest_dir_inputs: [[f64::NEG_INFINITY; 2]; 2],
+            beam_colors: beam_colors
+                .iter()
+                .map(|x| {
+                    let [r, g, b, a] = x.0;
+                    vec4(r as f32, g as f32, b as f32, a as f32)
+                })
+                .collect(),
+            beam_colors_current: [[0.0; 4]; 6],
         };
         res.set_track_uniforms();
         Ok(res)
@@ -648,6 +688,25 @@ impl Game {
             if let Ok(update_score) = self.lua.globals().get::<_, Function>("update_score") {
                 update_score.call::<_, ()>(self.calculate_display_score());
             }
+        }
+
+        match hit_rating {
+            HitRating::Crit(tick, _) => {
+                if let ScoreTick::Chip { lane } = tick.tick {
+                    self.beam_colors_current[lane] = (self.beam_colors[2] / 255.0).into()
+                }
+            }
+            HitRating::Good(tick, _) => {
+                if let ScoreTick::Chip { lane } = tick.tick {
+                    self.beam_colors_current[lane] = (self.beam_colors[1] / 255.0).into()
+                }
+            }
+            HitRating::Miss(tick) if tick.y > self.current_tick => {
+                if let ScoreTick::Chip { lane } = tick.tick {
+                    self.beam_colors_current[lane] = (self.beam_colors[0] / 255.0).into()
+                }
+            }
+            _ => {}
         }
 
         self.gauge.on_hit(hit_rating);
@@ -833,97 +892,111 @@ impl Scene for Game {
 
             self.camera_pos = vec3(x, y, z);
         });
-        Window::new("Game Data").show(ctx, |ui| {
-            egui::Grid::new("gameplay_data")
-                .num_columns(2)
-                .spacing([40.0, 4.0])
-                .show(ui, |ui| {
-                    let current_tick = self.chart.ms_to_tick(self.time);
+        Window::new("Game Data")
+            .scroll2([false, true])
+            .show(ctx, |ui| {
+                egui::Grid::new("gameplay_data")
+                    .num_columns(2)
+                    .spacing([40.0, 4.0])
+                    .show(ui, |ui| {
+                        let current_tick = self.chart.ms_to_tick(self.time);
 
-                    ui.label("Time");
+                        ui.label("Time");
 
-                    if ui
-                        .add(Slider::new(&mut self.time, 0.0..=self.duration))
-                        .changed()
-                    {
-                        self.playback.set_poistion(self.time);
-                    }
+                        if ui
+                            .add(Slider::new(&mut self.time, 0.0..=self.duration))
+                            .changed()
+                        {
+                            self.playback.set_poistion(self.time);
+                        }
 
-                    ui.end_row();
-
-                    ui.label("HiSpeed");
-                    ui.add(Slider::new(&mut self.view.hispeed, 0.001..=2.0));
-
-                    ui.separator();
-                    ui.end_row();
-
-                    ui.label("Note Data");
-                    ui.end_row();
-
-                    for i in 0..6 {
-                        let mut next_tick = self
-                            .score_ticks
-                            .iter()
-                            .filter(|x| x.y > current_tick)
-                            .find(|x| match x.tick {
-                                ScoreTick::Chip { lane } | ScoreTick::Hold { lane } => lane == i,
-                                _ => false,
-                            })
-                            .map(|x| self.chart.tick_to_ms(x.y))
-                            .unwrap_or(f64::INFINITY)
-                            - self.time;
-                        ui.label(match i {
-                            0 => "BT A",
-                            1 => "BT B",
-                            2 => "BT C",
-                            3 => "BT D",
-                            4 => "FX L",
-                            5 => "FX R",
-                            _ => unreachable!(),
-                        });
-                        ui.add(Slider::new(&mut next_tick, 0.0..=10000.0).logarithmic(true));
                         ui.end_row();
-                    }
 
-                    ui.label("Laser Values");
-                    ui.end_row();
+                        ui.label("HiSpeed");
+                        ui.add(Slider::new(&mut self.view.hispeed, 0.001..=2.0));
 
-                    ui.label("Left");
-                    ui.label(format!(
-                        "{:?}",
-                        self.chart.note.laser[0].value_at(self.current_tick as f64)
-                    ));
-                    ui.end_row();
+                        ui.separator();
+                        ui.end_row();
 
-                    ui.label("Right");
-                    ui.label(format!(
-                        "{:?}",
-                        self.chart.note.laser[1].value_at(self.current_tick as f64)
-                    ));
-                    ui.end_row();
+                        ui.label("Note Data");
+                        ui.end_row();
 
-                    ui.label("Laser Direction");
-                    ui.end_row();
+                        for i in 0..6 {
+                            let mut next_tick = self
+                                .score_ticks
+                                .iter()
+                                .filter(|x| x.y > current_tick)
+                                .find(|x| match x.tick {
+                                    ScoreTick::Chip { lane } | ScoreTick::Hold { lane } => {
+                                        lane == i
+                                    }
+                                    _ => false,
+                                })
+                                .map(|x| self.chart.tick_to_ms(x.y))
+                                .unwrap_or(f64::INFINITY)
+                                - self.time;
+                            ui.label(match i {
+                                0 => "BT A",
+                                1 => "BT B",
+                                2 => "BT C",
+                                3 => "BT D",
+                                4 => "FX L",
+                                5 => "FX R",
+                                _ => unreachable!(),
+                            });
+                            ui.add(Slider::new(&mut next_tick, 0.0..=10000.0).logarithmic(true));
+                            ui.end_row();
+                        }
 
-                    ui.label("Left");
-                    ui.label(format!(
-                        "{:?}",
-                        self.chart.note.laser[0]
-                            .direction_at(self.current_tick as f64)
-                            .map(|x| x.total_cmp(&0.0))
-                    ));
-                    ui.end_row();
+                        ui.label("Laser Values");
+                        ui.end_row();
 
-                    ui.label("Right");
-                    ui.label(format!(
-                        "{:?}",
-                        self.chart.note.laser[1]
-                            .direction_at(self.current_tick as f64)
-                            .map(|x| x.total_cmp(&0.0))
-                    ));
-                    ui.end_row();
-                });
-        });
+                        ui.label("Left");
+
+                        if let Some(mut lval) =
+                            self.chart.note.laser[0].value_at(self.current_tick as f64)
+                        {
+                            ui.add(egui::Slider::new(&mut lval, 0.0..=1.0));
+                        }
+
+                        ui.end_row();
+
+                        ui.label("Right");
+                        if let Some(mut rval) =
+                            self.chart.note.laser[1].value_at(self.current_tick as f64)
+                        {
+                            ui.add(egui::Slider::new(&mut rval, 0.0..=1.0));
+                        }
+                        ui.end_row();
+
+                        ui.label("Laser Direction");
+                        ui.end_row();
+
+                        ui.label("Left");
+                        ui.label(format!(
+                            "{:?}",
+                            self.chart.note.laser[0]
+                                .direction_at(self.current_tick as f64)
+                                .map(|x| x.total_cmp(&0.0))
+                        ));
+                        ui.end_row();
+
+                        ui.label("Right");
+                        ui.label(format!(
+                            "{:?}",
+                            self.chart.note.laser[1]
+                                .direction_at(self.current_tick as f64)
+                                .map(|x| x.total_cmp(&0.0))
+                        ));
+                        ui.end_row();
+
+                        ui.label("Stats");
+                        ui.add(
+                            egui::Label::new(format!("{:#?}", &self.beam_colors_current))
+                                .wrap(false),
+                        )
+                    });
+            });
 
         Ok(())
     }
@@ -959,6 +1032,10 @@ impl Scene for Game {
                 .unwrap_or(0.0);
         self.current_tick = self.chart.ms_to_tick(self.time);
 
+        self.beam_colors_current
+            .iter_mut()
+            .for_each(|c| c[3] = (c[3] - dt as f32 / 200.0).max(0.0));
+
         let new_lua_state = self.lua_game_state(viewport);
         if new_lua_state != self.lua_game_state {
             self.lua_game_state = new_lua_state;
@@ -967,7 +1044,9 @@ impl Scene for Game {
                 .set("gameplay", self.lua.to_value(&self.lua_game_state).unwrap());
         }
 
-        let render_data = self.view.render(&self.chart, td_context);
+        let render_data = self
+            .view
+            .render(&self.chart, td_context, self.beam_colors_current);
 
         self.bt_chip_shader[0].set_data_mesh(td_context, &render_data.bt_chip);
         self.bt_long_shaders[0].set_data_mesh(td_context, &render_data.bt_hold);
@@ -982,6 +1061,7 @@ impl Scene for Game {
         self.laser_shaders[0][1].set_data_mesh(td_context, &render_data.lasers[1]);
         self.laser_shaders[1][0].set_data_mesh(td_context, &render_data.lasers[2]);
         self.laser_shaders[1][1].set_data_mesh(td_context, &render_data.lasers[3]);
+        self.lane_beam_shader[0].set_data_mesh(td_context, &render_data.lane_beams);
 
         target.render(
             &self.camera,
@@ -991,6 +1071,7 @@ impl Scene for Game {
                 .chain(self.bt_long_shaders.iter())
                 .chain(self.fx_chip_shaders.iter())
                 .chain(self.bt_chip_shader.iter())
+                .chain(self.lane_beam_shader.iter())
                 .chain(self.laser_shaders.iter().flatten()),
             &[],
         );
@@ -1105,11 +1186,14 @@ impl Scene for Game {
 
         let last_tick = self.chart.ms_to_tick(self.time + miss) + 1;
         let mut hittable_ticks = self.score_ticks.iter().take_while(|x| x.y < last_tick);
+        let mut hit_rating = HitRating::None;
+        let button_num = Into::<u8>::into(button);
+
         match button {
             crate::button_codes::UscButton::BT(_) | crate::button_codes::UscButton::FX(_) => {
                 if let Some((index, score_tick)) = hittable_ticks.find_position(|x| {
                     if let ScoreTick::Chip { lane } = x.tick {
-                        lane == Into::<u8>::into(button) as usize
+                        lane == button_num as usize
                     } else {
                         false
                     }
@@ -1119,7 +1203,7 @@ impl Scene for Game {
                     let abs_delta = delta.abs();
                     log::info!("Hit delta: {}", delta);
 
-                    let hit_rating = if abs_delta <= perfect {
+                    hit_rating = if abs_delta <= perfect {
                         HitRating::Crit(*score_tick, delta)
                     } else if abs_delta <= good {
                         HitRating::Good(*score_tick, delta)
@@ -1141,6 +1225,12 @@ impl Scene for Game {
             }
             crate::button_codes::UscButton::Back => self.closed = true,
             _ => {}
+        }
+        if let HitRating::None = hit_rating {
+            if (button_num as usize) < self.beam_colors_current.len() {
+                self.beam_colors_current[button_num as usize] =
+                    (self.beam_colors[3] / 255.0).into();
+            }
         }
     }
 
@@ -1395,6 +1485,12 @@ pub fn xy_rect(center: Vec3, size: Vec2) -> CpuMesh {
     }
 }
 
+pub fn xy_rect_color(center: Vec3, size: Vec2, color: Color) -> CpuMesh {
+    let mut rect = xy_rect(center, size);
+    rect.colors = Some(vec![color; 4]);
+    rect
+}
+
 fn plane_normal(a: Vec3, b: Vec3, c: Vec3) -> Vector3<f32> {
     // Calculate the edge vectors formed by the three points
     let ab = b - a;
@@ -1607,7 +1703,12 @@ impl ChartView {
         }
     }
 
-    fn render(&mut self, chart: &kson::Chart, td: &three_d::Context) -> TrackRenderMeshes {
+    fn render(
+        &mut self,
+        chart: &kson::Chart,
+        td: &three_d::Context,
+        mut beam_colors: [[f32; 4]; 6],
+    ) -> TrackRenderMeshes {
         use three_d::prelude::*;
         let view_time = self.cursor - chart.audio.clone().bgm.unwrap().offset as f64;
         let view_offset = if view_time < 0.0 {
@@ -1720,6 +1821,47 @@ impl ChartView {
             xy_rect(Vec3::zero(), Vec2::zero()),
         ];
 
+        //Dim FX beams
+        beam_colors[4][3] *= 0.5;
+        beam_colors[5][3] *= 0.5;
+
+        let lane_beams = vec![
+            xy_rect_color(
+                vec3(-0.5 / 6.0, 0.0, 0.0),
+                vec2(1.0 / 6.0, -ChartView::TRACK_LENGTH),
+                Color::from_rgba_slice(&beam_colors[1]),
+            ),
+            xy_rect_color(
+                vec3(0.5 / 6.0, 0.0, 0.0),
+                vec2(1.0 / 6.0, -ChartView::TRACK_LENGTH),
+                Color::from_rgba_slice(&beam_colors[2]),
+            ),
+            xy_rect_color(
+                vec3(1.5 / 6.0, 0.0, 0.0),
+                vec2(1.0 / 6.0, -ChartView::TRACK_LENGTH),
+                Color::from_rgba_slice(&beam_colors[3]),
+            ),
+            xy_rect_color(
+                vec3(-1.0 / 6.0, 0.0, 0.0),
+                vec2(2.0 / 6.0, -ChartView::TRACK_LENGTH),
+                Color::from_rgba_slice(&beam_colors[4]),
+            ),
+            xy_rect_color(
+                vec3(1.0 / 6.0, 0.0, 0.0),
+                vec2(2.0 / 6.0, -ChartView::TRACK_LENGTH),
+                Color::from_rgba_slice(&beam_colors[5]),
+            ),
+        ]
+        .drain(0..)
+        .fold(
+            xy_rect_color(
+                vec3(-1.5 / 6.0, 0.0, 0.0),
+                vec2(1.0 / 6.0, -ChartView::TRACK_LENGTH),
+                Color::from_rgba_slice(&beam_colors[0]),
+            ),
+            |a, b| extend_mesh(a, b),
+        );
+
         for n in notes {
             match n.1 {
                 NoteType::BtChip => bt_chip = extend_mesh(bt_chip, n.0),
@@ -1772,6 +1914,7 @@ impl ChartView {
             fx_chip_sample,
             bt_chip,
             lasers,
+            lane_beams,
         }
     }
 }

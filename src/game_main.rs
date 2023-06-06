@@ -527,7 +527,11 @@ impl GameMain {
             let mut canvas_lock = vgfx.canvas.try_lock();
             if let Ok(ref mut canvas) = canvas_lock {
                 canvas.reset();
-                canvas.set_size(frame_input.viewport.width, frame_input.viewport.height, 1.0);
+                canvas.set_size(
+                    frame_input.viewport.width,
+                    frame_input.viewport.height,
+                    10.0,
+                );
                 canvas.fill_text(
                     frame_input.viewport.width as f32 - 5.0,
                     frame_input.viewport.height as f32 - 5.0,

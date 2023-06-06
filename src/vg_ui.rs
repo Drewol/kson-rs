@@ -7,6 +7,7 @@ use std::{
 use femtovg::{renderer::OpenGl, Canvas, Color, FontId, ImageFlags, ImageId, Paint, Path};
 
 use generational_arena::Index;
+use log::warn;
 use poll_promise::Promise;
 use puffin::profile_scope;
 use tealr::{
@@ -96,7 +97,7 @@ pub struct Vgfx {
     next_label_id: u32,
     scoped_assets: HashMap<Index, ScopedAssets>,
     fonts: HashMap<String, FontId>,
-    current_font: Option<FontId>,
+    font_size: f32,
     image_jobs: HashMap<String, Promise<image::DynamicImage>>,
     fallback_img: ImageId,
 }
@@ -157,11 +158,11 @@ impl Vgfx {
             next_img_id: 1,
             next_paint_id: 1,
             next_label_id: 1,
-            current_font: None,
             image_jobs: Default::default(),
             fallback_img,
             scoped_assets: Default::default(),
             image_tint: None,
+            font_size: 12.0,
         }
     }
 
@@ -494,10 +495,15 @@ impl TealData for Vgfx {
             }
             match _vgfx.fill_paint.as_ref() {
                 Some(fill_paint) => {
+                    let font_size = fill_paint.font_size();
+
                     let canvas = &mut _vgfx
                         .canvas
                         .try_lock()
                         .map_err(|_| mlua::Error::external("Canvas in use".to_string()))?;
+
+                    let scale = canvas.transform().average_scale();
+
                     canvas
                         .fill_text(x, y, s.unwrap(), fill_paint)
                         .map_err(mlua::Error::external)?;
@@ -547,6 +553,8 @@ impl TealData for Vgfx {
                 if let Some(text_paint) = _vgfx.fill_paint.as_mut() {
                     text_paint.set_font(&[*font_id]);
                 }
+            } else {
+                warn!("No loaded font named: {}", &p.s)
             }
             Ok(())
         });
@@ -611,14 +619,18 @@ impl TealData for Vgfx {
         );
         add_lua_static_method(methods, "LoadFont", |_, _, _vgfx, p: LoadFontParams| {
             let name = p.name;
-            if let Some(font_id) = _vgfx.fonts.get(&name) {
-                _vgfx.current_font = Some(*font_id);
+            if let (Some(font_id), Some(paint)) =
+                (_vgfx.fonts.get(&name), _vgfx.fill_paint.as_mut())
+            {
+                paint.set_font(&[*font_id]);
             } else {
                 let path = p.filename.unwrap_or_else(|| name.clone());
                 let font_id = _vgfx
                     .with_canvas(|canvas| canvas.add_font(&path))?
                     .map_err(mlua::Error::external)?;
-                _vgfx.current_font = Some(font_id);
+                if let Some(paint) = _vgfx.fill_paint.as_mut() {
+                    paint.set_font(&[font_id]);
+                }
                 _vgfx.fonts.insert(name, font_id);
             }
 
@@ -636,8 +648,10 @@ impl TealData for Vgfx {
             "LoadSkinFont",
             |_, _, _vgfx, p: LoadSkinFontParams| {
                 let name = p.name;
-                if let Some(font_id) = _vgfx.fonts.get(&name) {
-                    _vgfx.current_font = Some(*font_id);
+                if let (Some(font_id), Some(paint)) =
+                    (_vgfx.fonts.get(&name), _vgfx.fill_paint.as_mut())
+                {
+                    paint.set_font(&[*font_id]);
                 } else {
                     let path = p.filename.unwrap_or_else(|| name.clone());
                     let mut font_path = _vgfx.game_folder.clone();
@@ -649,7 +663,9 @@ impl TealData for Vgfx {
                     let font_id = _vgfx
                         .with_canvas(|canvas| canvas.add_font(&font_path))?
                         .map_err(mlua::Error::external)?;
-                    _vgfx.current_font = Some(font_id);
+                    if let Some(paint) = _vgfx.fill_paint.as_mut() {
+                        paint.set_font(&[font_id]);
+                    }
                     _vgfx.fonts.insert(name, font_id);
                 }
 
