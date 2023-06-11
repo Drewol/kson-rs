@@ -11,10 +11,10 @@ pub enum ScoreTick {
 impl ScoreTick {
     pub fn lane(&self) -> usize {
         match self {
-            ScoreTick::Laser { lane, pos } => lane,
-            ScoreTick::Slam { lane, start, end } => lane,
-            ScoreTick::Chip { lane } => lane,
-            ScoreTick::Hold { lane } => lane,
+            ScoreTick::Laser { lane, pos } => *lane,
+            ScoreTick::Slam { lane, start, end } => *lane,
+            ScoreTick::Chip { lane } => *lane,
+            ScoreTick::Hold { lane } => *lane,
         }
     }
 }
