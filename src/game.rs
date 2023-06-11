@@ -1,5 +1,5 @@
 use crate::{
-    button_codes::UscInputEvent,
+    button_codes::{UscButton, UscInputEvent},
     game_camera::ChartCamera,
     input_state::InputState,
     scene::{Scene, SceneData},
@@ -28,10 +28,12 @@ pub struct Game {
     camera_pos: Vec3,
     time: f64,
     duration: f64,
-    fx_long_shaders: [ShadedMesh; 2],
-    bt_long_shaders: [ShadedMesh; 2],
+    fx_long_shaders: [ShadedMesh; 1],
+    fx_long_shaders_active: [ShadedMesh; 2],
+    bt_long_shaders: [ShadedMesh; 1],
+    bt_long_shaders_active: [ShadedMesh; 4],
     fx_chip_shaders: [ShadedMesh; 2],
-    laser_shaders: [[ShadedMesh; 2]; 2],
+    laser_shaders: [[ShadedMesh; 2]; 2], //[[left, left_current], [right, right_current]]
     track_shader: [ShadedMesh; 1],
     bt_chip_shader: [ShadedMesh; 1],
     lane_beam_shader: [ShadedMesh; 1],
@@ -54,6 +56,7 @@ pub struct Game {
     input_state: Arc<InputState>,
     laser_cursors: [f64; 2],
     laser_active: [bool; 2],
+    laser_target: [Option<f64>; 2],
     laser_assist_ticks: [u8; 2],
     laser_latest_dir_inputs: [[f64; 2]; 2], //last left/right turn timestamps for both knobs, for checking slam hits
     beam_colors: Vec<Vec4>,
@@ -148,9 +151,9 @@ impl From<&Gauge> for LuaGauge {
 
 struct TrackRenderMeshes {
     fx_hold: CpuMesh,
-    fx_hold_active: CpuMesh,
+    fx_hold_active: [CpuMesh; 2],
     bt_hold: CpuMesh,
-    bt_hold_active: CpuMesh,
+    bt_hold_active: [CpuMesh; 4],
     fx_chip: CpuMesh,
     fx_chip_sample: CpuMesh,
     bt_chip: CpuMesh,
@@ -272,11 +275,15 @@ impl SceneData for GameData {
 
         let mut fx_long_shader = ShadedMesh::new(&context, "holdbutton", &shader_folder)
             .expect("Failed to load shader:");
-        let mut fx_long_shader_active = ShadedMesh::new(&context, "holdbutton", &shader_folder)
-            .expect("Failed to load shader:");
+        let mut fx_long_shader_active: [ShadedMesh; 2] = core::array::from_fn(|i| {
+            ShadedMesh::new(&context, "holdbutton", &shader_folder)
+                .expect("Failed to load shader:")
+                .with_transform(mesh_transform)
+        });
 
-        let mut beam_shader =
-            ShadedMesh::new(&context, "sprite", &shader_folder).expect("Failed to load shader:");
+        let mut beam_shader = ShadedMesh::new(&context, "sprite", &shader_folder)
+            .expect("Failed to load shader:")
+            .with_transform(mesh_transform);
         beam_shader.use_texture(
             &context,
             "mainTex",
@@ -290,17 +297,22 @@ impl SceneData for GameData {
             texture_folder.with_file_name("fxbuttonhold.png"),
             (false, false),
         );
-        fx_long_shader_active.use_texture(
-            &context,
-            "mainTex",
-            texture_folder.with_file_name("fxbuttonhold.png"),
-            (false, false),
-        );
+        fx_long_shader_active.iter_mut().for_each(|s| {
+            s.use_texture(
+                &context,
+                "mainTex",
+                texture_folder.with_file_name("fxbuttonhold.png"),
+                (false, false),
+            );
+        });
 
         let mut bt_long_shader = ShadedMesh::new(&context, "holdbutton", &shader_folder)
             .expect("Failed to load shader:");
-        let mut bt_long_shader_active = ShadedMesh::new(&context, "holdbutton", &shader_folder)
-            .expect("Failed to load shader:");
+        let mut bt_long_shader_active: [ShadedMesh; 4] = core::array::from_fn(|i| {
+            ShadedMesh::new(&context, "holdbutton", &shader_folder)
+                .expect("Failed to load shader:")
+                .with_transform(mesh_transform)
+        });
 
         bt_long_shader.use_texture(
             &context,
@@ -308,12 +320,14 @@ impl SceneData for GameData {
             texture_folder.with_file_name("buttonhold.png"),
             (false, false),
         );
-        bt_long_shader_active.use_texture(
-            &context,
-            "mainTex",
-            texture_folder.with_file_name("buttonhold.png"),
-            (false, false),
-        );
+        bt_long_shader_active.iter_mut().for_each(|s| {
+            s.use_texture(
+                &context,
+                "mainTex",
+                texture_folder.with_file_name("buttonhold.png"),
+                (false, false),
+            );
+        });
 
         let mut fx_chip_shader =
             ShadedMesh::new(&context, "button", &shader_folder).expect("Failed to load shader:");
@@ -417,14 +431,10 @@ impl SceneData for GameData {
                 chart,
                 &skin_folder,
                 &context,
-                [
-                    fx_long_shader.with_transform(mesh_transform),
-                    fx_long_shader_active.with_transform(mesh_transform),
-                ],
-                [
-                    bt_long_shader.with_transform(mesh_transform),
-                    bt_long_shader_active.with_transform(mesh_transform),
-                ],
+                [fx_long_shader.with_transform(mesh_transform)],
+                fx_long_shader_active,
+                [bt_long_shader.with_transform(mesh_transform)],
+                bt_long_shader_active,
                 [
                     fx_chip_shader.with_transform(mesh_transform),
                     fx_chip_shader_sample.with_transform(mesh_transform),
@@ -468,8 +478,10 @@ impl Game {
         chart: Chart,
         skin_root: &PathBuf,
         td: &three_d::Context,
-        fx_long_shaders: [ShadedMesh; 2],
-        bt_long_shaders: [ShadedMesh; 2],
+        fx_long_shaders: [ShadedMesh; 1],
+        fx_long_shaders_active: [ShadedMesh; 2],
+        bt_long_shaders: [ShadedMesh; 1],
+        bt_long_shaders_active: [ShadedMesh; 4],
         fx_chip_shaders: [ShadedMesh; 2],
         laser_shaders: [[ShadedMesh; 2]; 2],
         track_shader: [ShadedMesh; 1],
@@ -501,8 +513,10 @@ impl Game {
             bt_chip_shader,
             track_shader,
             bt_long_shaders,
+            bt_long_shaders_active,
             fx_chip_shaders,
             fx_long_shaders,
+            fx_long_shaders_active,
             laser_shaders,
             lane_beam_shader,
             camera: ChartCamera {
@@ -528,6 +542,7 @@ impl Game {
             input_state,
             laser_cursors: [0.0, 1.0],
             laser_active: [false, false],
+            laser_target: [None, None],
             laser_assist_ticks: [0; 2],
             laser_latest_dir_inputs: [[f64::NEG_INFINITY; 2]; 2],
             beam_colors: beam_colors
@@ -549,6 +564,8 @@ impl Game {
             .iter_mut()
             .chain(self.fx_long_shaders.iter_mut())
             .chain(self.bt_long_shaders.iter_mut())
+            .chain(self.fx_long_shaders_active.iter_mut())
+            .chain(self.bt_long_shaders_active.iter_mut())
             .chain(self.fx_chip_shaders.iter_mut())
             .chain(self.bt_chip_shader.iter_mut())
             .chain(self.laser_shaders.iter_mut().flatten())
@@ -559,12 +576,14 @@ impl Game {
                 shader.set_param("hiddenFadeWindow", 100.0);
                 shader.set_param("suddenCutoff", 10.0);
                 shader.set_param("suddenFadeWindow", 1000.0);
+                shader.set_param("hitState", 1);
+                shader.set_param("objectGlow", 0.6);
             });
 
-        self.laser_shaders
-            .iter_mut()
-            .flatten()
-            .for_each(|laser| laser.set_param("objectGlow", 1.0));
+        self.laser_shaders.iter_mut().flatten().for_each(|laser| {
+            laser.set_param("objectGlow", 0.6);
+            laser.set_param("hitState", 1);
+        });
         self.laser_shaders[0]
             .iter_mut()
             .for_each(|ll| ll.set_param("color", Color::BLUE.to_vec4()));
@@ -614,12 +633,20 @@ impl Game {
                     Cursor::new(
                         self.laser_cursors[0] as f32,
                         &camera,
-                        if self.laser_active[0] { 1.0 } else { 0.0 },
+                        if self.laser_target[0].is_some() {
+                            1.0
+                        } else {
+                            0.0
+                        },
                     ),
                     Cursor::new(
                         self.laser_cursors[1] as f32,
                         &camera,
-                        if self.laser_active[1] { 1.0 } else { 0.0 },
+                        if self.laser_target[1].is_some() {
+                            1.0
+                        } else {
+                            0.0
+                        },
                     ),
                 ],
                 line: Line {
@@ -828,14 +855,21 @@ impl Scene for Game {
             .chart
             .ms_to_tick(self.time - self.lua_game_state.hit_window.good);
 
-        for (side, laser_active) in self.laser_active.iter_mut().enumerate() {
-            let was_active = *laser_active;
+        for (side, (laser_active, laser_target)) in self
+            .laser_active
+            .iter_mut()
+            .zip(self.laser_target.iter_mut())
+            .enumerate()
+        {
+            let was_none = laser_target.is_none();
+            *laser_target = self.chart.note.laser[side].value_at(self.current_tick as f64);
+            *laser_active = if let Some(val) = laser_target {
+                (*val - self.laser_cursors[side]).abs() < LASER_THRESHOLD
+            } else {
+                false
+            };
 
-            *laser_active = self.chart.note.laser[side]
-                .value_at(self.current_tick as f64)
-                .is_some();
-
-            if !was_active && *laser_active {
+            if was_none && laser_target.is_some() {
                 self.laser_assist_ticks[side] = 10;
             }
             //TODO: Also check ahead
@@ -1075,18 +1109,65 @@ impl Scene for Game {
                 .set("gameplay", self.lua.to_value(&self.lua_game_state).unwrap());
         }
 
+        //Set glow/hit states
+        let object_glow = ((self.time as f32 % 100.0) / 50.0 - 1.0).abs() * 0.5 + 0.5;
+        let hit_state = ((self.time / 50.0) % 2.0) as i32 + 2;
+        for (side, [_, shader]) in self.laser_shaders.iter_mut().enumerate() {
+            shader.set_param(
+                "hitState",
+                if self.laser_active[side] {
+                    hit_state
+                } else {
+                    0
+                },
+            );
+
+            shader.set_param(
+                "objectGlow",
+                if self.laser_active[side] {
+                    object_glow
+                } else {
+                    0.3
+                },
+            );
+        }
+
+        //Set hold glow state
+        for (lane, shader) in self
+            .bt_long_shaders_active
+            .iter_mut()
+            .chain(self.fx_long_shaders_active.iter_mut())
+            .enumerate()
+        {
+            if self.input_state.is_button_held(UscButton::from(lane as u8)) {
+                shader.set_param("objectGlow", object_glow);
+                shader.set_param("hitState", hit_state);
+            } else {
+                shader.set_param("objectGlow", 0.3);
+                shader.set_param("hitState", 0);
+            }
+        }
+
         let render_data = self
             .view
             .render(&self.chart, td_context, self.beam_colors_current);
 
         self.bt_chip_shader[0].set_data_mesh(td_context, &render_data.bt_chip);
         self.bt_long_shaders[0].set_data_mesh(td_context, &render_data.bt_hold);
-        self.bt_long_shaders[1].set_data_mesh(td_context, &render_data.bt_hold_active);
+
+        for i in 0..4 {
+            self.bt_long_shaders_active[i]
+                .set_data_mesh(td_context, &render_data.bt_hold_active[i]);
+        }
 
         self.fx_chip_shaders[0].set_data_mesh(td_context, &render_data.fx_chip);
         self.fx_chip_shaders[1].set_data_mesh(td_context, &render_data.fx_chip_sample);
         self.fx_long_shaders[0].set_data_mesh(td_context, &render_data.fx_hold);
-        self.fx_long_shaders[1].set_data_mesh(td_context, &render_data.fx_hold_active);
+
+        for i in 0..2 {
+            self.fx_long_shaders_active[i]
+                .set_data_mesh(td_context, &render_data.fx_hold_active[i]);
+        }
 
         self.laser_shaders[0][0].set_data_mesh(td_context, &render_data.lasers[0]);
         self.laser_shaders[0][1].set_data_mesh(td_context, &render_data.lasers[1]);
@@ -1099,7 +1180,9 @@ impl Scene for Game {
             self.track_shader
                 .iter()
                 .chain(self.fx_long_shaders.iter())
+                .chain(self.fx_long_shaders_active.iter())
                 .chain(self.bt_long_shaders.iter())
+                .chain(self.bt_long_shaders_active.iter())
                 .chain(self.fx_chip_shaders.iter())
                 .chain(self.bt_chip_shader.iter())
                 .chain(self.lane_beam_shader.iter())
@@ -1152,7 +1235,7 @@ impl Scene for Game {
             //TODO: Slam detection
 
             for (side, index) in [(kson::Side::Left, 0), (kson::Side::Right, 1)] {
-                self.laser_cursors[index] = if self.laser_active[index] {
+                self.laser_cursors[index] = if self.laser_target[index].is_some() {
                     let delta = ls.get_axis(side).delta as f64;
                     let new_pos = (self.laser_cursors[index] + delta).clamp(0.0, 1.0);
                     let target_value =
@@ -1769,11 +1852,11 @@ impl ChartView {
         enum NoteType {
             BtChip,
             BtHold,
-            BtHoldActive,
+            BtHoldActive(usize),
             FxChip,
             FxChipSample,
             FxHold,
-            FxHoldActive,
+            FxHoldActive(usize),
         }
         let mut notes = Vec::new();
         let chip_h = 0.05;
@@ -1802,7 +1885,11 @@ impl ChartView {
                     vec3(x, y, 0.0),
                     vec2(w, h),
                     if n.l > 0 {
-                        NoteType::BtHold
+                        if (n.y as i64) < view_tick && ((n.y + n.l) as i64) > view_tick {
+                            NoteType::BtHoldActive(i)
+                        } else {
+                            NoteType::BtHold
+                        }
                     } else {
                         NoteType::BtChip
                     },
@@ -1830,7 +1917,11 @@ impl ChartView {
                     vec3(x, y, 0.0),
                     vec2(w, h),
                     if n.l > 0 {
-                        NoteType::FxHold
+                        if (n.y as i64) < view_tick && ((n.y + n.l) as i64) > view_tick {
+                            NoteType::FxHoldActive(i)
+                        } else {
+                            NoteType::FxHold
+                        }
                     } else {
                         NoteType::FxChip
                     },
@@ -1843,9 +1934,9 @@ impl ChartView {
             .map(|n| (xy_rect(n.0 - vec3(0.5, n.1.y / -2.0, 0.0), n.1), n.2));
 
         let mut fx_hold = xy_rect(Vec3::zero(), Vec2::zero());
-        let mut fx_hold_active = xy_rect(Vec3::zero(), Vec2::zero());
+        let mut fx_hold_active = core::array::from_fn(|_| xy_rect(Vec3::zero(), Vec2::zero()));
         let mut bt_hold = xy_rect(Vec3::zero(), Vec2::zero());
-        let mut bt_hold_active = xy_rect(Vec3::zero(), Vec2::zero());
+        let mut bt_hold_active = core::array::from_fn(|_| xy_rect(Vec3::zero(), Vec2::zero()));
         let mut fx_chip = xy_rect(Vec3::zero(), Vec2::zero());
         let mut fx_chip_sample = xy_rect(Vec3::zero(), Vec2::zero());
         let mut bt_chip = xy_rect(Vec3::zero(), Vec2::zero());
@@ -1894,18 +1985,24 @@ impl ChartView {
                 vec2(1.0 / 6.0, -ChartView::TRACK_LENGTH),
                 Color::from_rgba_slice(&beam_colors[0]),
             ),
-            |a, b| extend_mesh(a, b),
+            extend_mesh,
         );
 
         for n in notes {
             match n.1 {
                 NoteType::BtChip => bt_chip = extend_mesh(bt_chip, n.0),
                 NoteType::BtHold => bt_hold = extend_mesh(bt_hold, n.0),
-                NoteType::BtHoldActive => bt_hold_active = extend_mesh(bt_hold_active, n.0),
+                NoteType::BtHoldActive(lane) => {
+                    let mesh = std::mem::take(&mut bt_hold_active[lane]);
+                    bt_hold_active[lane] = extend_mesh(mesh, n.0)
+                }
                 NoteType::FxChip => fx_chip = extend_mesh(fx_chip, n.0),
                 NoteType::FxChipSample => fx_chip_sample = extend_mesh(fx_chip_sample, n.0),
                 NoteType::FxHold => fx_hold = extend_mesh(fx_hold, n.0),
-                NoteType::FxHoldActive => fx_hold_active = extend_mesh(fx_hold_active, n.0),
+                NoteType::FxHoldActive(side) => {
+                    let mesh = std::mem::take(&mut fx_hold_active[side]);
+                    fx_hold_active[side] = extend_mesh(mesh, n.0)
+                }
             }
         }
 
@@ -1933,7 +2030,11 @@ impl ChartView {
                         ..Default::default()
                     };
 
-                    let active = 0;
+                    let active = if view_tick > s.tick() as i64 && view_tick < end_y as i64 {
+                        1
+                    } else {
+                        0
+                    };
                     let extending = std::mem::take(&mut lasers[i * 2 + active]);
                     let extended = extend_mesh(extending, laser_mesh);
                     lasers[i * 2 + active] = extended;

@@ -22,6 +22,7 @@ use three_d::{
 use crate::{config::GameConfig, vg_ui::Vgfx};
 
 pub enum ShaderParam {
+    Int(i32),
     Single(f32),
     Vec2(Vec2),
     Vec3(Vec3),
@@ -56,6 +57,12 @@ impl From<Texture2D> for ShaderParam {
     }
 }
 
+impl From<i32> for ShaderParam {
+    fn from(value: i32) -> Self {
+        Self::Int(value)
+    }
+}
+
 /// https://www.khronos.org/opengl/wiki/Primitive#Triangle_primitives for calculating indecies
 enum DrawingMode {
     Triangles = 0,
@@ -63,6 +70,7 @@ enum DrawingMode {
     Strip = 2,
 }
 
+//TODO: Cloneable with Arc for gpu resources for better shader reuse
 #[derive(UserData, TypeName)]
 pub struct ShadedMesh {
     params: HashMap<String, ShaderParam>,
@@ -228,6 +236,7 @@ impl ShadedMesh {
                     ShaderParam::Vec2(v) => self.material.use_uniform(name, v),
                     ShaderParam::Vec3(v) => self.material.use_uniform(name, v),
                     ShaderParam::Vec4(v) => self.material.use_uniform(name, v),
+                    ShaderParam::Int(v) => self.material.use_uniform(name, v),
                     ShaderParam::Texture(v) => self.material.use_texture(name, v),
                 }
             }
