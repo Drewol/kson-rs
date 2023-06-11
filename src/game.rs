@@ -62,6 +62,8 @@ pub struct Game {
     beam_colors: Vec<Vec4>,
     beam_colors_current: [[f32; 4]; 6],
     draw_axis_guides: bool,
+    target_roll: Option<f64>,
+    current_roll: f64,
 }
 
 #[derive(Debug, Default)]
@@ -554,6 +556,8 @@ impl Game {
                 .collect(),
             beam_colors_current: [[0.0; 4]; 6],
             draw_axis_guides: false,
+            current_roll: 0.0,
+            target_roll: None,
         };
         res.set_track_uniforms();
         Ok(res)
@@ -875,6 +879,13 @@ impl Scene for Game {
             //TODO: Also check ahead
         }
 
+        self.target_roll = match self.laser_target {
+            [Some(l), Some(r)] => Some(r + l - 1.0),
+            [Some(l), None] => Some(l),
+            [None, Some(r)] => Some(r - 1.0),
+            _ => None,
+        };
+
         for (side, assist_ticks) in self.laser_assist_ticks.iter_mut().enumerate() {
             //TODO: If on straight laser, keep assist high
             if *assist_ticks > 0 {
@@ -1066,6 +1077,23 @@ impl Scene for Game {
         if self.intro_done && !self.playback.is_playing() {
             self.playback.play();
         }
+
+        //Update roll
+        let max_roll_speed = dt / kson::beat_in_ms(self.chart.bpm_at_tick(self.current_tick));
+        self.current_roll = if let Some(target_roll) = self.target_roll {
+            if self.current_roll - target_roll < 0.0 {
+                (self.current_roll + max_roll_speed * 2.0).min(target_roll)
+            } else {
+                (self.current_roll - max_roll_speed * 2.0).max(target_roll)
+            }
+        } else if self.current_roll.is_sign_negative() {
+            (self.current_roll + max_roll_speed).min(0.0)
+        } else {
+            (self.current_roll - max_roll_speed).max(0.0)
+        };
+
+        self.camera.tilt = self.current_roll as f32 * 12.5;
+
         self.view.cursor = self.playback.get_ms();
         self.time = self.view.cursor
             - self
