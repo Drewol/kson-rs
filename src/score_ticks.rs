@@ -8,6 +8,17 @@ pub enum ScoreTick {
     Hold { lane: usize },
 }
 
+impl ScoreTick {
+    pub fn lane(&self) -> usize {
+        match self {
+            ScoreTick::Laser { lane, pos } => lane,
+            ScoreTick::Slam { lane, start, end } => lane,
+            ScoreTick::Chip { lane } => lane,
+            ScoreTick::Hold { lane } => lane,
+        }
+    }
+}
+
 #[derive(Debug, Copy, Clone)]
 pub struct PlacedScoreTick {
     pub y: u32,
