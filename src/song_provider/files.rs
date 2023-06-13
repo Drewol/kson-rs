@@ -9,7 +9,7 @@ use crate::{
     songselect::{Difficulty, Song},
 };
 
-use super::{SongProvider, SongProviderEvent};
+use super::{ScoreProvider, SongProvider, SongProviderEvent};
 use itertools::Itertools;
 use kson::{Chart, Ksh};
 use log::info;
@@ -236,5 +236,19 @@ impl SongProvider for FileSongProvider {
 
             (chart, Box::new(audio.convert_samples()))
         })
+    }
+}
+
+impl ScoreProvider for FileSongProvider {
+    fn poll(&mut self) -> Option<super::ScoreProviderEvent> {
+        todo!()
+    }
+
+    fn get_scores(&mut self, id: u64) -> Vec<Score> {
+        todo!()
+    }
+
+    fn insert_score(&mut self, id: u64, score: Score) -> anyhow::Result<()> {
+        todo!()
     }
 }

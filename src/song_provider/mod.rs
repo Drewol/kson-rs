@@ -2,7 +2,7 @@ use std::{collections::HashSet, fmt::Debug, sync::Arc};
 
 use kson::Chart;
 
-use crate::songselect::Song;
+use crate::{results::Score, songselect::Song};
 mod files;
 mod nautica;
 
@@ -11,6 +11,17 @@ pub enum SongProviderEvent {
     SongsAdded(Vec<Arc<Song>>),
     SongsRemoved(HashSet<u64>),
     OrderChanged(Vec<u64>),
+}
+
+#[derive(Debug)]
+pub enum ScoreProviderEvent {
+    NewScore(u64, Score), //(diff.id, score)
+}
+
+pub enum ScoreFilter {
+    Local,
+    Online,
+    Mixed,
 }
 
 pub enum SortDir {
@@ -39,6 +50,12 @@ pub trait SongProvider: Debug {
         song_index: u64,
         diff_index: u64,
     ) -> Box<dyn FnOnce() -> (Chart, Box<dyn rodio::Source<Item = f32> + Send>) + Send>;
+}
+
+pub trait ScoreProvider: Debug {
+    fn poll(&mut self) -> Option<ScoreProviderEvent>;
+    fn get_scores(&mut self, id: u64) -> Vec<Score>;
+    fn insert_score(&mut self, id: u64, score: Score) -> anyhow::Result<()>;
 }
 
 pub use files::FileSongProvider;

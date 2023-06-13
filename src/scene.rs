@@ -47,10 +47,7 @@ pub trait Scene {
     fn name(&self) -> &str;
 }
 
-pub trait SceneData
-where
-    Self: Send,
-{
+pub trait SceneData: Send {
     fn make_scene(self: Box<Self>, input_state: Arc<InputState>) -> Box<dyn Scene>;
 }
 

@@ -218,11 +218,18 @@ impl Scene for Transition {
                             song,
                             diff_idx,
                             score,
-                            gauge: _,
+                            gauge,
+                            hit_ratings,
                         } => Some(Promise::spawn_thread(
                             "Load song",
                             move || -> anyhow::Result<Box<dyn SceneData + Send>> {
-                                Ok(Box::new(SongResultData::from_diff(song, diff_idx, score)))
+                                Ok(Box::new(SongResultData::from_diff(
+                                    song,
+                                    diff_idx,
+                                    score,
+                                    hit_ratings,
+                                    gauge,
+                                )))
                             },
                         )),
                         _ => None,

@@ -64,6 +64,7 @@ pub struct Game {
     draw_axis_guides: bool,
     target_roll: Option<f64>,
     current_roll: f64,
+    hit_ratings: Vec<HitRating>,
 }
 
 #[derive(Debug, Default)]
@@ -99,11 +100,19 @@ impl Gauge {
                 tick_gain,
                 value,
             } => match rating {
-                HitRating::Crit(t, _) if tick_is_short(t) => *value += *chip_gain,
-                HitRating::Crit(_, _) => *value += *tick_gain,
-                HitRating::Good(_, _) => *value += *chip_gain / 3.0, //Only chips can have a "good" rating
-                HitRating::Miss(t) if tick_is_short(t) => *value -= 0.02,
-                HitRating::Miss(_) => *value -= 0.02 / 4.0,
+                HitRating::Crit {
+                    tick: t,
+                    delta,
+                    time,
+                } if tick_is_short(t) => *value += *chip_gain,
+                HitRating::Crit { tick, delta, time } => *value += *tick_gain,
+                HitRating::Good { tick, delta, time } => *value += *chip_gain / 3.0, //Only chips can have a "good" rating
+                HitRating::Miss {
+                    tick: t,
+                    delta,
+                    time,
+                } if tick_is_short(t) => *value -= 0.02,
+                HitRating::Miss { tick, delta, time } => *value -= 0.02 / 4.0,
                 HitRating::None => {}
             },
         }
@@ -118,14 +127,37 @@ impl Gauge {
             } => *value = value.clamp(0.0, 1.0),
         }
     }
+
+    pub fn value(&self) -> f32 {
+        match self {
+            Gauge::None => 0.0,
+            Gauge::Normal {
+                chip_gain,
+                tick_gain,
+                value,
+            } => *value,
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy)]
-enum HitRating {
+pub enum HitRating {
     None,
-    Crit(PlacedScoreTick, f64),
-    Good(PlacedScoreTick, f64),
-    Miss(PlacedScoreTick),
+    Crit {
+        tick: PlacedScoreTick,
+        delta: f64,
+        time: f64,
+    },
+    Good {
+        tick: PlacedScoreTick,
+        delta: f64,
+        time: f64,
+    },
+    Miss {
+        tick: PlacedScoreTick,
+        delta: f64,
+        time: f64,
+    },
 }
 
 impl From<&Gauge> for LuaGauge {
@@ -558,6 +590,7 @@ impl Game {
             draw_axis_guides: false,
             current_roll: 0.0,
             target_roll: None,
+            hit_ratings: Vec::new(),
         };
         res.set_track_uniforms();
         Ok(res)
@@ -684,19 +717,21 @@ impl Game {
     }
 
     fn on_hit(&mut self, hit_rating: HitRating) {
+        self.hit_ratings.push(hit_rating);
+
         let last_score = self.real_score;
         self.real_score += match hit_rating {
-            HitRating::Crit(_, _) => 2,
-            HitRating::Good(_, _) => 1,
+            HitRating::Crit { tick, delta, time } => 2,
+            HitRating::Good { tick, delta, time } => 1,
             _ => 0,
         };
 
         let combo_updated = match hit_rating {
-            HitRating::Crit(_, _) | HitRating::Good(_, _) => {
+            HitRating::Crit { tick, delta, time } | HitRating::Good { tick, delta, time } => {
                 self.combo += 1;
                 true
             }
-            HitRating::Miss(_) => {
+            HitRating::Miss { tick, delta, time } => {
                 if self.combo == 0 {
                     false
                 } else {
@@ -723,7 +758,7 @@ impl Game {
         let laser_slam_hit = self.lua.globals().get::<_, Function>("laser_slam_hit");
 
         match hit_rating {
-            HitRating::Crit(tick, delta) => match tick.tick {
+            HitRating::Crit { tick, delta, time } => match tick.tick {
                 ScoreTick::Chip { lane } => {
                     self.beam_colors_current[lane] = (self.beam_colors[2] / 255.0).into();
                     if let Ok(button_hit) = button_hit {
@@ -738,7 +773,7 @@ impl Game {
                 }
                 _ => (),
             },
-            HitRating::Good(tick, delta) => {
+            HitRating::Good { tick, delta, time } => {
                 if let ScoreTick::Chip { lane } = tick.tick {
                     if let Ok(near_hit) = self.lua.globals().get::<_, Function>("near_hit") {
                         near_hit.call::<_, ()>(delta < 0.0);
@@ -749,7 +784,7 @@ impl Game {
                     self.beam_colors_current[lane] = (self.beam_colors[1] / 255.0).into()
                 }
             }
-            HitRating::Miss(tick) if tick.y > self.current_tick => {
+            HitRating::Miss { tick, delta, time } if tick.y > self.current_tick => {
                 if let ScoreTick::Chip { lane } = tick.tick {
                     self.beam_colors_current[lane] = (self.beam_colors[0] / 255.0).into();
                     if let Ok(button_hit) = button_hit {
@@ -757,7 +792,7 @@ impl Game {
                     }
                 }
             }
-            HitRating::Miss(tick) => {
+            HitRating::Miss { tick, delta, time } => {
                 if let ScoreTick::Chip { lane } = tick.tick {
                     if let Ok(button_hit) = button_hit {
                         button_hit.call::<_, ()>((lane, 0, 0));
@@ -782,19 +817,36 @@ impl Game {
         chip_miss_tick: u32,
         slam_miss_tick: u32,
     ) -> HitRating {
+        let time = self.time;
         match tick.tick {
             ScoreTick::Hold { lane } => {
                 if self.input_state.is_button_held((lane as u8).into()) {
-                    HitRating::Crit(tick, 0.0)
+                    HitRating::Crit {
+                        tick,
+                        delta: 0.0,
+                        time,
+                    }
                 } else {
-                    HitRating::Miss(tick)
+                    HitRating::Miss {
+                        tick,
+                        delta: 0.0,
+                        time,
+                    }
                 }
             }
             ScoreTick::Laser { lane, pos } => {
                 if (self.laser_cursors[lane] - pos).abs() < LASER_THRESHOLD {
-                    HitRating::Crit(tick, 0.0)
+                    HitRating::Crit {
+                        tick,
+                        delta: 0.0,
+                        time,
+                    }
                 } else {
-                    HitRating::Miss(tick)
+                    HitRating::Miss {
+                        tick,
+                        delta: 0.0,
+                        time,
+                    }
                 }
             }
             ScoreTick::Slam { lane, start, end } => {
@@ -809,18 +861,22 @@ impl Game {
                 let contains_cursor =
                     (start.min(end)..=start.max(end)).contains(&self.laser_cursors[lane]);
                 if tick.y < slam_miss_tick {
-                    HitRating::Miss(tick)
+                    HitRating::Miss { tick, delta, time }
                 } else if delta.abs() < self.lua_game_state.hit_window.good && contains_cursor {
                     self.laser_cursors[lane] = end;
                     self.laser_assist_ticks[lane] = 24;
-                    HitRating::Crit(tick, delta)
+                    HitRating::Crit { tick, delta, time }
                 } else {
                     HitRating::None
                 }
             }
             ScoreTick::Chip { lane: _ } => {
                 if tick.y < chip_miss_tick {
-                    HitRating::Miss(tick)
+                    HitRating::Miss {
+                        tick,
+                        delta: 0.0,
+                        time,
+                    }
                 } else {
                     HitRating::None
                 }
@@ -850,7 +906,8 @@ impl Scene for Game {
                     song: self.song.clone(),
                     diff_idx: self.diff_idx,
                     score: self.calculate_display_score() as u32,
-                    gauge: 0.5,
+                    gauge: self.gauge.value(),
+                    hit_ratings: std::mem::take(&mut self.hit_ratings),
                 });
 
             self.results_requested = true;
@@ -1341,17 +1398,19 @@ impl Scene for Game {
                         false
                     }
                 }) {
+                    let tick = *score_tick;
                     let ms = self.chart.tick_to_ms(score_tick.y);
-                    let delta = ms - self.time;
+                    let time = self.time;
+                    let delta = ms - time;
                     let abs_delta = delta.abs();
                     log::info!("Hit delta: {}", delta);
 
                     hit_rating = if abs_delta <= perfect {
-                        HitRating::Crit(*score_tick, delta)
+                        HitRating::Crit { tick, delta, time }
                     } else if abs_delta <= good {
-                        HitRating::Good(*score_tick, delta)
+                        HitRating::Good { tick, delta, time }
                     } else if abs_delta <= miss {
-                        HitRating::Miss(*score_tick)
+                        HitRating::Miss { tick, delta, time }
                     } else {
                         HitRating::None
                     };

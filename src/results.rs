@@ -4,10 +4,12 @@ use std::{
     sync::{mpsc::Sender, Arc},
 };
 
+use itertools::Itertools;
+use kson::score_ticks::ScoreTick;
 use serde::Serialize;
 
 use crate::{
-    game::HitWindow,
+    game::{HitRating, HitWindow},
     input_state::InputState,
     scene::{Scene, SceneData},
     songselect::{Difficulty, Song},
@@ -78,7 +80,13 @@ pub struct SongResultData {
 }
 
 impl SongResultData {
-    pub fn from_diff(song: Arc<Song>, diff_idx: usize, score: u32) -> Self {
+    pub fn from_diff(
+        song: Arc<Song>,
+        diff_idx: usize,
+        score: u32,
+        hit_ratings: Vec<HitRating>,
+        gauge: f32,
+    ) -> Self {
         let Difficulty {
             jacket_path,
             level,
@@ -111,7 +119,29 @@ impl SongResultData {
             0.. => "D",
         }
         .to_string();
+        let (laser_hit_stats, note_hit_stats, hold_hit_stats) = hit_ratings.iter().fold(
+            (vec![], vec![], vec![]),
+            |(mut laser, mut note, mut hold), x| {
+                let rating = (*x).try_into();
+                match x {
+                    HitRating::None => {}
+                    HitRating::Crit { tick, delta, time }
+                    | HitRating::Good { tick, delta, time }
+                    | HitRating::Miss { tick, delta, time } => match tick.tick {
+                        ScoreTick::Laser { lane: _, pos: _ }
+                        | ScoreTick::Slam {
+                            lane: _,
+                            start: _,
+                            end: _,
+                        } => laser.push(rating.unwrap()),
 
+                        ScoreTick::Chip { lane } => note.push(rating.unwrap()),
+                        ScoreTick::Hold { lane } => hold.push(rating.unwrap()),
+                    },
+                }
+                (laser, note, hold)
+            },
+        );
         Self {
             score,
             jacket_path,
@@ -124,6 +154,32 @@ impl SongResultData {
             bpm,
             grade,
             gauge_samples: vec![0.0; 256],
+            gauge,
+            goods: hit_ratings
+                .iter()
+                .filter(|x| matches!(x, HitRating::Good { tick, delta, time }))
+                .count() as i32,
+            perfects: hit_ratings
+                .iter()
+                .filter(|x| matches!(x, HitRating::Crit { tick, delta, time }))
+                .count() as i32,
+            misses: hit_ratings
+                .iter()
+                .filter(|x| matches!(x, HitRating::Miss { tick, delta, time }))
+                .count() as i32,
+
+            earlies: hit_ratings
+                .iter()
+                .filter(|x| matches!(x, HitRating::Good { tick, delta, time } if *delta < 0.0))
+                .count() as i32,
+            lates: hit_ratings
+                .iter()
+                .filter(|x| matches!(x, HitRating::Good { tick, delta, time } if *delta > 0.0))
+                .count() as i32,
+            laser_hit_stats,
+            note_hit_stats,
+            hold_hit_stats,
+
             ..Default::default()
         }
     }
@@ -149,6 +205,40 @@ struct HitStat {
     time_frac: f32, // Between 0 and 1
     delta: i32,
     hold: i32, // 0 for chip or laser, otherwise # of ticks in hold
+}
+
+impl TryFrom<HitRating> for HitStat {
+    type Error = anyhow::Error;
+
+    fn try_from(value: HitRating) -> Result<Self, Self::Error> {
+        let mut ret = match value {
+            HitRating::None => return Err(anyhow::anyhow!("HitRating was None")),
+            HitRating::Crit { tick, delta, time }
+            | HitRating::Good { tick, delta, time }
+            | HitRating::Miss { tick, delta, time } => Self {
+                rating: 0,
+                lane: tick.tick.lane() as i32,
+                time: time as i32,
+                time_frac: time.fract() as f32,
+                delta: delta as i32,
+                hold: match tick.tick {
+                    kson::score_ticks::ScoreTick::Laser { lane, pos } => 1,
+                    kson::score_ticks::ScoreTick::Slam { lane, start, end } => 0,
+                    kson::score_ticks::ScoreTick::Chip { lane } => 0,
+                    kson::score_ticks::ScoreTick::Hold { lane } => 1,
+                },
+            },
+        };
+
+        ret.rating = match value {
+            HitRating::None => unreachable!(),
+            HitRating::Crit { tick, delta, time } => 2,
+            HitRating::Good { tick, delta, time } => 1,
+            HitRating::Miss { tick, delta, time } => 0,
+        };
+
+        Ok(ret)
+    }
 }
 
 #[derive(Debug, TypeName, Clone, Serialize, UserData, Default)]

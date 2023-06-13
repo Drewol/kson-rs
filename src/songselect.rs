@@ -4,10 +4,12 @@ use generational_arena::Index;
 use puffin::profile_function;
 use serde::Serialize;
 use std::{
+    cell::RefCell,
     fmt::Debug,
+    ops::DerefMut,
     path::PathBuf,
     rc::Rc,
-    sync::{mpsc::Sender, Arc, Mutex},
+    sync::{mpsc::Sender, Arc, Mutex, RwLock},
 };
 use tealr::{
     mlu::{
@@ -23,7 +25,9 @@ use crate::{
     input_state::InputState,
     results::Score,
     scene::{Scene, SceneData},
-    song_provider::{FileSongProvider, NauticaSongProvider, SongProvider, SongProviderEvent},
+    song_provider::{
+        self, FileSongProvider, NauticaSongProvider, ScoreProvider, SongProvider, SongProviderEvent,
+    },
     ControlMessage,
 };
 
@@ -87,7 +91,9 @@ pub struct SongSelect {
     selected_index: i32,
     selected_diff_index: i32,
     #[serde(skip_serializing)]
-    song_provider: Box<dyn SongProvider + Send>,
+    song_provider: Arc<Mutex<dyn SongProvider + Send>>,
+    #[serde(skip_serializing)]
+    score_provider: Arc<Mutex<dyn ScoreProvider + Send>>,
 }
 
 impl TealData for SongSelect {
@@ -122,13 +128,22 @@ impl SongSelect {
     pub fn new() -> Self {
         let song_path = { GameConfig::get().unwrap().songs_path.clone() };
 
-        let mut provider: Box<dyn SongProvider + Send> = if song_path == PathBuf::from("nautica") {
-            Box::new(NauticaSongProvider::new())
+        let (song_provider, score_provider): (
+            Arc<Mutex<dyn SongProvider + Send>>,
+            Arc<Mutex<dyn ScoreProvider + Send>>,
+        ) = if song_path == PathBuf::from("nautica") {
+            (
+                Arc::new(Mutex::new(NauticaSongProvider::new())),
+                Arc::new(Mutex::new(crate::block_on!(FileSongProvider::new()))),
+            )
         } else {
-            Box::new(crate::block_on!(FileSongProvider::new()))
+            let val = Arc::new(Mutex::new(crate::block_on!(FileSongProvider::new())));
+            (val.clone(), val)
         };
 
-        let mut songs = if let Some(SongProviderEvent::SongsAdded(songs)) = provider.poll() {
+        let mut songs = if let Some(SongProviderEvent::SongsAdded(songs)) =
+            song_provider.lock().unwrap().poll()
+        {
             songs
         } else {
             vec![]
@@ -142,7 +157,8 @@ impl SongSelect {
             searchText: String::new(),
             selected_index: 0,
             selected_diff_index: 0,
-            song_provider: provider,
+            song_provider,
+            score_provider,
         }
     }
 }
@@ -154,7 +170,7 @@ impl SceneData for SongSelect {
 }
 
 pub struct SongSelectScene {
-    state: Arc<Mutex<Box<SongSelect>>>,
+    state: Box<SongSelect>,
     lua: Rc<Lua>,
     background_lua: Rc<Lua>,
     program_control: Option<Sender<ControlMessage>>,
@@ -169,7 +185,7 @@ impl SongSelectScene {
         Self {
             background_lua: Rc::new(Lua::new()),
             lua: Rc::new(Lua::new()),
-            state: Arc::new(Mutex::new(song_select)),
+            state: song_select,
             program_control: None,
             diff_advance: 0.0,
             song_advance: 0.0,
@@ -196,11 +212,7 @@ impl Scene for SongSelectScene {
     }
 
     fn debug_ui(&mut self, ctx: &egui::Context) -> Result<()> {
-        let song_count = if let Ok(state) = &mut self.state.lock() {
-            state.songs.len()
-        } else {
-            0
-        };
+        let song_count = self.state.songs.len();
 
         egui::Window::new("Songsel").show(ctx, |ui| {
             egui::Grid::new("songsel-grid")
@@ -209,7 +221,7 @@ impl Scene for SongSelectScene {
                 .show(ui, |ui| -> Result<()> {
                     if song_count > 0 {
                         {
-                            let state = &mut self.state.lock().unwrap();
+                            let state = &mut self.state;
                             ui.label("Song");
                             if ui
                                 .add(
@@ -228,11 +240,13 @@ impl Scene for SongSelectScene {
                         ui.end_row();
                         if ui.button("Start").clicked() {
                             self.suspend();
-                            let state = &mut self.state.lock().unwrap();
+                            let state = &mut self.state;
                             let song = state.songs[state.selected_index as usize].clone();
                             let diff = state.selected_diff_index as usize;
                             let loader = state
                                 .song_provider
+                                .lock()
+                                .unwrap()
                                 .load_song(song.id, song.difficulties[diff].id);
                             ensure!(self
                                 .program_control
@@ -271,39 +285,40 @@ impl Scene for SongSelectScene {
         const KNOB_NAV_THRESHOLD: f32 = std::f32::consts::PI / 3.0;
         let song_advance_steps = (self.song_advance / KNOB_NAV_THRESHOLD).trunc() as i32;
         self.song_advance -= song_advance_steps as f32 * KNOB_NAV_THRESHOLD;
-        if let Ok(state) = &mut self.state.lock() {
-            let mut songs_dirty = false;
-            while let Some(provider_event) = state.song_provider.poll() {
-                songs_dirty = true;
-                match provider_event {
-                    SongProviderEvent::SongsAdded(mut new_songs) => {
-                        state.songs.append(&mut new_songs)
-                    }
-                    SongProviderEvent::SongsRemoved(removed_ids) => {
-                        state.songs.retain(|s| !removed_ids.contains(&s.id))
-                    }
-                    SongProviderEvent::OrderChanged(_) => todo!(),
+        let state = &mut self.state;
+        let mut songs_dirty = false;
+        while let Some(provider_event) = state.song_provider.lock().unwrap().poll() {
+            songs_dirty = true;
+            match provider_event {
+                SongProviderEvent::SongsAdded(mut new_songs) => state.songs.append(&mut new_songs),
+                SongProviderEvent::SongsRemoved(removed_ids) => {
+                    state.songs.retain(|s| !removed_ids.contains(&s.id))
                 }
+                SongProviderEvent::OrderChanged(_) => todo!(),
             }
+        }
 
-            if songs_dirty {
-                self.lua
-                    .globals()
-                    .set("songwheel", self.lua.to_value(state.as_ref())?)?;
-            }
+        if songs_dirty {
+            self.lua
+                .globals()
+                .set("songwheel", self.lua.to_value(state.as_ref())?)?;
+        }
 
-            if !state.songs.is_empty() {
-                state.selected_index = (state.selected_index + song_advance_steps)
-                    .rem_euclid(state.songs.len() as i32);
-                let song_idx = state.selected_index as usize;
-                let song_id = state.songs[song_idx].id;
-                state.song_provider.set_current_index(song_id);
+        if !state.songs.is_empty() {
+            state.selected_index =
+                (state.selected_index + song_advance_steps).rem_euclid(state.songs.len() as i32);
+            let song_idx = state.selected_index as usize;
+            let song_id = state.songs[song_idx].id;
+            state
+                .song_provider
+                .lock()
+                .unwrap()
+                .set_current_index(song_id);
 
-                if song_advance_steps != 0 {
-                    let set_song_idx: Function = self.lua.globals().get("set_index").unwrap();
+            if song_advance_steps != 0 {
+                let set_song_idx: Function = self.lua.globals().get("set_index").unwrap();
 
-                    set_song_idx.call::<_, ()>(state.selected_index + 1)?;
-                }
+                set_song_idx.call::<_, ()>(state.selected_index + 1)?;
             }
         }
 
@@ -321,11 +336,13 @@ impl Scene for SongSelectScene {
         if let UscButton::Start = button {
             self.suspend();
             if let Some(pc) = &self.program_control {
-                let state = self.state.lock().unwrap();
+                let state = &self.state;
                 let song = state.songs[state.selected_index as usize].clone();
                 let diff = state.selected_diff_index as usize;
                 let loader = state
                     .song_provider
+                    .lock()
+                    .unwrap()
                     .load_song(song.id, song.difficulties[diff].id);
                 pc.send(ControlMessage::Song { diff, loader, song });
             } else {

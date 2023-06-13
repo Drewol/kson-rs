@@ -27,6 +27,7 @@ use tealr::mlu::mlua::LuaSerdeExt;
 use crate::{
     button_codes::{LaserState, UscInputEvent},
     config::GameConfig,
+    game::HitRating,
     game_data::{ExportGame, GameData},
     input_state::InputState,
     main_menu::MainMenuButton,
@@ -52,6 +53,7 @@ pub enum ControlMessage {
         diff_idx: usize,
         score: u32,
         gauge: f32,
+        hit_ratings: Vec<HitRating>,
     },
 }
 
@@ -327,6 +329,7 @@ impl GameMain {
                     diff_idx,
                     score,
                     gauge,
+                    hit_ratings,
                 } => {
                     if let Ok(arena) = lua_arena.read() {
                         let transition_lua = arena.get(*transition_lua_idx).unwrap().clone();
@@ -337,6 +340,7 @@ impl GameMain {
                                 diff_idx,
                                 score,
                                 gauge,
+                                hit_ratings,
                             },
                             control_tx.clone(),
                             frame_input.context.clone(),
