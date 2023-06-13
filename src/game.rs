@@ -15,7 +15,7 @@ use kson::{
     Chart, Graph,
 };
 use puffin::profile_function;
-use rodio::Source;
+use rodio::{dynamic_mixer::DynamicMixerController, Source};
 use serde::{Deserialize, Serialize};
 use tealr::mlu::mlua::{Function, Lua, LuaSerdeExt};
 use three_d_asset::vec4;
@@ -65,6 +65,7 @@ pub struct Game {
     target_roll: Option<f64>,
     current_roll: f64,
     hit_ratings: Vec<HitRating>,
+    mixer: Option<Arc<DynamicMixerController<f32>>>,
 }
 
 #[derive(Debug, Default)]
@@ -591,6 +592,7 @@ impl Game {
             current_roll: 0.0,
             target_roll: None,
             hit_ratings: Vec::new(),
+            mixer: None,
         };
         res.set_track_uniforms();
         Ok(res)
@@ -979,11 +981,12 @@ impl Scene for Game {
         &mut self,
         load_lua: Rc<dyn Fn(Rc<Lua>, &'static str) -> Result<generational_arena::Index>>,
         app_control_tx: std::sync::mpsc::Sender<crate::ControlMessage>,
+        mixer: Arc<DynamicMixerController<f32>>,
     ) -> Result<()> {
         profile_function!();
 
         ensure!(self.score_summary.total != 0, "Empty chart");
-
+        self.mixer = Some(mixer);
         let long_count = self.score_summary.hold_count + self.score_summary.laser_count;
         let chip_count = self.score_summary.chip_count + self.score_summary.slam_count;
         let ftotal = 2.10 + f32::EPSILON;

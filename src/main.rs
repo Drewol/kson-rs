@@ -20,6 +20,7 @@ use gilrs::ev::filter::Jitter;
 
 use log::*;
 
+use rodio::dynamic_mixer::DynamicMixerController;
 use scene::Scene;
 
 use td::{FrameInput, HasContext, Viewport};
@@ -62,6 +63,8 @@ macro_rules! block_on {
     };
 }
 
+pub type RuscMixer = Arc<DynamicMixerController<f32>>;
+
 pub fn project_dirs() -> ProjectDirs {
     directories::ProjectDirs::from("", "Drewol", "USC").expect("Failed to get project dirs")
 }
@@ -72,16 +75,18 @@ pub struct Scenes {
     pub initialized: Vec<Box<dyn Scene>>,
     pub transition: Option<Transition>,
     should_outro: bool,
+    mixer: RuscMixer,
 }
 
 impl Scenes {
-    pub fn new() -> Self {
+    pub fn new(mixer: Arc<DynamicMixerController<f32>>) -> Self {
         Self {
             active: Default::default(),
             loaded: Default::default(),
             initialized: Default::default(),
             transition: Default::default(),
             should_outro: Default::default(),
+            mixer,
         }
     }
 
@@ -124,7 +129,7 @@ impl Scenes {
         self.active.append(&mut self.initialized);
 
         self.loaded.retain_mut(|x| {
-            let result = x.init(load_lua.clone(), app_control_tx.clone());
+            let result = x.init(load_lua.clone(), app_control_tx.clone(), self.mixer.clone());
             if let Err(e) = &result {
                 log::error!("{:?}", e);
             }
@@ -203,6 +208,12 @@ fn main() -> anyhow::Result<()> {
     let mut config_path = std::env::current_dir().unwrap();
     config_path.push("Main.cfg");
     GameConfig::init(config_path);
+    let (outputStream, outputStreamHandle) = rodio::OutputStream::try_default()?;
+    let sink = rodio::Sink::try_new(&outputStreamHandle)?;
+    let (mixer_controls, mixer) = rodio::dynamic_mixer::mixer::<f32>(2, 44100);
+    mixer_controls.add(rodio::source::Zero::new(2, 44100));
+    sink.append(mixer);
+    sink.play();
 
     let show_debug_ui = true;
 
@@ -353,7 +364,7 @@ fn main() -> anyhow::Result<()> {
 
     let fps_paint = vg::Paint::color(vg::Color::white()).with_text_align(vg::Align::Right);
 
-    let mut scenes = Scenes::new();
+    let mut scenes = Scenes::new(mixer_controls.clone());
 
     scenes.loaded.push(Box::new(main_menu::MainMenu::new()));
     let game_data = Arc::new(Mutex::new(game_data::GameData {
@@ -361,6 +372,8 @@ fn main() -> anyhow::Result<()> {
         resolution: (800, 600),
         profile_stack: vec![],
         laser_state: LaserState::default(),
+        audio_sample_play_status: Default::default(),
+        audio_samples: Default::default(),
     }));
 
     let lua_arena: Rc<RwLock<Arena<Rc<Lua>>>> = Rc::new(RwLock::new(Arena::new()));
@@ -394,6 +407,7 @@ fn main() -> anyhow::Result<()> {
         mousex,
         mousey,
         input_state,
+        mixer_controls,
     );
 
     game_loop::game_loop(

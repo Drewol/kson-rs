@@ -17,7 +17,7 @@ hecs = { version = "0.9.0", features = ["macros", "lazy_static"] }
 #kson-audio = {path = "../kson-rs/kson-audio"}
 kson ={git = "https://github.com/Drewol/kson-rs.git"}
 kson-audio = {git = "https://github.com/Drewol/kson-rs.git"}
-rodio = "0.17.1"
+rodio = {version = "0.17.1", default-features = false, features = ['symphonia-wav', "flac", "vorbis", "mp3"]}
 tealr = { git = "https://github.com/lenscas/tealr.git", features = ["mlua", "tealr_derive", "mlua_lua54", "mlua_vendored", "mlua_serialize"] }
 three-d = {version = "0.15.0"}
 anyhow = "1"

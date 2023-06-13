@@ -2,6 +2,7 @@ use anyhow::{ensure, Result};
 use game_loop::winit::event::Event;
 use generational_arena::Index;
 use puffin::profile_function;
+use rodio::dynamic_mixer::DynamicMixerController;
 use serde::Serialize;
 use std::{
     cell::RefCell,
@@ -271,6 +272,7 @@ impl Scene for SongSelectScene {
         &mut self,
         load_lua: Rc<dyn Fn(Rc<Lua>, &'static str) -> anyhow::Result<Index>>,
         app_control_tx: Sender<ControlMessage>,
+        mixer: Arc<DynamicMixerController<f32>>,
     ) -> anyhow::Result<()> {
         self.lua
             .globals()

@@ -1,7 +1,15 @@
-use std::path::PathBuf;
+use std::{
+    cell::{Ref, RefMut},
+    collections::HashMap,
+    path::PathBuf,
+    sync::{atomic::AtomicUsize, Arc},
+    time::Duration,
+};
 
-use egui::{epaint::Hsva};
+use egui::epaint::Hsva;
+use log::warn;
 use puffin::ProfilerScope;
+use rodio::Source;
 use tealr::{
     mlu::{
         mlua::{self},
@@ -13,7 +21,7 @@ use tealr::{
 
 use crate::{
     button_codes::LaserState, config::GameConfig, help::add_lua_static_method,
-    skin_settings::SkinSettingValue,
+    skin_settings::SkinSettingValue, RuscMixer,
 };
 
 #[derive(UserData)]
@@ -22,6 +30,8 @@ pub struct GameData {
     pub mouse_pos: (f64, f64),
     pub profile_stack: Vec<ProfilerScope>,
     pub laser_state: LaserState,
+    pub audio_samples: HashMap<String, rodio::source::Buffered<rodio::Decoder<std::fs::File>>>,
+    pub audio_sample_play_status: HashMap<String, Arc<AtomicUsize>>,
 }
 
 impl TypeName for GameData {
@@ -101,7 +111,34 @@ impl TealData for GameData {
         add_lua_static_method(
             methods,
             "LoadSkinSample",
-            |_, _, _game_data, _p: LoadSkinSampleParams| Ok(()),
+            |_, _, game_data, p: LoadSkinSampleParams| {
+                let LoadSkinSampleParams { name } = p;
+
+                if game_data.audio_samples.contains_key(&name) {
+                    return Ok(());
+                }
+                let config = GameConfig::get().unwrap();
+
+                let mut folder = config.game_folder.clone();
+                folder.push("skins");
+                folder.push(&config.skin);
+                folder.push("audio");
+                folder.push(&name);
+                if folder.extension().is_none() {
+                    folder.set_extension("wav");
+                }
+
+                let file =
+                    std::fs::File::open(&folder).map_err(tealr::mlu::mlua::Error::external)?;
+
+                let decoder = rodio::Decoder::new(file)
+                    .map_err(tealr::mlu::mlua::Error::external)?
+                    .buffered();
+
+                game_data.audio_samples.insert(name, decoder);
+
+                Ok(())
+            },
         );
 
         //PlaySample
@@ -113,7 +150,57 @@ impl TealData for GameData {
         add_lua_static_method(
             methods,
             "PlaySample",
-            |_, _, _game_data, _p: PlaySampleParams| Ok(()),
+            |lua, _, game_data, p: PlaySampleParams| {
+                let PlaySampleParams { name, do_loop } = p;
+
+                let sample = game_data.audio_samples.get(&name);
+
+                if sample.is_none() {
+                    warn!("No sample named: {name}");
+                    return Ok(());
+                }
+
+                let mixer: Ref<RuscMixer> = lua.app_data_ref().unwrap();
+
+                let play_control = Arc::new(AtomicUsize::new(1));
+                let prev = game_data
+                    .audio_sample_play_status
+                    .insert(name, play_control.clone());
+
+                if let Some(p) = prev {
+                    p.store(0, std::sync::atomic::Ordering::SeqCst);
+                }
+
+                let to_play = sample.unwrap().clone();
+                if do_loop {
+                    mixer.add(
+                        to_play
+                            .convert_samples()
+                            .repeat_infinite()
+                            .stoppable()
+                            .periodic_access(Duration::from_millis(10), move |x| {
+                                if play_control.load(std::sync::atomic::Ordering::SeqCst) == 0 {
+                                    x.stop()
+                                }
+                            }),
+                    )
+                } else {
+                    let done_control = play_control.clone();
+                    mixer.add(rodio::source::Done::new(
+                        to_play.convert_samples().stoppable().periodic_access(
+                            Duration::from_millis(10),
+                            move |x| {
+                                if play_control.load(std::sync::atomic::Ordering::SeqCst) == 0 {
+                                    x.stop()
+                                }
+                            },
+                        ),
+                        done_control,
+                    ))
+                }
+
+                Ok(())
+            },
         );
 
         //StopSample
@@ -124,7 +211,16 @@ impl TealData for GameData {
         add_lua_static_method(
             methods,
             "StopSample",
-            |_, _, _game_data, _p: StopSampleParams| Ok(()),
+            |_, _, game_data, p: StopSampleParams| {
+                let StopSampleParams { name } = p;
+
+                game_data
+                    .audio_sample_play_status
+                    .entry(name)
+                    .and_modify(|x| x.store(0, std::sync::atomic::Ordering::SeqCst));
+
+                Ok(())
+            },
         );
 
         //IsSamplePlaying
@@ -135,7 +231,17 @@ impl TealData for GameData {
         add_lua_static_method(
             methods,
             "IsSamplePlaying",
-            |_, _, _game_data, _p: IsSamplePlayingParams| Ok(false),
+            |_, _, game_data, p: IsSamplePlayingParams| {
+                let IsSamplePlayingParams { name } = p;
+                if !game_data.audio_samples.contains_key(&name) {
+                    return Ok(None);
+                }
+
+                match game_data.audio_sample_play_status.get(&name) {
+                    Some(a) => Ok(Some(a.load(std::sync::atomic::Ordering::SeqCst) == 1)),
+                    None => Ok(Some(false)),
+                }
+            },
         );
 
         //GetLaserColor

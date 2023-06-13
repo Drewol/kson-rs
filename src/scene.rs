@@ -6,6 +6,7 @@ use std::{
 use anyhow::Result;
 use game_loop::winit::event::Event;
 use generational_arena::Index;
+use rodio::dynamic_mixer::DynamicMixerController;
 use tealr::mlu::mlua::Lua;
 use three_d::{RenderTarget, Viewport};
 
@@ -21,6 +22,7 @@ pub trait Scene {
         &mut self,
         load_lua: Rc<dyn Fn(Rc<Lua>, &'static str) -> Result<Index>>,
         app_control_tx: Sender<ControlMessage>,
+        mixer: Arc<DynamicMixerController<f32>>,
     ) -> Result<()> {
         Ok(())
     }

@@ -3,12 +3,14 @@ use std::{
     rc::Rc,
     sync::{
         mpsc::{Receiver, Sender},
+        Arc,
     },
 };
 
 use anyhow::{anyhow, Result};
 use game_loop::winit::event::{ElementState, Event, WindowEvent};
 use generational_arena::Index;
+use rodio::dynamic_mixer::DynamicMixerController;
 use tealr::{
     mlu::{
         mlua::{Function, Lua},
@@ -129,6 +131,7 @@ impl Scene for MainMenu {
         &mut self,
         load_lua: Rc<dyn Fn(Rc<Lua>, &'static str) -> anyhow::Result<Index>>,
         app_control_tx: Sender<ControlMessage>,
+        mixer: Arc<DynamicMixerController<f32>>,
     ) -> anyhow::Result<()> {
         load_lua(self.lua.clone(), "titlescreen.lua")?;
         self.control_tx = Some(app_control_tx);

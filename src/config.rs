@@ -15,6 +15,7 @@ pub struct GameConfig {
     pub laser_hues: [f32; 2],
     #[serde(skip_serializing, skip_deserializing)]
     pub skin_settings: HashMap<String, SkinSettingValue>,
+    pub game_folder: PathBuf,
 }
 
 impl Default for GameConfig {
@@ -25,6 +26,7 @@ impl Default for GameConfig {
             skin: "Default".into(),
             skin_settings: HashMap::new(),
             laser_hues: [200.0, 330.0],
+            game_folder: std::env::current_dir().unwrap(),
         }
     }
 }

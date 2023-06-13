@@ -6,6 +6,7 @@ use std::{
 
 use itertools::Itertools;
 use kson::score_ticks::ScoreTick;
+use rodio::dynamic_mixer::DynamicMixerController;
 use serde::Serialize;
 
 use crate::{
@@ -276,6 +277,7 @@ impl Scene for SongResult {
             dyn Fn(std::rc::Rc<Lua>, &'static str) -> anyhow::Result<generational_arena::Index>,
         >,
         app_control_tx: Sender<ControlMessage>,
+        mixer: Arc<DynamicMixerController<f32>>,
     ) -> anyhow::Result<()> {
         load_lua(self.lua.clone(), "result.lua")?;
 

@@ -13,6 +13,7 @@ use generational_arena::{Arena, Index};
 use kson::Chart;
 use log::*;
 use puffin::{profile_function, profile_scope};
+use rodio::dynamic_mixer::DynamicMixerController;
 use serde_json::json;
 use td::FrameOutput;
 use tealr::mlu::mlua::Lua;
@@ -34,7 +35,7 @@ use crate::{
     scene, songselect,
     transition::Transition,
     vg_ui::{ExportVgfx, Vgfx},
-    Scenes, FRAME_ACC_SIZE,
+    RuscMixer, Scenes, FRAME_ACC_SIZE,
 };
 
 type SceneLoader = dyn FnOnce() -> (Chart, Box<dyn rodio::Source<Item = f32> + Send>) + Send;
@@ -83,6 +84,7 @@ pub struct GameMain {
     mousex: f64,
     mousey: f64,
     input_state: Arc<InputState>,
+    mixer: RuscMixer,
 }
 
 impl GameMain {
@@ -106,6 +108,7 @@ impl GameMain {
         mousex: f64,
         mousey: f64,
         input_state: Arc<InputState>,
+        mixer: RuscMixer,
     ) -> Self {
         Self {
             lua_arena,
@@ -127,6 +130,7 @@ impl GameMain {
             mousex,
             mousey,
             input_state,
+            mixer,
         }
     }
 
@@ -156,6 +160,7 @@ impl GameMain {
             mousex,
             mousey,
             input_state: _,
+            mixer,
         } = self;
 
         poll_promise::tick(); //Tick async runtime at least once per frame
@@ -167,11 +172,12 @@ impl GameMain {
             lua.set_app_data(frame_input.clone());
         }
         let lua_frame_input = frame_input.clone();
-
+        let lua_mixer = mixer.clone();
         let load_lua = |game_data: Arc<Mutex<GameData>>,
                         vgfx: Arc<Mutex<Vgfx>>,
                         arena: Rc<RwLock<Arena<Rc<Lua>>>>| {
             let lua_frame_input = lua_frame_input.clone();
+            let lua_mixer = lua_mixer.clone();
             Rc::new(move |lua: Rc<Lua>, script_path| {
                 //Set path for 'require' (https://stackoverflow.com/questions/4125971/setting-the-global-lua-path-variable-from-c-c?lq=1)
                 let skin = &GameConfig::get().unwrap().skin;
@@ -204,6 +210,7 @@ impl GameMain {
                     lua.set_app_data(game_data.clone());
                     lua.set_app_data(idx);
                     lua.set_app_data(lua_frame_input.clone());
+                    lua.set_app_data(lua_mixer.clone());
                     lua.gc_stop();
                 }
 
@@ -562,6 +569,10 @@ impl GameMain {
                     resolution: (frame_input.viewport.width, frame_input.viewport.height),
                     profile_stack: std::mem::take(&mut game_data.profile_stack),
                     laser_state,
+                    audio_samples: std::mem::take(&mut game_data.audio_samples),
+                    audio_sample_play_status: std::mem::take(
+                        &mut game_data.audio_sample_play_status,
+                    ),
                 };
             }
         }
