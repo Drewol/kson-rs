@@ -6,6 +6,7 @@ use std::{
     path::PathBuf,
     str::FromStr,
     sync::Arc,
+    time::Duration,
 };
 
 use rayon::prelude::*;
@@ -17,7 +18,7 @@ use crate::{
 };
 
 use super::{SongProvider, SongProviderEvent};
-use anyhow::{bail, Result};
+use anyhow::{bail, ensure, Result};
 use kson::Ksh;
 use poll_promise::Promise;
 use serde::{Deserialize, Serialize};
@@ -364,6 +365,53 @@ impl SongProvider for NauticaSongProvider {
         } else {
             todo!()
         }
+    }
+
+    fn get_preview(
+        &self,
+        id: u64,
+    ) -> anyhow::Result<(
+        Box<dyn Source<Item = f32> + Send>,
+        std::time::Duration,
+        std::time::Duration,
+    )> {
+        let song_uuid = self.id_map.get(&id);
+        ensure!(song_uuid.is_some());
+        let song_uuid = song_uuid.unwrap();
+        let mut song_path = project_dirs().cache_dir().to_path_buf();
+
+        song_path.push(song_uuid.hyphenated().to_string());
+        log::info!("Writing song cache {:?}", &song_path);
+        std::fs::create_dir_all(&song_path)?;
+        song_path.push("preview");
+
+        let source: Box<dyn Source<Item = f32> + Send> = if song_path.exists() {
+            Box::new(rodio::Decoder::new(std::fs::File::open(song_path)?)?.convert_samples())
+        } else {
+            let NauticaSong { data: nautica } = ureq::get(&format!(
+                "https://ksm.dev/app/songs/{}",
+                song_uuid.as_hyphenated()
+            ))
+            .call()
+            .expect("Failed to get song")
+            .into_json()
+            .expect("Failed to parse nautica song");
+
+            ensure!(nautica.preview_url.is_some());
+            let preview_url = nautica.preview_url.unwrap();
+
+            let mut bytes = vec![];
+
+            ureq::get(&preview_url)
+                .call()?
+                .into_reader()
+                .read_to_end(&mut bytes)?;
+
+            std::fs::write(song_path, &bytes)?;
+
+            Box::new(rodio::Decoder::new(std::io::Cursor::new(bytes))?.convert_samples())
+        };
+        Ok((source, Duration::ZERO, Duration::MAX))
     }
 }
 

@@ -5,7 +5,7 @@ use sqlx::{query, query_as, ConnectOptions, Pool, Row, SqlitePool};
 
 static MIGRATOR: Migrator = sqlx::migrate!("./migrations"); // defaults to "./migrations"
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct LocalSongsDb {
     sqlite_pool: SqlitePool,
 }
@@ -121,6 +121,38 @@ impl LocalSongsDb {
          FROM Charts"
         )
         .fetch_all(&self.sqlite_pool)
+        .await
+    }
+
+    pub async fn get_song(&self, id: i64) -> std::result::Result<ChartEntry, sqlx::Error> {
+        query_as!(
+            ChartEntry,
+            "SELECT 
+            rowid,
+            folderid,
+            path,
+            title,
+            artist,
+            title_translit,
+            artist_translit,
+            jacket_path,
+            effector,
+            illustrator,
+            diff_name,
+            diff_shortname,
+            bpm,
+            diff_index,
+            level,
+            hash,
+            preview_file,
+            preview_offset,
+            preview_length,
+            lwt,
+            custom_offset
+         FROM Charts WHERE rowid = ?",
+            id
+        )
+        .fetch_one(&self.sqlite_pool)
         .await
     }
 

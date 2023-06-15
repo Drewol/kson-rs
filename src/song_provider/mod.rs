@@ -1,6 +1,7 @@
-use std::{collections::HashSet, fmt::Debug, sync::Arc};
+use std::{collections::HashSet, fmt::Debug, sync::Arc, time::Duration};
 
 use kson::Chart;
+use rodio::Source;
 
 use crate::{results::Score, songselect::Song};
 mod files;
@@ -50,6 +51,11 @@ pub trait SongProvider: Debug {
         song_index: u64,
         diff_index: u64,
     ) -> Box<dyn FnOnce() -> (Chart, Box<dyn rodio::Source<Item = f32> + Send>) + Send>;
+    /// Returns: `(music, skip, duration)`
+    fn get_preview(
+        &self,
+        id: u64,
+    ) -> anyhow::Result<(Box<dyn Source<Item = f32> + Send>, Duration, Duration)>;
 }
 
 pub trait ScoreProvider: Debug {

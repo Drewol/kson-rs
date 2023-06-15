@@ -41,12 +41,14 @@ mod help;
 mod input_state;
 mod main_menu;
 mod material;
+mod owned_source;
 mod results;
 mod scene;
 mod shaded_mesh;
 mod skin_settings;
 mod song_provider;
 mod songselect;
+mod take_duration_fade;
 mod transition;
 mod util;
 mod vg_ui;
@@ -55,7 +57,7 @@ mod window;
 #[macro_export]
 macro_rules! block_on {
     ($l:expr) => {
-        poll_promise::Promise::spawn_async(async {
+        poll_promise::Promise::spawn_async(async move {
             let x = { $l };
             x.await
         })
@@ -74,6 +76,7 @@ pub struct Scenes {
     pub loaded: Vec<Box<dyn Scene>>,
     pub initialized: Vec<Box<dyn Scene>>,
     pub transition: Option<Transition>,
+    pub prev_transition: bool,
     should_outro: bool,
     mixer: RuscMixer,
 }
@@ -87,6 +90,7 @@ impl Scenes {
             transition: Default::default(),
             should_outro: Default::default(),
             mixer,
+            prev_transition: false,
         }
     }
 
@@ -97,6 +101,7 @@ impl Scenes {
         load_lua: Rc<dyn Fn(Rc<Lua>, &'static str) -> anyhow::Result<Index>>,
         app_control_tx: std::sync::mpsc::Sender<ControlMessage>,
     ) {
+        let new_transition = self.transition.is_some();
         if self.should_outro {
             if let Some(tr) = self.transition.as_mut() {
                 tr.do_outro()
@@ -136,6 +141,12 @@ impl Scenes {
             result.is_ok()
         });
 
+        if !self.prev_transition && new_transition {
+            if let Some(top) = self.active.last_mut() {
+                top.suspend();
+            }
+        }
+
         self.initialized.append(&mut self.loaded);
 
         if let Some(x) = self.active.last_mut() {
@@ -147,6 +158,8 @@ impl Scenes {
                 x.resume()
             }
         }
+
+        self.prev_transition = new_transition;
     }
 
     pub fn is_empty(&self) -> bool {

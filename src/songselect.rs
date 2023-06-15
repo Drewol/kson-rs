@@ -1,16 +1,23 @@
 use anyhow::{ensure, Result};
 use game_loop::winit::event::Event;
 use generational_arena::Index;
-use puffin::profile_function;
-use rodio::dynamic_mixer::DynamicMixerController;
+use log::warn;
+use puffin::{profile_function, profile_scope};
+use rodio::{dynamic_mixer::DynamicMixerController, Source};
 use serde::Serialize;
 use std::{
+    borrow::BorrowMut,
     cell::RefCell,
     fmt::Debug,
     ops::DerefMut,
     path::PathBuf,
     rc::Rc,
-    sync::{mpsc::Sender, Arc, Mutex, RwLock},
+    sync::{
+        atomic::{AtomicU16, AtomicU64, AtomicUsize},
+        mpsc::{channel, Receiver, Sender},
+        Arc, Mutex, RwLock,
+    },
+    time::Duration,
 };
 use tealr::{
     mlu::{
@@ -24,12 +31,14 @@ use crate::{
     button_codes::{LaserAxis, LaserState, UscButton, UscInputEvent},
     config::GameConfig,
     input_state::InputState,
+    owned_source::owned_source,
     results::Score,
     scene::{Scene, SceneData},
     song_provider::{
         self, FileSongProvider, NauticaSongProvider, ScoreProvider, SongProvider, SongProviderEvent,
     },
-    ControlMessage,
+    take_duration_fade::take_duration_fade,
+    ControlMessage, RuscMixer,
 };
 
 #[derive(Debug, TypeName, Clone, Serialize, UserData)]
@@ -95,6 +104,9 @@ pub struct SongSelect {
     song_provider: Arc<Mutex<dyn SongProvider + Send>>,
     #[serde(skip_serializing)]
     score_provider: Arc<Mutex<dyn ScoreProvider + Send>>,
+    preview_countdown: f64,
+    preview_finished: Arc<AtomicUsize>,
+    preview_playing: Arc<AtomicU64>,
 }
 
 impl TealData for SongSelect {
@@ -160,6 +172,9 @@ impl SongSelect {
             selected_diff_index: 0,
             song_provider,
             score_provider,
+            preview_countdown: 1500.0,
+            preview_finished: Arc::new(AtomicUsize::new(0)),
+            preview_playing: Arc::new(AtomicU64::new(0)),
         }
     }
 }
@@ -179,10 +194,14 @@ pub struct SongSelectScene {
     diff_advance: f32,
     suspended: bool,
     closed: bool,
+    mixer: Option<RuscMixer>,
+    sample_owner: Receiver<()>,
+    sample_marker: Sender<()>,
 }
 
 impl SongSelectScene {
     pub fn new(song_select: Box<SongSelect>) -> Self {
+        let (sample_marker, sample_owner) = channel();
         Self {
             background_lua: Rc::new(Lua::new()),
             lua: Rc::new(Lua::new()),
@@ -192,6 +211,9 @@ impl SongSelectScene {
             song_advance: 0.0,
             suspended: false,
             closed: false,
+            mixer: None,
+            sample_marker,
+            sample_owner,
         }
     }
 }
@@ -232,6 +254,8 @@ impl Scene for SongSelectScene {
                                 )
                                 .changed()
                             {
+                                state.preview_countdown = 1500.0;
+
                                 let set_song_idx: Function =
                                     self.lua.globals().get("set_index").unwrap();
 
@@ -280,13 +304,111 @@ impl Scene for SongSelectScene {
         self.program_control = Some(app_control_tx);
         load_lua(self.lua.clone(), "songselect/songwheel.lua")?;
         load_lua(self.background_lua.clone(), "songselect/background.lua")?;
+        let mut bgm_amp = Arc::new(1_f32);
+        let preview_playing = self.state.preview_finished.clone();
+
+        mixer.add(owned_source(
+            rodio::source::SineWave::new(440.0) //TODO: Load something from skin audio
+                .amplify(0.2)
+                .amplify(1.0)
+                .periodic_access(Duration::from_millis(10), move |state| {
+                    let amp = Arc::get_mut(&mut bgm_amp).unwrap();
+                    if preview_playing.load(std::sync::atomic::Ordering::SeqCst) == 0 {
+                        *amp += 1.0 / 50.0;
+                    } else {
+                        *amp -= 1.0 / 50.0;
+                    }
+                    *amp = amp.clamp(0.0, 1.0);
+                    state.set_factor(*amp);
+                }),
+            self.sample_marker.clone(),
+        ));
+
+        self.mixer = Some(mixer);
         Ok(())
     }
 
     fn tick(&mut self, _dt: f64, _knob_state: LaserState) -> Result<()> {
+        if self.suspended {
+            return Ok(());
+        }
         const KNOB_NAV_THRESHOLD: f32 = std::f32::consts::PI / 3.0;
         let song_advance_steps = (self.song_advance / KNOB_NAV_THRESHOLD).trunc() as i32;
         self.song_advance -= song_advance_steps as f32 * KNOB_NAV_THRESHOLD;
+
+        if song_advance_steps == 0
+            && self.state.preview_countdown > 0.0
+            && !self.state.songs.is_empty()
+        {
+            if self.state.preview_countdown < _dt {
+                //Start playing preview
+                //TODO: Reduce nesting
+                let song_id = self.state.songs[self.state.selected_index as usize].id;
+                if self
+                    .state
+                    .preview_playing
+                    .load(std::sync::atomic::Ordering::SeqCst)
+                    != song_id
+                {
+                    match self
+                        .state
+                        .song_provider
+                        .lock()
+                        .unwrap()
+                        .get_preview(song_id)
+                    {
+                        Ok((preview, skip, duration)) => {
+                            profile_scope!("Start Preview");
+                            self.state
+                                .preview_finished
+                                .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+
+                            self.state
+                                .preview_playing
+                                .store(song_id, std::sync::atomic::Ordering::Relaxed);
+                            let current_preview = self.state.preview_playing.clone();
+                            let mut amp = Arc::new(1_f32);
+                            let mixer = self.mixer.clone();
+                            let owner = self.sample_marker.clone();
+                            let preview_finish_signal = self.state.preview_finished.clone();
+                            _ =
+                                poll_promise::Promise::spawn_thread("queue preview", move || {
+                                    let source = take_duration_fade(
+                                        rodio::source::Source::skip_duration(preview, skip)
+                                            .stoppable(),
+                                        duration,
+                                        Duration::from_millis(500),
+                                        preview_finish_signal,
+                                    )
+                                    .fade_in(Duration::from_millis(500))
+                                    .amplify(1.0)
+                                    .periodic_access(Duration::from_millis(10), move |state| {
+                                        let amp = Arc::get_mut(&mut amp).unwrap();
+                                        let current_preview = current_preview
+                                            .load(std::sync::atomic::Ordering::Relaxed);
+                                        if current_preview != song_id {
+                                            *amp -= 1.0 / 50.0;
+                                            if *amp < 0.0 {
+                                                state.inner_mut().inner_mut().inner_mut().stop();
+                                            }
+                                        } else if *amp < 1.0 {
+                                            *amp += 1.0 / 50.0;
+                                        }
+                                        state.set_factor(amp.clamp(0.0, 1.0));
+                                    });
+
+                                    mixer.as_ref().unwrap().add(owned_source(source, owner));
+                                });
+                        }
+                        Err(e) => warn!("Could not load preview: {e:?}"),
+                    }
+                }
+            }
+            self.state.preview_countdown -= _dt;
+        } else if song_advance_steps != 0 {
+            self.state.preview_countdown = 1500.0;
+        }
+
         let state = &mut self.state;
         let mut songs_dirty = false;
         while let Some(provider_event) = state.song_provider.lock().unwrap().poll() {
@@ -336,7 +458,6 @@ impl Scene for SongSelectScene {
 
     fn on_button_pressed(&mut self, button: crate::button_codes::UscButton) {
         if let UscButton::Start = button {
-            self.suspend();
             if let Some(pc) = &self.program_control {
                 let state = &self.state;
                 let song = state.songs[state.selected_index as usize].clone();
@@ -347,18 +468,26 @@ impl Scene for SongSelectScene {
                     .unwrap()
                     .load_song(song.id, song.difficulties[diff].id);
                 pc.send(ControlMessage::Song { diff, loader, song });
-            } else {
-                self.resume()
             }
         }
     }
 
     fn suspend(&mut self) {
         self.suspended = true;
+        self.state
+            .preview_finished
+            .store(1, std::sync::atomic::Ordering::Relaxed);
     }
 
     fn resume(&mut self) {
         self.suspended = false;
+        self.state
+            .preview_finished
+            .store(0, std::sync::atomic::Ordering::Relaxed);
+        self.state
+            .preview_playing
+            .store(0, std::sync::atomic::Ordering::Relaxed);
+        self.state.preview_countdown = 1500.0;
     }
 
     fn closed(&self) -> bool {

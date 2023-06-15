@@ -2,17 +2,21 @@ use std::{
     collections::{HashMap, VecDeque},
     path::PathBuf,
     sync::Arc,
+    time::Duration,
 };
 
 use crate::{
+    block_on,
     results::Score,
     songselect::{Difficulty, Song},
 };
 
 use super::{ScoreProvider, SongProvider, SongProviderEvent};
+use anyhow::ensure;
 use itertools::Itertools;
 use kson::{Chart, Ksh};
 use log::info;
+use puffin::profile_function;
 use rodio::Source;
 use rusc_database::{LocalSongsDb, ScoreEntry};
 use walkdir::DirEntry;
@@ -236,6 +240,33 @@ impl SongProvider for FileSongProvider {
 
             (chart, Box::new(audio.convert_samples()))
         })
+    }
+
+    fn get_preview(
+        &self,
+        id: u64,
+    ) -> anyhow::Result<(
+        Box<dyn Source<Item = f32> + Send>,
+        std::time::Duration,
+        std::time::Duration,
+    )> {
+        profile_function!();
+        let id = id as i64;
+        let db = self.database.clone();
+        let chart = block_on!(db.get_song(id))?;
+        info!("Got chart: {:?}", &chart.preview_file);
+        ensure!(chart.preview_file.is_some());
+        let path = chart.preview_file.unwrap();
+
+        let source = rodio::Decoder::new(std::fs::File::open(
+            PathBuf::from(&chart.path).with_file_name(path),
+        )?)?
+        .convert_samples();
+        Ok((
+            Box::new(source),
+            Duration::from_millis(chart.preview_offset as u64),
+            Duration::from_millis(chart.preview_length as u64),
+        ))
     }
 }
 
