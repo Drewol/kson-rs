@@ -31,12 +31,12 @@ use crate::{
     button_codes::{LaserAxis, LaserState, UscButton, UscInputEvent},
     config::GameConfig,
     input_state::InputState,
-    owned_source::owned_source,
     results::Score,
     scene::{Scene, SceneData},
     song_provider::{
         self, FileSongProvider, NauticaSongProvider, ScoreProvider, SongProvider, SongProviderEvent,
     },
+    sources::{flanger::flanger, owned_source::owned_source},
     take_duration_fade::take_duration_fade,
     ControlMessage, RuscMixer,
 };
@@ -374,8 +374,16 @@ impl Scene for SongSelectScene {
                             _ =
                                 poll_promise::Promise::spawn_thread("queue preview", move || {
                                     let source = take_duration_fade(
-                                        rodio::source::Source::skip_duration(preview, skip)
-                                            .stoppable(),
+                                        rodio::source::Source::skip_duration(
+                                            flanger(
+                                                preview,
+                                                Duration::from_millis(3),
+                                                Duration::from_millis(1),
+                                                0.5,
+                                            ),
+                                            skip,
+                                        )
+                                        .stoppable(),
                                         duration,
                                         Duration::from_millis(500),
                                         preview_finish_signal,

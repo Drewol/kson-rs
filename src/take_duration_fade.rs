@@ -173,10 +173,16 @@ where
 {
     #[inline]
     fn current_frame_len(&self) -> Option<usize> {
-        let remaining_nanos = self.remaining_duration.as_secs() * NANOS_PER_SEC
-            + self.remaining_duration.subsec_nanos() as u64;
-        let nanos_per_sample = self.duration_per_sample.as_secs() * NANOS_PER_SEC
-            + self.duration_per_sample.subsec_nanos() as u64;
+        let remaining_nanos = self
+            .remaining_duration
+            .as_secs()
+            .saturating_mul(NANOS_PER_SEC)
+            .saturating_add(self.remaining_duration.subsec_nanos() as u64);
+        let nanos_per_sample = self
+            .duration_per_sample
+            .as_secs()
+            .saturating_mul(NANOS_PER_SEC)
+            .saturating_add(self.duration_per_sample.subsec_nanos() as u64);
         let remaining_samples = (remaining_nanos / nanos_per_sample) as usize;
 
         self.input
