@@ -33,7 +33,10 @@ use crate::{
     song_provider::{
         FileSongProvider, NauticaSongProvider, ScoreProvider, SongProvider, SongProviderEvent,
     },
-    sources::{effected_part::effected_part, flanger::flanger, owned_source::owned_source},
+    sources::{
+        bitcrush::bit_crusher, effected_part::effected_part, flanger::flanger,
+        owned_source::owned_source,
+    },
     take_duration_fade::take_duration_fade,
     ControlMessage, RuscMixer,
 };
@@ -392,7 +395,7 @@ impl Scene for SongSelectScene {
                                     state.set_factor(amp.clamp(0.0, 1.0));
                                 })
                                 .buffered();
-
+                                let bit_source = source.clone();
                                 let source = effected_part(
                                     source.clone(),
                                     flanger(
@@ -402,6 +405,13 @@ impl Scene for SongSelectScene {
                                         0.5,
                                     ),
                                     Duration::from_millis(2000),
+                                    Duration::from_millis(2000),
+                                );
+
+                                let source = effected_part(
+                                    source,
+                                    bit_crusher(bit_source, 45),
+                                    Duration::from_millis(4000),
                                     Duration::from_millis(2000),
                                 );
 
