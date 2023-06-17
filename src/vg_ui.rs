@@ -495,14 +495,14 @@ impl TealData for Vgfx {
             }
             match _vgfx.fill_paint.as_ref() {
                 Some(fill_paint) => {
-                    let font_size = fill_paint.font_size();
+                    let _font_size = fill_paint.font_size();
 
                     let canvas = &mut _vgfx
                         .canvas
                         .try_lock()
                         .map_err(|_| mlua::Error::external("Canvas in use".to_string()))?;
 
-                    let scale = canvas.transform().average_scale();
+                    let _scale = canvas.transform().average_scale();
 
                     canvas
                         .fill_text(x, y, s.unwrap(), fill_paint)

@@ -109,17 +109,17 @@ impl Gauge {
             } => match rating {
                 HitRating::Crit {
                     tick: t,
-                    delta,
-                    time,
+                    delta: _,
+                    time: _,
                 } if tick_is_short(t) => *value += *chip_gain,
-                HitRating::Crit { tick, delta, time } => *value += *tick_gain,
-                HitRating::Good { tick, delta, time } => *value += *chip_gain / 3.0, //Only chips can have a "good" rating
+                HitRating::Crit { tick: _, delta: _, time: _ } => *value += *tick_gain,
+                HitRating::Good { tick: _, delta: _, time: _ } => *value += *chip_gain / 3.0, //Only chips can have a "good" rating
                 HitRating::Miss {
                     tick: t,
-                    delta,
-                    time,
+                    delta: _,
+                    time: _,
                 } if tick_is_short(t) => *value -= 0.02,
-                HitRating::Miss { tick, delta, time } => *value -= 0.02 / 4.0,
+                HitRating::Miss { tick: _, delta: _, time: _ } => *value -= 0.02 / 4.0,
                 HitRating::None => {}
             },
         }
@@ -139,8 +139,8 @@ impl Gauge {
         match self {
             Gauge::None => 0.0,
             Gauge::Normal {
-                chip_gain,
-                tick_gain,
+                chip_gain: _,
+                tick_gain: _,
                 value,
             } => *value,
         }
@@ -316,7 +316,7 @@ impl SceneData for GameData {
 
         let mut fx_long_shader = ShadedMesh::new(&context, "holdbutton", &shader_folder)
             .expect("Failed to load shader:");
-        let mut fx_long_shader_active: [ShadedMesh; 2] = core::array::from_fn(|i| {
+        let mut fx_long_shader_active: [ShadedMesh; 2] = core::array::from_fn(|_i| {
             ShadedMesh::new(&context, "holdbutton", &shader_folder)
                 .expect("Failed to load shader:")
                 .with_transform(mesh_transform)
@@ -349,7 +349,7 @@ impl SceneData for GameData {
 
         let mut bt_long_shader = ShadedMesh::new(&context, "holdbutton", &shader_folder)
             .expect("Failed to load shader:");
-        let mut bt_long_shader_active: [ShadedMesh; 4] = core::array::from_fn(|i| {
+        let mut bt_long_shader_active: [ShadedMesh; 4] = core::array::from_fn(|_i| {
             ShadedMesh::new(&context, "holdbutton", &shader_folder)
                 .expect("Failed to load shader:")
                 .with_transform(mesh_transform)
@@ -733,17 +733,17 @@ impl Game {
 
         let last_score = self.real_score;
         self.real_score += match hit_rating {
-            HitRating::Crit { tick, delta, time } => 2,
-            HitRating::Good { tick, delta, time } => 1,
+            HitRating::Crit { tick: _, delta: _, time: _ } => 2,
+            HitRating::Good { tick: _, delta: _, time: _ } => 1,
             _ => 0,
         };
 
         let combo_updated = match hit_rating {
-            HitRating::Crit { tick, delta, time } | HitRating::Good { tick, delta, time } => {
+            HitRating::Crit { tick: _, delta: _, time: _ } | HitRating::Good { tick: _, delta: _, time: _ } => {
                 self.combo += 1;
                 true
             }
-            HitRating::Miss { tick, delta, time } => {
+            HitRating::Miss { tick: _, delta: _, time: _ } => {
                 if self.combo == 0 {
                     false
                 } else {
@@ -770,7 +770,7 @@ impl Game {
         let laser_slam_hit = self.lua.globals().get::<_, Function>("laser_slam_hit");
 
         match hit_rating {
-            HitRating::Crit { tick, delta, time } => match tick.tick {
+            HitRating::Crit { tick, delta, time: _ } => match tick.tick {
                 ScoreTick::Chip { lane } => {
                     self.beam_colors_current[lane] = (self.beam_colors[2] / 255.0).into();
                     if let Ok(button_hit) = button_hit {
@@ -785,7 +785,7 @@ impl Game {
                 }
                 _ => (),
             },
-            HitRating::Good { tick, delta, time } => {
+            HitRating::Good { tick, delta, time: _ } => {
                 if let ScoreTick::Chip { lane } = tick.tick {
                     if let Ok(near_hit) = self.lua.globals().get::<_, Function>("near_hit") {
                         near_hit.call::<_, ()>(delta < 0.0);
@@ -796,7 +796,7 @@ impl Game {
                     self.beam_colors_current[lane] = (self.beam_colors[1] / 255.0).into()
                 }
             }
-            HitRating::Miss { tick, delta, time } if tick.y > self.current_tick => {
+            HitRating::Miss { tick, delta: _, time: _ } if tick.y > self.current_tick => {
                 if let ScoreTick::Chip { lane } = tick.tick {
                     self.beam_colors_current[lane] = (self.beam_colors[0] / 255.0).into();
                     if let Ok(button_hit) = button_hit {
@@ -804,7 +804,7 @@ impl Game {
                     }
                 }
             }
-            HitRating::Miss { tick, delta, time } => {
+            HitRating::Miss { tick, delta: _, time: _ } => {
                 if let ScoreTick::Chip { lane } = tick.tick {
                     if let Ok(button_hit) = button_hit {
                         button_hit.call::<_, ()>((lane, 0, 0));

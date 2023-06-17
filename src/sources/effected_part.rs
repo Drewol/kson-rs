@@ -1,7 +1,7 @@
 use std::time::Duration;
 
 use rodio::{
-    source::{Buffered, UniformSourceIterator},
+    source::{UniformSourceIterator},
     Sample, Source,
 };
 

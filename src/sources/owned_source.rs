@@ -1,7 +1,6 @@
 use std::{sync::mpsc::Sender, time::Duration};
 
 use rodio::{
-    source::{self, PeriodicAccess},
     Sample, Source,
 };
 

@@ -6,16 +6,13 @@ use puffin::{profile_function, profile_scope};
 use rodio::{dynamic_mixer::DynamicMixerController, Source};
 use serde::Serialize;
 use std::{
-    borrow::BorrowMut,
-    cell::RefCell,
     fmt::Debug,
-    ops::DerefMut,
     path::PathBuf,
     rc::Rc,
     sync::{
-        atomic::{AtomicU16, AtomicU64, AtomicUsize},
+        atomic::{AtomicU64, AtomicUsize},
         mpsc::{channel, Receiver, Sender},
-        Arc, Mutex, RwLock,
+        Arc, Mutex,
     },
     time::Duration,
 };
@@ -34,7 +31,7 @@ use crate::{
     results::Score,
     scene::{Scene, SceneData},
     song_provider::{
-        self, FileSongProvider, NauticaSongProvider, ScoreProvider, SongProvider, SongProviderEvent,
+        FileSongProvider, NauticaSongProvider, ScoreProvider, SongProvider, SongProviderEvent,
     },
     sources::{effected_part::effected_part, flanger::flanger, owned_source::owned_source},
     take_duration_fade::take_duration_fade,

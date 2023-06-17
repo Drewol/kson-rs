@@ -4,7 +4,7 @@ use std::{
     sync::{mpsc::Sender, Arc},
 };
 
-use itertools::Itertools;
+
 use kson::score_ticks::ScoreTick;
 use rodio::dynamic_mixer::DynamicMixerController;
 use serde::Serialize;
@@ -126,9 +126,9 @@ impl SongResultData {
                 let rating = (*x).try_into();
                 match x {
                     HitRating::None => {}
-                    HitRating::Crit { tick, delta, time }
-                    | HitRating::Good { tick, delta, time }
-                    | HitRating::Miss { tick, delta, time } => match tick.tick {
+                    HitRating::Crit { tick, delta: _, time: _ }
+                    | HitRating::Good { tick, delta: _, time: _ }
+                    | HitRating::Miss { tick, delta: _, time: _ } => match tick.tick {
                         ScoreTick::Laser { lane: _, pos: _ }
                         | ScoreTick::Slam {
                             lane: _,
@@ -136,8 +136,8 @@ impl SongResultData {
                             end: _,
                         } => laser.push(rating.unwrap()),
 
-                        ScoreTick::Chip { lane } => note.push(rating.unwrap()),
-                        ScoreTick::Hold { lane } => hold.push(rating.unwrap()),
+                        ScoreTick::Chip { lane: _ } => note.push(rating.unwrap()),
+                        ScoreTick::Hold { lane: _ } => hold.push(rating.unwrap()),
                     },
                 }
                 (laser, note, hold)
@@ -158,24 +158,24 @@ impl SongResultData {
             gauge,
             goods: hit_ratings
                 .iter()
-                .filter(|x| matches!(x, HitRating::Good { tick, delta, time }))
+                .filter(|x| matches!(x, HitRating::Good { tick: _, delta: _, time: _ }))
                 .count() as i32,
             perfects: hit_ratings
                 .iter()
-                .filter(|x| matches!(x, HitRating::Crit { tick, delta, time }))
+                .filter(|x| matches!(x, HitRating::Crit { tick: _, delta: _, time: _ }))
                 .count() as i32,
             misses: hit_ratings
                 .iter()
-                .filter(|x| matches!(x, HitRating::Miss { tick, delta, time }))
+                .filter(|x| matches!(x, HitRating::Miss { tick: _, delta: _, time: _ }))
                 .count() as i32,
 
             earlies: hit_ratings
                 .iter()
-                .filter(|x| matches!(x, HitRating::Good { tick, delta, time } if *delta < 0.0))
+                .filter(|x| matches!(x, HitRating::Good { tick: _, delta, time: _ } if *delta < 0.0))
                 .count() as i32,
             lates: hit_ratings
                 .iter()
-                .filter(|x| matches!(x, HitRating::Good { tick, delta, time } if *delta > 0.0))
+                .filter(|x| matches!(x, HitRating::Good { tick: _, delta, time: _ } if *delta > 0.0))
                 .count() as i32,
             laser_hit_stats,
             note_hit_stats,
@@ -223,19 +223,19 @@ impl TryFrom<HitRating> for HitStat {
                 time_frac: time.fract() as f32,
                 delta: delta as i32,
                 hold: match tick.tick {
-                    kson::score_ticks::ScoreTick::Laser { lane, pos } => 1,
-                    kson::score_ticks::ScoreTick::Slam { lane, start, end } => 0,
-                    kson::score_ticks::ScoreTick::Chip { lane } => 0,
-                    kson::score_ticks::ScoreTick::Hold { lane } => 1,
+                    kson::score_ticks::ScoreTick::Laser { lane: _, pos: _ } => 1,
+                    kson::score_ticks::ScoreTick::Slam { lane: _, start: _, end: _ } => 0,
+                    kson::score_ticks::ScoreTick::Chip { lane: _ } => 0,
+                    kson::score_ticks::ScoreTick::Hold { lane: _ } => 1,
                 },
             },
         };
 
         ret.rating = match value {
             HitRating::None => unreachable!(),
-            HitRating::Crit { tick, delta, time } => 2,
-            HitRating::Good { tick, delta, time } => 1,
-            HitRating::Miss { tick, delta, time } => 0,
+            HitRating::Crit { tick: _, delta: _, time: _ } => 2,
+            HitRating::Good { tick: _, delta: _, time: _ } => 1,
+            HitRating::Miss { tick: _, delta: _, time: _ } => 0,
         };
 
         Ok(ret)
@@ -277,7 +277,7 @@ impl Scene for SongResult {
             dyn Fn(std::rc::Rc<Lua>, &'static str) -> anyhow::Result<generational_arena::Index>,
         >,
         app_control_tx: Sender<ControlMessage>,
-        mixer: Arc<DynamicMixerController<f32>>,
+        _mixer: Arc<DynamicMixerController<f32>>,
     ) -> anyhow::Result<()> {
         load_lua(self.lua.clone(), "result.lua")?;
 

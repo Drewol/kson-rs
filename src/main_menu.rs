@@ -131,7 +131,7 @@ impl Scene for MainMenu {
         &mut self,
         load_lua: Rc<dyn Fn(Rc<Lua>, &'static str) -> anyhow::Result<Index>>,
         app_control_tx: Sender<ControlMessage>,
-        mixer: Arc<DynamicMixerController<f32>>,
+        _mixer: Arc<DynamicMixerController<f32>>,
     ) -> anyhow::Result<()> {
         load_lua(self.lua.clone(), "titlescreen.lua")?;
         self.control_tx = Some(app_control_tx);

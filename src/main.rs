@@ -221,7 +221,7 @@ fn main() -> anyhow::Result<()> {
     let mut config_path = std::env::current_dir().unwrap();
     config_path.push("Main.cfg");
     GameConfig::init(config_path);
-    let (outputStream, outputStreamHandle) = rodio::OutputStream::try_default()?;
+    let (_outputStream, outputStreamHandle) = rodio::OutputStream::try_default()?;
     let sink = rodio::Sink::try_new(&outputStreamHandle)?;
     let (mixer_controls, mixer) = rodio::dynamic_mixer::mixer::<f32>(2, 44100);
     mixer_controls.add(rodio::source::Zero::new(2, 44100));

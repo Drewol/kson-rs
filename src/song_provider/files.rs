@@ -275,11 +275,11 @@ impl ScoreProvider for FileSongProvider {
         todo!()
     }
 
-    fn get_scores(&mut self, id: u64) -> Vec<Score> {
+    fn get_scores(&mut self, _id: u64) -> Vec<Score> {
         todo!()
     }
 
-    fn insert_score(&mut self, id: u64, score: Score) -> anyhow::Result<()> {
+    fn insert_score(&mut self, _id: u64, _score: Score) -> anyhow::Result<()> {
         todo!()
     }
 }
