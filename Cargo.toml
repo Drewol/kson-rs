@@ -52,7 +52,6 @@ rusc_database = {path = "./rusc_database"}
 itertools = "0.10.5"
 kson-music-playback = {git = "https://github.com/Drewol/kson-editor.git"}
 
-
 [profile.release]
 debug = true
 

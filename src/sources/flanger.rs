@@ -1,4 +1,4 @@
-use std::{collections::VecDeque, ops::Add, time::Duration};
+use std::time::Duration;
 
 use rodio::{cpal::FromSample, source::UniformSourceIterator, Sample, Source};
 
@@ -97,7 +97,6 @@ where
     D: FromSample<I::Item> + Sample,
 {
     fn current_frame_len(&self) -> Option<usize> {
-        log::info!("{}", self.frequency);
         self.input.current_frame_len()
     }
 
@@ -113,3 +112,5 @@ where
         self.input.total_duration()
     }
 }
+
+//new source, (start,end,buffered original?, effect source)

@@ -36,7 +36,7 @@ use crate::{
     song_provider::{
         self, FileSongProvider, NauticaSongProvider, ScoreProvider, SongProvider, SongProviderEvent,
     },
-    sources::{flanger::flanger, owned_source::owned_source},
+    sources::{effected_part::effected_part, flanger::flanger, owned_source::owned_source},
     take_duration_fade::take_duration_fade,
     ControlMessage, RuscMixer,
 };
@@ -371,42 +371,45 @@ impl Scene for SongSelectScene {
                             let mixer = self.mixer.clone();
                             let owner = self.sample_marker.clone();
                             let preview_finish_signal = self.state.preview_finished.clone();
-                            _ =
-                                poll_promise::Promise::spawn_thread("queue preview", move || {
-                                    let source = take_duration_fade(
-                                        rodio::source::Source::skip_duration(
-                                            flanger(
-                                                preview,
-                                                Duration::from_millis(3),
-                                                Duration::from_millis(1),
-                                                0.5,
-                                            ),
-                                            skip,
-                                        )
-                                        .stoppable(),
-                                        duration,
-                                        Duration::from_millis(500),
-                                        preview_finish_signal,
-                                    )
-                                    .fade_in(Duration::from_millis(500))
-                                    .amplify(1.0)
-                                    .periodic_access(Duration::from_millis(10), move |state| {
-                                        let amp = Arc::get_mut(&mut amp).unwrap();
-                                        let current_preview = current_preview
-                                            .load(std::sync::atomic::Ordering::Relaxed);
-                                        if current_preview != song_id {
-                                            *amp -= 1.0 / 50.0;
-                                            if *amp < 0.0 {
-                                                state.inner_mut().inner_mut().inner_mut().stop();
-                                            }
-                                        } else if *amp < 1.0 {
-                                            *amp += 1.0 / 50.0;
+                            _ = poll_promise::Promise::spawn_thread("queue preview", move || {
+                                let source = take_duration_fade(
+                                    rodio::source::Source::skip_duration(preview, skip).stoppable(),
+                                    duration,
+                                    Duration::from_millis(500),
+                                    preview_finish_signal,
+                                )
+                                .fade_in(Duration::from_millis(500))
+                                .amplify(1.0)
+                                .periodic_access(Duration::from_millis(10), move |state| {
+                                    let amp = Arc::get_mut(&mut amp).unwrap();
+                                    let current_preview =
+                                        current_preview.load(std::sync::atomic::Ordering::Relaxed);
+                                    if current_preview != song_id {
+                                        *amp -= 1.0 / 50.0;
+                                        if *amp < 0.0 {
+                                            state.inner_mut().inner_mut().inner_mut().stop();
                                         }
-                                        state.set_factor(amp.clamp(0.0, 1.0));
-                                    });
+                                    } else if *amp < 1.0 {
+                                        *amp += 1.0 / 50.0;
+                                    }
+                                    state.set_factor(amp.clamp(0.0, 1.0));
+                                })
+                                .buffered();
 
-                                    mixer.as_ref().unwrap().add(owned_source(source, owner));
-                                });
+                                let source = effected_part(
+                                    source.clone(),
+                                    flanger(
+                                        source,
+                                        Duration::from_millis(4),
+                                        Duration::from_millis(2),
+                                        0.5,
+                                    ),
+                                    Duration::from_millis(2000),
+                                    Duration::from_millis(2000),
+                                );
+
+                                mixer.as_ref().unwrap().add(owned_source(source, owner));
+                            });
                         }
                         Err(e) => warn!("Could not load preview: {e:?}"),
                     }
