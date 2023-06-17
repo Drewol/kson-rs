@@ -27,6 +27,7 @@ pub fn biquad<I: Source<Item = f32>>(
         b2: 0.0,
         za: vec![[0.0; 2]; channels as usize],
         zb: vec![[0.0; 2]; channels as usize],
+        freq: 0.0,
         q: std::f32::consts::SQRT_2,
         current_channel: 0,
         updater,
@@ -51,6 +52,7 @@ pub struct BiQuad<I: Source<Item = f32>> {
     current_channel: u16,
     channels: u16,
     updater: Option<Receiver<(Option<BiQuadType>, Option<f32>)>>,
+    freq: f32,
 }
 
 impl<I: Source<Item = f32>> BiQuad<I> {
@@ -100,6 +102,20 @@ impl<I: Source<Item = f32>> BiQuad<I> {
             BiQuadType::LowPass(freq) => self.set_lowpass(freq),
             BiQuadType::HighPass(freq) => self.set_highpass(freq),
         }
+
+        let new_freq = match filter {
+            BiQuadType::Peaking(freq, _)
+            | BiQuadType::LowPass(freq)
+            | BiQuadType::HighPass(freq) => freq,
+        };
+
+        //reset filter on large jumps
+        if (self.freq - new_freq).abs() > 100.0 {
+            self.za.iter_mut().for_each(|x| *x = [0.0, 0.0]);
+            self.zb.iter_mut().for_each(|x| *x = [0.0, 0.0]);
+        }
+
+        self.freq = new_freq;
     }
 
     pub fn set_mix(&mut self, factor: f32) {

@@ -5,6 +5,10 @@ use crate::{
     scene::{Scene, SceneData},
     shaded_mesh::ShadedMesh,
     songselect::Song,
+    sources::{
+        biquad::{biquad, BiQuadType},
+        owned_source::owned_source,
+    },
     vg_ui::Vgfx,
     ControlMessage,
 };
@@ -65,7 +69,9 @@ pub struct Game {
     target_roll: Option<f64>,
     current_roll: f64,
     hit_ratings: Vec<HitRating>,
-    mixer: Option<Arc<DynamicMixerController<f32>>>,
+    mixer: Arc<DynamicMixerController<f32>>,
+    biquad_control: Sender<(Option<BiQuadType>, Option<f32>)>,
+    source_owner: (Sender<()>, Receiver<()>),
 }
 
 #[derive(Debug, Default)]
@@ -455,11 +461,11 @@ impl SceneData for GameData {
         laser_right.set_blend(Blend::ADD);
         laser_right_active.set_blend(Blend::ADD);
 
-        let mut playback =
-            kson_music_playback::AudioPlayback::try_new().expect("Failed to open playback channel");
-
+        let mut playback = kson_music_playback::AudioPlayback::new();
+        let (biquad_control, _) = std::sync::mpsc::channel();
         playback.open(audio, "Game").expect("Failed to load audio");
         playback.build_effects(&chart);
+        playback.stop();
 
         Box::new(
             Game::new(
@@ -492,6 +498,7 @@ impl SceneData for GameData {
                 playback,
                 input_state,
                 beam_colors,
+                biquad_control,
             )
             .unwrap(),
         )
@@ -527,6 +534,7 @@ impl Game {
         playback: kson_music_playback::AudioPlayback,
         input_state: Arc<InputState>,
         beam_colors: Vec<image::Rgba<u8>>,
+        biquad_control: Sender<(Option<BiQuadType>, Option<f32>)>,
     ) -> Result<Self> {
         let mut view = ChartView::new(skin_root, td);
         view.build_laser_meshes(&chart);
@@ -592,7 +600,9 @@ impl Game {
             current_roll: 0.0,
             target_roll: None,
             hit_ratings: Vec::new(),
-            mixer: None,
+            mixer: rodio::dynamic_mixer::mixer(2, 100).0,
+            biquad_control,
+            source_owner: std::sync::mpsc::channel(),
         };
         res.set_track_uniforms();
         Ok(res)
@@ -938,6 +948,25 @@ impl Scene for Game {
             //TODO: Also check ahead
         }
 
+        let laser_freq = match self.laser_target {
+            [Some(l), Some(r)] => Some(r.mul_add(-1.0, 1.0).max(l)),
+            [Some(l), None] => Some(l),
+            [None, Some(r)] => Some(r.mul_add(-1.0, 1.0)),
+            _ => None,
+        };
+
+        _ = if let Some(f) = laser_freq {
+            self.biquad_control.send((
+                Some(BiQuadType::Peaking(
+                    (f as f32).powf(std::f32::consts::E) * 7920.0 + 80.0,
+                    10.0,
+                )),
+                Some((1.0 - (f - 0.5).abs() * 1.99).powf(0.1) as f32),
+            ))
+        } else {
+            self.biquad_control.send((None, Some(0.0)))
+        };
+
         self.target_roll = match self.laser_target {
             [Some(l), Some(r)] => Some(r + l - 1.0),
             [Some(l), None] => Some(l),
@@ -986,7 +1015,7 @@ impl Scene for Game {
         profile_function!();
 
         ensure!(self.score_summary.total != 0, "Empty chart");
-        self.mixer = Some(mixer);
+        self.mixer = mixer;
         let long_count = self.score_summary.hold_count + self.score_summary.laser_count;
         let chip_count = self.score_summary.chip_count + self.score_summary.slam_count;
         let ftotal = 2.10 + f32::EPSILON;
@@ -1135,7 +1164,22 @@ impl Scene for Game {
         profile_function!();
         self.camera.view_size = vec2(viewport.width as f32, viewport.height as f32);
         if self.intro_done && !self.playback.is_playing() {
-            self.playback.play();
+            if !self.playback.play() {
+                panic!("Could not play")
+            };
+
+            let (biquad_control, biquad_events) = std::sync::mpsc::channel();
+
+            self.biquad_control = biquad_control;
+
+            self.mixer.add(owned_source(
+                biquad(
+                    self.playback.get_source().expect("Audio not loaded"),
+                    BiQuadType::Peaking(100.0, 0.0),
+                    Some(biquad_events),
+                ),
+                self.source_owner.0.clone(),
+            ));
         }
 
         //Update roll
@@ -1448,7 +1492,10 @@ use std::{
     cmp::Ordering,
     path::{Path, PathBuf},
     rc::Rc,
-    sync::{mpsc::Sender, Arc, Mutex},
+    sync::{
+        mpsc::{Receiver, Sender},
+        Arc, Mutex,
+    },
 };
 
 pub struct ChartView {
