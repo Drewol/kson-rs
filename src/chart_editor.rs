@@ -13,7 +13,10 @@ use egui::Ui;
 use kson::{GraphPoint, GraphSectionPoint, Interval, Ksh, Vox};
 use kson_music_playback as playback;
 use log::debug;
+use playback::*;
 use puffin::profile_scope;
+use rodio::Source;
+use rodio::{OutputStream, OutputStreamHandle, Sink};
 use std::collections::VecDeque;
 use std::ffi::OsStr;
 use std::fs::File;
@@ -24,6 +27,7 @@ use std::path::PathBuf;
 pub const EGUI_ID: &str = "chart_editor";
 
 pub struct MainState {
+    pub sink: Sink,
     pub chart: kson::Chart,
     pub save_path: Option<PathBuf>,
     pub mouse_x: f32,
@@ -36,6 +40,8 @@ pub struct MainState {
     pub screen: ScreenState,
     pub audio_playback: playback::AudioPlayback,
     pub laser_colors: [Color32; 2],
+    pub output_stream: OutputStream,
+    pub output_stream_handle: OutputStreamHandle,
 }
 
 #[derive(Copy, Clone)]
@@ -549,6 +555,9 @@ impl MainState {
             (c, None)
         };
 
+        let (output_stream, handle) = OutputStream::try_default()?;
+        let sink = Sink::try_new(&handle)?;
+
         let s = MainState {
             chart: new_chart.clone(),
             screen: ScreenState {
@@ -573,13 +582,16 @@ impl MainState {
             current_tool: ChartTool::None,
 
             cursor_object: None,
-            audio_playback: playback::AudioPlayback::try_new()?,
+            audio_playback: playback::AudioPlayback::new(),
             cursor_line: 0,
             actions: action_stack::ActionStack::new(new_chart),
             laser_colors: [
                 Color32::from_rgba_unmultiplied(0, 115, 144, 127),
                 Color32::from_rgba_unmultiplied(194, 6, 140, 127),
             ],
+            sink,
+            output_stream,
+            output_stream_handle: handle,
         };
         Ok(s)
     }
@@ -849,7 +861,7 @@ impl MainState {
                             if let Some(filename) = &bgm.filename {
                                 let filename = &filename.split(';').next().unwrap();
                                 let path = path.join(Path::new(filename));
-                                debug!("Playing file: {}", path.display());
+                                info!("Playing file: {}", path.display());
                                 let path = path.to_str().unwrap();
                                 match self.audio_playback.open_path(path) {
                                     Ok(_) => {
@@ -859,6 +871,19 @@ impl MainState {
                                         self.audio_playback.build_effects(&self.chart);
                                         self.audio_playback.set_poistion(ms);
                                         self.audio_playback.play();
+                                        if self.sink.len() > 0 {
+                                            self.sink.clear();
+                                            self.sink.sleep_until_end();
+                                        }
+                                        self.sink.append(
+                                            self.audio_playback
+                                                .get_source()
+                                                .expect("Source not available"),
+                                        );
+
+                                        self.audio_playback.play();
+
+                                        self.sink.play();
                                     }
                                     Err(msg) => {
                                         println!("{}", msg);
@@ -948,6 +973,7 @@ impl MainState {
         let mut laser_builder = Vec::new();
         let min_tick_render = self.screen.pos_to_tick(-100.0, self.screen.h);
         let max_tick_render = self.screen.pos_to_tick(self.screen.w + 50.0, 0.0);
+        info!("Sink: {}, {}", self.sink.is_paused(), self.sink.len());
 
         let chart_draw_height = self.screen.chart_draw_height();
         let lane_width = self.screen.lane_width();

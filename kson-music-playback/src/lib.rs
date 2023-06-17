@@ -5,6 +5,7 @@ use kson::parameter::*;
 use kson::{Chart, GraphSectionPoint};
 use kson_audio::Dsp;
 use kson_audio::*;
+pub use rodio::Source;
 use rodio::*;
 use std::fmt::Debug;
 use std::fs::File;
@@ -104,7 +105,7 @@ impl Iterator for AudioFile {
     }
 }
 
-impl source::Source for AudioFile {
+impl Source for AudioFile {
     fn current_frame_len(&self) -> Option<usize> {
         let pos = self.pos.load(Ordering::SeqCst);
         if pos == self.size {
@@ -151,8 +152,6 @@ impl AudioFile {
 type LaserFn = Box<dyn Fn(f32) -> f32>;
 
 pub struct AudioPlayback {
-    sink: Sink,
-    stream: OutputStream,
     file: Option<AudioFile>,
     last_file: String,
     laser_funcs: [Vec<(u32, u32, LaserFn)>; 2],
@@ -160,17 +159,13 @@ pub struct AudioPlayback {
 }
 
 impl AudioPlayback {
-    pub fn try_new() -> Result<Self> {
-        let (stream, stream_handle) = OutputStream::try_default()?;
-        let sink = Sink::try_new(&stream_handle)?;
-        Ok(AudioPlayback {
-            sink,
-            stream,
+    pub fn new() -> Self {
+        AudioPlayback {
             file: None,
             last_file: String::new(),
             laser_funcs: [Vec::new(), Vec::new()],
             laser_values: (None, None),
-        })
+        }
     }
 
     fn make_laser_fn(
@@ -241,7 +236,10 @@ impl AudioPlayback {
     }
 
     pub fn is_playing(&self) -> bool {
-        !self.sink.empty()
+        match &self.file {
+            Some(f) => !f.stopped.load(Ordering::SeqCst),
+            None => false,
+        }
     }
 
     fn get_laser_value_at(&self, side: usize, tick: f64) -> Option<f32> {
@@ -264,6 +262,10 @@ impl AudioPlayback {
         }
 
         None
+    }
+
+    pub fn get_source(&self) -> Option<AudioFile> {
+        self.file.clone()
     }
 
     pub fn update(&mut self, tick: f64) {
@@ -306,8 +308,6 @@ impl AudioPlayback {
         } else {
             if let Some(file) = &mut self.file {
                 file.set_stopped(false);
-                self.sink.append(file.clone());
-                self.sink.play();
                 return true;
             }
 
@@ -388,6 +388,7 @@ impl AudioPlayback {
     pub fn close(&mut self) {
         self.stop();
         if self.file.is_some() {
+            self.file.as_mut().unwrap().set_stopped(true);
             self.file = None;
         }
     }
