@@ -35,7 +35,7 @@ use crate::{
     },
     sources::{
         bitcrush::bit_crusher, effected_part::effected_part, flanger::flanger,
-        owned_source::owned_source,
+        owned_source::owned_source, pitch_shift::pitch_shift,
     },
     take_duration_fade::take_duration_fade,
     ControlMessage, RuscMixer,
@@ -414,6 +414,8 @@ impl Scene for SongSelectScene {
                                     Duration::from_millis(4000),
                                     Duration::from_millis(2000),
                                 );
+
+                                let source = pitch_shift(source, 6);
 
                                 mixer.as_ref().unwrap().add(owned_source(source, owner));
                             });

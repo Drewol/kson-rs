@@ -51,6 +51,7 @@ egui_glow = { version = "0.21.0", features = ["winit"] }
 rusc_database = {path = "./rusc_database"}
 itertools = "0.10.5"
 kson-music-playback = {git = "https://github.com/Drewol/kson-editor.git"}
+soundtouch = {path = '../soundtouch-rs'}
 
 [profile.release]
 debug = true
