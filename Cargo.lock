@@ -3225,6 +3225,7 @@ dependencies = [
 [[package]]
 name = "soundtouch"
 version = "0.1.0"
+source = "git+https://git.kson.dev/Drewol/soundtouch-rs.git#600e2ca19536ccff7a02e79e4bff68ef96b9f555"
 dependencies = [
  "soundtouch-sys",
 ]
@@ -3232,6 +3233,7 @@ dependencies = [
 [[package]]
 name = "soundtouch-sys"
 version = "0.1.0"
+source = "git+https://git.kson.dev/Drewol/soundtouch-rs.git#600e2ca19536ccff7a02e79e4bff68ef96b9f555"
 dependencies = [
  "bindgen 0.66.0",
  "cmake",
