@@ -35,7 +35,7 @@ use crate::{
     },
     sources::{
         bitcrush::bit_crusher, effected_part::effected_part, flanger::flanger,
-        owned_source::owned_source, pitch_shift::pitch_shift,
+        owned_source::owned_source, pitch_shift::pitch_shift, wobble::wobble,
     },
     take_duration_fade::take_duration_fade,
     ControlMessage, RuscMixer,
@@ -395,7 +395,7 @@ impl Scene for SongSelectScene {
                                     state.set_factor(amp.clamp(0.0, 1.0));
                                 })
                                 .buffered();
-                                let bit_source = source.clone();
+                                let wobble_source = source.clone();
                                 let source = effected_part(
                                     source.clone(),
                                     flanger(
@@ -410,12 +410,12 @@ impl Scene for SongSelectScene {
 
                                 let source = effected_part(
                                     source,
-                                    bit_crusher(bit_source, 45),
+                                    wobble(wobble_source, 4.0, 500.0, 20000.0),
                                     Duration::from_millis(4000),
                                     Duration::from_millis(2000),
                                 );
 
-                                let source = pitch_shift(source, 6);
+                                //let source = pitch_shift(source, 6);
 
                                 mixer.as_ref().unwrap().add(owned_source(source, owner));
                             });

@@ -7,10 +7,10 @@
 - [ ] retrigger
 - [ ] gate
 - [x] flanger
-- [ ] pitch_shift
+- [x] pitch_shift
 - [x] bitcrusher
 - [ ] phaser
-- [ ] wobble
+- [x] wobble
 - [ ] tapestop
 - [ ] echo
 - [ ] sidechain
