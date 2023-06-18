@@ -116,7 +116,7 @@ impl FileSongProvider {
     }
 
     fn load_songs_folder() {
-        let song_path = crate::config::GameConfig::get().unwrap().songs_path.clone();
+        let song_path = crate::config::GameConfig::get().songs_path.clone();
         info!("Loading songs from: {:?}", &song_path);
         let song_walker = walkdir::WalkDir::new(song_path);
 

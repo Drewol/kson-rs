@@ -236,7 +236,7 @@ fn main() -> anyhow::Result<()> {
     let canvas = Arc::new(Mutex::new(canvas));
 
     let skin_setting: Vec<SkinSettingEntry> = {
-        let skin = &GameConfig::get().unwrap().skin;
+        let skin = &GameConfig::get().skin;
         let mut config_def_path = std::env::current_dir()?;
         config_def_path.push("skins");
         config_def_path.push(skin);

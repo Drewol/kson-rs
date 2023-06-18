@@ -139,7 +139,7 @@ impl TypeName for SongSelect {
 
 impl SongSelect {
     pub fn new() -> Self {
-        let song_path = { GameConfig::get().unwrap().songs_path.clone() };
+        let song_path = { GameConfig::get().songs_path.clone() };
 
         let (song_provider, score_provider): (
             Arc<Mutex<dyn SongProvider + Send>>,

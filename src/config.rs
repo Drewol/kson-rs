@@ -34,11 +34,25 @@ impl Default for GameConfig {
 static INSTANCE: OnceCell<RwLock<GameConfig>> = OnceCell::new();
 
 impl GameConfig {
-    pub fn get() -> Option<std::sync::RwLockReadGuard<'static, GameConfig>> {
-        INSTANCE.get().and_then(|i| i.read().ok())
+    pub fn get() -> std::sync::RwLockReadGuard<'static, GameConfig> {
+        INSTANCE
+            .get()
+            .and_then(|i| i.read().ok())
+            .expect("Tried to get GameConfig before initializing")
     }
-    pub fn get_mut() -> Option<std::sync::RwLockWriteGuard<'static, GameConfig>> {
-        INSTANCE.get().and_then(|i| i.write().ok())
+    pub fn get_mut() -> std::sync::RwLockWriteGuard<'static, GameConfig> {
+        INSTANCE
+            .get()
+            .and_then(|i| i.write().ok())
+            .expect("Tried to get GameConfig before initializing")
+    }
+
+    pub fn skin_path(&self) -> PathBuf {
+        let mut skin_path = self.config_file.clone();
+        skin_path.pop();
+        skin_path.push("skins");
+        skin_path.push(&self.skin);
+        skin_path
     }
 
     fn skin_config_path(&self) -> PathBuf {
@@ -146,11 +160,9 @@ impl GameConfig {
             }
         }
 
-        if let Some(mut config) = GameConfig::get_mut() {
-            if let Some(err) = config.init_skin_settings().err() {
-                log::warn!("{:?}", err)
-            };
-        }
+        if let Err(err) = GameConfig::get_mut().init_skin_settings() {
+            log::warn!("{:?}", err)
+        };
     }
 
     pub fn save(&self) {

@@ -143,7 +143,7 @@ impl Vgfx {
                 .unwrap()
         };
 
-        let config = &GameConfig::get().unwrap();
+        let config = &GameConfig::get();
 
         Self {
             restore_stack: vec![],

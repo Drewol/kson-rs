@@ -180,7 +180,7 @@ impl GameMain {
             let lua_mixer = lua_mixer.clone();
             Rc::new(move |lua: Rc<Lua>, script_path| {
                 //Set path for 'require' (https://stackoverflow.com/questions/4125971/setting-the-global-lua-path-variable-from-c-c?lq=1)
-                let skin = &GameConfig::get().unwrap().skin;
+                let skin = &GameConfig::get().skin;
                 let mut real_script_path = std::env::current_dir()?;
                 real_script_path.push("skins");
                 real_script_path.push(skin);
@@ -388,9 +388,7 @@ impl GameMain {
 
         let exit = scenes.is_empty();
         if exit {
-            if let Some(c) = GameConfig::get() {
-                c.save();
-            }
+            GameConfig::get().save()
         }
 
         FrameOutput {

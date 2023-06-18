@@ -1,5 +1,5 @@
 use std::{
-    cell::{Ref},
+    cell::Ref,
     collections::HashMap,
     path::PathBuf,
     sync::{atomic::AtomicUsize, Arc},
@@ -117,7 +117,7 @@ impl TealData for GameData {
                 if game_data.audio_samples.contains_key(&name) {
                     return Ok(());
                 }
-                let config = GameConfig::get().unwrap();
+                let config = GameConfig::get();
 
                 let mut folder = config.game_folder.clone();
                 folder.push("skins");
@@ -253,9 +253,7 @@ impl TealData for GameData {
             methods,
             "GetLaserColor",
             |_, _, _game_data, _p: GetLaserColorParams| {
-                if let Some(hue) =
-                    GameConfig::get().and_then(|a| a.laser_hues.get(_p.laser as usize).copied())
-                {
+                if let Some(hue) = GameConfig::get().laser_hues.get(_p.laser as usize).copied() {
                     let [r, g, b] = Hsva::new(hue / 360.0, 1.0, 1.0, 1.0).to_rgb();
                     Ok((r * 255.0, g * 255.0, b * 255.0, 255.0))
                 } else {
@@ -298,11 +296,7 @@ impl TealData for GameData {
 
         //GetSkin
         add_lua_static_method(methods, "GetSkin", |_, _, _game_data, _: ()| {
-            GameConfig::get()
-                .map(|x| Ok(x.skin.clone()))
-                .unwrap_or(Err(mlua::Error::RuntimeError(
-                    "GameConfig not available".into(),
-                )))
+            Ok(GameConfig::get().skin.clone())
         });
 
         //GetSkinSetting
@@ -310,19 +304,13 @@ impl TealData for GameData {
             methods,
             "GetSkinSetting",
             |_, _, _game_data, key: String| {
-                if let Some(gc) = GameConfig::get() {
-                    let skin_setting_value = gc
-                        .skin_settings
-                        .get(&key)
-                        .cloned()
-                        .unwrap_or(SkinSettingValue::None);
+                let skin_setting_value = GameConfig::get()
+                    .skin_settings
+                    .get(&key)
+                    .cloned()
+                    .unwrap_or(SkinSettingValue::None);
 
-                    Ok(skin_setting_value)
-                } else {
-                    Err(mlua::Error::RuntimeError(
-                        "GameConfig not initialized".to_string(),
-                    ))
-                }
+                Ok(skin_setting_value)
             },
         );
 
@@ -331,9 +319,7 @@ impl TealData for GameData {
             methods,
             "SetSkinSetting",
             |_, _, _game_data, key: (String, SkinSettingValue)| {
-                if let Some(mut config) = GameConfig::get_mut() {
-                    config.skin_settings.insert(key.0, key.1);
-                }
+                GameConfig::get_mut().skin_settings.insert(key.0, key.1);
 
                 Ok(())
             },

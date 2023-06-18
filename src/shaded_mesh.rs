@@ -489,7 +489,7 @@ impl TealData for ShadedMesh {
             let context = &lua.app_data_ref::<FrameInput<()>>().unwrap().context;
 
             let mut path = std::env::current_dir().unwrap();
-            let skin = &GameConfig::get().unwrap().skin;
+            let skin = &GameConfig::get().skin;
             path.push("skins");
             path.push(skin);
             path.push("textures");
