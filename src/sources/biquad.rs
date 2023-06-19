@@ -1,18 +1,39 @@
-use std::sync::mpsc::Receiver;
+use std::sync::mpsc::{Receiver, Sender};
 
 use rodio::Source;
 
-#[derive(Copy, Clone)]
+#[derive(Debug, Copy, Clone)]
 pub enum BiQuadType {
-    Peaking(f32, f32),
-    LowPass(f32),
-    HighPass(f32),
+    Peaking(f32),
+    AllPass,
+    LowPass,
+    HighPass,
+    HighShelf(f32),
 }
+
+#[derive(Debug, Clone, Copy)]
+pub struct BiQuadState {
+    filter_type: BiQuadType,
+    q: f32,
+    freq: f32,
+}
+
+impl BiQuadState {
+    pub fn new(filter: BiQuadType, q: f32, freq: f32) -> Self {
+        BiQuadState {
+            filter_type: filter,
+            q,
+            freq,
+        }
+    }
+}
+
+pub type BiquadController = Sender<(Option<BiQuadState>, Option<f32>)>;
 
 pub fn biquad<I: Source<Item = f32>>(
     input: I,
-    filter: BiQuadType,
-    updater: Option<Receiver<(Option<BiQuadType>, Option<f32>)>>,
+    state: BiQuadState,
+    updater: Option<Receiver<(Option<BiQuadState>, Option<f32>)>>,
 ) -> BiQuad<I> {
     let channels = input.channels();
     let mut res = BiQuad {
@@ -27,13 +48,12 @@ pub fn biquad<I: Source<Item = f32>>(
         b2: 0.0,
         za: vec![[0.0; 2]; channels as usize],
         zb: vec![[0.0; 2]; channels as usize],
-        freq: 0.0,
-        q: std::f32::consts::SQRT_2,
         current_channel: 0,
         updater,
+        state,
     };
 
-    res.update(filter);
+    res.update(state);
     res
 }
 
@@ -46,20 +66,19 @@ pub struct BiQuad<I: Source<Item = f32>> {
     b2: f32,
     za: Vec<[f32; 2]>,
     zb: Vec<[f32; 2]>,
-    q: f32,
     mix: f32,
     input: I,
     current_channel: u16,
     channels: u16,
-    updater: Option<Receiver<(Option<BiQuadType>, Option<f32>)>>,
-    freq: f32,
+    updater: Option<Receiver<(Option<BiQuadState>, Option<f32>)>>,
+    state: BiQuadState,
 }
 
 impl<I: Source<Item = f32>> BiQuad<I> {
-    fn set_peaking(&mut self, freq: f32, gain: f32) {
-        let w0 = (2.0 * std::f32::consts::PI * freq) / self.input.sample_rate() as f32;
+    fn set_peaking(&mut self, gain: f32) {
+        let w0 = (2.0 * std::f32::consts::PI * self.state.freq) / self.input.sample_rate() as f32;
         let cw0 = w0.cos();
-        let alpha = w0.sin() / (2.0 * self.q);
+        let alpha = w0.sin() / (2.0 * self.state.q);
         let a = 10.0_f32.powf(gain / 40.0);
 
         self.b0 = 1.0 + (alpha * a);
@@ -70,10 +89,23 @@ impl<I: Source<Item = f32>> BiQuad<I> {
         self.a2 = 1.0 - (alpha / a);
     }
 
-    fn set_lowpass(&mut self, freq: f32) {
-        let w0 = (2.0 * std::f32::consts::PI * freq) / self.input.sample_rate() as f32;
+    fn set_allpass(&mut self) {
+        let w0 = (2.0 * std::f32::consts::PI * self.state.freq) / self.input.sample_rate() as f32;
         let cw0 = w0.cos();
-        let alpha = w0.sin() / (2.0 * self.q);
+        let alpha = w0.sin() / (2.0 * self.state.q);
+
+        self.b0 = 1.0 - alpha;
+        self.b1 = -2.0 * cw0;
+        self.b2 = 1.0 + alpha;
+        self.a0 = 1.0 + alpha;
+        self.a1 = -2.0 * cw0;
+        self.a2 = 1.0 - alpha;
+    }
+
+    fn set_lowpass(&mut self) {
+        let w0 = (2.0 * std::f32::consts::PI * self.state.freq) / self.input.sample_rate() as f32;
+        let cw0 = w0.cos();
+        let alpha = w0.sin() / (2.0 * self.state.q);
 
         self.b0 = (1.0 - cw0) / 2.0;
         self.b1 = 1.0 - cw0;
@@ -83,10 +115,10 @@ impl<I: Source<Item = f32>> BiQuad<I> {
         self.a2 = 1.0 - alpha;
     }
 
-    fn set_highpass(&mut self, freq: f32) {
-        let w0 = (2.0 * std::f32::consts::PI * freq) / self.input.sample_rate() as f32;
+    fn set_highpass(&mut self) {
+        let w0 = (2.0 * std::f32::consts::PI * self.state.freq) / self.input.sample_rate() as f32;
         let cw0 = w0.cos();
-        let alpha = w0.sin() / (2.0 * self.q);
+        let alpha = w0.sin() / (2.0 * self.state.q);
 
         self.b0 = (1.0 + cw0) / 2.0;
         self.b1 = -(1.0 + cw0);
@@ -96,26 +128,38 @@ impl<I: Source<Item = f32>> BiQuad<I> {
         self.a2 = 1.0 - alpha;
     }
 
-    pub fn update(&mut self, filter: BiQuadType) {
-        match filter {
-            BiQuadType::Peaking(freq, q) => self.set_peaking(freq, q),
-            BiQuadType::LowPass(freq) => self.set_lowpass(freq),
-            BiQuadType::HighPass(freq) => self.set_highpass(freq),
-        }
+    fn set_high_shelf(&mut self, gain: f32) {
+        let w0 = (2.0 * std::f32::consts::PI * self.state.freq) / self.input.sample_rate() as f32;
+        let cw0 = w0.cos();
+        let alpha = w0.sin() / (2.0 * self.state.q);
+        let a = 10.0_f32.powf(gain / 40.0);
+        let two_sqrt_aalpha = 2.0 * a.sqrt() * alpha;
 
-        let new_freq = match filter {
-            BiQuadType::Peaking(freq, _)
-            | BiQuadType::LowPass(freq)
-            | BiQuadType::HighPass(freq) => freq,
-        };
+        self.b0 = a * ((a + 1.0) + (a - 1.0) * cw0 + two_sqrt_aalpha);
+        self.b1 = -2.0 * a * ((a - 1.0) + (a + 1.0) * cw0);
+        self.b2 = a * ((a + 1.0) + (a - 1.0) * cw0 - two_sqrt_aalpha);
+        self.a0 = (a + 1.0) - (a - 1.0) * cw0 + two_sqrt_aalpha;
+        self.a1 = 2.0 * ((a - 1.0) - (a + 1.0) * cw0);
+        self.a2 = (a + 1.0) - (a - 1.0) * cw0 - two_sqrt_aalpha;
+    }
 
+    pub fn update(&mut self, filter: BiQuadState) {
         //reset filter on large jumps
-        if (self.freq - new_freq).abs() > 100.0 {
+        if (self.state.freq - filter.freq).abs() > 100.0 {
             self.za.iter_mut().for_each(|x| *x = [0.0, 0.0]);
             self.zb.iter_mut().for_each(|x| *x = [0.0, 0.0]);
         }
 
-        self.freq = new_freq;
+        self.state = filter;
+        self.state.q = self.state.q.max(0.01);
+
+        match filter.filter_type {
+            BiQuadType::Peaking(gain) => self.set_peaking(gain),
+            BiQuadType::LowPass => self.set_lowpass(),
+            BiQuadType::HighPass => self.set_highpass(),
+            BiQuadType::AllPass => self.set_allpass(),
+            BiQuadType::HighShelf(gain) => self.set_high_shelf(gain),
+        }
     }
 
     pub fn set_mix(&mut self, factor: f32) {

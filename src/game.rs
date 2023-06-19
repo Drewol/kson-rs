@@ -6,7 +6,7 @@ use crate::{
     shaded_mesh::ShadedMesh,
     songselect::Song,
     sources::{
-        biquad::{biquad, BiQuadType},
+        biquad::{biquad, BiQuadState, BiQuadType, BiquadController},
         owned_source::owned_source,
     },
     vg_ui::Vgfx,
@@ -70,7 +70,7 @@ pub struct Game {
     current_roll: f64,
     hit_ratings: Vec<HitRating>,
     mixer: Arc<DynamicMixerController<f32>>,
-    biquad_control: Sender<(Option<BiQuadType>, Option<f32>)>,
+    biquad_control: BiquadController,
     source_owner: (Sender<()>, Receiver<()>),
 }
 
@@ -112,14 +112,26 @@ impl Gauge {
                     delta: _,
                     time: _,
                 } if tick_is_short(t) => *value += *chip_gain,
-                HitRating::Crit { tick: _, delta: _, time: _ } => *value += *tick_gain,
-                HitRating::Good { tick: _, delta: _, time: _ } => *value += *chip_gain / 3.0, //Only chips can have a "good" rating
+                HitRating::Crit {
+                    tick: _,
+                    delta: _,
+                    time: _,
+                } => *value += *tick_gain,
+                HitRating::Good {
+                    tick: _,
+                    delta: _,
+                    time: _,
+                } => *value += *chip_gain / 3.0, //Only chips can have a "good" rating
                 HitRating::Miss {
                     tick: t,
                     delta: _,
                     time: _,
                 } if tick_is_short(t) => *value -= 0.02,
-                HitRating::Miss { tick: _, delta: _, time: _ } => *value -= 0.02 / 4.0,
+                HitRating::Miss {
+                    tick: _,
+                    delta: _,
+                    time: _,
+                } => *value -= 0.02 / 4.0,
                 HitRating::None => {}
             },
         }
@@ -534,7 +546,7 @@ impl Game {
         playback: kson_music_playback::AudioPlayback,
         input_state: Arc<InputState>,
         beam_colors: Vec<image::Rgba<u8>>,
-        biquad_control: Sender<(Option<BiQuadType>, Option<f32>)>,
+        biquad_control: BiquadController,
     ) -> Result<Self> {
         let mut view = ChartView::new(skin_root, td);
         view.build_laser_meshes(&chart);
@@ -733,17 +745,38 @@ impl Game {
 
         let last_score = self.real_score;
         self.real_score += match hit_rating {
-            HitRating::Crit { tick: _, delta: _, time: _ } => 2,
-            HitRating::Good { tick: _, delta: _, time: _ } => 1,
+            HitRating::Crit {
+                tick: _,
+                delta: _,
+                time: _,
+            } => 2,
+            HitRating::Good {
+                tick: _,
+                delta: _,
+                time: _,
+            } => 1,
             _ => 0,
         };
 
         let combo_updated = match hit_rating {
-            HitRating::Crit { tick: _, delta: _, time: _ } | HitRating::Good { tick: _, delta: _, time: _ } => {
+            HitRating::Crit {
+                tick: _,
+                delta: _,
+                time: _,
+            }
+            | HitRating::Good {
+                tick: _,
+                delta: _,
+                time: _,
+            } => {
                 self.combo += 1;
                 true
             }
-            HitRating::Miss { tick: _, delta: _, time: _ } => {
+            HitRating::Miss {
+                tick: _,
+                delta: _,
+                time: _,
+            } => {
                 if self.combo == 0 {
                     false
                 } else {
@@ -770,7 +803,11 @@ impl Game {
         let laser_slam_hit = self.lua.globals().get::<_, Function>("laser_slam_hit");
 
         match hit_rating {
-            HitRating::Crit { tick, delta, time: _ } => match tick.tick {
+            HitRating::Crit {
+                tick,
+                delta,
+                time: _,
+            } => match tick.tick {
                 ScoreTick::Chip { lane } => {
                     self.beam_colors_current[lane] = (self.beam_colors[2] / 255.0).into();
                     if let Ok(button_hit) = button_hit {
@@ -785,7 +822,11 @@ impl Game {
                 }
                 _ => (),
             },
-            HitRating::Good { tick, delta, time: _ } => {
+            HitRating::Good {
+                tick,
+                delta,
+                time: _,
+            } => {
                 if let ScoreTick::Chip { lane } = tick.tick {
                     if let Ok(near_hit) = self.lua.globals().get::<_, Function>("near_hit") {
                         near_hit.call::<_, ()>(delta < 0.0);
@@ -796,7 +837,11 @@ impl Game {
                     self.beam_colors_current[lane] = (self.beam_colors[1] / 255.0).into()
                 }
             }
-            HitRating::Miss { tick, delta: _, time: _ } if tick.y > self.current_tick => {
+            HitRating::Miss {
+                tick,
+                delta: _,
+                time: _,
+            } if tick.y > self.current_tick => {
                 if let ScoreTick::Chip { lane } = tick.tick {
                     self.beam_colors_current[lane] = (self.beam_colors[0] / 255.0).into();
                     if let Ok(button_hit) = button_hit {
@@ -804,7 +849,11 @@ impl Game {
                     }
                 }
             }
-            HitRating::Miss { tick, delta: _, time: _ } => {
+            HitRating::Miss {
+                tick,
+                delta: _,
+                time: _,
+            } => {
                 if let ScoreTick::Chip { lane } = tick.tick {
                     if let Ok(button_hit) = button_hit {
                         button_hit.call::<_, ()>((lane, 0, 0));
@@ -956,11 +1005,9 @@ impl Scene for Game {
         };
 
         _ = if let Some(f) = laser_freq {
+            let freq = 80.0f32 * (8000.0f32 / 80.0f32).powf(f as f32);
             self.biquad_control.send((
-                Some(BiQuadType::Peaking(
-                    (f as f32).powf(std::f32::consts::E) * 7920.0 + 80.0,
-                    10.0,
-                )),
+                Some(BiQuadState::new(BiQuadType::Peaking(10.0), SQRT_2, freq)),
                 Some((1.0 - (f - 0.5).abs() * 1.99).powf(0.1) as f32),
             ))
         } else {
@@ -1175,7 +1222,7 @@ impl Scene for Game {
             self.mixer.add(owned_source(
                 biquad(
                     self.playback.get_source().expect("Audio not loaded"),
-                    BiQuadType::Peaking(100.0, 0.0),
+                    BiQuadState::new(BiQuadType::AllPass, SQRT_2, 100.0),
                     Some(biquad_events),
                 ),
                 self.source_owner.0.clone(),
@@ -1490,6 +1537,7 @@ impl Scene for Game {
 
 use std::{
     cmp::Ordering,
+    f32::consts::SQRT_2,
     path::{Path, PathBuf},
     rc::Rc,
     sync::{

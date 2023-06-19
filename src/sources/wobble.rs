@@ -1,6 +1,7 @@
+use std::f32::consts::SQRT_2;
 use std::sync::mpsc::{channel, Sender};
 
-use super::biquad::{biquad, BiQuad, BiQuadType};
+use super::biquad::{biquad, BiQuad, BiQuadState, BiQuadType, BiquadController};
 use super::triangle::TriangleWave;
 use rodio::source::UniformSourceIterator;
 use rodio::Source;
@@ -12,17 +13,21 @@ pub struct Wobble<I: Source<Item = f32>> {
     f_max: f32,
     update: u32,
     mix: f32,
-    biquad_control: Sender<(Option<BiQuadType>, Option<f32>)>,
+    biquad_control: BiquadController,
 }
 
 pub fn wobble<I: Source<Item = f32>>(input: I, rate: f32, f_min: f32, f_max: f32) -> Wobble<I> {
     let wobble = UniformSourceIterator::new(
-        TriangleWave::new(rate, 1.0, input.sample_rate()),
+        TriangleWave::new(rate, 1.0, input.sample_rate(), 0.0),
         input.channels(),
         input.sample_rate(),
     );
     let (biquad_control, biquad_read) = channel();
-    let input = biquad(input, BiQuadType::LowPass(f_min), Some(biquad_read));
+    let input = biquad(
+        input,
+        BiQuadState::new(BiQuadType::LowPass, SQRT_2, f_min),
+        Some(biquad_read),
+    );
 
     Wobble {
         input,
@@ -43,15 +48,14 @@ where
 
     fn next(&mut self) -> Option<Self::Item> {
         self.update += 1;
-        let wobble_phase = self.wobble.next().unwrap_or_default();
-        if self.update >= 48 {
-            let ln_min = self.f_min.ln();
-            let width = self.f_max.ln() - ln_min;
-            let freq = (ln_min + width * wobble_phase).exp();
+        let wobble_phase = self.wobble.next().unwrap_or_default() * 0.5 + 0.5;
+        if self.update >= self.input.channels() as u32 {
+            let freq = self.f_min * (self.f_max / self.f_min).powf(wobble_phase);
 
-            _ = self
-                .biquad_control
-                .send((Some(BiQuadType::LowPass(freq)), Some(self.mix)));
+            _ = self.biquad_control.send((
+                Some(BiQuadState::new(BiQuadType::LowPass, SQRT_2, freq)),
+                Some(self.mix),
+            ));
             self.update = 0;
         }
 
