@@ -39,19 +39,22 @@ three-d-asset = { version = "0.5.0", features = ["image", "png", "jpeg", "tga", 
 directories = "4.0.1"
 zip = "0.6.4"
 rayon = "1.7.0"
-puffin_egui = "0.20.0"
+puffin_egui = "0.22.0"
 serde_json = "1.0.96"
 game-loop = { version = "*", features = ["winit"] }
 glutin = "0.30.7"
 glutin-winit = "0.3.0"
 glow = "0.12.1"
 raw-window-handle = "0.5.2"
-egui = "0.21.0"
-egui_glow = { version = "0.21.0", features = ["winit"] }
 rusc_database = {path = "./rusc_database"}
 itertools = "0.10.5"
 kson-music-playback = {git = "https://github.com/Drewol/kson-editor.git"}
 soundtouch = {git = 'https://git.kson.dev/Drewol/soundtouch-rs.git'}
+egui = "0.22.0"
+egui_glow = { version = "0.22.0", features = ["winit"] }
+clap = { version = "4.3.5", features = ["derive"] }
+rand = "0.8.5"
+egui_inspect = {path = '../egui_inspect/egui_inspect'} 
 
 [profile.release]
 debug = true

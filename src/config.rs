@@ -1,10 +1,20 @@
 use std::{collections::HashMap, fs::File, io::Read, path::PathBuf, sync::RwLock};
 
+use clap::Parser;
 use log::{error, info};
 use once_cell::sync::OnceCell;
 use serde::{Deserialize, Serialize};
 
 use crate::skin_settings::{SkinSettingEntry, SkinSettingValue};
+
+#[derive(Debug, Default, Parser)]
+pub struct Args {
+    pub chart: Option<String>,
+    #[arg(short, long)]
+    pub debug: bool,
+    #[arg(short, long)]
+    pub sound_test: bool,
+}
 
 #[derive(Debug, Deserialize, Serialize)]
 pub struct GameConfig {
@@ -16,6 +26,8 @@ pub struct GameConfig {
     #[serde(skip_serializing, skip_deserializing)]
     pub skin_settings: HashMap<String, SkinSettingValue>,
     pub game_folder: PathBuf,
+    #[serde(skip_serializing, skip_deserializing)]
+    pub args: Args,
 }
 
 impl Default for GameConfig {
@@ -27,6 +39,7 @@ impl Default for GameConfig {
             skin_settings: HashMap::new(),
             laser_hues: [200.0, 330.0],
             game_folder: std::env::current_dir().unwrap(),
+            args: Default::default(),
         }
     }
 }
@@ -130,13 +143,14 @@ impl GameConfig {
         Ok(())
     }
 
-    pub fn init(path: PathBuf) {
+    pub fn init(path: PathBuf, args: Args) {
         info!("Loading game config from: {:?}", &path);
         let file_content =
             std::fs::read_to_string(&path).map(|str| toml::from_str::<GameConfig>(&str));
 
         match file_content {
             Ok(Ok(mut config)) => {
+                config.args = args;
                 config.config_file = path;
                 INSTANCE.set(RwLock::new(config));
             }
@@ -146,6 +160,7 @@ impl GameConfig {
                     config_file: path,
                     songs_path: PathBuf::from_iter([".", "songs"]),
                     skin: "Default".into(),
+                    args,
                     ..Default::default()
                 }));
             }
@@ -155,6 +170,7 @@ impl GameConfig {
                     config_file: path,
                     songs_path: PathBuf::from_iter([".", "songs"]),
                     skin: "Default".into(),
+                    args,
                     ..Default::default()
                 }));
             }

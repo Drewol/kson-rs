@@ -1,16 +1,26 @@
 use std::{
     fs::File,
     io::Write,
-    path::Path,
+    path::{Path, PathBuf},
     rc::Rc,
     sync::{Arc, Mutex, RwLock},
     time::Duration,
 };
 
 use crate::{
-    button_codes::LaserState, config::GameConfig, game_main::GameMain, input_state::InputState,
-    skin_settings::SkinSettingEntry, transition::Transition, vg_ui::Vgfx,
+    button_codes::LaserState,
+    config::Args,
+    config::GameConfig,
+    game::GameData,
+    game_main::GameMain,
+    input_state::InputState,
+    scene::SceneData,
+    skin_settings::SkinSettingEntry,
+    songselect::{Difficulty, Song},
+    transition::Transition,
+    vg_ui::Vgfx,
 };
+use clap::Parser;
 use directories::ProjectDirs;
 use femtovg as vg;
 
@@ -18,9 +28,10 @@ use game_main::ControlMessage;
 use generational_arena::{Arena, Index};
 use gilrs::ev::filter::Jitter;
 
+use kson::Ksh;
 use log::*;
 
-use rodio::dynamic_mixer::DynamicMixerController;
+use rodio::{dynamic_mixer::DynamicMixerController, Source};
 use scene::Scene;
 
 use td::{FrameInput, HasContext, Viewport};
@@ -31,6 +42,7 @@ use glutin::prelude::*;
 
 mod animation;
 mod audio;
+mod audio_test;
 mod button_codes;
 mod config;
 mod game;
@@ -217,18 +229,19 @@ pub const FRAME_ACC_SIZE: usize = 16;
 
 fn main() -> anyhow::Result<()> {
     simple_logger::init_with_level(Level::Info)?;
+
     puffin::set_scopes_on(true);
     let mut config_path = std::env::current_dir().unwrap();
     config_path.push("Main.cfg");
-    GameConfig::init(config_path);
+    let args = Args::parse();
+    let show_debug_ui = args.debug;
+    GameConfig::init(config_path, args);
     let (_outputStream, outputStreamHandle) = rodio::OutputStream::try_default()?;
     let sink = rodio::Sink::try_new(&outputStreamHandle)?;
     let (mixer_controls, mixer) = rodio::dynamic_mixer::mixer::<f32>(2, 44100);
     mixer_controls.add(rodio::source::Zero::new(2, 44100));
     sink.append(mixer);
     sink.play();
-
-    let show_debug_ui = true;
 
     let (window, surface, canvas, gl_context, eventloop, window_gl) = window::create_window();
 
@@ -388,6 +401,56 @@ fn main() -> anyhow::Result<()> {
         audio_sample_play_status: Default::default(),
         audio_samples: Default::default(),
     }));
+
+    let mut scenes = Scenes::new(mixer_controls.clone());
+    let mut title = Box::new(main_menu::MainMenu::new());
+    title.suspend();
+    scenes.loaded.push(title);
+
+    if let Some(chart_path) = GameConfig::get().args.chart.as_ref() {
+        let chart_path = PathBuf::from(chart_path);
+        let chart =
+            kson::Chart::from_ksh(&std::io::read_to_string(std::fs::File::open(&chart_path)?)?)?;
+
+        let song = Song {
+            title: chart.meta.title.clone(),
+            artist: chart.meta.artist.clone(),
+            bpm: chart.meta.disp_bpm.clone(),
+            id: 0,
+            difficulties: vec![Difficulty {
+                jacket_path: chart_path.with_file_name(&chart.meta.jacket_filename),
+                level: chart.meta.level,
+                difficulty: chart.meta.difficulty,
+                id: 0,
+                effector: chart.meta.chart_author.clone(),
+                top_badge: 0,
+                hash: None,
+                scores: vec![],
+            }],
+        };
+
+        let audio = rodio::Decoder::new(std::fs::File::open(
+            chart_path.with_file_name(chart.audio.bgm.as_ref().unwrap().filename.clone().unwrap()),
+        )?)?;
+
+        scenes.loaded.push(
+            Box::new(GameData::new(
+                context.clone(),
+                Arc::new(song),
+                0,
+                chart,
+                vgfx.lock().unwrap().skin_folder(),
+                Box::new(audio.convert_samples()),
+            )?)
+            .make_scene(input_state.clone()),
+        );
+    }
+
+    if GameConfig::get().args.sound_test {
+        scenes
+            .loaded
+            .push(Box::new(audio_test::AudioTest::new(mixer_controls.clone())));
+    }
 
     let lua_arena: Rc<RwLock<Arena<Rc<Lua>>>> = Rc::new(RwLock::new(Arena::new()));
 
