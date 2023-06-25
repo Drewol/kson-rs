@@ -109,8 +109,10 @@ impl ShadedMesh {
                 .collect::<Vec<_>>()
                 .join("\n");
 
+        let mut params = HashMap::new();
+        params.insert("color".into(), vec4(1.0, 1.0, 1.0, 1.0).into());
         Ok(Self {
-            params: HashMap::new(),
+            params,
             material: Program::from_source(
                 context,
                 &vertex_shader_source,
@@ -344,10 +346,13 @@ impl ShadedMesh {
         frame: &FrameInput<()>,
         vgfx: &Mutex<Vgfx>,
     ) -> Result<(), tealr::mlu::mlua::Error> {
-        let _t = {
+        let [c0r0, c0r1, c1r0, c1r1, c2r0, c2r1] = {
             let vgfx = vgfx.lock().unwrap();
             let canvas = vgfx.canvas.lock().unwrap();
-            canvas.transform().to_mat3x4()
+            let mut transform = canvas.transform();
+            //transform.scale(1.0, -1.0);
+
+            transform.0
         };
         self.use_params();
         self.material.use_uniform(
@@ -361,7 +366,13 @@ impl ShadedMesh {
                 100.0,
             ),
         );
-        self.material.use_uniform("world", Mat4::from_scale(1.0));
+        self.material.use_uniform(
+            "world",
+            Mat4::new(
+                c0r0, c0r1, 0.0, 0.0, c1r0, c1r1, 0.0, 0.0, c2r0, c2r1, 1.0, 0.0, 0.0, 0.0, 0.0,
+                1.0,
+            ),
+        );
         self.material
             .use_vertex_attribute("inPos", &self.vertecies_pos);
         if self.material.requires_attribute("inTex") {
