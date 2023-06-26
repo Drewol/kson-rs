@@ -6,5 +6,6 @@ pub mod noise;
 pub mod owned_source;
 pub mod phaser;
 pub mod pitch_shift;
+pub mod takeable_source;
 pub mod triangle;
 pub mod wobble;
