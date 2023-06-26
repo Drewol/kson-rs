@@ -11,7 +11,7 @@
 - [x] bitcrusher
 - [ ] phaser
 - [x] wobble
-- [ ] tapestop
+- [x] tapestop
 - [ ] echo
 - [ ] sidechain
 - [ ] switch_audio

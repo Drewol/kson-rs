@@ -71,6 +71,7 @@ impl AudioTest {
             freq,
             bitcrush,
             pitch_shift,
+            tape_stop,
         } = self.effects;
 
         source = Box::new(source.amplify(volume / 100.0));
@@ -115,6 +116,10 @@ impl AudioTest {
             source = Box::new(pitch_shift::pitch_shift(source, pitch_shift));
         }
 
+        if tape_stop {
+            source = Box::new(tape_stop::tape_stop(source, Duration::from_secs(1)));
+        }
+
         source
     }
 }
@@ -131,6 +136,7 @@ struct EnabledEffects {
     bitcrush: u8,
     #[inspect(min = -48.0, max = 48.0)]
     pitch_shift: i32,
+    tape_stop: bool,
 }
 
 impl Scene for AudioTest {
