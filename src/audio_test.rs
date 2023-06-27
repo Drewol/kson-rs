@@ -9,12 +9,19 @@ use std::{
 
 use egui_inspect::*;
 
-use rodio::{decoder::LoopedDecoder, Source};
+use rodio::{
+    decoder::LoopedDecoder,
+    dynamic_mixer::{self, mixer},
+    source::SamplesConverter,
+    Source,
+};
 
 use crate::{
     scene::Scene,
     sources::{
         self,
+        biquad::{self, BiQuadState, BiquadController},
+        biquad::{biquad, BiQuad},
         flanger::flanger,
         noise::NoiseSource,
         owned_source::owned_source,
@@ -26,20 +33,32 @@ use crate::{
 pub struct AudioTest {
     mixer: RuscMixer,
     source_owner: Receiver<()>,
+    master_owner: Receiver<()>,
     real_source: Option<Arc<RwLock<Option<LoopedDecoder<std::fs::File>>>>>,
     effects: EnabledEffects,
+    biquad_controllers: [BiquadController; 3],
 }
 
 impl AudioTest {
     pub fn new(mixer: RuscMixer) -> Self {
+        let (inner_mixer, mixer_source) = dynamic_mixer::mixer(2, 44100);
+        inner_mixer.add(rodio::source::Zero::new(2, 44100));
+        let [a, b, c] = [channel(), channel(), channel()];
+
+        let mixer_source = biquad(mixer_source, Default::default(), Some(a.1));
+        let mixer_source = biquad(mixer_source, Default::default(), Some(b.1));
+        let mixer_source = biquad(mixer_source, Default::default(), Some(c.1));
+        let (master_source, master_owner) = channel();
         let (_, source_owner) = channel();
+        mixer.add(owned_source(mixer_source, master_source));
+        let mixer = inner_mixer;
 
         let source = if let Ok(a) = std::fs::File::open("sound_test.wav") {
             rodio::Decoder::new_looped(a).ok()
         } else {
             None
         }
-        .map(|x| TakeableSource::new(x));
+        .map(|source| TakeableSource::new(source));
 
         let source = if let Some((source, real_source)) = source {
             mixer.add(source.convert_samples());
@@ -51,8 +70,10 @@ impl AudioTest {
         Self {
             mixer,
             source_owner,
+            master_owner,
             effects: Default::default(),
             real_source: source,
+            biquad_controllers: [a.0, b.0, c.0],
         }
     }
 
@@ -89,26 +110,36 @@ impl AudioTest {
             source = Box::new(wobble::wobble(source, 4.0, 500.0, 20000.0));
         }
         if low_pass {
-            source = Box::new(biquad::biquad(
-                source,
-                biquad::BiQuadState::new(biquad::BiQuadType::LowPass, SQRT_2, freq),
-                None,
-            ));
+            _ = self.biquad_controllers[2].send((
+                Some(BiQuadState::new(biquad::BiQuadType::LowPass, SQRT_2, freq)),
+                Some(1.0),
+            ))
+        } else {
+            _ = self.biquad_controllers[2].send((None, Some(0.0)))
         }
+
         if high_pass {
-            source = Box::new(biquad::biquad(
-                source,
-                biquad::BiQuadState::new(biquad::BiQuadType::HighPass, SQRT_2, freq),
-                None,
-            ));
+            _ = self.biquad_controllers[1].send((
+                Some(BiQuadState::new(biquad::BiQuadType::HighPass, SQRT_2, freq)),
+                Some(1.0),
+            ))
+        } else {
+            _ = self.biquad_controllers[1].send((None, Some(0.0)))
         }
+
         if peaking {
-            source = Box::new(biquad::biquad(
-                source,
-                biquad::BiQuadState::new(biquad::BiQuadType::Peaking(20.0), SQRT_2, freq),
-                None,
+            _ = self.biquad_controllers[0].send((
+                Some(BiQuadState::new(
+                    biquad::BiQuadType::Peaking(20.0),
+                    SQRT_2,
+                    freq,
+                )),
+                Some(1.0),
             ));
+        } else {
+            _ = self.biquad_controllers[0].send((None, Some(0.0)))
         }
+
         if bitcrush != 0 {
             source = Box::new(bitcrush::bit_crusher(source, bitcrush as u32));
         }

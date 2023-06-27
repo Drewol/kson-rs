@@ -1,4 +1,7 @@
-use std::sync::mpsc::{Receiver, Sender};
+use std::{
+    f32::consts::SQRT_2,
+    sync::mpsc::{Receiver, Sender},
+};
 
 use rodio::Source;
 
@@ -16,6 +19,16 @@ pub struct BiQuadState {
     filter_type: BiQuadType,
     q: f32,
     freq: f32,
+}
+
+impl Default for BiQuadState {
+    fn default() -> Self {
+        Self {
+            filter_type: BiQuadType::AllPass,
+            q: SQRT_2,
+            freq: 100.0,
+        }
+    }
 }
 
 impl BiQuadState {
@@ -145,7 +158,7 @@ impl<I: Source<Item = f32>> BiQuad<I> {
 
     pub fn update(&mut self, filter: BiQuadState) {
         //reset filter on large jumps
-        if (self.state.freq - filter.freq).abs() > 100.0 {
+        if (self.state.freq - filter.freq).abs() > 1000.0 {
             self.za.iter_mut().for_each(|x| *x = [0.0, 0.0]);
             self.zb.iter_mut().for_each(|x| *x = [0.0, 0.0]);
         }
