@@ -104,6 +104,7 @@ impl AudioTest {
                 Duration::from_millis(4),
                 Duration::from_millis(1),
                 0.5,
+                0.05,
             ));
         }
         if wobble {
@@ -195,10 +196,10 @@ impl Scene for AudioTest {
 
                         Box::new(source.convert_samples())
                     } else {
-                        Box::new(NoiseSource::new(44100, 1.0))
+                        Box::new(NoiseSource::new(44100, 1.0, 2))
                     }
                 } else {
-                    Box::new(NoiseSource::new(44100, 1.0))
+                    Box::new(NoiseSource::new(44100, 1.0, 2))
                 };
 
             self.mixer

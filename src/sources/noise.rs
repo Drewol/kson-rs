@@ -5,14 +5,16 @@ pub struct NoiseSource {
     sample_rate: u32,
     amplitude: f32,
     rng: rand::rngs::OsRng,
+    channels: u16,
 }
 
 impl NoiseSource {
-    pub fn new(sample_rate: u32, amplitude: f32) -> Self {
+    pub fn new(sample_rate: u32, amplitude: f32, channels: u16) -> Self {
         NoiseSource {
             sample_rate,
             amplitude,
             rng: rand::rngs::OsRng,
+            channels,
         }
     }
 }
@@ -31,7 +33,7 @@ impl Source for NoiseSource {
     }
 
     fn channels(&self) -> u16 {
-        1
+        self.channels
     }
 
     fn sample_rate(&self) -> u32 {

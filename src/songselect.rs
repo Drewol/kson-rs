@@ -403,6 +403,7 @@ impl Scene for SongSelectScene {
                                         Duration::from_millis(4),
                                         Duration::from_millis(2),
                                         0.5,
+                                        0.05,
                                     ),
                                     Duration::from_millis(2000),
                                     Duration::from_millis(2000),

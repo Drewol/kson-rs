@@ -1,17 +1,22 @@
 use std::time::Duration;
 
+use itertools::Itertools;
 use rodio::{cpal::FromSample, source::UniformSourceIterator, Sample, Source};
+
+use super::triangle::TriangleWave;
 
 pub fn flanger<I: Source<Item = D>, D: Sample>(
     source: I,
     depth: Duration,
     delay: Duration,
     frequency: f32,
+    separation: f32,
 ) -> Flanger<I, D> {
     let target_channels = source.channels();
     let target_sample_rate = source.sample_rate();
     let sample_depth = ((target_sample_rate as u128 * depth.as_nanos()) / 1_000_000_000) as usize;
     let sample_delay = ((target_sample_rate as u128 * delay.as_nanos()) / 1_000_000_000) as usize;
+
     Flanger {
         input: UniformSourceIterator::new(source, target_channels, target_sample_rate),
         sample_buffer: vec![vec![D::zero_value(); target_channels as usize]; sample_depth],
@@ -21,8 +26,16 @@ pub fn flanger<I: Source<Item = D>, D: Sample>(
         sample_rate: target_sample_rate,
         current_channel: 0,
         buffer_cursor: 0,
-        cursor: 0.0,
-        frequency: std::f32::consts::TAU / (target_sample_rate as f32 / frequency),
+        cursors: (0..target_channels)
+            .map(|i| {
+                TriangleWave::new(
+                    frequency,
+                    0.5,
+                    target_sample_rate,
+                    (i % 2) as f32 * separation,
+                )
+            })
+            .collect_vec(),
     }
 }
 
@@ -36,12 +49,11 @@ where
     sample_buffer: Vec<Vec<D>>,
     buffer_cursor: usize,
     depth: usize,
-    frequency: f32,
     delay: usize,
-    cursor: f32,
     channels: usize,
     current_channel: usize,
     sample_rate: u32,
+    cursors: Vec<TriangleWave>,
 }
 
 impl<I, D> Iterator for Flanger<I, D>
@@ -64,7 +76,8 @@ where
             self.sample_buffer[self.buffer_cursor][self.current_channel] = sample;
 
             let delayed_buffer_cursor = (self.buffer_cursor as i64
-                - ((self.cursor.sin() * 0.5 + 0.5) * (self.depth - 1) as f32) as i64)
+                - ((self.cursors[self.current_channel].next().unwrap() + 0.5)
+                    * (self.depth - 1) as f32) as i64)
                 .rem_euclid(self.sample_buffer.len() as i64);
 
             let delayed_sample =
@@ -75,7 +88,6 @@ where
             if self.current_channel >= self.channels {
                 //Advance cursor
                 self.buffer_cursor += 1;
-                self.cursor += self.frequency;
                 self.current_channel = 0;
             }
 
