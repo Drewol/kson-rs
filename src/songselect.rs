@@ -93,7 +93,7 @@ impl TealData for Song {
     }
 }
 
-#[derive(Debug, Serialize, UserData)]
+#[derive(Serialize, UserData)]
 pub struct SongSelect {
     songs: Vec<Arc<Song>>,
     searchInputActive: bool, //true when the user is currently inputting search text
@@ -308,7 +308,7 @@ impl Scene for SongSelectScene {
         let preview_playing = self.state.preview_finished.clone();
 
         mixer.add(owned_source(
-            rodio::source::SineWave::new(440.0) //TODO: Load something from skin audio
+            rodio::source::Zero::new(2, 44100) //TODO: Load something from skin audio
                 .amplify(0.2)
                 .amplify(1.0)
                 .periodic_access(Duration::from_millis(10), move |state| {

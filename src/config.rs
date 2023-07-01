@@ -14,6 +14,8 @@ pub struct Args {
     pub debug: bool,
     #[arg(short, long)]
     pub sound_test: bool,
+    #[arg(short, long)]
+    pub profiling: bool,
 }
 
 #[derive(Debug, Deserialize, Serialize)]
@@ -25,6 +27,7 @@ pub struct GameConfig {
     pub laser_hues: [f32; 2],
     #[serde(skip_serializing, skip_deserializing)]
     pub skin_settings: HashMap<String, SkinSettingValue>,
+    #[serde(skip_serializing, skip_deserializing)]
     pub game_folder: PathBuf,
     #[serde(skip_serializing, skip_deserializing)]
     pub args: Args,

@@ -40,7 +40,7 @@ pub enum SongFilter {
     Collection(String),
 }
 
-pub trait SongProvider: Debug {
+pub trait SongProvider {
     fn poll(&mut self) -> Option<SongProviderEvent>;
     fn set_search(&mut self, query: &str);
     fn set_sort(&mut self, sort: SongSort);
@@ -58,7 +58,7 @@ pub trait SongProvider: Debug {
     ) -> anyhow::Result<(Box<dyn Source<Item = f32> + Send>, Duration, Duration)>;
 }
 
-pub trait ScoreProvider: Debug {
+pub trait ScoreProvider {
     fn poll(&mut self) -> Option<ScoreProviderEvent>;
     fn get_scores(&mut self, id: u64) -> Vec<Score>;
     fn insert_score(&mut self, id: u64, score: Score) -> anyhow::Result<()>;

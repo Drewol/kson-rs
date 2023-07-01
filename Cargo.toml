@@ -13,8 +13,6 @@ image = { version = "0.24.0", default-features = false, features = [
 ] }
 gilrs = "0.10.0"
 hecs = { version = "0.9.0", features = ["macros", "lazy_static"] }
-#kson = {path = "../kson-rs"}
-#kson-audio = {path = "../kson-rs/kson-audio"}
 kson ={git = "https://github.com/Drewol/kson-rs.git"}
 kson-audio = {git = "https://github.com/Drewol/kson-rs.git"}
 rodio = {version = "0.17.1", default-features = false, features = ['symphonia-wav', "flac", "vorbis", "mp3"]}
@@ -28,8 +26,8 @@ walkdir = "*"
 rfd = "*"
 log = "*"
 simple_logger = "4.0.0"
-puffin = "0.14.0"
-puffin_http = "0.11.0"
+puffin = "0.16.0"
+puffin_http = "0.13.0"
 uuid = { version = "1.2.2", features = ["serde"] }
 poll-promise = { git = "https://github.com/EmbarkStudios/poll-promise", features = ["smol"]}
 serde = { version = "1.0.152", features = ["derive"] }
@@ -49,12 +47,17 @@ raw-window-handle = "0.5.2"
 rusc_database = {path = "./rusc_database"}
 itertools = "0.10.5"
 kson-music-playback = {git = "https://github.com/Drewol/kson-editor.git"}
-soundtouch = {git = 'https://git.kson.dev/Drewol/soundtouch-rs.git'}
+soundtouch = {git = 'https://github.com/Drewol/soundtouch-rs.git'}
 egui = "0.22.0"
 egui_glow = { version = "0.22.0", features = ["winit"] }
 clap = { version = "4.3.5", features = ["derive"] }
 rand = "0.8.5"
-egui_inspect = {path = '../egui_inspect/egui_inspect'} 
+egui_inspect = {git = 'https://github.com/Drewol/egui_inspect.git'} 
+sha1_smol = "1.0.0"
+futures = "0.3.28"
+num_cpus = "1.16.0"
+encoding = "0.2.33"
+async-fs = "1.6.0"
 
 [profile.release]
 debug = true

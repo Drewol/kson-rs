@@ -4,6 +4,7 @@ use std::{
         mpsc::{Receiver, Sender},
         Arc, Mutex, RwLock,
     },
+    time::Duration,
 };
 
 use egui_glow::EguiGlow;
@@ -134,7 +135,12 @@ impl GameMain {
         }
     }
 
-    pub fn update(&mut self) {}
+    pub fn update(&mut self) {
+        let should_profile = GameConfig::get().args.profiling;
+        if puffin::are_scopes_on() != should_profile {
+            puffin::set_scopes_on(should_profile);
+        }
+    }
     pub fn render(
         &mut self,
         frame_input: FrameInput<()>,
@@ -163,7 +169,6 @@ impl GameMain {
             mixer,
         } = self;
 
-        poll_promise::tick(); //Tick async runtime at least once per frame
         knob_state.zero_deltas();
         puffin::profile_scope!("Frame");
         puffin::GlobalProfiler::lock().new_frame();

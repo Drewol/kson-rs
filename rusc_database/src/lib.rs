@@ -1,7 +1,8 @@
 use std::path::Path;
+use std::time::Duration;
 
 use sqlx::migrate::Migrator;
-use sqlx::{query, query_as, ConnectOptions, Pool, Row, SqlitePool};
+use sqlx::{query, query_as, query_scalar, ConnectOptions, Pool, Row, SqlitePool};
 
 static MIGRATOR: Migrator = sqlx::migrate!("./migrations"); // defaults to "./migrations"
 
@@ -77,13 +78,16 @@ pub struct ScoreEntry {
 
 impl LocalSongsDb {
     pub async fn new(db_path: impl AsRef<Path>) -> Result<Self, sqlx::Error> {
+        let mut options = sqlx::sqlite::SqliteConnectOptions::new()
+            .filename(db_path)
+            .create_if_missing(true)
+            .journal_mode(sqlx::sqlite::SqliteJournalMode::Memory)
+            .synchronous(sqlx::sqlite::SqliteSynchronous::Off)
+            .busy_timeout(Duration::from_secs(20));
+        options.disable_statement_logging();
+
         let res = Self {
-            sqlite_pool: Pool::connect_with(
-                sqlx::sqlite::SqliteConnectOptions::new()
-                    .filename(db_path)
-                    .create_if_missing(true),
-            )
-            .await?,
+            sqlite_pool: Pool::connect_with(options).await?,
         };
         res.migrate().await?;
         Ok(res)
@@ -217,6 +221,41 @@ impl LocalSongsDb {
         ).execute(&self.sqlite_pool).await
     }
 
+    pub async fn get_charts_for_folder(
+        &self,
+        id: i64,
+    ) -> std::result::Result<std::vec::Vec<ChartEntry>, sqlx::Error> {
+        query_as!(
+            ChartEntry,
+            "SELECT 
+        rowid,
+        folderid,
+        path,
+        title,
+        artist,
+        title_translit,
+        artist_translit,
+        jacket_path,
+        effector,
+        illustrator,
+        diff_name,
+        diff_shortname,
+        bpm,
+        diff_index,
+        level,
+        hash,
+        preview_file,
+        preview_offset,
+        preview_length,
+        lwt,
+        custom_offset
+     FROM Charts WHERE folderid = ? ORDER BY diff_index DESC",
+            id
+        )
+        .fetch_all(&self.sqlite_pool)
+        .await
+    }
+
     pub async fn add_chart(
         &self,
         ChartEntry {
@@ -242,12 +281,12 @@ impl LocalSongsDb {
             rowid: _,
             custom_offset: _,
         }: ChartEntry,
-    ) -> std::result::Result<sqlx::sqlite::SqliteQueryResult, sqlx::Error> {
-        query!(
+    ) -> std::result::Result<i64, sqlx::Error> {
+        query_scalar!(
             "INSERT INTO Charts(
 			folderid,path,title,artist,title_translit,artist_translit,jacket_path,effector,illustrator,
-			diff_name,diff_shortname,bpm,diff_index,level,hash,preview_file,preview_offset,preview_length,lwt) 
-			VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+			diff_name,diff_shortname,bpm,diff_index,level,hash,preview_file,preview_offset,preview_length,lwt,custom_offset) 
+			VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,0) RETURNING rowid",
             folderid,
             path,
             title,
@@ -268,7 +307,7 @@ impl LocalSongsDb {
             preview_length,
             lwt
         )
-        .execute(&self.sqlite_pool)
+        .fetch_one(&self.sqlite_pool)
         .await
     }
     pub async fn add_folder(
@@ -495,5 +534,11 @@ impl LocalSongsDb {
         } else {
             Err(sqlx::Error::RowNotFound)
         }
+    }
+
+    pub async fn get_hash_id(&self, hash: &str) -> std::result::Result<Option<i64>, sqlx::Error> {
+        query_scalar!("SELECT rowid FROM Charts WHERE hash=?", hash)
+            .fetch_optional(&self.sqlite_pool)
+            .await
     }
 }

@@ -3,7 +3,7 @@ use std::{
     io::Write,
     path::{Path, PathBuf},
     rc::Rc,
-    sync::{Arc, Mutex, RwLock},
+    sync::{mpsc::channel, Arc, Mutex, RwLock},
     time::Duration,
 };
 
@@ -230,7 +230,6 @@ pub const FRAME_ACC_SIZE: usize = 16;
 fn main() -> anyhow::Result<()> {
     simple_logger::init_with_level(Level::Info)?;
 
-    puffin::set_scopes_on(true);
     let mut config_path = std::env::current_dir().unwrap();
     config_path.push("Main.cfg");
     let args = Args::parse();
@@ -242,6 +241,16 @@ fn main() -> anyhow::Result<()> {
     mixer_controls.add(rodio::source::Zero::new(2, 44100));
     sink.append(mixer);
     sink.play();
+    let (killed, _killer) = channel();
+
+    for _ in 0..(num_cpus::get() / 2).max(1) {
+        let killed = killed.clone();
+        let _async = std::thread::spawn(move || loop {
+            poll_promise::tick();
+            std::thread::sleep(Duration::from_millis(1));
+            killed.send(()).expect("Program closed");
+        });
+    }
 
     let (window, surface, canvas, gl_context, eventloop, window_gl) = window::create_window();
 
