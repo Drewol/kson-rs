@@ -17,6 +17,8 @@ pub enum KshReadError {
     ParseFloatError(#[from] std::num::ParseFloatError),
     #[error("Failed to parse value: '{0}'")]
     ParseIntError(#[from] std::num::ParseIntError),
+    #[error("Encountered an empty laser section")]
+    EmptyLaserSection,
 }
 
 #[derive(Debug, Error)]
@@ -325,6 +327,9 @@ impl Ksh for crate::Chart {
         //set slams
         for i in 0..2 {
             for section in &mut new_chart.note.laser[i] {
+                if section.1.is_empty() {
+                    return Err(KshReadError::EmptyLaserSection);
+                }
                 let mut iter = section.1.iter_mut();
                 let mut for_removal: HashSet<u32> = HashSet::new();
                 let mut prev = iter.next().unwrap();
