@@ -1,4 +1,7 @@
 /target
 **/*.rs.bk
 Cargo.lock
-/.vscode
+/.vscodetarget/*
+.vscode/*
+imgui.ini
+profiling.json
