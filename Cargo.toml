@@ -1,2 +1,2 @@
 [workspace]
-members = ["kson-audio", "kson-effect-param-macro", "kson"]
+members = ["kson-audio", "kson-effect-param-macro", "kson", "kson-music-playback", "editor"]

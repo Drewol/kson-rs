@@ -7,6 +7,6 @@ edition = "2021"
 
 [dependencies]
 rodio = "*"
-kson = { git = "https://github.com/Drewol/kson-rs.git"}
-kson-audio = { git = "https://github.com/Drewol/kson-rs.git" }
+kson = { path = "../kson" }
+kson-audio = { path = "../kson-audio" }
 anyhow = "*"

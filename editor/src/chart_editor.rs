@@ -973,7 +973,6 @@ impl MainState {
         let mut laser_builder = Vec::new();
         let min_tick_render = self.screen.pos_to_tick(-100.0, self.screen.h);
         let max_tick_render = self.screen.pos_to_tick(self.screen.w + 50.0, 0.0);
-        info!("Sink: {}, {}", self.sink.is_paused(), self.sink.len());
 
         let chart_draw_height = self.screen.chart_draw_height();
         let lane_width = self.screen.lane_width();
