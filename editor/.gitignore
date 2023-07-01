@@ -1,0 +1,4 @@
+target/*
+.vscode/*
+imgui.ini
+profiling.json
