@@ -1,6 +1,6 @@
 use crate::{
     button_codes::{UscButton, UscInputEvent},
-    game_camera::ChartCamera,
+    game_camera::{CameraShake, ChartCamera},
     input_state::InputState,
     scene::{Scene, SceneData},
     shaded_mesh::ShadedMesh,
@@ -19,7 +19,7 @@ use kson::{
     Chart, Graph,
 };
 use puffin::profile_function;
-use rodio::{dynamic_mixer::DynamicMixerController, Source};
+use rodio::{dynamic_mixer::DynamicMixerController, source::Buffered, Decoder, Source};
 use serde::{Deserialize, Serialize};
 use tealr::mlu::mlua::{Function, Lua, LuaSerdeExt};
 use three_d_asset::vec4;
@@ -72,6 +72,7 @@ pub struct Game {
     mixer: Arc<DynamicMixerController<f32>>,
     biquad_control: BiquadController,
     source_owner: (Sender<()>, Receiver<()>),
+    slam_sample: Option<Buffered<Decoder<std::fs::File>>>,
 }
 
 #[derive(Debug, Default)]
@@ -552,6 +553,9 @@ impl Game {
         view.build_laser_meshes(&chart);
         let duration = chart.get_last_tick();
         let duration = chart.tick_to_ms(duration);
+        let mut slam_path = skin_root.clone();
+        slam_path.push("audio");
+        slam_path.push("laser_slam.wav");
 
         let score_ticks = kson::score_ticks::generate_score_ticks(&chart);
 
@@ -582,6 +586,7 @@ impl Game {
                 track_length: ChartView::TRACK_LENGTH,
                 tilt: 0.0,
                 view_size: vec2(0.0, 0.0),
+                shakes: vec![],
             },
             lua_game_state: LuaGameState::default(),
             control_tx: None,
@@ -615,6 +620,10 @@ impl Game {
             mixer: rodio::dynamic_mixer::mixer(2, 100).0,
             biquad_control,
             source_owner: std::sync::mpsc::channel(),
+            slam_sample: std::fs::File::open(slam_path)
+                .ok()
+                .and_then(|x| Decoder::new(x).ok())
+                .map(|x| x.buffered()),
         };
         res.set_track_uniforms();
         Ok(res)
@@ -815,7 +824,17 @@ impl Game {
                     }
                 }
                 ScoreTick::Slam { lane, start, end } => {
-                    //TODO: Camera shake
+                    self.camera.shakes.push(CameraShake::new(
+                        ((start - end).abs() * 2.0).to_radians() as _,
+                        (end - start).signum() as _,
+                        20.0,
+                        100.0,
+                    ));
+
+                    if let Some(slam_sample) = self.slam_sample.clone() {
+                        self.mixer.add(slam_sample.convert_samples()); //TODO: Amplyfy with slam volume
+                    }
+
                     if let Ok(laser_slam_hit) = laser_slam_hit {
                         laser_slam_hit.call::<_, ()>((end - start, start, end, lane));
                     }
@@ -1273,6 +1292,11 @@ impl Scene for Game {
                 .rotation_x
                 .value_at(self.current_tick as f64)
                 * 30.0) as f32;
+
+        self.camera.shakes.retain_mut(|x| {
+            x.tick(dt as _);
+            !x.completed()
+        });
 
         let td_camera: Camera = Camera::from(&self.camera);
 

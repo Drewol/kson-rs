@@ -3,7 +3,7 @@ use three_d_asset::{Camera, Deg, InnerSpace, Rad, Viewport};
 
 use crate::game::ChartView;
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone)]
 pub struct ChartCamera {
     pub fov: f32,
     pub radius: f32,
@@ -12,6 +12,44 @@ pub struct ChartCamera {
     pub track_length: f32,
     pub tilt: f32,
     pub view_size: Vec2,
+    pub shakes: Vec<CameraShake>,
+}
+
+#[derive(Debug, Clone, Copy)]
+pub struct CameraShake {
+    amplitude: f32,
+    direction: f32,
+    frequency: f32,
+    timer: f32,
+    duration: f32,
+}
+
+impl CameraShake {
+    pub fn new(amplitude: f32, direction: f32, frequency: f32, duration: f32) -> Self {
+        Self {
+            amplitude,
+            direction,
+            frequency,
+            timer: duration,
+            duration,
+        }
+    }
+
+    pub fn get_shake(&self) -> f32 {
+        (self.timer * self.frequency).sin()
+            * self.direction
+            * self.amplitude
+            * (self.timer / self.duration).powf(2.0)
+    }
+
+    pub fn tick(&mut self, dt: f32) {
+        self.timer -= dt;
+        self.timer = self.timer.max(0.0);
+    }
+
+    pub fn completed(&self) -> bool {
+        self.timer == 0.0
+    }
 }
 
 impl ChartCamera {
@@ -70,6 +108,7 @@ impl From<&ChartCamera> for Camera {
         cam.pitch(Rad(base_angle));
         cam.rotate_around_with_fixed_up(&val.center, 0.0, angle);
         cam.roll(Deg(val.tilt));
+        cam.yaw(Rad(val.shakes.iter().map(|x| x.get_shake()).sum()));
 
         cam
     }
