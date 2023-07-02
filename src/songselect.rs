@@ -336,6 +336,9 @@ impl Scene for SongSelectScene {
         let song_advance_steps = (self.song_advance / KNOB_NAV_THRESHOLD).trunc() as i32;
         self.song_advance -= song_advance_steps as f32 * KNOB_NAV_THRESHOLD;
 
+        let diff_advance_steps = (self.diff_advance / KNOB_NAV_THRESHOLD).trunc() as i32;
+        self.diff_advance -= diff_advance_steps as f32 * KNOB_NAV_THRESHOLD;
+
         if song_advance_steps == 0
             && self.state.preview_countdown > 0.0
             && !self.state.songs.is_empty()
@@ -464,6 +467,23 @@ impl Scene for SongSelectScene {
                 let set_song_idx: Function = self.lua.globals().get("set_index").unwrap();
 
                 set_song_idx.call::<_, ()>(state.selected_index + 1)?;
+            }
+
+            if diff_advance_steps != 0 || song_advance_steps != 0 {
+                let prev_diff = state.selected_diff_index;
+                state.selected_diff_index = (state.selected_diff_index + diff_advance_steps).clamp(
+                    0,
+                    state
+                        .songs
+                        .get(state.selected_index as usize)
+                        .map(|x| x.difficulties.len().saturating_sub(1))
+                        .unwrap_or_default() as _,
+                );
+
+                if prev_diff != state.selected_diff_index {
+                    let set_diff_idx: Function = self.lua.globals().get("set_diff").unwrap();
+                    set_diff_idx.call::<_, ()>(state.selected_diff_index + 1)?;
+                }
             }
         }
 
