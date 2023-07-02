@@ -4,12 +4,12 @@ use std::{
     sync::{mpsc::Sender, Arc},
 };
 
-
 use kson::score_ticks::ScoreTick;
 use rodio::dynamic_mixer::DynamicMixerController;
 use serde::Serialize;
 
 use crate::{
+    button_codes::UscButton,
     game::{HitRating, HitWindow},
     input_state::InputState,
     scene::{Scene, SceneData},
@@ -126,9 +126,21 @@ impl SongResultData {
                 let rating = (*x).try_into();
                 match x {
                     HitRating::None => {}
-                    HitRating::Crit { tick, delta: _, time: _ }
-                    | HitRating::Good { tick, delta: _, time: _ }
-                    | HitRating::Miss { tick, delta: _, time: _ } => match tick.tick {
+                    HitRating::Crit {
+                        tick,
+                        delta: _,
+                        time: _,
+                    }
+                    | HitRating::Good {
+                        tick,
+                        delta: _,
+                        time: _,
+                    }
+                    | HitRating::Miss {
+                        tick,
+                        delta: _,
+                        time: _,
+                    } => match tick.tick {
                         ScoreTick::Laser { lane: _, pos: _ }
                         | ScoreTick::Slam {
                             lane: _,
@@ -158,24 +170,55 @@ impl SongResultData {
             gauge,
             goods: hit_ratings
                 .iter()
-                .filter(|x| matches!(x, HitRating::Good { tick: _, delta: _, time: _ }))
+                .filter(|x| {
+                    matches!(
+                        x,
+                        HitRating::Good {
+                            tick: _,
+                            delta: _,
+                            time: _
+                        }
+                    )
+                })
                 .count() as i32,
             perfects: hit_ratings
                 .iter()
-                .filter(|x| matches!(x, HitRating::Crit { tick: _, delta: _, time: _ }))
+                .filter(|x| {
+                    matches!(
+                        x,
+                        HitRating::Crit {
+                            tick: _,
+                            delta: _,
+                            time: _
+                        }
+                    )
+                })
                 .count() as i32,
             misses: hit_ratings
                 .iter()
-                .filter(|x| matches!(x, HitRating::Miss { tick: _, delta: _, time: _ }))
+                .filter(|x| {
+                    matches!(
+                        x,
+                        HitRating::Miss {
+                            tick: _,
+                            delta: _,
+                            time: _
+                        }
+                    )
+                })
                 .count() as i32,
 
             earlies: hit_ratings
                 .iter()
-                .filter(|x| matches!(x, HitRating::Good { tick: _, delta, time: _ } if *delta < 0.0))
+                .filter(
+                    |x| matches!(x, HitRating::Good { tick: _, delta, time: _ } if *delta < 0.0),
+                )
                 .count() as i32,
             lates: hit_ratings
                 .iter()
-                .filter(|x| matches!(x, HitRating::Good { tick: _, delta, time: _ } if *delta > 0.0))
+                .filter(
+                    |x| matches!(x, HitRating::Good { tick: _, delta, time: _ } if *delta > 0.0),
+                )
                 .count() as i32,
             laser_hit_stats,
             note_hit_stats,
@@ -224,7 +267,11 @@ impl TryFrom<HitRating> for HitStat {
                 delta: delta as i32,
                 hold: match tick.tick {
                     kson::score_ticks::ScoreTick::Laser { lane: _, pos: _ } => 1,
-                    kson::score_ticks::ScoreTick::Slam { lane: _, start: _, end: _ } => 0,
+                    kson::score_ticks::ScoreTick::Slam {
+                        lane: _,
+                        start: _,
+                        end: _,
+                    } => 0,
                     kson::score_ticks::ScoreTick::Chip { lane: _ } => 0,
                     kson::score_ticks::ScoreTick::Hold { lane: _ } => 1,
                 },
@@ -233,9 +280,21 @@ impl TryFrom<HitRating> for HitStat {
 
         ret.rating = match value {
             HitRating::None => unreachable!(),
-            HitRating::Crit { tick: _, delta: _, time: _ } => 2,
-            HitRating::Good { tick: _, delta: _, time: _ } => 1,
-            HitRating::Miss { tick: _, delta: _, time: _ } => 0,
+            HitRating::Crit {
+                tick: _,
+                delta: _,
+                time: _,
+            } => 2,
+            HitRating::Good {
+                tick: _,
+                delta: _,
+                time: _,
+            } => 1,
+            HitRating::Miss {
+                tick: _,
+                delta: _,
+                time: _,
+            } => 0,
         };
 
         Ok(ret)
@@ -300,6 +359,12 @@ impl Scene for SongResult {
 
     fn is_suspended(&self) -> bool {
         false
+    }
+
+    fn on_button_pressed(&mut self, button: crate::button_codes::UscButton) {
+        if let UscButton::Start = button {
+            self.close = true;
+        }
     }
 
     fn debug_ui(&mut self, ctx: &egui::Context) -> anyhow::Result<()> {

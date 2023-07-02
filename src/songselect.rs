@@ -10,7 +10,7 @@ use std::{
     path::PathBuf,
     rc::Rc,
     sync::{
-        atomic::{AtomicU64, AtomicUsize},
+        atomic::{AtomicBool, AtomicU64, AtomicUsize},
         mpsc::{channel, Receiver, Sender},
         Arc, Mutex,
     },
@@ -192,7 +192,7 @@ pub struct SongSelectScene {
     program_control: Option<Sender<ControlMessage>>,
     song_advance: f32,
     diff_advance: f32,
-    suspended: bool,
+    suspended: Arc<AtomicBool>,
     closed: bool,
     mixer: Option<RuscMixer>,
     sample_owner: Receiver<()>,
@@ -209,7 +209,7 @@ impl SongSelectScene {
             program_control: None,
             diff_advance: 0.0,
             song_advance: 0.0,
-            suspended: false,
+            suspended: Arc::new(AtomicBool::new(false)),
             closed: false,
             mixer: None,
             sample_marker,
@@ -231,7 +231,7 @@ impl Scene for SongSelectScene {
     }
 
     fn is_suspended(&self) -> bool {
-        self.suspended
+        self.suspended.load(std::sync::atomic::Ordering::Relaxed)
     }
 
     fn debug_ui(&mut self, ctx: &egui::Context) -> Result<()> {
@@ -306,12 +306,17 @@ impl Scene for SongSelectScene {
         load_lua(self.background_lua.clone(), "songselect/background.lua")?;
         let mut bgm_amp = Arc::new(1_f32);
         let preview_playing = self.state.preview_finished.clone();
-
+        let suspended = self.suspended.clone();
         mixer.add(owned_source(
             rodio::source::Zero::new(2, 44100) //TODO: Load something from skin audio
                 .amplify(0.2)
+                .pausable(false)
                 .amplify(1.0)
                 .periodic_access(Duration::from_millis(10), move |state| {
+                    state
+                        .inner_mut()
+                        .set_paused(suspended.load(std::sync::atomic::Ordering::Relaxed));
+
                     let amp = Arc::get_mut(&mut bgm_amp).unwrap();
                     if preview_playing.load(std::sync::atomic::Ordering::SeqCst) == 0 {
                         *amp += 1.0 / 50.0;
@@ -329,7 +334,7 @@ impl Scene for SongSelectScene {
     }
 
     fn tick(&mut self, _dt: f64, _knob_state: LaserState) -> Result<()> {
-        if self.suspended {
+        if self.suspended.load(std::sync::atomic::Ordering::Relaxed) {
             return Ok(());
         }
         const KNOB_NAV_THRESHOLD: f32 = std::f32::consts::PI / 3.0;
@@ -374,55 +379,46 @@ impl Scene for SongSelectScene {
                             let mixer = self.mixer.clone();
                             let owner = self.sample_marker.clone();
                             let preview_finish_signal = self.state.preview_finished.clone();
-                            _ = poll_promise::Promise::spawn_thread("queue preview", move || {
-                                let source = take_duration_fade(
-                                    rodio::source::Source::skip_duration(preview, skip).stoppable(),
-                                    duration,
-                                    Duration::from_millis(500),
-                                    preview_finish_signal,
-                                )
-                                .fade_in(Duration::from_millis(500))
-                                .amplify(1.0)
-                                .periodic_access(Duration::from_millis(10), move |state| {
-                                    let amp = Arc::get_mut(&mut amp).unwrap();
-                                    let current_preview =
-                                        current_preview.load(std::sync::atomic::Ordering::Relaxed);
-                                    if current_preview != song_id {
-                                        *amp -= 1.0 / 50.0;
-                                        if *amp < 0.0 {
-                                            state.inner_mut().inner_mut().inner_mut().stop();
+                            let suspended = self.suspended.clone();
+                            _ =
+                                poll_promise::Promise::spawn_thread("queue preview", move || {
+                                    let source = take_duration_fade(
+                                        rodio::source::Source::skip_duration(preview, skip)
+                                            .pausable(false)
+                                            .stoppable(),
+                                        duration,
+                                        Duration::from_millis(500),
+                                        preview_finish_signal,
+                                    )
+                                    .fade_in(Duration::from_millis(500))
+                                    .amplify(1.0)
+                                    .periodic_access(Duration::from_millis(10), move |state| {
+                                        state
+                                            .inner_mut()
+                                            .inner_mut()
+                                            .inner_mut()
+                                            .inner_mut()
+                                            .set_paused(
+                                                suspended
+                                                    .load(std::sync::atomic::Ordering::Relaxed),
+                                            );
+
+                                        let amp = Arc::get_mut(&mut amp).unwrap();
+                                        let current_preview = current_preview
+                                            .load(std::sync::atomic::Ordering::Relaxed);
+                                        if current_preview != song_id {
+                                            *amp -= 1.0 / 50.0;
+                                            if *amp < 0.0 {
+                                                state.inner_mut().inner_mut().inner_mut().stop();
+                                            }
+                                        } else if *amp < 1.0 {
+                                            *amp += 1.0 / 50.0;
                                         }
-                                    } else if *amp < 1.0 {
-                                        *amp += 1.0 / 50.0;
-                                    }
-                                    state.set_factor(amp.clamp(0.0, 1.0));
-                                })
-                                .buffered();
-                                let wobble_source = source.clone();
-                                let source = effected_part(
-                                    source.clone(),
-                                    flanger(
-                                        source,
-                                        Duration::from_millis(4),
-                                        Duration::from_millis(2),
-                                        0.5,
-                                        0.05,
-                                    ),
-                                    Duration::from_millis(2000),
-                                    Duration::from_millis(2000),
-                                );
+                                        state.set_factor(amp.clamp(0.0, 1.0));
+                                    });
 
-                                let source = effected_part(
-                                    source,
-                                    wobble(wobble_source, 4.0, 500.0, 20000.0),
-                                    Duration::from_millis(4000),
-                                    Duration::from_millis(2000),
-                                );
-
-                                //let source = pitch_shift(source, 6);
-
-                                mixer.as_ref().unwrap().add(owned_source(source, owner));
-                            });
+                                    mixer.as_ref().unwrap().add(owned_source(source, owner));
+                                });
                         }
                         Err(e) => warn!("Could not load preview: {e:?}"),
                     }
@@ -508,27 +504,19 @@ impl Scene for SongSelectScene {
                     .lock()
                     .unwrap()
                     .load_song(song.id, song.difficulties[diff].id);
-                pc.send(ControlMessage::Song { diff, loader, song });
+                _ = pc.send(ControlMessage::Song { diff, loader, song });
             }
         }
     }
 
     fn suspend(&mut self) {
-        self.suspended = true;
-        self.state
-            .preview_finished
-            .store(1, std::sync::atomic::Ordering::Relaxed);
+        self.suspended
+            .store(true, std::sync::atomic::Ordering::Relaxed);
     }
 
     fn resume(&mut self) {
-        self.suspended = false;
-        self.state
-            .preview_finished
-            .store(0, std::sync::atomic::Ordering::Relaxed);
-        self.state
-            .preview_playing
-            .store(0, std::sync::atomic::Ordering::Relaxed);
-        self.state.preview_countdown = 1500.0;
+        self.suspended
+            .store(false, std::sync::atomic::Ordering::Relaxed);
     }
 
     fn closed(&self) -> bool {

@@ -3,7 +3,7 @@ use std::{
     io::{Read, Write},
     path::PathBuf,
     sync::{
-        mpsc::{channel, Receiver, Sender},
+        mpsc::{channel, Receiver, Sender, TryRecvError},
         Arc, Mutex, RwLock,
     },
     time::Duration,
@@ -368,24 +368,19 @@ impl FileSongProvider {
                 }
                 .collect_vec();
 
-                // while !songs.is_empty() {
-                //     let len = songs.len();
-
-                //     futures::future::join_all(songs.drain(0..len.min(20))).await;
-                // }
-
                 futures::future::join_all(songs).await;
 
                 //send update to provider
                 info!("Finished importing");
-
-                if let Ok(msg) = sender_rx.recv() {
-                    match msg {
-                        WorkerControlMessage::Stop => return,
-                        WorkerControlMessage::Refresh => continue,
+                loop {
+                    match sender_rx.try_recv() {
+                        Ok(WorkerControlMessage::Refresh) => break,
+                        Ok(WorkerControlMessage::Stop) => return,
+                        Err(TryRecvError::Disconnected) => return,
+                        Err(TryRecvError::Empty) => {}
                     }
-                } else {
-                    return;
+
+                    async {}.await //yield async task
                 }
             }
         });
