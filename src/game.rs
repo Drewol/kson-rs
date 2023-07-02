@@ -938,8 +938,7 @@ impl Game {
                     Ordering::Equal => unreachable!(),
                 };
                 let delta = ms - self.laser_latest_dir_inputs[lane][dir];
-                let contains_cursor =
-                    (start.min(end)..=start.max(end)).contains(&self.laser_cursors[lane]);
+                let contains_cursor = true; //TODO: (start.min(end)..=start.max(end)).contains(&self.laser_cursors[lane]);
                 if tick.y < slam_miss_tick {
                     HitRating::Miss { tick, delta, time }
                 } else if delta.abs() < self.lua_game_state.hit_window.good && contains_cursor {
@@ -1435,21 +1434,21 @@ impl Scene for Game {
         event: &game_loop::winit::event::Event<crate::button_codes::UscInputEvent>,
     ) {
         if let game_loop::winit::event::Event::UserEvent(UscInputEvent::Laser(ls)) = event {
-            //TODO: Slam detection
+            //TODO: Slam detection, or always handle slam ticks in ticking function?
 
             for (side, index) in [(kson::Side::Left, 0), (kson::Side::Right, 1)] {
+                let delta = ls.get_axis(side).delta as f64;
+                let input_dir = delta.total_cmp(&0.0);
+                match input_dir {
+                    Ordering::Less => self.laser_latest_dir_inputs[index][0] = self.time,
+                    Ordering::Equal => {}
+                    Ordering::Greater => self.laser_latest_dir_inputs[index][1] = self.time,
+                }
+
                 self.laser_cursors[index] = if self.laser_target[index].is_some() {
-                    let delta = ls.get_axis(side).delta as f64;
                     let new_pos = (self.laser_cursors[index] + delta).clamp(0.0, 1.0);
                     let target_value =
                         self.chart.note.laser[index].value_at(self.current_tick as f64);
-                    let input_dir = delta.total_cmp(&0.0);
-
-                    match input_dir {
-                        Ordering::Less => self.laser_latest_dir_inputs[index][0] = self.time,
-                        Ordering::Equal => {}
-                        Ordering::Greater => self.laser_latest_dir_inputs[index][1] = self.time,
-                    }
 
                     let target_dir = self.chart.note.laser[index]
                         .direction_at(self.current_tick as f64)
