@@ -266,6 +266,14 @@ impl ShadedMesh {
     }
 
     pub fn draw_camera(&self, camera: &three_d::Camera) -> Result<(), tealr::mlu::mlua::Error> {
+        self.set_camera_uniforms(camera);
+
+        self.material
+            .draw_elements(self.state, camera.viewport(), &self.indecies);
+        Ok(())
+    }
+
+    fn set_camera_uniforms(&self, camera: &three_d_asset::Camera) {
         self.material.use_uniform("proj", camera.projection());
         self.material.use_uniform("camera", camera.view());
         self.material.use_uniform("world", self.transform);
@@ -282,10 +290,22 @@ impl ShadedMesh {
                 self.material.use_vertex_attribute("inColor", colors);
             }
         }
+    }
 
-        self.material
-            .draw_elements(self.state, camera.viewport(), &self.indecies);
-        Ok(())
+    pub fn draw_instanced_camera<T>(
+        &self,
+        camera: &three_d::Camera,
+        instances: impl IntoIterator<Item = T>,
+        set_uniforms: impl Fn(&Program, &Mat4, T),
+    ) {
+        //TODO: Use actual instancing, may causes skin incompatibility
+        let viewport = camera.viewport();
+        for i in instances {
+            self.set_camera_uniforms(camera);
+            set_uniforms(&self.material, &self.transform, i);
+            self.material
+                .draw_elements(self.state, viewport, &self.indecies)
+        }
     }
 
     pub fn set_data<T: BufferDataType, U: BufferDataType, V: BufferDataType>(

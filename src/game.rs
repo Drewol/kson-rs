@@ -12,6 +12,7 @@ use crate::{
     vg_ui::Vgfx,
     ControlMessage,
 };
+use egui::epaint::ahash::HashSet;
 use image::GenericImageView;
 use itertools::Itertools;
 use kson::{
@@ -32,15 +33,13 @@ pub struct Game {
     camera_pos: Vec3,
     time: f64,
     duration: f64,
-    fx_long_shaders: [ShadedMesh; 1],
-    fx_long_shaders_active: [ShadedMesh; 2],
-    bt_long_shaders: [ShadedMesh; 1],
-    bt_long_shaders_active: [ShadedMesh; 4],
-    fx_chip_shaders: [ShadedMesh; 2],
+    fx_long_shaders: ShadedMesh,
+    bt_long_shaders: ShadedMesh,
+    fx_chip_shaders: ShadedMesh,
     laser_shaders: [[ShadedMesh; 2]; 2], //[[left, left_current], [right, right_current]]
-    track_shader: [ShadedMesh; 1],
-    bt_chip_shader: [ShadedMesh; 1],
-    lane_beam_shader: [ShadedMesh; 1],
+    track_shader: ShadedMesh,
+    bt_chip_shader: ShadedMesh,
+    lane_beam_shader: ShadedMesh,
     camera: ChartCamera,
     lua_game_state: LuaGameState,
     lua: Rc<Lua>,
@@ -203,16 +202,19 @@ impl From<&Gauge> for LuaGauge {
     }
 }
 
+enum HoldState {
+    Idle,
+    Hit,
+    Miss,
+}
+
 struct TrackRenderMeshes {
-    fx_hold: CpuMesh,
-    fx_hold_active: [CpuMesh; 2],
-    bt_hold: CpuMesh,
-    bt_hold_active: [CpuMesh; 4],
-    fx_chip: CpuMesh,
-    fx_chip_sample: CpuMesh,
-    bt_chip: CpuMesh,
+    fx_hold: Vec<(Mat4, HoldState)>,
+    bt_hold: Vec<(Mat4, HoldState)>,
+    fx_chip: Vec<(Mat4, bool)>,
+    bt_chip: Vec<Mat4>,
     lasers: [CpuMesh; 4],
-    lane_beams: CpuMesh,
+    lane_beams: [(Mat4, Color); 6],
 }
 pub struct GameData {
     song: Arc<Song>,
@@ -319,7 +321,7 @@ impl SceneData for GameData {
         } = *self;
         profile_function!();
 
-        let mesh_transform = Mat4::from_angle_x(Deg(90.0));
+        let mesh_transform = Mat4::from_scale(1.0);
 
         let mut shader_folder = skin_folder.clone();
         let mut texture_folder = skin_folder.clone();
@@ -328,16 +330,13 @@ impl SceneData for GameData {
         texture_folder.push("dummy.png");
 
         let mut fx_long_shader = ShadedMesh::new(&context, "holdbutton", &shader_folder)
-            .expect("Failed to load shader:");
-        let mut fx_long_shader_active: [ShadedMesh; 2] = core::array::from_fn(|_i| {
-            ShadedMesh::new(&context, "holdbutton", &shader_folder)
-                .expect("Failed to load shader:")
-                .with_transform(mesh_transform)
-        });
+            .expect("Failed to load shader:")
+            .with_transform(Matrix4::from_translation(vec3(-0.5, 0.0, 0.0)));
 
         let mut beam_shader = ShadedMesh::new(&context, "sprite", &shader_folder)
             .expect("Failed to load shader:")
             .with_transform(mesh_transform);
+
         beam_shader.use_texture(
             &context,
             "mainTex",
@@ -345,28 +344,23 @@ impl SceneData for GameData {
             (false, false),
         );
 
+        beam_shader.set_data_mesh(&context, &xy_rect(Vec3::zero(), vec2(1.0, 1.0)));
+
         fx_long_shader.use_texture(
             &context,
             "mainTex",
             texture_folder.with_file_name("fxbuttonhold.png"),
             (false, false),
         );
-        fx_long_shader_active.iter_mut().for_each(|s| {
-            s.use_texture(
-                &context,
-                "mainTex",
-                texture_folder.with_file_name("fxbuttonhold.png"),
-                (false, false),
-            );
-        });
+
+        fx_long_shader.set_data_mesh(
+            &context,
+            &xy_rect(vec3(0.0, 0.5, 0.0), vec2(2.0 / 6.0, 1.0)),
+        );
 
         let mut bt_long_shader = ShadedMesh::new(&context, "holdbutton", &shader_folder)
-            .expect("Failed to load shader:");
-        let mut bt_long_shader_active: [ShadedMesh; 4] = core::array::from_fn(|_i| {
-            ShadedMesh::new(&context, "holdbutton", &shader_folder)
-                .expect("Failed to load shader:")
-                .with_transform(mesh_transform)
-        });
+            .expect("Failed to load shader:")
+            .with_transform(Matrix4::from_translation(vec3(-0.5, 0.0, 0.0)));
 
         bt_long_shader.use_texture(
             &context,
@@ -374,35 +368,36 @@ impl SceneData for GameData {
             texture_folder.with_file_name("buttonhold.png"),
             (false, false),
         );
-        bt_long_shader_active.iter_mut().for_each(|s| {
-            s.use_texture(
-                &context,
-                "mainTex",
-                texture_folder.with_file_name("buttonhold.png"),
-                (false, false),
-            );
-        });
 
-        let mut fx_chip_shader =
-            ShadedMesh::new(&context, "button", &shader_folder).expect("Failed to load shader:");
-        let mut fx_chip_shader_sample =
-            ShadedMesh::new(&context, "button", &shader_folder).expect("Failed to load shader:");
+        bt_long_shader.set_data_mesh(
+            &context,
+            &xy_rect(vec3(0.0, 0.5, 0.0), vec2(1.0 / 6.0, 1.0)),
+        );
 
+        let mut fx_chip_shader = ShadedMesh::new(&context, "button", &shader_folder)
+            .expect("Failed to load shader:")
+            .with_transform(Matrix4::from_translation(vec3(-0.5, 0.0, 0.0)));
         fx_chip_shader.use_texture(
             &context,
             "mainTex",
             texture_folder.with_file_name("fxbutton.png"),
             (false, false),
         );
-        fx_chip_shader_sample.use_texture(
+        let fx_height = 1.0 / 12.0;
+
+        fx_chip_shader.set_data_mesh(
             &context,
-            "mainTex",
-            texture_folder.with_file_name("fxbutton.png"),
-            (false, false),
+            &xy_rect(vec3(0.0, fx_height / 2.0, 0.0), vec2(2.0 / 6.0, fx_height)),
         );
 
-        let mut bt_chip_shader =
-            ShadedMesh::new(&context, "button", &shader_folder).expect("Failed to load shader:");
+        let mut bt_chip_shader = ShadedMesh::new(&context, "button", &shader_folder)
+            .expect("Failed to load shader:")
+            .with_transform(Matrix4::from_translation(vec3(-0.5, 0.0, 0.0)));
+        let bt_height = 1.0 / 12.0;
+        bt_chip_shader.set_data_mesh(
+            &context,
+            &xy_rect(vec3(0.0, bt_height / 2.0, 0.0), vec2(1.0 / 6.0, bt_height)),
+        );
 
         bt_chip_shader.use_texture(
             &context,
@@ -485,27 +480,16 @@ impl SceneData for GameData {
                 chart,
                 &skin_folder,
                 &context,
-                [fx_long_shader.with_transform(mesh_transform)],
-                fx_long_shader_active,
-                [bt_long_shader.with_transform(mesh_transform)],
-                bt_long_shader_active,
+                fx_long_shader,
+                bt_long_shader,
+                fx_chip_shader,
                 [
-                    fx_chip_shader.with_transform(mesh_transform),
-                    fx_chip_shader_sample.with_transform(mesh_transform),
+                    [laser_left, laser_left_active],
+                    [laser_right, laser_right_active],
                 ],
-                [
-                    [
-                        laser_left.with_transform(mesh_transform),
-                        laser_left_active.with_transform(mesh_transform),
-                    ],
-                    [
-                        laser_right.with_transform(mesh_transform),
-                        laser_right_active.with_transform(mesh_transform),
-                    ],
-                ],
-                [track_shader.with_transform(mesh_transform)],
-                [bt_chip_shader.with_transform(mesh_transform)],
-                [beam_shader.with_transform(mesh_transform)],
+                track_shader,
+                bt_chip_shader,
+                beam_shader,
                 song,
                 diff_idx,
                 playback,
@@ -533,15 +517,15 @@ impl Game {
         chart: Chart,
         skin_root: &PathBuf,
         td: &three_d::Context,
-        fx_long_shaders: [ShadedMesh; 1],
-        fx_long_shaders_active: [ShadedMesh; 2],
-        bt_long_shaders: [ShadedMesh; 1],
-        bt_long_shaders_active: [ShadedMesh; 4],
-        fx_chip_shaders: [ShadedMesh; 2],
+        fx_long_shaders: ShadedMesh,
+
+        bt_long_shaders: ShadedMesh,
+
+        fx_chip_shaders: ShadedMesh,
         laser_shaders: [[ShadedMesh; 2]; 2],
-        track_shader: [ShadedMesh; 1],
-        bt_chip_shader: [ShadedMesh; 1],
-        lane_beam_shader: [ShadedMesh; 1],
+        track_shader: ShadedMesh,
+        bt_chip_shader: ShadedMesh,
+        lane_beam_shader: ShadedMesh,
         song: Arc<Song>,
         diff_idx: usize,
         playback: kson_music_playback::AudioPlayback,
@@ -572,10 +556,8 @@ impl Game {
             bt_chip_shader,
             track_shader,
             bt_long_shaders,
-            bt_long_shaders_active,
             fx_chip_shaders,
             fx_long_shaders,
-            fx_long_shaders_active,
             laser_shaders,
             lane_beam_shader,
             camera: ChartCamera {
@@ -630,25 +612,25 @@ impl Game {
     }
 
     fn set_track_uniforms(&mut self) {
-        self.track_shader
-            .iter_mut()
-            .chain(self.fx_long_shaders.iter_mut())
-            .chain(self.bt_long_shaders.iter_mut())
-            .chain(self.fx_long_shaders_active.iter_mut())
-            .chain(self.bt_long_shaders_active.iter_mut())
-            .chain(self.fx_chip_shaders.iter_mut())
-            .chain(self.bt_chip_shader.iter_mut())
-            .chain(self.laser_shaders.iter_mut().flatten())
-            .for_each(|shader| {
-                shader.set_param("trackPos", 0.0);
-                shader.set_param("trackScale", 1.0);
-                shader.set_param("hiddenCutoff", 0.0);
-                shader.set_param("hiddenFadeWindow", 100.0);
-                shader.set_param("suddenCutoff", 10.0);
-                shader.set_param("suddenFadeWindow", 1000.0);
-                shader.set_param("hitState", 1);
-                shader.set_param("objectGlow", 0.6);
-            });
+        [
+            &mut self.track_shader,
+            &mut self.fx_long_shaders,
+            &mut self.bt_long_shaders,
+            &mut self.fx_chip_shaders,
+            &mut self.bt_chip_shader,
+        ]
+        .into_iter()
+        .chain(self.laser_shaders.iter_mut().flatten())
+        .for_each(|shader| {
+            shader.set_param("trackPos", 0.0);
+            shader.set_param("trackScale", 1.0);
+            shader.set_param("hiddenCutoff", 0.0);
+            shader.set_param("hiddenFadeWindow", 100.0);
+            shader.set_param("suddenCutoff", 10.0);
+            shader.set_param("suddenFadeWindow", 1000.0);
+            shader.set_param("hitState", 1);
+            shader.set_param("objectGlow", 0.6);
+        });
 
         self.laser_shaders.iter_mut().flatten().for_each(|laser| {
             laser.set_param("objectGlow", 0.6);
@@ -1334,63 +1316,80 @@ impl Scene for Game {
             );
         }
 
-        //Set hold glow state
-        for (lane, shader) in self
-            .bt_long_shaders_active
-            .iter_mut()
-            .chain(self.fx_long_shaders_active.iter_mut())
-            .enumerate()
-        {
-            if self.input_state.is_button_held(UscButton::from(lane as u8)) {
-                shader.set_param("objectGlow", object_glow);
-                shader.set_param("hitState", hit_state);
-            } else {
-                shader.set_param("objectGlow", 0.3);
-                shader.set_param("hitState", 0);
-            }
-        }
+        //TODO: Set hold glow state
 
-        let render_data = self
-            .view
-            .render(&self.chart, td_context, self.beam_colors_current);
+        let buttons_held: HashSet<_> = (0..6usize)
+            .filter(|x| self.input_state.is_button_held(UscButton::from(*x as u8)))
+            .collect();
 
-        self.bt_chip_shader[0].set_data_mesh(td_context, &render_data.bt_chip);
-        self.bt_long_shaders[0].set_data_mesh(td_context, &render_data.bt_hold);
+        target.render(&td_camera, [&self.track_shader], &[]);
+        let render_data = self.view.render(
+            &self.chart,
+            td_context,
+            buttons_held,
+            self.beam_colors_current,
+        );
 
-        for i in 0..4 {
-            self.bt_long_shaders_active[i]
-                .set_data_mesh(td_context, &render_data.bt_hold_active[i]);
-        }
+        self.fx_long_shaders.draw_instanced_camera(
+            &td_camera,
+            render_data.fx_hold,
+            |material, transform, (hold, active)| {
+                material.use_uniform("world", transform * hold);
+                let (glow, state) = match active {
+                    HoldState::Idle => (0.6, 1),
+                    HoldState::Hit => (object_glow, hit_state),
+                    HoldState::Miss => (0.3, 0),
+                };
+                material.use_uniform_if_required("objectGlow", glow);
+                material.use_uniform_if_required("hitState", state);
+            },
+        );
 
-        self.fx_chip_shaders[0].set_data_mesh(td_context, &render_data.fx_chip);
-        self.fx_chip_shaders[1].set_data_mesh(td_context, &render_data.fx_chip_sample);
-        self.fx_long_shaders[0].set_data_mesh(td_context, &render_data.fx_hold);
+        self.bt_long_shaders.draw_instanced_camera(
+            &td_camera,
+            render_data.bt_hold,
+            |material, transform, (bt, active)| {
+                material.use_uniform("world", transform * bt);
+                let (glow, state) = match active {
+                    HoldState::Idle => (0.6, 1),
+                    HoldState::Hit => (object_glow, hit_state),
+                    HoldState::Miss => (0.3, 0),
+                };
+                material.use_uniform_if_required("objectGlow", glow);
+                material.use_uniform_if_required("hitState", state);
+            },
+        );
 
-        for i in 0..2 {
-            self.fx_long_shaders_active[i]
-                .set_data_mesh(td_context, &render_data.fx_hold_active[i]);
-        }
+        self.fx_chip_shaders.draw_instanced_camera(
+            &td_camera,
+            render_data.fx_chip,
+            |material, transform, (fx, has_sample)| {
+                material.use_uniform("world", transform * fx);
+                material.use_uniform_if_required("hasSample", if has_sample { 1 } else { 0 });
+            },
+        );
+
+        self.bt_chip_shader.draw_instanced_camera(
+            &td_camera,
+            render_data.bt_chip,
+            |material, transform, bt| material.use_uniform("world", transform * bt),
+        );
+
+        self.lane_beam_shader.draw_instanced_camera(
+            &td_camera,
+            render_data.lane_beams,
+            |material, tranform, (light, color)| {
+                material.use_uniform_if_required("color", color);
+                material.use_uniform("world", tranform * light);
+            },
+        );
 
         self.laser_shaders[0][0].set_data_mesh(td_context, &render_data.lasers[0]);
         self.laser_shaders[0][1].set_data_mesh(td_context, &render_data.lasers[1]);
         self.laser_shaders[1][0].set_data_mesh(td_context, &render_data.lasers[2]);
         self.laser_shaders[1][1].set_data_mesh(td_context, &render_data.lasers[3]);
-        self.lane_beam_shader[0].set_data_mesh(td_context, &render_data.lane_beams);
 
-        target.render(
-            &td_camera,
-            self.track_shader
-                .iter()
-                .chain(self.fx_long_shaders.iter())
-                .chain(self.fx_long_shaders_active.iter())
-                .chain(self.bt_long_shaders.iter())
-                .chain(self.bt_long_shaders_active.iter())
-                .chain(self.fx_chip_shaders.iter())
-                .chain(self.bt_chip_shader.iter())
-                .chain(self.lane_beam_shader.iter())
-                .chain(self.laser_shaders.iter().flatten()),
-            &[],
-        );
+        target.render(&td_camera, self.laser_shaders.iter().flatten(), &[]);
 
         if !self.intro_done {
             if let Ok(func) = self.lua.globals().get::<_, Function>("render_intro") {
@@ -1894,8 +1893,8 @@ fn hsl_to_rgb(h: f32, s: f32, l: f32) -> [f32; 3] {
 
 impl ChartView {
     pub const TRACK_LENGTH: f32 = 12.0;
-    pub const UP: Vec3 = vec3(0.0, 1.0, 0.0);
-    pub const TRACK_DIRECTION: Vec3 = vec3(0.0, 0.0, 1.0);
+    pub const UP: Vec3 = vec3(0.0, 0.0, -1.0);
+    pub const TRACK_DIRECTION: Vec3 = vec3(0.0, 1.0, 0.0);
     pub const Z_NEAR: f32 = 0.01;
 
     pub fn new(skin_root: impl AsRef<Path>, td: &three_d::Context) -> Self {
@@ -2033,6 +2032,7 @@ impl ChartView {
         &mut self,
         chart: &kson::Chart,
         td: &three_d::Context,
+        buttons_held: HashSet<usize>,
         mut beam_colors: [[f32; 4]; 6],
     ) -> TrackRenderMeshes {
         use three_d::prelude::*;
@@ -2087,7 +2087,7 @@ impl ChartView {
                     (n.l as f32) / y_view_div
                 };
                 let yoff = (view_tick - n.y as i64) as f32;
-                let y = yoff / y_view_div - h;
+                let y = yoff / y_view_div;
                 let _p = if n.l == 0 { 2 } else { 1 }; //sorting priority
                 notes.push((
                     vec3(x, y, 0.0),
@@ -2119,7 +2119,7 @@ impl ChartView {
                     (n.l as f32) / y_view_div
                 };
                 let yoff = (view_tick - n.y as i64) as f32;
-                let y = yoff / y_view_div - h;
+                let y = yoff / y_view_div;
                 let _p = if n.l == 0 { 3 } else { 0 }; //sorting priority
                 notes.push((
                     vec3(x, y, 0.0),
@@ -2137,17 +2137,18 @@ impl ChartView {
             }
         }
 
-        let notes = notes
-            .iter()
-            .map(|n| (xy_rect(n.0 - vec3(0.5, n.1.y / -2.0, 0.0), n.1), n.2));
+        let notes = notes.iter().map(|n| {
+            (
+                Mat4::from_translation(n.0)
+                    * Mat4::from_nonuniform_scale(1.0, -n.1.y.max(1.0), 1.0),
+                n.2,
+            )
+        });
 
-        let mut fx_hold = xy_rect(Vec3::zero(), Vec2::zero());
-        let mut fx_hold_active = core::array::from_fn(|_| xy_rect(Vec3::zero(), Vec2::zero()));
-        let mut bt_hold = xy_rect(Vec3::zero(), Vec2::zero());
-        let mut bt_hold_active = core::array::from_fn(|_| xy_rect(Vec3::zero(), Vec2::zero()));
-        let mut fx_chip = xy_rect(Vec3::zero(), Vec2::zero());
-        let mut fx_chip_sample = xy_rect(Vec3::zero(), Vec2::zero());
-        let mut bt_chip = xy_rect(Vec3::zero(), Vec2::zero());
+        let mut fx_hold = vec![];
+        let mut bt_hold = vec![];
+        let mut fx_chip = vec![];
+        let mut bt_chip = vec![];
         let mut lasers = [
             xy_rect(Vec3::zero(), Vec2::zero()),
             xy_rect(Vec3::zero(), Vec2::zero()),
@@ -2159,58 +2160,62 @@ impl ChartView {
         beam_colors[4][3] *= 0.5;
         beam_colors[5][3] *= 0.5;
 
-        let lane_beams = vec![
-            xy_rect_color(
-                vec3(-0.5 / 6.0, 0.0, 0.0),
-                vec2(1.0 / 6.0, -ChartView::TRACK_LENGTH),
-                Color::from_rgba_slice(&beam_colors[1]),
-            ),
-            xy_rect_color(
-                vec3(0.5 / 6.0, 0.0, 0.0),
-                vec2(1.0 / 6.0, -ChartView::TRACK_LENGTH),
-                Color::from_rgba_slice(&beam_colors[2]),
-            ),
-            xy_rect_color(
-                vec3(1.5 / 6.0, 0.0, 0.0),
-                vec2(1.0 / 6.0, -ChartView::TRACK_LENGTH),
-                Color::from_rgba_slice(&beam_colors[3]),
-            ),
-            xy_rect_color(
-                vec3(-1.0 / 6.0, 0.0, 0.0),
-                vec2(2.0 / 6.0, -ChartView::TRACK_LENGTH),
-                Color::from_rgba_slice(&beam_colors[4]),
-            ),
-            xy_rect_color(
-                vec3(1.0 / 6.0, 0.0, 0.0),
-                vec2(2.0 / 6.0, -ChartView::TRACK_LENGTH),
-                Color::from_rgba_slice(&beam_colors[5]),
-            ),
-        ]
-        .drain(0..)
-        .fold(
-            xy_rect_color(
-                vec3(-1.5 / 6.0, 0.0, 0.0),
-                vec2(1.0 / 6.0, -ChartView::TRACK_LENGTH),
+        let lane_beams = [
+            (
+                Mat4::from_translation(vec3(-1.5 / 6.0, 0.0, 0.0))
+                    * Mat4::from_nonuniform_scale(1.0 / 6.0, -ChartView::TRACK_LENGTH, 1.0),
                 Color::from_rgba_slice(&beam_colors[0]),
             ),
-            extend_mesh,
-        );
+            (
+                Mat4::from_translation(-vec3(0.5 / 6.0, 0.0, 0.0))
+                    * Mat4::from_nonuniform_scale(1.0 / 6.0, -ChartView::TRACK_LENGTH, 1.0),
+                Color::from_rgba_slice(&beam_colors[1]),
+            ),
+            (
+                Mat4::from_translation(vec3(0.5 / 6.0, 0.0, 0.0))
+                    * Mat4::from_nonuniform_scale(1.0 / 6.0, -ChartView::TRACK_LENGTH, 1.0),
+                Color::from_rgba_slice(&beam_colors[2]),
+            ),
+            (
+                Mat4::from_translation(vec3(1.5 / 6.0, 0.0, 0.0))
+                    * Mat4::from_nonuniform_scale(1.0 / 6.0, -ChartView::TRACK_LENGTH, 1.0),
+                Color::from_rgba_slice(&beam_colors[3]),
+            ),
+            (
+                Mat4::from_translation(-vec3(1.0 / 6.0, 0.0, 0.0))
+                    * Mat4::from_nonuniform_scale(2.0 / 6.0, -ChartView::TRACK_LENGTH, 1.0),
+                Color::from_rgba_slice(&beam_colors[4]),
+            ),
+            (
+                Mat4::from_translation(vec3(1.0 / 6.0, 0.0, 0.0))
+                    * Mat4::from_nonuniform_scale(2.0 / 6.0, -ChartView::TRACK_LENGTH, 1.0),
+                Color::from_rgba_slice(&beam_colors[5]),
+            ),
+        ];
 
         for n in notes {
             match n.1 {
-                NoteType::BtChip => bt_chip = extend_mesh(bt_chip, n.0),
-                NoteType::BtHold => bt_hold = extend_mesh(bt_hold, n.0),
-                NoteType::BtHoldActive(lane) => {
-                    let mesh = std::mem::take(&mut bt_hold_active[lane]);
-                    bt_hold_active[lane] = extend_mesh(mesh, n.0)
-                }
-                NoteType::FxChip => fx_chip = extend_mesh(fx_chip, n.0),
-                NoteType::FxChipSample => fx_chip_sample = extend_mesh(fx_chip_sample, n.0),
-                NoteType::FxHold => fx_hold = extend_mesh(fx_hold, n.0),
-                NoteType::FxHoldActive(side) => {
-                    let mesh = std::mem::take(&mut fx_hold_active[side]);
-                    fx_hold_active[side] = extend_mesh(mesh, n.0)
-                }
+                NoteType::BtChip => bt_chip.push(n.0),
+                NoteType::BtHold => bt_hold.push((n.0, HoldState::Idle)),
+                NoteType::BtHoldActive(lane) => bt_hold.push((
+                    n.0,
+                    if buttons_held.contains(&lane) {
+                        HoldState::Hit
+                    } else {
+                        HoldState::Miss
+                    },
+                )),
+                NoteType::FxChip => fx_chip.push((n.0, false)),
+                NoteType::FxChipSample => fx_chip.push((n.0, true)),
+                NoteType::FxHold => fx_hold.push((n.0, HoldState::Idle)),
+                NoteType::FxHoldActive(side) => fx_hold.push((
+                    n.0,
+                    if buttons_held.contains(&(side + 4)) {
+                        HoldState::Hit
+                    } else {
+                        HoldState::Miss
+                    },
+                )),
             }
         }
 
@@ -2251,11 +2256,8 @@ impl ChartView {
         }
         TrackRenderMeshes {
             fx_hold,
-            fx_hold_active,
             bt_hold,
-            bt_hold_active,
             fx_chip,
-            fx_chip_sample,
             bt_chip,
             lasers,
             lane_beams,
@@ -2344,8 +2346,7 @@ impl Cursor {
             (crit_pos - c_pos).magnitude() * if pos < 0.0 { -1.0 } else { 1.0 };
         let cursor_angle_vector = c_pos_up - c_pos_down;
 
-        let skew =
-            -cursor_angle_vector.y.atan2(cursor_angle_vector.x) + std::f32::consts::FRAC_PI_2;
+        let skew = cursor_angle_vector.y.atan2(cursor_angle_vector.x) + std::f32::consts::FRAC_PI_2;
 
         Self {
             pos: dist_from_crit_center,
