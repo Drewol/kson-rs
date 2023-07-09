@@ -400,9 +400,6 @@ fn main() -> anyhow::Result<()> {
 
     let fps_paint = vg::Paint::color(vg::Color::white()).with_text_align(vg::Align::Right);
 
-    let mut scenes = Scenes::new(mixer_controls.clone());
-
-    scenes.loaded.push(Box::new(main_menu::MainMenu::new()));
     let game_data = Arc::new(Mutex::new(game_data::GameData {
         mouse_pos: (mousex, mousey),
         resolution: (800, 600),
@@ -413,9 +410,11 @@ fn main() -> anyhow::Result<()> {
     }));
 
     let mut scenes = Scenes::new(mixer_controls.clone());
-    let mut title = Box::new(main_menu::MainMenu::new());
-    title.suspend();
-    scenes.loaded.push(title);
+    if GameConfig::get().args.chart.as_ref().is_none() {
+        let mut title = Box::new(main_menu::MainMenu::new());
+        title.suspend();
+        scenes.loaded.push(title);
+    }
 
     if let Some(chart_path) = GameConfig::get().args.chart.as_ref() {
         let chart_path = PathBuf::from(chart_path);

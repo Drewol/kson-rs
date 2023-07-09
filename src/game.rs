@@ -1437,6 +1437,12 @@ impl Scene for Game {
 
             for (side, index) in [(kson::Side::Left, 0), (kson::Side::Right, 1)] {
                 let delta = ls.get_axis(side).delta as f64;
+
+                if self.input_state.is_button_held(UscButton::Start) {
+                    self.view.hispeed += delta as f32 * 0.1;
+                    self.view.hispeed = self.view.hispeed.clamp(0.1, 10.0);
+                }
+
                 let input_dir = delta.total_cmp(&0.0);
                 match input_dir {
                     Ordering::Less => self.laser_latest_dir_inputs[index][0] = self.time,
@@ -2067,7 +2073,7 @@ impl ChartView {
             FxHoldActive(usize),
         }
         let mut notes = Vec::new();
-        let chip_h = 0.05;
+        let chip_h = 1.0;
 
         let _track = self.track.clone();
 
@@ -2139,8 +2145,7 @@ impl ChartView {
 
         let notes = notes.iter().map(|n| {
             (
-                Mat4::from_translation(n.0)
-                    * Mat4::from_nonuniform_scale(1.0, -n.1.y.max(1.0), 1.0),
+                Mat4::from_translation(n.0) * Mat4::from_nonuniform_scale(1.0, -n.1.y, 1.0),
                 n.2,
             )
         });
