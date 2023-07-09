@@ -5,3 +5,8 @@ Cargo.lock
 .vscode/*
 imgui.ini
 profiling.json
+/skins
+/types
+/tlout
+Main.cfg
+maps.db
