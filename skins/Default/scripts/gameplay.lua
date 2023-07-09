@@ -68,36 +68,29 @@ local RECT_FILL = "fill"
 local RECT_STROKE = "stroke"
 local RECT_FILL_STROKE = RECT_FILL .. RECT_STROKE
 
-gfx._ImageAlpha = 1
-if gfx._FillColor == nil then
-    gfx._FillColor = gfx.FillColor
-    gfx._StrokeColor = gfx.StrokeColor
-    gfx._SetImageTint = gfx.SetImageTint
-end
+_ImageAlpha = 1
 
--- we aren't even gonna overwrite it here, it's just dead to us
-gfx.SetImageTint = nil
 
-function gfx.FillColor(r, g, b, a)
+function FillColor(r, g, b, a)
     r = math.floor(r or 255)
     g = math.floor(g or 255)
     b = math.floor(b or 255)
     a = math.floor(a or 255)
 
-    gfx._ImageAlpha = a / 255
-    gfx._FillColor(r, g, b, a)
-    gfx._SetImageTint(r, g, b)
+    _ImageAlpha = a / 255
+    gfx.FillColor(r, g, b, a)
+    gfx.SetImageTint(r, g, b)
 end
 
-function gfx.StrokeColor(r, g, b)
+function StrokeColor(r, g, b)
     r = math.floor(r or 255)
     g = math.floor(g or 255)
     b = math.floor(b or 255)
 
-    gfx._StrokeColor(r, g, b)
+    gfx.StrokeColor(r, g, b)
 end
 
-function gfx.DrawRect(kind, x, y, w, h)
+function DrawRect(kind, x, y, w, h)
     local doFill = kind == RECT_FILL or kind == RECT_FILL_STROKE
     local doStroke = kind == RECT_STROKE or kind == RECT_FILL_STROKE
 
@@ -106,7 +99,7 @@ function gfx.DrawRect(kind, x, y, w, h)
     gfx.BeginPath()
 
     if doImage then
-        gfx.ImageRect(x, y, w, h, kind, gfx._ImageAlpha, 0)
+        gfx.ImageRect(x, y, w, h, kind, _ImageAlpha, 0)
     else
         gfx.Rect(x, y, w, h)
         if doFill then gfx.Fill() end
@@ -134,32 +127,32 @@ function UpdateButtonStatesAfterProcessed()
     end
 end
 
-function game.GetButtonPressed(button)
+function GetButtonPressed(button)
     return game.GetButton(button) and not buttonStates[button]
 end
 -- -------------------------------------------------------------------------- --
--- game.IsUserInputActive:                                                    --
+-- IsUserInputActive:                                                    --
 -- Used to determine if (valid) controller input is happening.                --
 -- Valid meaning that laser motion will not return true unless the laser is   --
 --  active in gameplay as well.                                               --
 -- This restriction is not applied to buttons.                                --
 -- The player may press their buttons whenever and the function returns true. --
 -- Lane starts at 1 and ends with 8.                                          --
-function game.IsUserInputActive(lane)
+function IsUserInputActive(lane)
     if lane < 7 then
         return game.GetButton(buttonsInOrder[lane])
     end
     return gameplay.IsLaserHeld(lane - 7)
 end
 -- -------------------------------------------------------------------------- --
--- gfx.FillLaserColor:                                                        --
+-- FillLaserColor:                                                        --
 -- Sets the current fill color to the laser color of the given index.         --
 -- An optional alpha value may be given as well.                              --
 -- Index may be 1 or 2.                                                       --
-function gfx.FillLaserColor(index, alpha)
+function FillLaserColor(index, alpha)
     alpha = math.floor(alpha or 255)
     local r, g, b = game.GetLaserColor(index - 1)
-    gfx.FillColor(r, g, b, alpha)
+    FillColor(r, g, b, alpha)
 end
 -- -------------------------------------------------------------------------- --
 -- -------------------------------------------------------------------------- --
@@ -459,7 +452,7 @@ function render(deltaTime)
         gfx.LoadSkinFont("NotoSans-Regular.ttf")
         gfx.FontSize(30)
         gfx.TextAlign(gfx.TEXT_ALIGN_TOP + gfx.TEXT_ALIGN_CENTER)
-        gfx.FillColor(255,255,255)
+        FillColor(255,255,255)
         gfx.Text(play_mode, desw/2, yshift)
     end
 end
@@ -519,21 +512,21 @@ function render_crit_base(deltaTime)
     
     -- Draw a transparent black overlay below the crit line
     -- This darkens the play area as it passes
-    gfx.FillColor(0, 0, 0, 200)
-    gfx.DrawRect(RECT_FILL, -resx, 0, resx * 2, resy)
+    FillColor(0, 0, 0, 200)
+    DrawRect(RECT_FILL, -resx, 0, resx * 2, resy)
 
     -- draw the back half of the caps at each end
     do
-        gfx.FillColor(255, 255, 255)
+        FillColor(255, 255, 255)
         -- left side
-        gfx.DrawRect(critCapBack,
+        DrawRect(critCapBack,
             -crit_base_info.half_critWidth -crit_base_info.half_critCapWidth,
             -crit_base_info.half_critCapHeight,
             crit_base_info.critCapWidth,
             crit_base_info.critCapHeight)
         gfx.Scale(-1, 1) -- scale to flip horizontally
         -- right side
-        gfx.DrawRect(critCapBack, 
+        DrawRect(critCapBack, 
             -crit_base_info.half_critWidth - crit_base_info.half_critCapWidth,
             -crit_base_info.half_critCapHeight,
             crit_base_info.critCapWidth,
@@ -595,16 +588,16 @@ function render_crit_base(deltaTime)
 
     -- Draw the front half of the caps at each end
     do
-        gfx.FillColor(255, 255, 255)
+        FillColor(255, 255, 255)
         -- left side
-        gfx.DrawRect(critCap,
+        DrawRect(critCap,
             -crit_base_info.half_critWidth - crit_base_info.half_critCapWidth,
             -crit_base_info.half_critCapHeight,
             crit_base_info.critCapWidth,
             crit_base_info.critCapHeight)
         gfx.Scale(-1, 1) -- scale to flip horizontally
         -- right side
-        gfx.DrawRect(critCap,
+        DrawRect(critCap,
             -crit_base_info.half_critWidth - crit_base_info.half_critCapWidth,
             -crit_base_info.half_critCapHeight,
             crit_base_info.critCapWidth,
@@ -613,7 +606,7 @@ function render_crit_base(deltaTime)
     end
 
     -- we're done, reset graphics stuffs
-    gfx.FillColor(255, 255, 255)
+    FillColor(255, 255, 255)
     gfx.ResetTransform()
 end
 -- -------------------------------------------------------------------------- --
@@ -651,13 +644,13 @@ function render_crit_overlay(deltaTime)
         gfx.Scale(consoleFillScale, consoleFillScale);
 
         -- Actually draw the fill
-        gfx.FillColor(255, 255, 255)
-        gfx.DrawRect(bottomFill, io_x, io_y, io_w, io_h)
+        FillColor(255, 255, 255)
+        DrawRect(bottomFill, io_x, io_y, io_w, io_h)
 
         -- Then draw the details which need to be colored to match the lasers
         for i = 1, 2 do
-            gfx.FillLaserColor(i)
-            gfx.DrawRect(ioConsoleDetails[i], io_x, io_y, io_w, io_h)
+            FillLaserColor(i)
+            DrawRect(ioConsoleDetails[i], io_x, io_y, io_w, io_h)
         end
 
         -- Draw the button press animations by overlaying transparent images
@@ -676,8 +669,8 @@ function render_crit_overlay(deltaTime)
             if timer ~= 0 then
                 local image = consoleAnimImages[i]
                 local alpha = (math.sin(timer) * 0.5 + 0.5) * 0.5 + 0.25
-                gfx.FillColor(255, 255, 255, alpha * 255);
-                gfx.DrawRect(image, io_x, io_y, io_w, io_h)
+                FillColor(255, 255, 255, alpha * 255);
+                DrawRect(image, io_x, io_y, io_w, io_h)
             end
         end
         gfx.GlobalCompositeOperation(gfx.BLEND_OP_SOURCE_OVER)
@@ -692,24 +685,24 @@ function render_crit_overlay(deltaTime)
 
     -- draw each laser cursor
     for i = 1, 2 do
-        local cursor = gameplay.critLine.cursors[i - 1]
+        local cursor = gameplay.critLine.cursors[i]
         local pos, skew = cursor.pos, cursor.skew
 
         -- Add a kinda-perspective effect with a horizontal skew
         gfx.SkewX(skew)
 
         -- Draw the colored background with the appropriate laser color
-        gfx.FillLaserColor(i, cursor.alpha * 255)
-        gfx.DrawRect(laserCursor, pos - cursorWidth / 2, -cursorHeight / 2, cursorWidth, cursorHeight)
+        FillLaserColor(i, cursor.alpha * 255)
+        DrawRect(laserCursor, pos - cursorWidth / 2, -cursorHeight / 2, cursorWidth, cursorHeight)
         -- Draw the uncolored overlay on top of the color
-        gfx.FillColor(255, 255, 255, cursor.alpha * 255)
-        gfx.DrawRect(laserCursorOverlay, pos - cursorWidth / 2, -cursorHeight / 2, cursorWidth, cursorHeight)
+        FillColor(255, 255, 255, cursor.alpha * 255)
+        DrawRect(laserCursorOverlay, pos - cursorWidth / 2, -cursorHeight / 2, cursorWidth, cursorHeight)
         -- Un-skew
         gfx.SkewX(-skew)
     end
 
     -- We're done, reset graphics stuffs
-    gfx.FillColor(255, 255, 255)
+    FillColor(255, 255, 255)
     gfx.ResetTransform()
 end
 -- -------------------------------------------------------------------------- --
@@ -720,8 +713,8 @@ function draw_banner(deltaTime)
     local bannerWidth, bannerHeight = gfx.ImageSize(topFill)
     local actualHeight = desw * (bannerHeight / bannerWidth)
 
-    gfx.FillColor(255, 255, 255)
-    gfx.DrawRect(topFill, 0, 0, desw, actualHeight)
+    FillColor(255, 255, 255)
+    DrawRect(topFill, 0, 0, desw, actualHeight)
 
     return actualHeight
 end
@@ -749,9 +742,9 @@ function draw_stat(x, y, w, h, name, value, format, r, g, b)
     gfx.LineTo(w, h) -- only defines the line, does NOT draw it yet
 
     -- If a color is provided, set it
-    if r then gfx.StrokeColor(r, g, b) 
+    if r then StrokeColor(r, g, b) 
     -- otherwise, default to a light grey
-    else gfx.StrokeColor(200, 200, 200) end
+    else StrokeColor(200, 200, 200) end
 
     -- Stroke out the line
     gfx.StrokeWidth(1)
@@ -784,22 +777,22 @@ function draw_song_info(deltaTime)
     gfx.LoadSkinFont("NotoSans-Regular.ttf")
 
     -- Draw the background, a simple grey box
-    gfx.FillColor(20, 20, 20, 200)
-    gfx.DrawRect(RECT_FILL, 0, 0, song_info.songInfoWidth, 100)
+    FillColor(20, 20, 20, 200)
+    DrawRect(RECT_FILL, 0, 0, song_info.songInfoWidth, 100)
     -- Draw the jacket
-    gfx.FillColor(255, 255, 255)
-    gfx.DrawRect(jacket, 0, 0, song_info.jacketWidth, song_info.jacketWidth)
+    FillColor(255, 255, 255)
+    DrawRect(jacket, 0, 0, song_info.jacketWidth, song_info.jacketWidth)
     -- Draw a background for the following level stat
-    gfx.FillColor(0, 0, 0, 200)
-    gfx.DrawRect(RECT_FILL, 0, 85, 60, 15)
+    FillColor(0, 0, 0, 200)
+    DrawRect(RECT_FILL, 0, 85, 60, 15)
     -- Level Name : Level Number
-    gfx.FillColor(255, 255, 255)
+    FillColor(255, 255, 255)
     draw_stat(0, 85, 55, 15, diffNames[gameplay.difficulty + 1], gameplay.level, "%02d")
     -- Reset some text related stuff that was changed in draw_state
     gfx.TextAlign(gfx.TEXT_ALIGN_LEFT)
     gfx.FontSize(30)
     
-    gfx.FillColor(255, 255, 255)
+    FillColor(255, 255, 255)
 
     local textscale = song_info.title_textscale
     local textX = song_info.textX
@@ -827,15 +820,15 @@ function draw_song_info(deltaTime)
     gfx.Text(string.format("BPM: %.1f", gameplay.bpm), textX, 85)
 
     -- Fill the progress bar
-    gfx.FillColor(0, 150, 255)
-    gfx.DrawRect(RECT_FILL, song_info.jacketWidth, song_info.jacketWidth - 10, (song_info.songInfoWidth - song_info.jacketWidth) * gameplay.progress, 10)
+    FillColor(0, 150, 255)
+    DrawRect(RECT_FILL, song_info.jacketWidth, song_info.jacketWidth - 10, (song_info.songInfoWidth - song_info.jacketWidth) * gameplay.progress, 10)
 
     -- When the player is holding Start, the hispeed can be changed
     -- Shows the current hispeed values
     if game.GetButton(game.BUTTON_STA) then
-        gfx.FillColor(20, 20, 20, 200);
-        gfx.DrawRect(RECT_FILL, 100, 100, song_info.songInfoWidth - 100, 20)
-        gfx.FillColor(255, 255, 255)
+        FillColor(20, 20, 20, 200);
+        DrawRect(RECT_FILL, 100, 100, song_info.songInfoWidth - 100, 20)
+        FillColor(255, 255, 255)
         if game.GetButton(game.BUTTON_BTB) then
             gfx.Text(string.format("Hid/Sud Cutoff: %.1f%% / %.1f%%", 
                     gameplay.hiddenCutoff * 100, gameplay.suddenCutoff * 100),
@@ -855,13 +848,13 @@ function draw_song_info(deltaTime)
 
             gfx.Text(hslabel, textX, 115)
             if gameplay.hispeedAdjust == 1 then
-                gfx.FillColor(0, 255, 0)
+                FillColor(0, 255, 0)
             end
             gfx.Text(xModText, xModTextX, 115)
-            gfx.FillColor(255,255,255)
+            FillColor(255,255,255)
             gfx.Text(" = ", eqTextX, 115)
             if gameplay.hispeedAdjust == 2 then
-                gfx.FillColor(0, 255, 0)
+                FillColor(0, 255, 0)
             end
             gfx.Text(string.format("%.0f", gameplay.bpm *gameplay.hispeed), mModTextX, 115)
 
@@ -886,10 +879,10 @@ function draw_best_diff(deltaTime, x, y)
     gfx.BeginPath()
     gfx.FontSize(40)
 
-    gfx.FillColor(255, 255, 255)
+    FillColor(255, 255, 255)
     if difference < 0 then
         -- If we're behind the best score, separate the minus sign and change the color
-        gfx.FillColor(255, 50, 50)
+        FillColor(255, 50, 50)
         difference = math.abs(difference)
         prefix = "-"
     end
@@ -907,13 +900,13 @@ function draw_score(deltaTime)
     gfx.LoadSkinFont("NovaMono.ttf")
     gfx.BeginPath()
     gfx.RoundedRectVarying(desw - 210, 5, 220, 62, 0, 0, 0, 20)
-    gfx.FillColor(20, 20, 20)
-    gfx.StrokeColor(0, 128, 255)
+    FillColor(20, 20, 20)
+    StrokeColor(0, 128, 255)
     gfx.StrokeWidth(2)
     gfx.Fill()
     gfx.Stroke()
     gfx.Translate(-5, 5) -- upper right margin
-    gfx.FillColor(255, 255, 255)
+    FillColor(255, 255, 255)
     gfx.TextAlign(gfx.TEXT_ALIGN_RIGHT + gfx.TEXT_ALIGN_TOP)
     gfx.FontSize(60)
     gfx.Text(string.format("%08d", math.floor(score_animation:tick(deltaTime))), desw, 0)
@@ -949,9 +942,9 @@ function draw_gauge(gauge)
     local posy = gauge_info.label_posy - gauge_info.label_height * gauge.value
     gfx.BeginPath()
     gfx.Rect(gauge_info.label_posx-35, posy-10, 40, 20)
-    gfx.FillColor(0,0,0,200)
+    FillColor(0,0,0,200)
     gfx.Fill()
-    gfx.FillColor(255,255,255)
+    FillColor(255,255,255)
     gfx.TextAlign(gfx.TEXT_ALIGN_RIGHT + gfx.TEXT_ALIGN_MIDDLE)
     gfx.FontSize(20)
     gfx.Text(string.format("%d%%", math.floor(gauge.value * 100)), gauge_info.label_posx, posy )
@@ -963,11 +956,11 @@ function draw_combo(deltaTime)
     gfx.BeginPath()
     gfx.TextAlign(gfx.TEXT_ALIGN_CENTER + gfx.TEXT_ALIGN_MIDDLE)
     if gameplay.comboState == 2 then
-        gfx.FillColor(100,255,0) --puc
+        FillColor(100,255,0) --puc
     elseif gameplay.comboState == 1 then
-        gfx.FillColor(255,200,0) --uc
+        FillColor(255,200,0) --uc
     else
-        gfx.FillColor(255,255,255) --regular
+        FillColor(255,255,255) --regular
     end
     gfx.LoadSkinFont("NovaMono.ttf")
     gfx.FontSize(70 * math.max(comboScale, 1))
@@ -993,10 +986,10 @@ function draw_earlate(deltaTime)
     end
 
     if late then
-        gfx.FillColor(0,255,255, alpha)
+        FillColor(0,255,255, alpha)
         gfx.Text("LATE", desw / 2, ypos)
     else
-        gfx.FillColor(255,0,255, alpha)
+        FillColor(255,0,255, alpha)
         gfx.Text("EARLY", desw / 2, ypos)
     end
 end
@@ -1020,13 +1013,13 @@ function draw_alerts(deltaTime)
         gfx.Scale(1, alertScale)
         gfx.BeginPath()
         gfx.RoundedRectVarying(-50,-50,100,100,20,0,20,0)
-        gfx.StrokeColor(r,g,b)
-        gfx.FillColor(20,20,20)
+        StrokeColor(r,g,b)
+        FillColor(20,20,20)
         gfx.StrokeWidth(2)
         gfx.Fill()
         gfx.Stroke()
         gfx.BeginPath()
-        gfx.FillColor(r,g,b)
+        FillColor(r,g,b)
         gfx.TextAlign(gfx.TEXT_ALIGN_CENTER + gfx.TEXT_ALIGN_MIDDLE)
         gfx.FontSize(90)
         gfx.Text("L",0,0)
@@ -1047,13 +1040,13 @@ function draw_alerts(deltaTime)
         gfx.Scale(1, alertScale)
         gfx.BeginPath()
         gfx.RoundedRectVarying(-50,-50,100,100,0,20,0,20)
-        gfx.StrokeColor(r,g,b)
-        gfx.FillColor(20,20,20)
+        StrokeColor(r,g,b)
+        FillColor(20,20,20)
         gfx.StrokeWidth(2)
         gfx.Fill()
         gfx.Stroke()
         gfx.BeginPath()
-        gfx.FillColor(r,g,b)
+        FillColor(r,g,b)
         gfx.TextAlign(gfx.TEXT_ALIGN_CENTER + gfx.TEXT_ALIGN_MIDDLE)
         gfx.FontSize(90)
         gfx.Text("R",0,0)
@@ -1104,11 +1097,11 @@ function render_outro(deltaTime, clearState)
         gfx.ResetTransform()
         gfx.BeginPath()
         gfx.Rect(0,0,resx,resy)
-        gfx.FillColor(0,0,0, math.floor(127 * math.min(outroTimer, 1)))
+        FillColor(0,0,0, math.floor(127 * math.min(outroTimer, 1)))
         gfx.Fill()
         gfx.Scale(scale,scale)
         gfx.TextAlign(gfx.TEXT_ALIGN_CENTER + gfx.TEXT_ALIGN_MIDDLE)
-        gfx.FillColor(255,255,255, math.floor(255 * math.min(outroTimer, 1)))
+        FillColor(255,255,255, math.floor(255 * math.min(outroTimer, 1)))
         gfx.LoadSkinFont("NovaMono.ttf")
         gfx.FontSize(70)
         gfx.Text(clearTexts[clearState], desw / 2, desh / 2)
@@ -1220,14 +1213,14 @@ function draw_users(detaTime)
     -- Reset some text related stuff that was changed in draw_state
     gfx.TextAlign(gfx.TEXT_ALIGN_LEFT)
     gfx.FontSize(35)
-    gfx.FillColor(255, 255, 255)
+    FillColor(255, 255, 255)
     local yoff = 0
     if portrait then
         yoff = 75;
     end
     local rank = 0
     for i, u in ipairs(users) do
-        gfx.FillColor(255, 255, 255)
+        FillColor(255, 255, 255)
         local score_big = string.format("%04d",math.floor(u.score/1000));
         local score_small = string.format("%03d",u.score%1000);
         local user_text = '('..u.name..')';
@@ -1255,7 +1248,7 @@ function draw_users(detaTime)
         xmax = xmax + 7
 
         if u.id == gameplay.user_id then
-            gfx.FillColor(237, 240, 144)
+            FillColor(237, 240, 144)
         end
         
         gfx.LoadSkinFont(normal_font)
@@ -1309,7 +1302,7 @@ function draw_practice(deltaTime)
     gfx.Translate(practice_info.posx, practice_info.posy)
     gfx.LoadSkinFont("NotoSans-Regular.ttf")
     gfx.TextAlign(gfx.TEXT_ALIGN_LEFT + gfx.TEXT_ALIGN_TOP)
-    gfx.FillColor(255, 255, 255)
+    FillColor(255, 255, 255)
     
     gfx.FontSize(25)
     gfx.Text(mission_str, 0, 0)
