@@ -30,7 +30,7 @@ use crate::{
     button_codes::{LaserState, UscInputEvent},
     config::GameConfig,
     game::HitRating,
-    game_data::{ExportGame, GameData},
+    game_data::{ExportGame, GameData, LuaPath},
     input_state::InputState,
     main_menu::MainMenuButton,
     scene, songselect,
@@ -192,6 +192,7 @@ impl GameMain {
 
                 tealr::mlu::set_global_env(ExportVgfx, &lua)?;
                 tealr::mlu::set_global_env(ExportGame, &lua)?;
+                tealr::mlu::set_global_env(LuaPath, &lua)?;
                 lua.globals()
                     .set(
                         "IRData",

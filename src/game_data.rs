@@ -389,3 +389,27 @@ impl tealr::mlu::ExportInstances for ExportGame {
         Ok(())
     }
 }
+
+#[derive(UserData, TypeName, Default)]
+pub struct LuaPath;
+
+impl TealData for LuaPath {
+    fn add_methods<'lua, T: tealr::mlu::TealDataMethods<'lua, Self>>(_methods: &mut T) {
+        _methods.add_function("Absolute", |_, s: String| {
+            let mut p = GameConfig::get().game_folder.clone();
+            p.push(s);
+            Ok(p.to_string_lossy().to_string())
+        })
+    }
+
+    fn add_fields<'lua, F: tealr::mlu::TealDataFields<'lua, Self>>(_fields: &mut F) {}
+}
+impl tealr::mlu::ExportInstances for LuaPath {
+    fn add_instances<'lua, T: tealr::mlu::InstanceCollector<'lua>>(
+        self,
+        instance_collector: &mut T,
+    ) -> mlua::Result<()> {
+        instance_collector.add_instance("path", UserDataProxy::<Self>::new)?;
+        Ok(())
+    }
+}

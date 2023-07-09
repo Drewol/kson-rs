@@ -366,31 +366,31 @@ impl TealData for Vgfx {
                 path.push("skins");
                 path.push(&_vgfx.skin);
                 path.push("textures");
-                path.push(filename);
-                let img = _vgfx
-                    .with_canvas(|canvas| {
-                        canvas
-                            .load_image_file(
-                                &path,
+                path.push(&filename);
+                let img = match _vgfx.with_canvas(|canvas| {
+                    canvas
+                        .load_image_file(
+                            &path,
+                            ImageFlags::from_bits(imageflags).unwrap_or(ImageFlags::empty()),
+                        )
+                        .or_else(|_| {
+                            profile_scope!("reformat image");
+                            let img = image::open(&path)?;
+                            canvas.create_image(
+                                femtovg::ImageSource::try_from(&image::DynamicImage::ImageRgba8(
+                                    img.to_rgba8(),
+                                ))
+                                .expect("Bad image format"),
                                 ImageFlags::from_bits(imageflags).unwrap_or(ImageFlags::empty()),
                             )
-                            .or_else(|_| {
-                                profile_scope!("reformat image");
-                                let img = image::open(&path)?;
-                                canvas.create_image(
-                                    femtovg::ImageSource::try_from(
-                                        &image::DynamicImage::ImageRgba8(img.to_rgba8()),
-                                    )
-                                    .expect("Bad image format"),
-                                    ImageFlags::from_bits(imageflags)
-                                        .unwrap_or(ImageFlags::empty()),
-                                )
-                            })
-                    })?
-                    .unwrap_or_else(|err| {
-                        log::error!("Failed to load image: {:?}", err);
-                        _vgfx.fallback_img
-                    });
+                        })
+                })? {
+                    Ok(img) => img,
+                    Err(err) => {
+                        log::error!("Failed to load image \"{}\": {:?}", &filename, err);
+                        return Ok(None);
+                    }
+                };
 
                 let this_id = _vgfx.next_img_id;
                 _vgfx.next_img_id += 1;
@@ -400,7 +400,7 @@ impl TealData for Vgfx {
                     .unwrap()
                     .images
                     .insert(this_id, VgImage::Static(img));
-                Ok(this_id)
+                Ok(Some(this_id))
             },
         );
 
