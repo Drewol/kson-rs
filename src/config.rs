@@ -25,6 +25,7 @@ pub struct GameConfig {
     pub songs_path: PathBuf,
     pub skin: String,
     pub laser_hues: [f32; 2],
+    pub mappings: Vec<String>,
     #[serde(skip_serializing, skip_deserializing)]
     pub skin_settings: HashMap<String, SkinSettingValue>,
     #[serde(skip_serializing, skip_deserializing)]
@@ -43,6 +44,11 @@ impl Default for GameConfig {
             laser_hues: [200.0, 330.0],
             game_folder: std::env::current_dir().unwrap(),
             args: Default::default(),
+            mappings: vec![
+            String::from("03000000d01600006d0a000000000000,Pocket Voltex Rev4,a:b1,b:b2,y:b3,x:b4,leftshoulder:b5,rightshoulder:b6,start:b0,leftx:a0,rightx:a1"),
+            String::from("03000000cf1c00001410000000000000,F2 eAcloud,a:b1,b:b2,x:b4,y:b3,start:b0,leftshoulder:b5,rightshoulder:b6,leftx:a0,rightx:a1"),
+            String::from("030000008f0e00001811000000000000,F2 HID,a:b1,b:b2,x:b4,y:b3,back:b7,start:b0,leftshoulder:b5,rightshoulder:b6,leftx:a0,rightx:a1")
+            ],
         }
     }
 }

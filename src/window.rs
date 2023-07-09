@@ -68,9 +68,9 @@ pub fn create_window() -> (
 
     let context_attributes = ContextAttributesBuilder::new().build(raw_window_handle);
     let fallback_context_attributes = ContextAttributesBuilder::new()
-        .with_context_api(ContextApi::OpenGl(Some(glutin::context::Version {
+        .with_context_api(ContextApi::Gles(Some(glutin::context::Version {
             major: 3,
-            minor: 3,
+            minor: 1,
         })))
         .build(raw_window_handle);
     let mut not_current_gl_context = Some(unsafe {

@@ -281,13 +281,14 @@ fn main() -> anyhow::Result<()> {
     log::info!("Skin Settings: {:#?}", skin_setting);
 
     let mut input = gilrs::GilrsBuilder::default()
-        .add_included_mappings(true)
+        .add_included_mappings(false)
         .with_default_filters(false)
-        .add_mappings("03000000d01600006d0a000000000000,Pocket Voltex Rev4,a:b1,b:b2,y:b3,x:b4,leftshoulder:b5,rightshoulder:b6,start:b0,leftx:a0,rightx:a1")
+        .add_mappings(&GameConfig::get().mappings.join("\n"))
         .build()
         .expect("Failed to create input context");
 
     while input.next_event().is_some() {} //empty events
+
     let context = td::Context::from_gl_context(gl_context.clone())?;
     let vgfx = Arc::new(Mutex::new(vg_ui::Vgfx::new(
         canvas.clone(),

@@ -64,3 +64,6 @@ debug = true
 
 [workspace]
 members = ["rusc_database", "."]
+
+[target.'cfg(unix)'.dependencies]
+openssl = {version = "^0.10", features = ["vendored"]}

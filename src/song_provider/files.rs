@@ -380,7 +380,7 @@ impl FileSongProvider {
                         Err(TryRecvError::Empty) => {}
                     }
 
-                    async {}.await //yield async task
+                    futures::pending!() //yield async task
                 }
             }
         });
