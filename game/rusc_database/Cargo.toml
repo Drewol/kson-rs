@@ -1,0 +1,10 @@
+[package]
+name = "rusc_database"
+version = "0.1.0"
+edition = "2021"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+serde_json = "1.0.96"
+sqlx = { version = "0.6.3", features = ["sqlite", "runtime-async-std-native-tls", "migrate", "json"] }

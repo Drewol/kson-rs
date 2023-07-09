@@ -1,0 +1,118 @@
+[
+  {
+    "v": "Gameplay:",
+    "type": "label"
+  },
+  {
+    "type": "selection",
+    "label": "Early/Late display position",
+    "default": "bottom",
+    "values": [
+      "bottom",
+      "middle",
+      "top",
+      "off"
+    ],
+    "name": "earlate_position"
+  },
+  {
+    "type": "text",
+    "label": "Display name",
+    "default": "Guest",
+    "name": "nick"
+  },
+  {
+    "type": "separator"
+  },
+  {
+    "v": "Song select:",
+    "type": "label"
+  },
+  {
+    "label": "Show control guide on song select",
+    "type": "bool",
+    "default": true,
+    "name": "show_guide"
+  },
+  {
+    "type": "separator"
+  },
+  {
+    "v": "Result:",
+    "type": "label"
+  },
+  {
+    "label": "Show hiscore on result",
+    "type": "bool",
+    "default": true,
+    "name": "show_result_hiscore"
+  },
+  {
+    "label": "Hit graph scale (y-axis)",
+    "type": "float",
+    "default": 0.8,
+    "max": 3,
+    "min": 0.5,
+    "name": "hit_graph_delta_scale"
+  },
+  {
+    "label": "Show control guide on result",
+    "type": "bool",
+    "default": true,
+    "name": "show_result_guide"
+  },
+  {
+    "label": "Show detailed results by default",
+    "type": "bool",
+    "default": false,
+    "name": "show_detailed_results"
+  },
+  {
+    "label": "Show icons related to play settings at the bottom",
+    "type": "bool",
+    "default": true,
+    "name": "show_result_icons"
+  },
+  {
+    "label": "Show IR by default in place of hiscore",
+    "type": "bool",
+    "default": false,
+    "name": "ir_or_hiscore"
+  },
+  {
+    "type": "separator"
+  },
+  {
+    "v": "Test objects:",
+    "type": "label"
+  },
+  {
+    "type": "float",
+    "label": "Test setting with spaces in the key",
+    "default": 50,
+    "max": 100,
+    "min": -100,
+    "name": "Testing with space"
+  },
+  {
+    "type": "integer",
+    "label": "Ineger Test with range -100<->100",
+    "default": 50,
+    "max": 100,
+    "min": -100,
+    "name": "Ineger_test"
+  },
+  {
+    "type": "color",
+    "label": "Color Test",
+    "default": "007FFFFF",
+    "name": "col_test"
+  },
+  {
+    "type": "text",
+    "label": "Secret value test",
+    "default": "usc123",
+    "secret": true,
+    "name": "secret_value"
+  }
+]
