@@ -313,6 +313,7 @@ impl GameMain {
                                 vgfx.clone(),
                                 frame_input.viewport,
                                 self.input_state.clone(),
+                                game_data.clone(),
                             ))
                         }
                     }
@@ -333,6 +334,7 @@ impl GameMain {
                             vgfx.clone(),
                             frame_input.viewport,
                             self.input_state.clone(),
+                            game_data.clone(),
                         ))
                     }
                 }
@@ -360,6 +362,7 @@ impl GameMain {
                             vgfx.clone(),
                             frame_input.viewport,
                             self.input_state.clone(),
+                            game_data.clone(),
                         ))
                     }
                 }

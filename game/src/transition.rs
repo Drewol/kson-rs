@@ -13,6 +13,7 @@ use three_d::{ColorMaterial, Gm, Mat3, Rad, Rectangle, Texture2DRef, Vec2, Zero}
 use ureq::json;
 
 use crate::{
+    game_data::GameData,
     input_state::InputState,
     main_menu::MainMenuButton,
     results::SongResultData,
@@ -41,6 +42,7 @@ pub struct Transition {
     vgfx: Arc<Mutex<crate::Vgfx>>,
     prev_screengrab: Option<Gm<Rectangle, ColorMaterial>>,
     input_state: Arc<InputState>,
+    game_data: Arc<Mutex<GameData>>,
 }
 
 fn load_songs() -> anyhow::Result<Box<dyn SceneData + Send>> {
@@ -81,6 +83,7 @@ impl Transition {
         vgfx: Arc<Mutex<crate::Vgfx>>,
         viewport: three_d::Viewport,
         input_state: Arc<InputState>,
+        game_data: Arc<Mutex<GameData>>,
     ) -> Self {
         if let Ok(reset_fn) = transition_lua.globals().get::<_, Function>("reset") {
             if let Some(e) = reset_fn.call::<(), ()>(()).err() {
@@ -144,6 +147,7 @@ impl Transition {
             vgfx,
             prev_screengrab: prev_grab,
             input_state,
+            game_data,
         }
     }
 }
@@ -243,9 +247,11 @@ impl Scene for Transition {
                     match target_state.try_take() {
                         Ok(Ok(finished)) => self
                             .control_tx
-                            .send(ControlMessage::TransitionComplete(
-                                finished.make_scene(self.input_state.clone()),
-                            ))
+                            .send(ControlMessage::TransitionComplete(finished.make_scene(
+                                self.input_state.clone(),
+                                self.vgfx.clone(),
+                                self.game_data.clone(),
+                            )))
                             .unwrap(),
                         Ok(Err(loading_error)) => {
                             log::error!("{:?}", loading_error);

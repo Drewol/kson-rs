@@ -5,6 +5,7 @@ use std::{
 };
 
 use anyhow::ensure;
+use itertools::Itertools;
 use puffin::profile_function;
 use tealr::{
     mlu::{
@@ -14,10 +15,11 @@ use tealr::{
     TypeName,
 };
 use three_d::{
-    vec2, vec3, vec4, AxisAlignedBoundingBox, Blend, BufferDataType, CpuTexture, ElementBuffer,
-    ElementBufferDataType, FrameInput, Geometry, Mat4, Object, Program, RenderStates, SquareMatrix,
-    Texture2D, Vec2, Vec3, Vec4, VertexBuffer, Wrapping,
+    vec2, vec3, vec4, AxisAlignedBoundingBox, Blend, BufferDataType, Context, CpuTexture,
+    ElementBuffer, ElementBufferDataType, FrameInput, Geometry, Mat4, Object, Program,
+    RenderStates, SquareMatrix, Texture2D, Vec2, Vec3, Vec4, VertexBuffer, Wrapping,
 };
+use three_d_asset::{Vector2, Vector3, Vector4};
 
 use crate::{config::GameConfig, vg_ui::Vgfx};
 
@@ -27,7 +29,28 @@ pub enum ShaderParam {
     Vec2(Vec2),
     Vec3(Vec3),
     Vec4(Vec4),
+    IVec2(Vector2<i32>),
+    IVec3(Vector3<i32>),
+    IVec4(Vector4<i32>),
     Texture(Texture2D),
+}
+
+impl From<Vector2<i32>> for ShaderParam {
+    fn from(value: Vector2<i32>) -> Self {
+        Self::IVec2(value)
+    }
+}
+
+impl From<Vector3<i32>> for ShaderParam {
+    fn from(value: Vector3<i32>) -> Self {
+        Self::IVec3(value)
+    }
+}
+
+impl From<Vector4<i32>> for ShaderParam {
+    fn from(value: Vector4<i32>) -> Self {
+        Self::IVec4(value)
+    }
 }
 
 impl From<f32> for ShaderParam {
@@ -84,6 +107,7 @@ pub struct ShadedMesh {
     vertecies_color: Option<VertexBuffer>,
     aabb: AxisAlignedBoundingBox,
     transform: Mat4,
+    context: Context,
 }
 
 impl ShadedMesh {
@@ -111,6 +135,7 @@ impl ShadedMesh {
 
         let mut params = HashMap::new();
         params.insert("color".into(), vec4(1.0, 1.0, 1.0, 1.0).into());
+
         Ok(Self {
             params,
             material: Program::from_source(
@@ -132,6 +157,52 @@ impl ShadedMesh {
             aabb: AxisAlignedBoundingBox::EMPTY,
             transform: Mat4::identity(),
             vertecies_color: None,
+            context: context.clone(),
+        })
+    }
+
+    pub fn new_fullscreen(
+        context: &three_d::Context,
+        fragment_shader: &str,
+    ) -> anyhow::Result<Self> {
+        let vertecies_pos = VertexBuffer::new_with_data(
+            context,
+            &(0..3).map(|x| vec3(x as f32, 0.0, 0.0)).collect_vec(),
+        );
+
+        Ok(Self {
+            params: HashMap::default(),
+            material: Program::from_source( //https://stackoverflow.com/questions/2588875/whats-the-best-way-to-draw-a-fullscreen-quad-in-opengl-3-2
+                context,
+                "
+out vec2 texVp; // texcoords are in the normalized [0,1] range for the viewport-filling quad part of the triangle
+in vec3 inPos;
+uniform ivec2 viewport;
+void main() {
+    vec2 vertices[3]=vec2[3](vec2(-1,-1), vec2(3,-1), vec2(-1, 3));
+    gl_Position = vec4(vertices[int(inPos.x)],0,1);
+    texVp = 0.5 * gl_Position.xy + vec2(0.5);
+    texVp.x *= viewport.x;
+    texVp.y *= viewport.y;
+}
+                ",
+                fragment_shader,
+            )?,
+            state: RenderStates {
+                cull: three_d::Cull::None,
+                blend: Blend::TRANSPARENCY,
+                depth_test: three_d::DepthTest::Always,
+                write_mask: three_d::WriteMask::COLOR,
+            },
+            vertex_count: 0,
+            draw_mode: DrawingMode::Triangles,
+            indecies: ElementBuffer::new(context),
+            vertecies_pos,
+            vertecies_uv: VertexBuffer::new(context),
+            aabb: AxisAlignedBoundingBox::EMPTY,
+            transform: Mat4::identity(),
+            vertecies_color: None,
+            context: context.clone(),
         })
     }
 
@@ -180,7 +251,6 @@ impl ShadedMesh {
 
     pub fn use_texture(
         &mut self,
-        context: &three_d::Context,
         name: impl Into<String>,
         path: impl AsRef<Path>,
         wrap_xy: (bool, bool),
@@ -224,7 +294,7 @@ impl ShadedMesh {
             }
         }
 
-        let texture = three_d::Texture2D::new(context, &texture);
+        let texture = three_d::Texture2D::new(&self.context, &texture);
         self.material.use_texture(&name, &texture);
         self.params.insert(name, ShaderParam::Texture(texture));
         Ok(())
@@ -238,6 +308,9 @@ impl ShadedMesh {
                     ShaderParam::Vec2(v) => self.material.use_uniform(name, v),
                     ShaderParam::Vec3(v) => self.material.use_uniform(name, v),
                     ShaderParam::Vec4(v) => self.material.use_uniform(name, v),
+                    ShaderParam::IVec2(v) => self.material.use_uniform(name, v),
+                    ShaderParam::IVec3(v) => self.material.use_uniform(name, v),
+                    ShaderParam::IVec4(v) => self.material.use_uniform(name, v),
                     ShaderParam::Int(v) => self.material.use_uniform(name, v),
                     ShaderParam::Texture(v) => self.material.use_texture(name, v),
                 }
@@ -245,7 +318,7 @@ impl ShadedMesh {
         }
     }
 
-    fn draw(&self, frame: &FrameInput<()>) -> Result<(), tealr::mlu::mlua::Error> {
+    pub fn draw(&self, frame: &FrameInput<()>) -> Result<(), tealr::mlu::mlua::Error> {
         self.use_params();
         self.material
             .use_vertex_attribute("inPos", &self.vertecies_pos);
@@ -263,6 +336,19 @@ impl ShadedMesh {
         self.material
             .draw_elements(self.state, frame.viewport, &self.indecies);
         Ok(())
+    }
+
+    pub fn draw_fullscreen(&self, viewport: three_d::Viewport) {
+        self.use_params();
+
+        self.material.use_uniform_if_required(
+            "viewport",
+            Vector2::new(viewport.width as i32, viewport.height as i32),
+        );
+        self.material
+            .use_vertex_attribute("inPos", &self.vertecies_pos);
+
+        self.material.draw_arrays(self.state, viewport, 3)
     }
 
     pub fn draw_camera(&self, camera: &three_d::Camera) -> Result<(), tealr::mlu::mlua::Error> {
@@ -310,21 +396,19 @@ impl ShadedMesh {
 
     pub fn set_data<T: BufferDataType, U: BufferDataType, V: BufferDataType>(
         &mut self,
-        context: &three_d::Context,
         pos: &[T],
         uv: &[U],
         colors: &Option<Vec<V>>,
     ) {
-        self.set_data_indexed(context, pos, uv, &[] as &[u32], colors);
+        self.set_data_indexed(pos, uv, &[] as &[u32], colors);
         self.update_indecies();
     }
 
-    pub fn set_data_mesh(&mut self, context: &three_d::Context, mesh: &three_d::CpuMesh) {
+    pub fn set_data_mesh(&mut self, mesh: &three_d::CpuMesh) {
         self.aabb = mesh.compute_aabb();
 
         if let Some(indicies) = mesh.indices.to_u32() {
             self.set_data_indexed(
-                context,
                 &mesh.positions.to_f32(),
                 mesh.uvs.as_ref().unwrap_or(&vec![]),
                 &indicies,
@@ -332,7 +416,6 @@ impl ShadedMesh {
             );
         } else {
             self.set_data(
-                context,
                 &mesh.positions.to_f32(),
                 mesh.uvs.as_ref().unwrap_or(&vec![]),
                 &mesh.colors,
@@ -347,18 +430,17 @@ impl ShadedMesh {
         W: BufferDataType,
     >(
         &mut self,
-        context: &three_d::Context,
         pos: &[T],
         uv: &[U],
         indecies: &[V],
         colors: &Option<Vec<W>>,
     ) {
-        self.vertecies_pos = VertexBuffer::new_with_data(context, pos);
-        self.vertecies_uv = VertexBuffer::new_with_data(context, uv);
+        self.vertecies_pos = VertexBuffer::new_with_data(&self.context, pos);
+        self.vertecies_uv = VertexBuffer::new_with_data(&self.context, uv);
         self.vertecies_color = colors
             .as_ref()
-            .map(|x| VertexBuffer::new_with_data(context, x.as_slice()));
-        self.indecies = ElementBuffer::new_with_data(context, indecies);
+            .map(|x| VertexBuffer::new_with_data(&self.context, x.as_slice()));
+        self.indecies = ElementBuffer::new_with_data(&self.context, indecies);
     }
 
     pub fn draw_lua_skin(
@@ -512,13 +594,10 @@ impl TealData for ShadedMesh {
             this.draw_lua_skin(frame, vgfx)
         });
         methods.add_method_mut("AddTexture", |lua, this, params: (String, String)| {
-            let context = &lua.app_data_ref::<FrameInput<()>>().unwrap().context;
-            this.use_texture(context, params.0, params.1, (false, false))
+            this.use_texture(params.0, params.1, (false, false))
                 .map_err(tealr::mlu::mlua::Error::external)
         });
         methods.add_method_mut("AddSkinTexture", |lua, this, params: (String, String)| {
-            let context = &lua.app_data_ref::<FrameInput<()>>().unwrap().context;
-
             let mut path = std::env::current_dir().unwrap();
             let skin = &GameConfig::get().skin;
             path.push("skins");
@@ -526,12 +605,11 @@ impl TealData for ShadedMesh {
             path.push("textures");
             path.push(params.1);
 
-            this.use_texture(context, params.0, path, (false, false))
+            this.use_texture(params.0, path, (false, false))
                 .map_err(tealr::mlu::mlua::Error::external)
         });
         methods.add_method_mut("AddSharedTexture", |lua, this, params: (String, String)| {
-            let context = &lua.app_data_ref::<FrameInput<()>>().unwrap().context;
-            this.use_texture(context, params.0, params.1, (false, false))
+            this.use_texture(params.0, params.1, (false, false))
                 .map_err(tealr::mlu::mlua::Error::external)
         });
 

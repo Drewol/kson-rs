@@ -1,8 +1,29 @@
 use std::borrow::BorrowMut;
 
 use game_loop::winit::event::ElementState;
-use gilrs::Button;
+use gilrs::{ev::filter::FilterFn, Button};
 use kson::{BtLane, Side};
+
+pub struct RuscFilter;
+
+impl FilterFn for RuscFilter {
+    fn filter(&self, ev: Option<gilrs::Event>, gilrs: &mut gilrs::Gilrs) -> Option<gilrs::Event> {
+        match ev {
+            Some(ev) => {
+                let source = gilrs.gamepad(ev.id).mapping_source();
+                match source {
+                    gilrs::MappingSource::SdlMappings => Some(ev),
+                    _ => {
+                        //TODO: apply default mapping
+
+                        Some(gilrs::Event::new(ev.id, gilrs::EventType::Dropped))
+                    }
+                }
+            }
+            _ => ev,
+        }
+    }
+}
 
 #[derive(Debug, Clone, Copy)]
 pub enum UscButton {

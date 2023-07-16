@@ -775,6 +775,67 @@ pub struct Chart {
     #[serde(default)]
     pub camera: camera::CameraInfo,
     pub version: String,
+    pub bg: BgInfo,
+}
+
+#[derive(Serialize, Deserialize, Clone)]
+pub struct BgInfo {
+    pub filename: Option<String>,
+    #[serde(default)]
+    pub offset: i32,
+    pub legacy: Option<LegacyBgInfo>,
+}
+
+impl BgInfo {
+    pub fn new() -> Self {
+        Self {
+            filename: None,
+            offset: 0,
+            legacy: None,
+        }
+    }
+}
+
+impl Default for BgInfo {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+#[derive(Serialize, Deserialize, Clone)]
+pub struct LegacyBgInfo {
+    pub bg: Option<Vec<KshBgInfo>>,
+    pub layer: Option<KshLayerInfo>,
+    pub movie: Option<KshMovieInfo>,
+}
+
+#[derive(Serialize, Deserialize, Clone)]
+pub struct KshLayerInfo {
+    pub filename: Option<String>, // self-explanatory (can be KSM default animation layer such as "arrow")
+    /// one-loop duration in milliseconds.
+    ///  
+    /// If the value is negative, the animation is played backwards.
+    ///
+    /// If the value is zero, the play speed is tempo-synchronized and set to 1 frame per 0.035 measure (= 28.571... frames/measure).
+    #[serde(default)]
+    pub duration: i32,
+    pub rotation: Option<KshLayerRotationInfo>, // rotation conditions
+}
+
+#[derive(Serialize, Deserialize, Clone)]
+pub struct KshLayerRotationInfo {
+    pub tilt: bool, // whether lane tilts affect rotation of BG/layer
+    pub spin: bool, // whether lane spins affect rotation of BG/layer
+}
+#[derive(Serialize, Deserialize, Clone)]
+pub struct KshMovieInfo {
+    pub filename: Option<String>, // self-explanatory
+    pub offset: i32,              // movie offset in millisecond
+}
+
+#[derive(Serialize, Deserialize, Clone)]
+pub struct KshBgInfo {
+    pub filename: String,
 }
 
 type BeatLineFn = dyn Fn(u32) -> Option<(u32, bool)>;
@@ -820,7 +881,8 @@ impl Chart {
             beat: BeatInfo::new(),
             audio: AudioInfo::new(),
             camera: CameraInfo::default(),
-            version: "0.5.0".to_string(),
+            version: "0.7.0".to_string(),
+            bg: BgInfo::new(),
         }
     }
 

@@ -43,7 +43,7 @@ pub(crate) fn add_lua_static_method<'lua, M, A, R, F, T: 'static + Sized + TypeN
 
         let data = { lua.app_data_ref::<Arc<Mutex<T>>>() };
         if let Some(data) = data {
-            let data_lock = data.lock();
+            let data_lock = data.try_lock();
             if let Ok(mut data) = data_lock {
                 function(lua, &lua_index, &mut data, p)
             } else {

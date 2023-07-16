@@ -1,7 +1,7 @@
 use std::{
     path::PathBuf,
     rc::Rc,
-    sync::{mpsc::Sender, Arc},
+    sync::{mpsc::Sender, Arc, Mutex},
 };
 
 use kson::score_ticks::ScoreTick;
@@ -11,9 +11,11 @@ use serde::Serialize;
 use crate::{
     button_codes::UscButton,
     game::{HitRating, HitWindow},
+    game_data::GameData,
     input_state::InputState,
     scene::{Scene, SceneData},
     songselect::{Difficulty, Song},
+    vg_ui::Vgfx,
     ControlMessage,
 };
 use tealr::{
@@ -230,7 +232,12 @@ impl SongResultData {
 }
 
 impl SceneData for SongResultData {
-    fn make_scene(self: Box<Self>, _input_state: Arc<InputState>) -> Box<dyn Scene> {
+    fn make_scene(
+        self: Box<Self>,
+        _input_state: Arc<InputState>,
+        _: Arc<Mutex<Vgfx>>,
+        _: Arc<Mutex<GameData>>,
+    ) -> Box<dyn Scene> {
         Box::new(SongResult {
             close: false,
             control_tx: None,

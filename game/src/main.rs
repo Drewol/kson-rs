@@ -8,7 +8,7 @@ use std::{
 };
 
 use crate::{
-    button_codes::LaserState,
+    button_codes::{LaserState, RuscFilter},
     config::Args,
     config::GameConfig,
     game::GameData,
@@ -46,6 +46,7 @@ mod audio_test;
 mod button_codes;
 mod config;
 mod game;
+mod game_background;
 mod game_camera;
 mod game_data;
 mod game_main;
@@ -310,14 +311,14 @@ fn main() -> anyhow::Result<()> {
 
     let _input_thread = poll_promise::Promise::spawn_thread("gilrs", move || {
         let mut knob_state = LaserState::default();
-
+        let rusc_filter = RuscFilter;
         loop {
             use button_codes::*;
             use game_loop::winit::event::ElementState::*;
             use gilrs::*;
             let e = {
                 if let Ok(mut input) = input.lock() {
-                    input.next_event()
+                    input.next_event().filter_ev(&rusc_filter, &mut input)
                 } else {
                     None
                 }
@@ -442,16 +443,18 @@ fn main() -> anyhow::Result<()> {
             chart_path.with_file_name(chart.audio.bgm.as_ref().unwrap().filename.clone().unwrap()),
         )?)?;
 
+        let skin_folder = { vgfx.lock().unwrap().skin_folder() };
+
         scenes.loaded.push(
             Box::new(GameData::new(
                 context.clone(),
                 Arc::new(song),
                 0,
                 chart,
-                vgfx.lock().unwrap().skin_folder(),
+                skin_folder,
                 Box::new(audio.convert_samples()),
             )?)
-            .make_scene(input_state.clone()),
+            .make_scene(input_state.clone(), vgfx.clone(), game_data.clone()),
         );
     }
 

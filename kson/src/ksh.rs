@@ -123,6 +123,8 @@ impl Ksh for crate::Chart {
             ..Default::default()
         }];
 
+        let mut legacy_bg: Option<LegacyBgInfo> = None;
+
         for line in meta {
             let line_data: Vec<&str> = line.split('=').collect();
             if line_data.len() < 2 {
@@ -165,9 +167,23 @@ impl Ksh for crate::Chart {
                 "plength" => bgm.preview.duration = value.parse()?,
                 "po" => bgm.preview.offset = value.parse()?,
                 "mvol" => bgm.vol = value.parse::<f64>()? / 100.0,
+                "layer" => {
+                    //TODO: parse properly
+                    legacy_bg = Some(LegacyBgInfo {
+                        bg: None,
+                        layer: Some(KshLayerInfo {
+                            filename: Some(value),
+                            duration: 0,
+                            rotation: None,
+                        }),
+                        movie: None,
+                    })
+                }
                 _ => (),
             }
         }
+
+        new_chart.bg.legacy = legacy_bg;
         new_chart.audio.bgm = Some(bgm);
         parts.remove(0);
         let mut y: u32 = 0;

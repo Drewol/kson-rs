@@ -27,6 +27,7 @@ use tealr::{
 use crate::{
     button_codes::{LaserAxis, LaserState, UscButton, UscInputEvent},
     config::GameConfig,
+    game_data::GameData,
     input_state::InputState,
     results::Score,
     scene::{Scene, SceneData},
@@ -38,6 +39,7 @@ use crate::{
         owned_source::owned_source, pitch_shift::pitch_shift, wobble::wobble,
     },
     take_duration_fade::take_duration_fade,
+    vg_ui::Vgfx,
     ControlMessage, RuscMixer,
 };
 
@@ -180,7 +182,12 @@ impl SongSelect {
 }
 
 impl SceneData for SongSelect {
-    fn make_scene(self: Box<Self>, _input_state: Arc<InputState>) -> Box<dyn Scene> {
+    fn make_scene(
+        self: Box<Self>,
+        _input_state: Arc<InputState>,
+        _: Arc<Mutex<Vgfx>>,
+        _: Arc<Mutex<GameData>>,
+    ) -> Box<dyn Scene> {
         Box::new(SongSelectScene::new(self))
     }
 }

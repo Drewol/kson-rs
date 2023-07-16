@@ -1,6 +1,6 @@
 use std::{
     rc::Rc,
-    sync::{mpsc::Sender, Arc},
+    sync::{mpsc::Sender, Arc, Mutex},
 };
 
 use anyhow::Result;
@@ -12,7 +12,9 @@ use three_d::{RenderTarget, Viewport};
 
 use crate::{
     button_codes::{LaserState, UscButton, UscInputEvent},
+    game_data::GameData,
     input_state::InputState,
+    vg_ui::Vgfx,
     ControlMessage,
 };
 
@@ -50,11 +52,21 @@ pub trait Scene {
 }
 
 pub trait SceneData: Send {
-    fn make_scene(self: Box<Self>, input_state: Arc<InputState>) -> Box<dyn Scene>;
+    fn make_scene(
+        self: Box<Self>,
+        input_state: Arc<InputState>,
+        vgfx: Arc<Mutex<Vgfx>>,
+        game_data: Arc<Mutex<GameData>>,
+    ) -> Box<dyn Scene>;
 }
 
 impl SceneData for dyn Scene + Send {
-    fn make_scene(self: Box<Self>, _: Arc<InputState>) -> Box<dyn Scene> {
+    fn make_scene(
+        self: Box<Self>,
+        _: Arc<InputState>,
+        _: Arc<Mutex<Vgfx>>,
+        _: Arc<Mutex<GameData>>,
+    ) -> Box<dyn Scene> {
         self
     }
 }

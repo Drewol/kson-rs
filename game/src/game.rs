@@ -1,5 +1,6 @@
 use crate::{
     button_codes::{UscButton, UscInputEvent},
+    game_background::GameBackground,
     game_camera::{CameraShake, ChartCamera},
     input_state::InputState,
     scene::{Scene, SceneData},
@@ -72,6 +73,8 @@ pub struct Game {
     biquad_control: BiquadController,
     source_owner: (Sender<()>, Receiver<()>),
     slam_sample: Option<Buffered<Decoder<std::fs::File>>>,
+    background: Option<GameBackground>,
+    foreground: Option<GameBackground>,
 }
 
 #[derive(Debug, Default)]
@@ -144,6 +147,17 @@ impl Gauge {
                 tick_gain: _,
                 value,
             } => *value = value.clamp(0.0, 1.0),
+        }
+    }
+
+    pub fn is_cleared(&self) -> bool {
+        match self {
+            Gauge::Normal {
+                chip_gain,
+                tick_gain,
+                value,
+            } => *value >= 0.7,
+            Gauge::None => false,
         }
     }
 
@@ -310,7 +324,12 @@ impl GameData {
 }
 
 impl SceneData for GameData {
-    fn make_scene(self: Box<Self>, input_state: Arc<InputState>) -> Box<dyn Scene> {
+    fn make_scene(
+        self: Box<Self>,
+        input_state: Arc<InputState>,
+        vgfx: Arc<Mutex<Vgfx>>,
+        game_data: Arc<Mutex<crate::game_data::GameData>>,
+    ) -> Box<dyn Scene> {
         let Self {
             context,
             chart,
@@ -338,69 +357,58 @@ impl SceneData for GameData {
             .with_transform(mesh_transform);
 
         beam_shader.use_texture(
-            &context,
             "mainTex",
             texture_folder.with_file_name("scorehit.png"),
             (false, false),
         );
 
-        beam_shader.set_data_mesh(&context, &xy_rect(Vec3::zero(), vec2(1.0, 1.0)));
+        beam_shader.set_data_mesh(&xy_rect(Vec3::zero(), vec2(1.0, 1.0)));
 
         fx_long_shader.use_texture(
-            &context,
             "mainTex",
             texture_folder.with_file_name("fxbuttonhold.png"),
             (false, false),
         );
 
-        fx_long_shader.set_data_mesh(
-            &context,
-            &xy_rect(vec3(0.0, 0.5, 0.0), vec2(2.0 / 6.0, 1.0)),
-        );
+        fx_long_shader.set_data_mesh(&xy_rect(vec3(0.0, 0.5, 0.0), vec2(2.0 / 6.0, 1.0)));
 
         let mut bt_long_shader = ShadedMesh::new(&context, "holdbutton", &shader_folder)
             .expect("Failed to load shader:")
             .with_transform(Matrix4::from_translation(vec3(-0.5, 0.0, 0.0)));
 
         bt_long_shader.use_texture(
-            &context,
             "mainTex",
             texture_folder.with_file_name("buttonhold.png"),
             (false, false),
         );
 
-        bt_long_shader.set_data_mesh(
-            &context,
-            &xy_rect(vec3(0.0, 0.5, 0.0), vec2(1.0 / 6.0, 1.0)),
-        );
+        bt_long_shader.set_data_mesh(&xy_rect(vec3(0.0, 0.5, 0.0), vec2(1.0 / 6.0, 1.0)));
 
         let mut fx_chip_shader = ShadedMesh::new(&context, "button", &shader_folder)
             .expect("Failed to load shader:")
             .with_transform(Matrix4::from_translation(vec3(-0.5, 0.0, 0.0)));
         fx_chip_shader.use_texture(
-            &context,
             "mainTex",
             texture_folder.with_file_name("fxbutton.png"),
             (false, false),
         );
         let fx_height = 1.0 / 12.0;
 
-        fx_chip_shader.set_data_mesh(
-            &context,
-            &xy_rect(vec3(0.0, fx_height / 2.0, 0.0), vec2(2.0 / 6.0, fx_height)),
-        );
+        fx_chip_shader.set_data_mesh(&xy_rect(
+            vec3(0.0, fx_height / 2.0, 0.0),
+            vec2(2.0 / 6.0, fx_height),
+        ));
 
         let mut bt_chip_shader = ShadedMesh::new(&context, "button", &shader_folder)
             .expect("Failed to load shader:")
             .with_transform(Matrix4::from_translation(vec3(-0.5, 0.0, 0.0)));
         let bt_height = 1.0 / 12.0;
-        bt_chip_shader.set_data_mesh(
-            &context,
-            &xy_rect(vec3(0.0, bt_height / 2.0, 0.0), vec2(1.0 / 6.0, bt_height)),
-        );
+        bt_chip_shader.set_data_mesh(&xy_rect(
+            vec3(0.0, bt_height / 2.0, 0.0),
+            vec2(1.0 / 6.0, bt_height),
+        ));
 
         bt_chip_shader.use_texture(
-            &context,
             "mainTex",
             texture_folder.with_file_name("button.png"),
             (false, false),
@@ -408,16 +416,15 @@ impl SceneData for GameData {
 
         let mut track_shader =
             ShadedMesh::new(&context, "track", &shader_folder).expect("Failed to load shader:");
-        track_shader.set_data_mesh(
-            &context,
-            &xy_rect(Vec3::zero(), vec2(1.0, ChartView::TRACK_LENGTH * 2.0)),
-        );
+        track_shader.set_data_mesh(&xy_rect(
+            Vec3::zero(),
+            vec2(1.0, ChartView::TRACK_LENGTH * 2.0),
+        ));
 
         track_shader.set_param("lCol", Color::BLUE.to_vec4());
         track_shader.set_param("rCol", Color::RED.to_vec4());
 
         track_shader.use_texture(
-            &context,
             "mainTex",
             texture_folder.with_file_name("track.png"),
             (false, false),
@@ -434,25 +441,21 @@ impl SceneData for GameData {
             ShadedMesh::new(&context, "laser", &shader_folder).expect("Failed to load shader:");
 
         laser_left.use_texture(
-            &context,
             "mainTex",
             texture_folder.with_file_name("laser_l.png"),
             (false, true),
         );
         laser_left_active.use_texture(
-            &context,
             "mainTex",
             texture_folder.with_file_name("laser_l.png"),
             (false, true),
         );
         laser_right.use_texture(
-            &context,
             "mainTex",
             texture_folder.with_file_name("laser_r.png"),
             (false, true),
         );
         laser_right_active.use_texture(
-            &context,
             "mainTex",
             texture_folder.with_file_name("laser_r.png"),
             (false, true),
@@ -475,6 +478,31 @@ impl SceneData for GameData {
         playback.build_effects(&chart);
         playback.stop();
 
+        let bg = chart
+            .bg
+            .legacy
+            .as_ref()
+            .and_then(|x| x.layer.as_ref())
+            .and_then(|x| x.filename.clone())
+            .unwrap_or_else(|| "fallback".to_string());
+
+        let mut bg_folder = skin_folder.clone();
+        bg_folder.push("backgrounds");
+        bg_folder.push(bg);
+
+        let background = GameBackground::new(
+            &context,
+            true,
+            &bg_folder,
+            &chart,
+            vgfx.clone(),
+            game_data.clone(),
+        )
+        .map_err(|e| log::warn!("Failed to load background: {e}"))
+        .ok();
+        let foreground =
+            GameBackground::new(&context, false, bg_folder, &chart, vgfx, game_data).ok();
+
         Box::new(
             Game::new(
                 chart,
@@ -496,6 +524,8 @@ impl SceneData for GameData {
                 input_state,
                 beam_colors,
                 biquad_control,
+                background,
+                foreground,
             )
             .unwrap(),
         )
@@ -532,6 +562,8 @@ impl Game {
         input_state: Arc<InputState>,
         beam_colors: Vec<image::Rgba<u8>>,
         biquad_control: BiquadController,
+        background: Option<GameBackground>,
+        foreground: Option<GameBackground>,
     ) -> Result<Self> {
         let mut view = ChartView::new(skin_root, td);
         view.build_laser_meshes(&chart);
@@ -601,6 +633,8 @@ impl Game {
             hit_ratings: Vec::new(),
             mixer: rodio::dynamic_mixer::mixer(2, 100).0,
             biquad_control,
+            background,
+            foreground,
             source_owner: std::sync::mpsc::channel(),
             slam_sample: std::fs::File::open(slam_path)
                 .ok()
@@ -1281,6 +1315,18 @@ impl Scene for Game {
 
         let td_camera: Camera = Camera::from(&self.camera);
 
+        if let Some(bg) = self.background.as_mut() {
+            bg.render(
+                dt,
+                &td_camera,
+                self.time,
+                &self.chart,
+                self.current_tick,
+                self.camera.tilt,
+                self.gauge.is_cleared(),
+            );
+        }
+
         self.beam_colors_current
             .iter_mut()
             .for_each(|c| c[3] = (c[3] - dt as f32 / 200.0).max(0.0));
@@ -1384,10 +1430,10 @@ impl Scene for Game {
             },
         );
 
-        self.laser_shaders[0][0].set_data_mesh(td_context, &render_data.lasers[0]);
-        self.laser_shaders[0][1].set_data_mesh(td_context, &render_data.lasers[1]);
-        self.laser_shaders[1][0].set_data_mesh(td_context, &render_data.lasers[2]);
-        self.laser_shaders[1][1].set_data_mesh(td_context, &render_data.lasers[3]);
+        self.laser_shaders[0][0].set_data_mesh(&render_data.lasers[0]);
+        self.laser_shaders[0][1].set_data_mesh(&render_data.lasers[1]);
+        self.laser_shaders[1][0].set_data_mesh(&render_data.lasers[2]);
+        self.laser_shaders[1][1].set_data_mesh(&render_data.lasers[3]);
 
         target.render(&td_camera, self.laser_shaders.iter().flatten(), &[]);
 
@@ -1408,6 +1454,18 @@ impl Scene for Game {
             };
         }
         self.reset_canvas();
+
+        if let Some(fg) = self.foreground.as_mut() {
+            fg.render(
+                dt,
+                &td_camera,
+                self.time,
+                &self.chart,
+                self.current_tick,
+                self.camera.tilt,
+                self.gauge.is_cleared(),
+            );
+        }
 
         if let Ok(func) = self.lua.globals().get::<_, Function>("render_crit_overlay") {
             if let Err(e) = func.call::<_, ()>(dt / 1000.0) {
