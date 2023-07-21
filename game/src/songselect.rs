@@ -502,9 +502,10 @@ impl Scene for SongSelectScene {
 
     fn on_button_pressed(&mut self, button: crate::button_codes::UscButton) {
         if let UscButton::Start = button {
-            if let Some(pc) = &self.program_control {
-                let state = &self.state;
-                let song = state.songs[state.selected_index as usize].clone();
+            let state = &self.state;
+            let song = state.songs.get(state.selected_index as usize).cloned();
+
+            if let (Some(pc), Some(song)) = (&self.program_control, song) {
                 let diff = state.selected_diff_index as usize;
                 let loader = state
                     .song_provider

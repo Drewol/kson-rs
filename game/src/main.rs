@@ -313,7 +313,7 @@ fn main() -> anyhow::Result<()> {
 
     let _input_thread = poll_promise::Promise::spawn_thread("gilrs", move || {
         let mut knob_state = LaserState::default();
-        let rusc_filter = RuscFilter;
+        let rusc_filter = RuscFilter::new();
         loop {
             use button_codes::*;
             use game_loop::winit::event::ElementState::*;

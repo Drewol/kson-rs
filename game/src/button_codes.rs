@@ -1,10 +1,34 @@
-use std::borrow::BorrowMut;
+use std::{borrow::BorrowMut, collections::HashMap};
 
 use game_loop::winit::event::ElementState;
-use gilrs::{ev::filter::FilterFn, Button};
+use gilrs::{ev::filter::FilterFn, Axis, Button, Event, Mapping};
 use kson::{BtLane, Side};
 
-pub struct RuscFilter;
+pub struct RuscFilter {
+    button_map: HashMap<u32, Button>,
+    axis_map: HashMap<u32, (Axis, f32)>,
+}
+
+impl RuscFilter {
+    pub fn new() -> Self {
+        Self {
+            button_map: HashMap::from([
+                (0, Button::Start),
+                (1, Button::South),
+                (2, Button::East),
+                (3, Button::North),
+                (4, Button::West),
+                (5, Button::LeftTrigger),
+                (6, Button::RightTrigger),
+            ]),
+            axis_map: HashMap::from([
+                //Axis to_u32 are marked with a 1 in the 2^16 bit
+                (1 << 16, (Axis::LeftStickX, 1.0)),
+                (1 << 16 | 1, (Axis::RightStickX, -1.0)),
+            ]),
+        }
+    }
+}
 
 impl FilterFn for RuscFilter {
     fn filter(&self, ev: Option<gilrs::Event>, gilrs: &mut gilrs::Gilrs) -> Option<gilrs::Event> {
@@ -14,9 +38,61 @@ impl FilterFn for RuscFilter {
                 match source {
                     gilrs::MappingSource::SdlMappings => Some(ev),
                     _ => {
-                        //TODO: apply default mapping
+                        // apply default mapping
+                        // a:b1,b:b2,x:b4,y:b3,start:b0,leftshoulder:b5,rightshoulder:b6,leftx:a0,rightx:a1
 
-                        Some(gilrs::Event::new(ev.id, gilrs::EventType::Dropped))
+                        match ev.event {
+                            gilrs::EventType::ButtonPressed(_, code) => {
+                                self.button_map.get(&code.into_u32()).map(|b| Event {
+                                    id: ev.id,
+                                    event: gilrs::EventType::ButtonPressed(*b, code),
+                                    time: ev.time,
+                                })
+                            }
+                            gilrs::EventType::ButtonRepeated(_, code) => {
+                                self.button_map.get(&code.into_u32()).map(|b| Event {
+                                    id: ev.id,
+                                    event: gilrs::EventType::ButtonRepeated(*b, code),
+                                    time: ev.time,
+                                })
+                            }
+                            gilrs::EventType::ButtonReleased(_, code) => {
+                                self.button_map.get(&code.into_u32()).map(|b| Event {
+                                    id: ev.id,
+                                    event: gilrs::EventType::ButtonReleased(*b, code),
+                                    time: ev.time,
+                                })
+                            }
+                            gilrs::EventType::ButtonChanged(_, v, code) => {
+                                self.button_map.get(&code.into_u32()).map(|b| Event {
+                                    id: ev.id,
+                                    event: gilrs::EventType::ButtonChanged(*b, v, code),
+                                    time: ev.time,
+                                })
+                            }
+                            gilrs::EventType::AxisChanged(_, v, code) => {
+                                log::info!("Code: {code}");
+                                self.axis_map
+                                    .get(&code.into_u32())
+                                    .map(|(axis, sens)| Event {
+                                        id: ev.id,
+                                        event: gilrs::EventType::AxisChanged(
+                                            *axis,
+                                            *sens * v,
+                                            code,
+                                        ),
+                                        time: ev.time,
+                                    })
+                            }
+                            gilrs::EventType::Connected => Some(ev),
+                            gilrs::EventType::Disconnected => Some(ev),
+                            gilrs::EventType::Dropped => Some(ev),
+                        }
+                        .or(Some(Event {
+                            id: ev.id,
+                            event: gilrs::EventType::Dropped,
+                            time: ev.time,
+                        }))
                     }
                 }
             }
@@ -32,6 +108,26 @@ pub enum UscButton {
     Start,
     Back,
     Other(Button),
+}
+
+impl UscButton {
+    pub fn to_gilrs_code_u32(&self) -> u32 {
+        match self {
+            UscButton::BT(bt) => match bt {
+                BtLane::A => 1,
+                BtLane::B => 2,
+                BtLane::C => 3,
+                BtLane::D => 4,
+            },
+            UscButton::FX(side) => match side {
+                Side::Left => 5,
+                Side::Right => 6,
+            },
+            UscButton::Start => 0,
+            UscButton::Back => 255,
+            UscButton::Other(_) => 255,
+        }
+    }
 }
 
 impl From<u8> for UscButton {

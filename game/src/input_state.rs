@@ -26,7 +26,12 @@ impl InputState {
 
     pub fn is_button_held(&self, button: UscButton) -> bool {
         if let Ok(gilrs) = self.gilrs.lock() {
-            gilrs.gamepads().any(|x| x.1.is_pressed(button.into()))
+            gilrs.gamepads().any(|x| match x.1.mapping_source() {
+                gilrs::MappingSource::SdlMappings => x.1.is_pressed(button.into()),
+                _ => x.1.state().buttons().any(|(code, data)| {
+                    button.to_gilrs_code_u32() == code.into_u32() && data.is_pressed()
+                }),
+            })
         } else {
             false
         }
