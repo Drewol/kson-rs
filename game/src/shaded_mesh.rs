@@ -216,6 +216,7 @@ void main() {
     }
 
     fn update_indecies(&mut self) -> anyhow::Result<()> {
+        profile_function!();
         let vertex_multiple = match self.draw_mode {
             DrawingMode::Triangles => 3,
             DrawingMode::Strip => 1,
@@ -384,6 +385,7 @@ void main() {
         instances: impl IntoIterator<Item = T>,
         set_uniforms: impl Fn(&Program, &Mat4, T),
     ) {
+        profile_function!();
         //TODO: Use actual instancing, may causes skin incompatibility
         let viewport = camera.viewport();
         for i in instances {
@@ -405,6 +407,7 @@ void main() {
     }
 
     pub fn set_data_mesh(&mut self, mesh: &three_d::CpuMesh) {
+        profile_function!();
         self.aabb = mesh.compute_aabb();
 
         if let Some(indicies) = mesh.indices.to_u32() {
@@ -435,12 +438,24 @@ void main() {
         indecies: &[V],
         colors: &Option<Vec<W>>,
     ) {
-        self.vertecies_pos = VertexBuffer::new_with_data(&self.context, pos);
-        self.vertecies_uv = VertexBuffer::new_with_data(&self.context, uv);
-        self.vertecies_color = colors
-            .as_ref()
-            .map(|x| VertexBuffer::new_with_data(&self.context, x.as_slice()));
-        self.indecies = ElementBuffer::new_with_data(&self.context, indecies);
+        profile_function!();
+
+        self.vertecies_pos.fill(pos);
+
+        self.vertecies_pos.fill(pos);
+        self.vertecies_uv.fill(uv);
+
+        match (self.vertecies_color.as_mut(), colors) {
+            (None, None) => {}
+            (None, Some(x)) => {
+                self.vertecies_color =
+                    Some(VertexBuffer::new_with_data(&self.context, x.as_slice()))
+            }
+            (Some(_), None) => self.vertecies_color = None,
+            (Some(buffer), Some(x)) => buffer.fill(x.as_slice()),
+        }
+
+        self.indecies.fill(indecies);
     }
 
     pub fn draw_lua_skin(

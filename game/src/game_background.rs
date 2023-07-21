@@ -14,6 +14,7 @@ use generational_arena::Index;
 use glow::HasContext;
 use kson::MeasureBeatLines;
 use log::warn;
+use puffin::profile_function;
 use tealr::{
     mlu::{
         mlua::{self},
@@ -32,7 +33,7 @@ pub struct BackgroundData {
     screen_center: (f32, f32),
     /// (beat, offsync, playback)
     timing: (f32, f32, f32),
-    tilt: f32,
+    roll: f32,
     clear_transition: f32,
     speed_mult: f32,
     viewport: Viewport,
@@ -43,7 +44,7 @@ impl Default for BackgroundData {
         Self {
             screen_center: Default::default(),
             timing: Default::default(),
-            tilt: Default::default(),
+            roll: Default::default(),
             clear_transition: Default::default(),
             speed_mult: 1.0,
             viewport: Viewport {
@@ -130,7 +131,7 @@ impl TealData for GameBackgroundLua {
         methods.add_function("GetTilt", |lua, _: ()| {
             Ok(lua
                 .app_data_ref::<BackgroundData>()
-                .map(|x| x.tilt)
+                .map(|x| x.roll)
                 .unwrap_or_default())
         });
 
@@ -187,7 +188,7 @@ impl TealData for GameBackgroundLua {
 
             bg.set_param("timing", Vector3::from(data.timing));
             bg.set_param("clearTransition", data.clear_transition);
-            bg.set_param("tilt", data.tilt.to_degrees());
+            bg.set_param("tilt", vec2(data.roll, 0.0)); //(camera roll, background spin)
 
             bg.draw_fullscreen(data.viewport);
             Ok(())
@@ -277,9 +278,10 @@ impl GameBackground {
         chart_time: f64,
         chart: &kson::Chart,
         tick: u32,
-        tilt: f32,
+        roll: f32,
         clear: bool,
     ) {
+        profile_function!();
         let center = camera.pixel_at_position(vec3(0.0, -50.0, 0.0));
         let bpm = chart.bpm_at_tick(tick);
 
@@ -302,7 +304,7 @@ impl GameBackground {
             data.timing.1 += data.speed_mult * (dt / kson::beat_in_ms(bpm)) as f32;
             data.timing.2 = chart_time as f32 / 1000.0;
 
-            data.tilt = tilt;
+            data.roll = roll;
 
             data.clear_transition = (data.clear_transition
                 + if clear {

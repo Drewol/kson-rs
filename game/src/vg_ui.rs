@@ -759,7 +759,7 @@ impl TealData for Vgfx {
                         .canvas
                         .try_lock()
                         .map_err(|_| mlua::Error::external("Canvas in use".to_string()))?;
-                    let paint = _vgfx
+                    let mut paint = _vgfx
                         .fill_paint
                         .clone()
                         .unwrap_or_else(|| _vgfx.stroke_paint.clone())
@@ -774,7 +774,7 @@ impl TealData for Vgfx {
                         None => 1.0,
                     };
 
-                    let paint = paint.with_font_size(label.size as f32 * x_scale);
+                    paint.set_font_size(label.size as f32 * x_scale);
 
                     canvas
                         .fill_text(x, y, &label.text, &paint)

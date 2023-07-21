@@ -20,7 +20,7 @@ use kson::{
     score_ticks::{PlacedScoreTick, ScoreTick, ScoreTickSummary, ScoreTicker},
     Chart, Graph,
 };
-use puffin::profile_function;
+use puffin::{profile_function, profile_scope};
 use rodio::{dynamic_mixer::DynamicMixerController, source::Buffered, Decoder, Source};
 use serde::{Deserialize, Serialize};
 use tealr::mlu::mlua::{Function, Lua, LuaSerdeExt};
@@ -490,7 +490,7 @@ impl SceneData for GameData {
         bg_folder.push("backgrounds");
         bg_folder.push(bg);
 
-        let background = GameBackground::new(
+        let background = match GameBackground::new(
             &context,
             true,
             &bg_folder,
@@ -498,8 +498,30 @@ impl SceneData for GameData {
             vgfx.clone(),
             game_data.clone(),
         )
-        .map_err(|e| log::warn!("Failed to load background: {e}"))
-        .ok();
+        .or_else(|e| {
+            log::warn!("Failed to load background: {e} \n {:?}", &bg_folder);
+            GameBackground::new(
+                &context,
+                true,
+                &bg_folder.with_file_name("fallback"),
+                &chart,
+                vgfx.clone(),
+                game_data.clone(),
+            )
+        }) {
+            Ok(bg) => {
+                log::info!("Background loaded");
+                Some(bg)
+            }
+            Err(e) => {
+                log::warn!(
+                    "Failed to load fallback background: {e} \n {:?}",
+                    &bg_folder.with_file_name("fallback")
+                );
+                None
+            }
+        };
+
         let foreground =
             GameBackground::new(&context, false, bg_folder, &chart, vgfx, game_data).ok();
 
@@ -993,6 +1015,7 @@ impl Scene for Game {
     }
 
     fn tick(&mut self, _dt: f64, _knob_state: crate::button_codes::LaserState) -> Result<()> {
+        profile_function!();
         if self.time >= self.duration && !self.results_requested {
             self.control_tx
                 .as_ref()
@@ -1264,57 +1287,58 @@ impl Scene for Game {
         }
 
         //Update roll
-        let max_roll_speed = dt / kson::beat_in_ms(self.chart.bpm_at_tick(self.current_tick));
-        self.current_roll = if let Some(target_roll) = self.target_roll {
-            if self.current_roll - target_roll < 0.0 {
-                (self.current_roll + max_roll_speed * 2.0).min(target_roll)
+        {
+            profile_scope!("Update camera");
+            let max_roll_speed = dt / kson::beat_in_ms(self.chart.bpm_at_tick(self.current_tick));
+            self.current_roll = if let Some(target_roll) = self.target_roll {
+                if self.current_roll - target_roll < 0.0 {
+                    (self.current_roll + max_roll_speed * 2.0).min(target_roll)
+                } else {
+                    (self.current_roll - max_roll_speed * 2.0).max(target_roll)
+                }
+            } else if self.current_roll.is_sign_negative() {
+                (self.current_roll + max_roll_speed).min(0.0)
             } else {
-                (self.current_roll - max_roll_speed * 2.0).max(target_roll)
-            }
-        } else if self.current_roll.is_sign_negative() {
-            (self.current_roll + max_roll_speed).min(0.0)
-        } else {
-            (self.current_roll - max_roll_speed).max(0.0)
-        };
+                (self.current_roll - max_roll_speed).max(0.0)
+            };
 
-        self.camera.tilt = self.current_roll as f32 * 12.5;
+            self.camera.tilt = self.current_roll as f32 * 12.5;
 
-        self.view.cursor = self.playback.get_ms();
-        self.time = self.view.cursor
-            - self
-                .chart
-                .audio
-                .bgm
-                .as_ref()
-                .map(|x| x.offset as f64)
-                .unwrap_or(0.0);
-        self.current_tick = self.chart.ms_to_tick(self.time);
-        self.camera.radius = 1.1
-            + 0.6
-                * self
+            self.view.cursor = self.playback.get_ms();
+            self.time = self.view.cursor
+                - self
+                    .chart
+                    .audio
+                    .bgm
+                    .as_ref()
+                    .map(|x| x.offset as f64)
+                    .unwrap_or(0.0);
+            self.current_tick = self.chart.ms_to_tick(self.time);
+            self.camera.radius = 1.1
+                + 0.6
+                    * self
+                        .chart
+                        .camera
+                        .cam
+                        .body
+                        .zoom
+                        .value_at(self.current_tick as f64) as f32;
+            self.camera.angle = (130.0
+                + self
                     .chart
                     .camera
                     .cam
                     .body
-                    .zoom
-                    .value_at(self.current_tick as f64) as f32;
-        self.camera.angle = (130.0
-            + self
-                .chart
-                .camera
-                .cam
-                .body
-                .rotation_x
-                .value_at(self.current_tick as f64)
-                * 30.0) as f32;
+                    .rotation_x
+                    .value_at(self.current_tick as f64)
+                    * 30.0) as f32;
 
-        self.camera.shakes.retain_mut(|x| {
-            x.tick(dt as _);
-            !x.completed()
-        });
-
+            self.camera.shakes.retain_mut(|x| {
+                x.tick(dt as _);
+                !x.completed()
+            });
+        }
         let td_camera: Camera = Camera::from(&self.camera);
-
         if let Some(bg) = self.background.as_mut() {
             bg.render(
                 dt,
@@ -2100,6 +2124,7 @@ impl ChartView {
         mut beam_colors: [[f32; 4]; 6],
     ) -> TrackRenderMeshes {
         use three_d::prelude::*;
+        profile_function!();
         let view_time = self.cursor - chart.audio.clone().bgm.unwrap().offset as f64;
         let view_offset = if view_time < 0.0 {
             chart.ms_to_tick(view_time.abs()) as i64 //will be weird with early bpm changes
@@ -2135,78 +2160,84 @@ impl ChartView {
 
         let _track = self.track.clone();
 
-        for i in 0..4 {
-            for n in &chart.note.bt[i] {
-                if (n.y as i64) > last_view_tick {
-                    break;
-                } else if ((n.y + n.l) as i64) < first_view_tick {
-                    continue;
-                }
+        {
+            profile_scope!("Build notes");
+            for i in 0..4 {
+                for n in &chart.note.bt[i] {
+                    if (n.y as i64) > last_view_tick {
+                        break;
+                    } else if ((n.y + n.l) as i64) < first_view_tick {
+                        continue;
+                    }
 
-                let w = 0.9 / 6.0;
-                let x = 1.5 / 6.0 + (i as f32 / 6.0);
-                let h = if n.l == 0 {
-                    chip_h
-                } else {
-                    (n.l as f32) / y_view_div
-                };
-                let yoff = (view_tick - n.y as i64) as f32;
-                let y = yoff / y_view_div;
-                let _p = if n.l == 0 { 2 } else { 1 }; //sorting priority
-                notes.push((
-                    vec3(x, y, 0.0),
-                    vec2(w, h),
-                    if n.l > 0 {
-                        if (n.y as i64) < view_tick && ((n.y + n.l) as i64) > view_tick {
-                            NoteType::BtHoldActive(i)
-                        } else {
-                            NoteType::BtHold
-                        }
+                    let w = 0.9 / 6.0;
+                    let x = 1.5 / 6.0 + (i as f32 / 6.0);
+                    let h = if n.l == 0 {
+                        chip_h
                     } else {
-                        NoteType::BtChip
-                    },
-                ));
+                        (n.l as f32) / y_view_div
+                    };
+                    let yoff = (view_tick - n.y as i64) as f32;
+                    let y = yoff / y_view_div;
+                    let _p = if n.l == 0 { 2 } else { 1 }; //sorting priority
+                    notes.push((
+                        vec3(x, y, 0.0),
+                        vec2(w, h),
+                        if n.l > 0 {
+                            if (n.y as i64) < view_tick && ((n.y + n.l) as i64) > view_tick {
+                                NoteType::BtHoldActive(i)
+                            } else {
+                                NoteType::BtHold
+                            }
+                        } else {
+                            NoteType::BtChip
+                        },
+                    ));
+                }
+            }
+            for i in 0..2 {
+                for n in &chart.note.fx[i] {
+                    if (n.y as i64) > last_view_tick {
+                        break;
+                    } else if ((n.y + n.l) as i64) < first_view_tick {
+                        continue;
+                    }
+                    let w = 1.0 / 3.0;
+                    let x = 1.0 / 3.0 + (1.0 / 3.0) * i as f32;
+                    let h = if n.l == 0 {
+                        chip_h
+                    } else {
+                        (n.l as f32) / y_view_div
+                    };
+                    let yoff = (view_tick - n.y as i64) as f32;
+                    let y = yoff / y_view_div;
+                    let _p = if n.l == 0 { 3 } else { 0 }; //sorting priority
+                    notes.push((
+                        vec3(x, y, 0.0),
+                        vec2(w, h),
+                        if n.l > 0 {
+                            if (n.y as i64) < view_tick && ((n.y + n.l) as i64) > view_tick {
+                                NoteType::FxHoldActive(i)
+                            } else {
+                                NoteType::FxHold
+                            }
+                        } else {
+                            NoteType::FxChip
+                        },
+                    ));
+                }
             }
         }
-        for i in 0..2 {
-            for n in &chart.note.fx[i] {
-                if (n.y as i64) > last_view_tick {
-                    break;
-                } else if ((n.y + n.l) as i64) < first_view_tick {
-                    continue;
-                }
-                let w = 1.0 / 3.0;
-                let x = 1.0 / 3.0 + (1.0 / 3.0) * i as f32;
-                let h = if n.l == 0 {
-                    chip_h
-                } else {
-                    (n.l as f32) / y_view_div
-                };
-                let yoff = (view_tick - n.y as i64) as f32;
-                let y = yoff / y_view_div;
-                let _p = if n.l == 0 { 3 } else { 0 }; //sorting priority
-                notes.push((
-                    vec3(x, y, 0.0),
-                    vec2(w, h),
-                    if n.l > 0 {
-                        if (n.y as i64) < view_tick && ((n.y + n.l) as i64) > view_tick {
-                            NoteType::FxHoldActive(i)
-                        } else {
-                            NoteType::FxHold
-                        }
-                    } else {
-                        NoteType::FxChip
-                    },
-                ));
-            }
-        }
 
-        let notes = notes.iter().map(|n| {
-            (
-                Mat4::from_translation(n.0) * Mat4::from_nonuniform_scale(1.0, -n.1.y, 1.0),
-                n.2,
-            )
-        });
+        let notes = {
+            profile_scope!("Transform notes");
+            notes.iter().map(|n| {
+                (
+                    Mat4::from_translation(n.0) * Mat4::from_nonuniform_scale(1.0, -n.1.y, 1.0),
+                    n.2,
+                )
+            })
+        };
 
         let mut fx_hold = vec![];
         let mut bt_hold = vec![];
@@ -2256,34 +2287,38 @@ impl ChartView {
             ),
         ];
 
-        for n in notes {
-            match n.1 {
-                NoteType::BtChip => bt_chip.push(n.0),
-                NoteType::BtHold => bt_hold.push((n.0, HoldState::Idle)),
-                NoteType::BtHoldActive(lane) => bt_hold.push((
-                    n.0,
-                    if buttons_held.contains(&lane) {
-                        HoldState::Hit
-                    } else {
-                        HoldState::Miss
-                    },
-                )),
-                NoteType::FxChip => fx_chip.push((n.0, false)),
-                NoteType::FxChipSample => fx_chip.push((n.0, true)),
-                NoteType::FxHold => fx_hold.push((n.0, HoldState::Idle)),
-                NoteType::FxHoldActive(side) => fx_hold.push((
-                    n.0,
-                    if buttons_held.contains(&(side + 4)) {
-                        HoldState::Hit
-                    } else {
-                        HoldState::Miss
-                    },
-                )),
+        {
+            profile_scope!("Sort notes");
+            for n in notes {
+                match n.1 {
+                    NoteType::BtChip => bt_chip.push(n.0),
+                    NoteType::BtHold => bt_hold.push((n.0, HoldState::Idle)),
+                    NoteType::BtHoldActive(lane) => bt_hold.push((
+                        n.0,
+                        if buttons_held.contains(&lane) {
+                            HoldState::Hit
+                        } else {
+                            HoldState::Miss
+                        },
+                    )),
+                    NoteType::FxChip => fx_chip.push((n.0, false)),
+                    NoteType::FxChipSample => fx_chip.push((n.0, true)),
+                    NoteType::FxHold => fx_hold.push((n.0, HoldState::Idle)),
+                    NoteType::FxHoldActive(side) => fx_hold.push((
+                        n.0,
+                        if buttons_held.contains(&(side + 4)) {
+                            HoldState::Hit
+                        } else {
+                            HoldState::Miss
+                        },
+                    )),
+                }
             }
         }
 
         //lasers
         {
+            profile_scope!("Lasers");
             for i in 0..2 {
                 for (sidx, s) in chart.note.laser[i].iter().enumerate() {
                     let end_y = s.tick() + s.last().unwrap().ry;

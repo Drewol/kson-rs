@@ -217,7 +217,7 @@ impl GameMain {
                     lua.set_app_data(idx);
                     lua.set_app_data(lua_frame_input.clone());
                     lua.set_app_data(lua_mixer.clone());
-                    lua.gc_stop();
+                    //lua.gc_stop();
                 }
 
                 {
@@ -473,7 +473,7 @@ impl GameMain {
         profile_scope!("Garbage collect");
         lua_arena.write().unwrap().retain(|idx, lua| {
             //TODO: if reference count = 1, remove loaded gfx assets for state
-            lua.gc_collect();
+            //lua.gc_collect();
             if Rc::strong_count(lua) > 1
                 || idx == transition_lua_idx
                 || idx == transition_song_lua_idx
@@ -540,23 +540,23 @@ impl GameMain {
         fps: f64,
         fps_paint: &vg::Paint,
     ) {
+        profile_function!();
         let vgfx_lock = vgfx.try_lock();
         if let Ok(vgfx) = vgfx_lock {
             let mut canvas_lock = vgfx.canvas.try_lock();
             if let Ok(ref mut canvas) = canvas_lock {
                 canvas.reset();
-                canvas.set_size(
-                    frame_input.viewport.width,
-                    frame_input.viewport.height,
-                    10.0,
-                );
                 canvas.fill_text(
                     frame_input.viewport.width as f32 - 5.0,
                     frame_input.viewport.height as f32 - 5.0,
                     format!("{:.1} FPS", fps),
                     fps_paint,
                 );
-                canvas.flush();
+
+                {
+                    profile_scope!("Flush Canvas");
+                    canvas.flush(); //also flushes game game ui, can take longer than it looks like it should
+                }
             }
         }
     }
@@ -568,6 +568,7 @@ impl GameMain {
         frame_input: &td::FrameInput<()>,
         laser_state: LaserState,
     ) {
+        profile_function!();
         {
             let lock = game_data.lock();
             if let Ok(mut game_data) = lock {

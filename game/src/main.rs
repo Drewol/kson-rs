@@ -31,6 +31,7 @@ use gilrs::ev::filter::Jitter;
 use kson::Ksh;
 use log::*;
 
+use puffin::profile_function;
 use rodio::{dynamic_mixer::DynamicMixerController, Source};
 use scene::Scene;
 
@@ -183,6 +184,7 @@ impl Scenes {
     }
 
     pub fn render(&mut self, frame: FrameInput<()>, _vgfx: &Arc<Mutex<Vgfx>>) {
+        profile_function!();
         let dt = frame.elapsed_time;
         let td_context = &frame.context;
         let mut target = frame.screen();
