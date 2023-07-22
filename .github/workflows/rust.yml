@@ -14,6 +14,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v1
+      - name: Install Packages
+        run: sudo apt-get install -y libasound2-dev libsoundtouch-dev libegl1-mesa-dev libfreetype6-dev zlib1g-dev
       - run: rustup component add clippy
       - uses: actions-rs/clippy-check@v1
         with:
