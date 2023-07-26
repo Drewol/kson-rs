@@ -4,6 +4,8 @@ use std::{
     sync::{Arc, Mutex},
 };
 
+const COMPAT_TEXT_SCALE: f32 = 21.5 / 30.0; // Needed because old usc has two different text rendering methods for text, and fasttext/labels
+
 use femtovg::{renderer::OpenGl, Canvas, Color, FontId, ImageFlags, ImageId, Paint, Path};
 
 use generational_arena::Index;
@@ -510,8 +512,6 @@ impl TealData for Vgfx {
             }
             match _vgfx.fill_paint.as_ref() {
                 Some(fill_paint) => {
-                    let _font_size = fill_paint.font_size();
-
                     let canvas = &mut _vgfx
                         .canvas
                         .try_lock()
@@ -582,7 +582,7 @@ impl TealData for Vgfx {
         );
         add_lua_static_method(methods, "FontSize", |_, _, _vgfx, p: FontSizeParams| {
             if let Some(text_paint) = _vgfx.fill_paint.as_mut() {
-                text_paint.set_font_size(p.size);
+                text_paint.set_font_size(p.size * COMPAT_TEXT_SCALE);
             }
             Ok(())
         });
@@ -710,7 +710,14 @@ impl TealData for Vgfx {
                         .try_lock()
                         .map_err(|_| mlua::Error::external("Canvas in use".to_string()))?;
                     canvas
-                        .fill_text(x, y, input_text, fill_paint)
+                        .fill_text(
+                            x,
+                            y,
+                            input_text,
+                            &fill_paint
+                                .clone()
+                                .with_font_size(fill_paint.font_size() / COMPAT_TEXT_SCALE),
+                        )
                         .map_err(mlua::Error::external)?;
                     Ok(())
                 }
@@ -1742,6 +1749,7 @@ impl TealData for Vgfx {
 
                 let canvas = _vgfx.canvas.lock().unwrap();
                 if let Some(label) = _vgfx.scoped_assets[lua_index].labels.get(&p.label) {
+                    paint.set_font(&[label.font]);
                     paint.set_font_size(label.size as f32);
                     let size = canvas
                         .measure_text(0.0, 0.0, &label.text, &paint)
