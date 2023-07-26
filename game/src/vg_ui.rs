@@ -89,6 +89,8 @@ pub struct Vgfx {
     path: Option<Path>,
     fill_paint: Option<Paint>,
     image_tint: Option<Color>,
+    label_color: Color, // Has some strange behaviour but needed for compat
+    label_font: FontId,
     stroke_paint: Paint,
     gradient_colors: [Color; 2],
     game_folder: std::path::PathBuf,
@@ -119,28 +121,36 @@ struct Label {
     text: String,
     size: i32,
     monospace: bool,
+    font: FontId,
 }
 
 impl Vgfx {
     pub fn new(canvas: Arc<Mutex<Canvas<OpenGl>>>, game_folder: std::path::PathBuf) -> Self {
-        let fallback_img = {
+        let (fallback_img, default_fonts) = {
             let mut canvas = canvas.lock().unwrap();
 
             let mut font_dir = game_folder.clone();
             font_dir.push("fonts");
-            _ = canvas.add_font_dir(&font_dir);
+            let default_fonts = canvas
+                .add_font_dir(&font_dir)
+                .expect("Failed to load default fonts");
             font_dir.push("settings");
-            _ = canvas.add_font_dir(&font_dir);
-            canvas
-                .create_image(
-                    femtovg::ImageSource::try_from(
-                        &image::load_from_memory(include_bytes!("static_assets/missing.png"))
-                            .unwrap(),
+            _ = canvas
+                .add_font_dir(&font_dir)
+                .expect("Failed to load settings fonts");
+            (
+                canvas
+                    .create_image(
+                        femtovg::ImageSource::try_from(
+                            &image::load_from_memory(include_bytes!("static_assets/missing.png"))
+                                .unwrap(),
+                        )
+                        .unwrap(),
+                        ImageFlags::empty(),
                     )
                     .unwrap(),
-                    ImageFlags::empty(),
-                )
-                .unwrap()
+                default_fonts,
+            )
         };
 
         let config = &GameConfig::get();
@@ -163,6 +173,8 @@ impl Vgfx {
             scoped_assets: Default::default(),
             image_tint: None,
             font_size: 12.0,
+            label_color: Color::white(),
+            label_font: *default_fonts.first().expect("No default font loaded"),
         }
     }
 
@@ -232,6 +244,8 @@ impl TealData for Vgfx {
         //BeginPath
         add_lua_static_method(methods, "BeginPath", |_, _, _vgfx, _: ()| {
             _vgfx.path = Some(Path::new());
+            _vgfx.label_color = Color::white();
+
             Ok(())
         });
 
@@ -303,6 +317,7 @@ impl TealData for Vgfx {
         add_lua_static_method(methods, "FillColor", |_, _, _vgfx, p: FillColorParams| {
             let FillColorParams { r, g, b, a } = p;
             let color = Color::rgba(r, g, b, a.unwrap_or(255));
+            _vgfx.label_color = color;
             if let Some(paint) = _vgfx.fill_paint.as_mut() {
                 paint.set_color(color);
             } else {
@@ -550,6 +565,7 @@ impl TealData for Vgfx {
         );
         add_lua_static_method(methods, "FontFace", |_, _, _vgfx, p: FontFaceParams| {
             if let Some(font_id) = _vgfx.fonts.get(&p.s) {
+                _vgfx.label_font = *font_id;
                 if let Some(text_paint) = _vgfx.fill_paint.as_mut() {
                     text_paint.set_font(&[*font_id]);
                 }
@@ -623,11 +639,13 @@ impl TealData for Vgfx {
                 (_vgfx.fonts.get(&name), _vgfx.fill_paint.as_mut())
             {
                 paint.set_font(&[*font_id]);
+                _vgfx.label_font = *font_id;
             } else {
                 let path = p.filename.unwrap_or_else(|| name.clone());
                 let font_id = _vgfx
                     .with_canvas(|canvas| canvas.add_font(&path))?
                     .map_err(mlua::Error::external)?;
+                _vgfx.label_font = font_id;
                 if let Some(paint) = _vgfx.fill_paint.as_mut() {
                     paint.set_font(&[font_id]);
                 }
@@ -652,6 +670,7 @@ impl TealData for Vgfx {
                     (_vgfx.fonts.get(&name), _vgfx.fill_paint.as_mut())
                 {
                     paint.set_font(&[*font_id]);
+                    _vgfx.label_font = *font_id;
                 } else {
                     let path = p.filename.unwrap_or_else(|| name.clone());
                     let mut font_path = _vgfx.game_folder.clone();
@@ -663,6 +682,8 @@ impl TealData for Vgfx {
                     let font_id = _vgfx
                         .with_canvas(|canvas| canvas.add_font(&font_path))?
                         .map_err(mlua::Error::external)?;
+                    _vgfx.label_font = font_id;
+
                     if let Some(paint) = _vgfx.fill_paint.as_mut() {
                         paint.set_font(&[font_id]);
                     }
@@ -725,6 +746,7 @@ impl TealData for Vgfx {
                             text: text.unwrap_or_default(),
                             size,
                             monospace,
+                            font: _vgfx.label_font,
                         },
                     );
 
@@ -763,13 +785,16 @@ impl TealData for Vgfx {
                         .fill_paint
                         .clone()
                         .unwrap_or_else(|| _vgfx.stroke_paint.clone())
-                        .with_font_size(label.size as f32);
+                        .with_font(&[label.font])
+                        .with_font_size(label.size as f32)
+                        .with_color(_vgfx.label_color);
 
                     let text_measure = canvas
                         .measure_text(x, y, &label.text, &paint)
                         .map_err(mlua::Error::external)?;
 
                     let x_scale = match max_width {
+                        Some(max_width) if max_width <= 0.0 => 1.0,
                         Some(max_width) => (max_width / text_measure.width()).min(1.0),
                         None => 1.0,
                     };
@@ -1028,6 +1053,7 @@ impl TealData for Vgfx {
                 {
                     label.text = p.text;
                     label.size = p.size;
+                    label.font = _vgfx.label_font;
                     Ok(())
                 } else {
                     Err(mlua::Error::external(format!(
