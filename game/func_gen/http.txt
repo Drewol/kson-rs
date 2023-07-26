@@ -1,0 +1,4 @@
+Get(string url, map<string,string> header)
+Post(string url, string content, map<string,string> header)
+GetAsync(string url, map<string,string> header, function callback)
+PostAsync(string url, string content, map<string,string> header, function callback)

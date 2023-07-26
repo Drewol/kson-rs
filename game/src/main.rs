@@ -53,6 +53,7 @@ mod game_data;
 mod game_main;
 mod help;
 mod input_state;
+mod lua_http;
 mod main_menu;
 mod material;
 mod results;

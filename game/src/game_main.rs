@@ -32,6 +32,7 @@ use crate::{
     game::HitRating,
     game_data::{ExportGame, GameData, LuaPath},
     input_state::InputState,
+    lua_http::{ExportLuaHttp, LuaHttp},
     main_menu::MainMenuButton,
     scene, songselect,
     transition::Transition,
@@ -193,6 +194,7 @@ impl GameMain {
                 tealr::mlu::set_global_env(ExportVgfx, &lua)?;
                 tealr::mlu::set_global_env(ExportGame, &lua)?;
                 tealr::mlu::set_global_env(LuaPath, &lua)?;
+                tealr::mlu::set_global_env(ExportLuaHttp, &lua)?;
                 lua.globals()
                     .set(
                         "IRData",
@@ -217,6 +219,7 @@ impl GameMain {
                     lua.set_app_data(idx);
                     lua.set_app_data(lua_frame_input.clone());
                     lua.set_app_data(lua_mixer.clone());
+                    lua.set_app_data(LuaHttp::default());
                     //lua.gc_stop();
                 }
 
@@ -478,6 +481,7 @@ impl GameMain {
                 || idx == transition_lua_idx
                 || idx == transition_song_lua_idx
             {
+                LuaHttp::poll(lua);
                 true
             } else {
                 vgfx.drop_assets(&idx);
