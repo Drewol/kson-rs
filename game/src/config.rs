@@ -5,7 +5,10 @@ use log::{error, info};
 use once_cell::sync::OnceCell;
 use serde::{Deserialize, Serialize};
 
-use crate::skin_settings::{SkinSettingEntry, SkinSettingValue};
+use crate::{
+    button_codes::UscButton,
+    skin_settings::{SkinSettingEntry, SkinSettingValue},
+};
 
 #[derive(Debug, Default, Parser)]
 pub struct Args {
@@ -26,12 +29,82 @@ pub struct GameConfig {
     pub skin: String,
     pub laser_hues: [f32; 2],
     pub mappings: Vec<String>,
+    pub mouse_knobs: bool,
+    pub mouse_ppr: f64,
+    pub keyboard_buttons: bool,
+    pub keyboard_knobs: bool,
     #[serde(skip_serializing, skip_deserializing)]
     pub skin_settings: HashMap<String, SkinSettingValue>,
     #[serde(skip_serializing, skip_deserializing)]
     pub game_folder: PathBuf,
     #[serde(skip_serializing, skip_deserializing)]
     pub args: Args,
+    pub keybinds: Vec<Keybinds>,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone, Copy)]
+pub struct Keybinds {
+    bt_a: u32,
+    bt_b: u32,
+    bt_c: u32,
+    bt_d: u32,
+    fx_l: u32,
+    fx_r: u32,
+    start: u32,
+    back: u32,
+    laser_l: (u32, u32),
+    laser_r: (u32, u32),
+}
+
+impl Keybinds {
+    pub fn match_button(&self, key: u32) -> Option<UscButton> {
+        let Keybinds {
+            bt_a,
+            bt_b,
+            bt_c,
+            bt_d,
+            fx_l,
+            fx_r,
+            start,
+            back,
+            laser_l: (ll_l, ll_r),
+            laser_r: (rl_l, rl_r),
+        } = self;
+
+        //TODO: Better way?
+        match &key {
+            k if k == bt_a => Some(UscButton::BT(kson::BtLane::A)),
+            k if k == bt_b => Some(UscButton::BT(kson::BtLane::B)),
+            k if k == bt_c => Some(UscButton::BT(kson::BtLane::C)),
+            k if k == bt_d => Some(UscButton::BT(kson::BtLane::D)),
+            k if k == fx_l => Some(UscButton::FX(kson::Side::Left)),
+            k if k == fx_r => Some(UscButton::FX(kson::Side::Right)),
+            k if k == start => Some(UscButton::Start),
+            k if k == back => Some(UscButton::Back),
+            k if k == ll_l => Some(UscButton::Laser(kson::Side::Left, kson::Side::Left)),
+            k if k == ll_r => Some(UscButton::Laser(kson::Side::Left, kson::Side::Right)),
+            k if k == rl_l => Some(UscButton::Laser(kson::Side::Right, kson::Side::Left)),
+            k if k == rl_r => Some(UscButton::Laser(kson::Side::Right, kson::Side::Right)),
+            _ => None,
+        }
+    }
+}
+
+impl Default for Keybinds {
+    fn default() -> Self {
+        Self {
+            bt_a: 32,          // D
+            bt_b: 33,          // F
+            bt_c: 36,          // J
+            bt_d: 37,          // K
+            fx_l: 46,          // C
+            fx_r: 50,          // M
+            start: 2,          // 1
+            back: 1,           // Esc
+            laser_l: (17, 18), // (W,E)
+            laser_r: (24, 25), // (O,P)
+        }
+    }
 }
 
 impl Default for GameConfig {
@@ -49,6 +122,12 @@ impl Default for GameConfig {
             String::from("03000000cf1c00001410000000000000,F2 eAcloud,a:b1,b:b2,x:b4,y:b3,start:b0,leftshoulder:b5,rightshoulder:b6,leftx:a0,rightx:a1"),
             String::from("030000008f0e00001811000000000000,F2 HID,a:b1,b:b2,x:b4,y:b3,back:b7,start:b0,leftshoulder:b5,rightshoulder:b6,leftx:a0,rightx:a1")
             ],
+            mouse_knobs: false,
+            mouse_ppr: 256.0,
+            keyboard_buttons: false,
+            keybinds: vec![Keybinds::default()],
+            keyboard_knobs: false,
+
         }
     }
 }
@@ -193,12 +272,18 @@ impl GameConfig {
     pub fn save(&self) {
         info!("Saving config");
 
-        if let Ok(data) = toml::to_string_pretty(self) {
-            std::fs::write(&self.config_file, data);
+        match toml::to_string_pretty(self) {
+            Ok(data) => {
+                std::fs::write(&self.config_file, data);
+            }
+            Err(e) => error!("Could not save config: {e}"),
         }
 
-        if let Ok(data) = toml::to_string_pretty(&self.skin_settings) {
-            std::fs::write(self.skin_config_path(), data);
+        match toml::to_string_pretty(&self.skin_settings) {
+            Ok(data) => {
+                std::fs::write(self.skin_config_path(), data);
+            }
+            Err(e) => error!("Could not save skin config: {e}"),
         }
     }
 }

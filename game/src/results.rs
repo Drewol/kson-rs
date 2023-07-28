@@ -234,7 +234,7 @@ impl SongResultData {
 impl SceneData for SongResultData {
     fn make_scene(
         self: Box<Self>,
-        _input_state: Arc<InputState>,
+        _input_state: InputState,
         _: Arc<Mutex<Vgfx>>,
         _: Arc<Mutex<GameData>>,
     ) -> Box<dyn Scene> {

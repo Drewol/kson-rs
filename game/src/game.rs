@@ -57,7 +57,7 @@ pub struct Game {
     real_score: u64,
     combo: u64,
     current_tick: u32,
-    input_state: Arc<InputState>,
+    input_state: InputState,
     laser_cursors: [f64; 2],
     laser_active: [bool; 2],
     laser_target: [Option<f64>; 2],
@@ -326,7 +326,7 @@ impl GameData {
 impl SceneData for GameData {
     fn make_scene(
         self: Box<Self>,
-        input_state: Arc<InputState>,
+        input_state: InputState,
         vgfx: Arc<Mutex<Vgfx>>,
         game_data: Arc<Mutex<crate::game_data::GameData>>,
     ) -> Box<dyn Scene> {
@@ -581,7 +581,7 @@ impl Game {
         song: Arc<Song>,
         diff_idx: usize,
         playback: kson_music_playback::AudioPlayback,
-        input_state: Arc<InputState>,
+        input_state: InputState,
         beam_colors: Vec<image::Rgba<u8>>,
         biquad_control: BiquadController,
         background: Option<GameBackground>,
@@ -938,7 +938,11 @@ impl Game {
         let time = self.time;
         match tick.tick {
             ScoreTick::Hold { lane } => {
-                if self.input_state.is_button_held((lane as u8).into()) {
+                if self
+                    .input_state
+                    .is_button_held((lane as u8).into())
+                    .is_some()
+                {
                     HitRating::Crit {
                         tick,
                         delta: 0.0,
@@ -1389,7 +1393,11 @@ impl Scene for Game {
         //TODO: Set hold glow state
 
         let buttons_held: HashSet<_> = (0..6usize)
-            .filter(|x| self.input_state.is_button_held(UscButton::from(*x as u8)))
+            .filter(|x| {
+                self.input_state
+                    .is_button_held(UscButton::from(*x as u8))
+                    .is_some()
+            })
             .collect();
 
         target.render(&td_camera, [&self.track_shader], &[]);
@@ -1520,7 +1528,7 @@ impl Scene for Game {
             for (side, index) in [(kson::Side::Left, 0), (kson::Side::Right, 1)] {
                 let delta = ls.get_axis(side).delta as f64;
 
-                if self.input_state.is_button_held(UscButton::Start) {
+                if self.input_state.is_button_held(UscButton::Start).is_some() {
                     self.view.hispeed += delta as f32 * 0.1;
                     self.view.hispeed = self.view.hispeed.clamp(0.1, 10.0);
                 }

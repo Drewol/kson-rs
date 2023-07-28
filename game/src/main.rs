@@ -252,11 +252,19 @@ fn main() -> anyhow::Result<()> {
         let _async = std::thread::spawn(move || loop {
             poll_promise::tick();
             std::thread::sleep(Duration::from_millis(1));
-            killed.send(()).expect("Program closed");
+            if killed.send(()).is_err() {
+                return;
+            }
         });
     }
 
     let (window, surface, canvas, gl_context, eventloop, window_gl) = window::create_window();
+
+    {
+        if GameConfig::get().mouse_knobs {
+            window.set_cursor_visible(false)
+        }
+    }
 
     let gl_context = Arc::new(gl_context);
     let canvas = Arc::new(Mutex::new(canvas));
@@ -305,7 +313,7 @@ fn main() -> anyhow::Result<()> {
 
     let input = Arc::new(Mutex::new(input));
     let gilrs_state = input.clone();
-    let input_state = Arc::new(InputState::new(gilrs_state));
+    let input_state = InputState::new(gilrs_state);
 
     let mousex = 0.0;
     let mousey = 0.0;
@@ -534,6 +542,6 @@ fn main() -> anyhow::Result<()> {
                 g.exit()
             }
         },
-        move |g, e| g.game.handle(e),
+        move |g, e| g.game.handle(&g.window, e),
     );
 }

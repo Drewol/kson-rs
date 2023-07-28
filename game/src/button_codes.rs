@@ -101,12 +101,16 @@ impl FilterFn for RuscFilter {
     }
 }
 
-#[derive(Debug, Clone, Copy)]
+use serde::{Deserialize, Serialize};
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, Hash, PartialEq, Eq)]
 pub enum UscButton {
     BT(BtLane),
     FX(Side),
     Start,
     Back,
+    /// (Side, Direction)
+    Laser(Side, Side),
     Other(Button),
 }
 
@@ -125,6 +129,7 @@ impl UscButton {
             },
             UscButton::Start => 0,
             UscButton::Back => 255,
+            UscButton::Laser(_, _) => 255,
             UscButton::Other(_) => 255,
         }
     }
@@ -162,6 +167,7 @@ impl From<UscButton> for u8 {
             UscButton::Start => 6,
             UscButton::Back => 7,
             UscButton::Other(_) => 255,
+            UscButton::Laser(_, _) => 255,
         }
     }
 }
@@ -203,6 +209,7 @@ impl From<UscButton> for Button {
             },
             UscButton::Start => Button::Start,
             UscButton::Back => Button::Select,
+            UscButton::Laser(_, _) => Button::Unknown,
             UscButton::Other(c) => c,
         }
     }

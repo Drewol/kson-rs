@@ -184,7 +184,7 @@ impl SongSelect {
 impl SceneData for SongSelect {
     fn make_scene(
         self: Box<Self>,
-        _input_state: Arc<InputState>,
+        _input_state: InputState,
         _: Arc<Mutex<Vgfx>>,
         _: Arc<Mutex<GameData>>,
     ) -> Box<dyn Scene> {

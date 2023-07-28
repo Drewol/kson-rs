@@ -7,8 +7,12 @@ use std::{
     time::Duration,
 };
 
-use egui_glow::EguiGlow;
+use egui_glow::{winit, EguiGlow};
 use femtovg::Paint;
+use game_loop::{
+    winit::{dpi::PhysicalPosition, event, monitor::VideoMode, window::Window},
+    GameLoop, Time,
+};
 use generational_arena::{Arena, Index};
 
 use kson::Chart;
@@ -85,7 +89,7 @@ pub struct GameMain {
     show_debug_ui: bool,
     mousex: f64,
     mousey: f64,
-    input_state: Arc<InputState>,
+    input_state: InputState,
     mixer: RuscMixer,
 }
 
@@ -109,7 +113,7 @@ impl GameMain {
         show_debug_ui: bool,
         mousex: f64,
         mousey: f64,
-        input_state: Arc<InputState>,
+        input_state: InputState,
         mixer: RuscMixer,
     ) -> Self {
         Self {
@@ -136,10 +140,36 @@ impl GameMain {
         }
     }
 
+    const KEYBOARD_LASER_SENS: f32 = 1.0 / 240.0;
     pub fn update(&mut self) {
         let should_profile = GameConfig::get().args.profiling;
         if puffin::are_scopes_on() != should_profile {
             puffin::set_scopes_on(should_profile);
+        }
+
+        if GameConfig::get().keyboard_knobs {
+            let mut ls = LaserState::default();
+            for l in [kson::Side::Left, kson::Side::Right] {
+                for d in [kson::Side::Left, kson::Side::Right] {
+                    if self
+                        .input_state
+                        .is_button_held(crate::button_codes::UscButton::Laser(l, d))
+                        .is_some()
+                    {
+                        ls.update(
+                            l,
+                            match d {
+                                kson::Side::Left => -Self::KEYBOARD_LASER_SENS,
+                                kson::Side::Right => Self::KEYBOARD_LASER_SENS,
+                            },
+                        )
+                    }
+                }
+            }
+
+            self.scenes.for_each_active_mut(|x| {
+                x.on_event(&event::Event::UserEvent(UscInputEvent::Laser(ls)))
+            });
         }
     }
     pub fn render(
@@ -409,22 +439,31 @@ impl GameMain {
             wait_next_event: false,
         }
     }
-    pub fn handle(&mut self, event: &game_loop::winit::event::Event<UscInputEvent>) {
+    pub fn handle(
+        &mut self,
+        window: &Window,
+        event: &game_loop::winit::event::Event<UscInputEvent>,
+    ) {
         use game_loop::winit::event::*;
         if let Event::WindowEvent {
             window_id: _,
             event,
         } = event
         {
-            let event_response = self.gui.on_event(event);
-            if event_response.consumed {
-                return;
+            if self.show_debug_ui {
+                let event_response = self.gui.on_event(event);
+                if event_response.consumed {
+                    return;
+                }
             }
         }
+
+        let mut transformed_event = None;
 
         match event {
             Event::UserEvent(e) => {
                 info!("{:?}", e);
+                self.input_state.update(e);
                 match e {
                     UscInputEvent::Laser(ls) => self.knob_state = *ls,
                     UscInputEvent::Button(b, s) => match s {
@@ -453,18 +492,82 @@ impl GameMain {
                     DeviceEvent::Key(KeyboardInput {
                         virtual_keycode: Some(VirtualKeyCode::D),
                         state: ElementState::Pressed,
+                        modifiers,
                         ..
                     }),
                 ..
-            } => self.show_debug_ui = !self.show_debug_ui,
+            } if modifiers.alt() => self.show_debug_ui = !self.show_debug_ui,
+            Event::DeviceEvent {
+                event:
+                    DeviceEvent::Key(KeyboardInput {
+                        virtual_keycode: Some(VirtualKeyCode::Return),
+                        state: ElementState::Pressed,
+                        modifiers,
+                        ..
+                    }),
+                ..
+            } if modifiers.alt() => self.toggle_fullscreen(window),
+            Event::DeviceEvent {
+                event:
+                    DeviceEvent::Key(KeyboardInput {
+                        scancode, state, ..
+                    }),
+                ..
+            } => {
+                if GameConfig::get().keyboard_buttons {
+                    for button in GameConfig::get()
+                        .keybinds
+                        .iter()
+                        .filter_map(|x| x.match_button(*scancode))
+                    {
+                        if self.input_state.is_button_held(button).is_none()
+                            || *state == ElementState::Released
+                        {
+                            let button = UscInputEvent::Button(button, *state);
+                            transformed_event = Some(Event::UserEvent(button));
+                        }
+                    }
+                }
+            }
+            Event::DeviceEvent {
+                event: game_loop::winit::event::DeviceEvent::MouseMotion { delta },
+                ..
+            } if GameConfig::get().mouse_knobs => {
+                {
+                    //TODO: Move somewhere else?
+                    let s = window.inner_size();
+                    _ = window
+                        .set_cursor_position(PhysicalPosition::new(s.width / 2, s.height / 2));
+                }
+
+                let sens = GameConfig::get().mouse_ppr;
+                let mut ls = LaserState::default();
+                ls.update(kson::Side::Left, (delta.0 / sens) as _);
+                ls.update(kson::Side::Right, (delta.1 / sens) as _);
+
+                transformed_event = Some(Event::UserEvent(UscInputEvent::Laser(ls)));
+            }
             _ => (),
+        }
+
+        if let Some(Event::UserEvent(e)) = transformed_event {
+            self.input_state.update(&e);
+            match e {
+                UscInputEvent::Button(b, ElementState::Pressed) => {
+                    self.scenes.for_each_active_mut(|x| x.on_button_pressed(b))
+                }
+                UscInputEvent::Button(b, ElementState::Released) => {
+                    self.scenes.for_each_active_mut(|x| x.on_button_released(b))
+                }
+                UscInputEvent::Laser(_) => {}
+            }
         }
 
         self.scenes
             .active
             .iter_mut()
             .filter(|x| !x.is_suspended())
-            .for_each(|x| x.on_event(event));
+            .for_each(|x| x.on_event(transformed_event.as_ref().unwrap_or(event)));
     }
 
     fn run_lua_gc(
@@ -606,6 +709,15 @@ impl GameMain {
                 canvas.set_size(frame_input.viewport.width, frame_input.viewport.height, 1.0);
                 canvas.flush();
             }
+        }
+    }
+
+    fn toggle_fullscreen(&self, window: &Window) {
+        match window.fullscreen() {
+            Some(_) => window.set_fullscreen(None),
+            None => window.set_fullscreen(Some(game_loop::winit::window::Fullscreen::Borderless(
+                window.current_monitor(),
+            ))),
         }
     }
 }

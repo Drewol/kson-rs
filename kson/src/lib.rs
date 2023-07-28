@@ -42,14 +42,14 @@ pub fn ms_from_ticks(ticks: i64, bpm: f64, tpqn: u32) -> f64 {
 }
 
 #[repr(usize)]
-#[derive(Debug, Hash, PartialEq, Eq, Clone, Copy)]
+#[derive(Debug, Hash, PartialEq, Eq, Clone, Copy, Serialize, Deserialize)]
 pub enum Side {
     Left = 0,
     Right,
 }
 
 #[repr(usize)]
-#[derive(Debug, Hash, PartialEq, Eq, Clone, Copy)]
+#[derive(Debug, Hash, PartialEq, Eq, Clone, Copy, Serialize, Deserialize)]
 pub enum BtLane {
     A = 0,
     B,

@@ -41,7 +41,7 @@ pub struct Transition {
     context: three_d::Context,
     vgfx: Arc<Mutex<crate::Vgfx>>,
     prev_screengrab: Option<Gm<Rectangle, ColorMaterial>>,
-    input_state: Arc<InputState>,
+    input_state: InputState,
     game_data: Arc<Mutex<GameData>>,
 }
 
@@ -82,7 +82,7 @@ impl Transition {
         context: three_d::Context,
         vgfx: Arc<Mutex<crate::Vgfx>>,
         viewport: three_d::Viewport,
-        input_state: Arc<InputState>,
+        input_state: InputState,
         game_data: Arc<Mutex<GameData>>,
     ) -> Self {
         if let Ok(reset_fn) = transition_lua.globals().get::<_, Function>("reset") {
