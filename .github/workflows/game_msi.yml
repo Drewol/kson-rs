@@ -1,0 +1,16 @@
+name: Game Installer
+on:
+    push:
+        branches: [master]
+jobs: 
+    windows_installer:
+        runs-on: windows-latest
+        steps:
+            - uses: actions/checkout@v1
+            - run: cargo install cargo-wix
+            - run: cargo wix -p rusc
+            - uses: actions/upload-artifact@v3
+              with:
+                  name: Windows installer
+                  path: target/**/*.msi
+            
