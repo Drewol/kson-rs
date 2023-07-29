@@ -1,0 +1,29 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<Wix xmlns="http://schemas.microsoft.com/wix/2006/wi">
+    <Fragment>
+        <DirectoryRef Id="Bin">
+            <Directory Id="dirA933539C97329FE88913BA24C7B20CE4" Name="fonts" />
+        </DirectoryRef>
+    </Fragment>
+    <Fragment>
+        <ComponentGroup Id="fonts">
+            <Component Id="cmp66967F606239487B615C19735A503DFD" Directory="dirA933539C97329FE88913BA24C7B20CE4" Guid="*">
+                <File Id="fil8A8E8D556D913DEC462170C7B73DDC7A" KeyPath="yes" Source="$(sys.SOURCEFILEDIR)\..\fonts\NotoSans-Regular.ttf" />
+            </Component>
+            <Component Id="cmp51223DF50BA7DAF876B26669E807A5B5" Directory="dirA933539C97329FE88913BA24C7B20CE4" Guid="*">
+                <File Id="fil4EF1A86740CDD5D9F4417F0A8E91A92F" KeyPath="yes" Source="$(sys.SOURCEFILEDIR)\..\fonts\NotoSansCJKjp-Regular.otf" />
+            </Component>
+            <Component Id="cmpC14A756128C86DA40185EF7B762BFCD8" Directory="dir12470167CAC16176EEB0CFCD8071AF16" Guid="*">
+                <File Id="filFA3CB6FA613E7C174EE9FA7AC5BB5034" KeyPath="yes" Source="$(sys.SOURCEFILEDIR)\..\fonts\settings\DroidSansFallback.ttf" />
+            </Component>
+            <Component Id="cmp911D8E1300CFCDCB7AAE17E126B010DB" Directory="dir12470167CAC16176EEB0CFCD8071AF16" Guid="*">
+                <File Id="fil44563F70F05C5F25AC22D3297BA6D088" KeyPath="yes" Source="$(sys.SOURCEFILEDIR)\..\fonts\settings\NotoSans-Regular.ttf" />
+            </Component>
+        </ComponentGroup>
+    </Fragment>
+    <Fragment>
+        <DirectoryRef Id="dirA933539C97329FE88913BA24C7B20CE4">
+            <Directory Id="dir12470167CAC16176EEB0CFCD8071AF16" Name="settings" />
+        </DirectoryRef>
+    </Fragment>
+</Wix>

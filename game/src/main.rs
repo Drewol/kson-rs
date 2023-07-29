@@ -439,9 +439,10 @@ fn main() -> anyhow::Result<()> {
         }
     });
 
-    let typedef_folder = Path::new("types");
+    let mut typedef_folder = default_game_dir();
+    typedef_folder.push("types");
     if !typedef_folder.exists() {
-        std::fs::create_dir_all(typedef_folder)?;
+        std::fs::create_dir_all(&typedef_folder)?;
     }
 
     let gfx_typedef = tealr::TypeWalker::new()
@@ -458,7 +459,7 @@ fn main() -> anyhow::Result<()> {
         .process_type_inline::<songselect::SongSelect>()
         .generate_global("songwheel")?;
 
-    let mut typedef_file_path = typedef_folder.to_path_buf();
+    let mut typedef_file_path = typedef_folder;
     typedef_file_path.push("rusc.d.tl");
     let mut typedef_file = std::fs::File::create(typedef_file_path).expect("Failed to create");
     let file_content = format!("{}\n{}\n{}", gfx_typedef, game_typedef, songwheel_typedef)
