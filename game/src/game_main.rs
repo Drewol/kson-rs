@@ -33,6 +33,7 @@ use tealr::mlu::mlua::LuaSerdeExt;
 use crate::{
     button_codes::{LaserState, UscInputEvent},
     config::GameConfig,
+    default_game_dir,
     game::HitRating,
     game_data::{ExportGame, GameData, LuaPath},
     input_state::InputState,
@@ -217,7 +218,7 @@ impl GameMain {
             Rc::new(move |lua: Rc<Lua>, script_path| {
                 //Set path for 'require' (https://stackoverflow.com/questions/4125971/setting-the-global-lua-path-variable-from-c-c?lq=1)
                 let skin = &GameConfig::get().skin;
-                let mut real_script_path = std::env::current_dir()?;
+                let mut real_script_path = default_game_dir();
                 real_script_path.push("skins");
                 real_script_path.push(skin);
 

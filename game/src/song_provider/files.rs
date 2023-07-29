@@ -11,6 +11,8 @@ use std::{
 
 use crate::{
     block_on,
+    config::GameConfig,
+    default_game_dir,
     results::Score,
     songselect::{Difficulty, Song},
 };
@@ -64,7 +66,10 @@ impl From<ScoreEntry> for Score {
 
 impl FileSongProvider {
     pub async fn new() -> Self {
-        let database = LocalSongsDb::new("./maps.db")
+        let mut db_file = GameConfig::get().game_folder.clone();
+        db_file.push("maps.db");
+
+        let database = LocalSongsDb::new(db_file)
             .await
             .expect("Failed to open database");
 
@@ -124,6 +129,13 @@ impl FileSongProvider {
             loop {
                 let mut songs = {
                     let song_path = crate::config::GameConfig::get().songs_path.clone();
+                    let song_path = if song_path.is_absolute() {
+                        song_path
+                    } else {
+                        let mut p = GameConfig::get().game_folder.clone();
+                        p.push(song_path);
+                        p
+                    };
                     info!("Loading songs from: {:?}", &song_path);
                     let song_walker = walkdir::WalkDir::new(song_path);
 

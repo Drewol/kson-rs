@@ -115,7 +115,7 @@ impl Default for GameConfig {
             skin: "Default".into(),
             skin_settings: HashMap::new(),
             laser_hues: [200.0, 330.0],
-            game_folder: std::env::current_dir().unwrap(),
+            game_folder: crate::default_game_dir(),
             args: Default::default(),
             mappings: vec![
             String::from("03000000d01600006d0a000000000000,Pocket Voltex Rev4,a:b1,b:b2,y:b3,x:b4,leftshoulder:b5,rightshoulder:b6,start:b0,leftx:a0,rightx:a1"),
@@ -231,7 +231,7 @@ impl GameConfig {
         Ok(())
     }
 
-    pub fn init(path: PathBuf, args: Args) {
+    pub fn init(mut path: PathBuf, args: Args) {
         info!("Loading game config from: {:?}", &path);
         let file_content =
             std::fs::read_to_string(&path).map(|str| toml::from_str::<GameConfig>(&str));
@@ -239,7 +239,9 @@ impl GameConfig {
         match file_content {
             Ok(Ok(mut config)) => {
                 config.args = args;
-                config.config_file = path;
+                config.config_file = path.clone();
+                path.pop();
+                config.game_folder = path;
                 INSTANCE.set(RwLock::new(config));
             }
             Ok(Err(e)) => {

@@ -20,6 +20,7 @@ use crate::{
     transition::Transition,
     vg_ui::Vgfx,
 };
+use anyhow::bail;
 use clap::Parser;
 use directories::ProjectDirs;
 use femtovg as vg;
@@ -81,6 +82,69 @@ macro_rules! block_on {
 }
 
 pub type RuscMixer = Arc<DynamicMixerController<f32>>;
+
+//TODO: Move to platform files
+#[cfg(target_os = "windows")]
+pub fn default_game_dir() -> PathBuf {
+    let mut game_dir = directories::UserDirs::new()
+        .expect("Failed to get directories")
+        .document_dir()
+        .expect("Failed to get documents directory")
+        .to_path_buf();
+    game_dir.push("USC");
+    game_dir
+}
+#[cfg(not(target_os = "windows"))]
+pub fn default_game_dir() -> PathBuf {
+    let mut game_dir = directories::UserDirs::new()
+        .expect("Failed to get directories")
+        .home_dir()
+        .to_path_buf();
+    game_dir.push(".usc");
+    game_dir
+}
+
+pub fn init_game_dir(game_dir: impl AsRef<Path>) -> anyhow::Result<()> {
+    let mut install_dir = std::env::current_dir()?;
+    install_dir.push("fonts");
+
+    if !install_dir.exists() {
+        install_dir = std::env::current_exe()?;
+        install_dir.pop();
+        install_dir.push("fonts");
+
+        if !install_dir.exists() {
+            bail!("Could not find installed assets.")
+        }
+    }
+
+    std::fs::create_dir_all(&game_dir)?;
+    install_dir.pop();
+    let r = install_dir.read_dir()?;
+    for ele in r.into_iter() {
+        let ele = ele?;
+        let folder_name = ele.file_name().into_string().unwrap();
+        if ele.file_type()?.is_dir() && (folder_name == "fonts" || folder_name == "skins") {
+            for data_file in walkdir::WalkDir::new(ele.path()).into_iter() {
+                let data_file = data_file?;
+
+                let target_file = data_file.path().strip_prefix(&install_dir)?;
+                let mut target_path = game_dir.as_ref().to_path_buf();
+                target_path.push(target_file);
+
+                if data_file.file_type().is_dir() {
+                    std::fs::create_dir_all(target_path)?;
+                    continue;
+                }
+
+                info!("Installing: {:?} -> {:?}", data_file.path(), &target_path);
+                std::fs::copy(data_file.path(), target_path)?;
+            }
+        }
+    }
+
+    Ok(())
+}
 
 pub fn project_dirs() -> ProjectDirs {
     directories::ProjectDirs::from("", "Drewol", "USC").expect("Failed to get project dirs")
@@ -234,10 +298,11 @@ pub const FRAME_ACC_SIZE: usize = 16;
 fn main() -> anyhow::Result<()> {
     simple_logger::init_with_level(Level::Info)?;
 
-    let mut config_path = std::env::current_dir().unwrap();
+    let mut config_path = default_game_dir();
     config_path.push("Main.cfg");
     let args = Args::parse();
     let show_debug_ui = args.debug;
+    init_game_dir(default_game_dir())?;
     GameConfig::init(config_path, args);
     let (_outputStream, outputStreamHandle) = rodio::OutputStream::try_default()?;
     let sink = rodio::Sink::try_new(&outputStreamHandle)?;
@@ -271,7 +336,7 @@ fn main() -> anyhow::Result<()> {
 
     let skin_setting: Vec<SkinSettingEntry> = {
         let skin = &GameConfig::get().skin;
-        let mut config_def_path = std::env::current_dir()?;
+        let mut config_def_path = default_game_dir();
         config_def_path.push("skins");
         config_def_path.push(skin);
         let res = File::open(config_def_path).map(|f| {
@@ -304,7 +369,7 @@ fn main() -> anyhow::Result<()> {
     let context = td::Context::from_gl_context(gl_context.clone())?;
     let vgfx = Arc::new(Mutex::new(vg_ui::Vgfx::new(
         canvas.clone(),
-        std::env::current_dir()?,
+        default_game_dir(),
     )));
 
     input
