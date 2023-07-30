@@ -10,9 +10,6 @@
             <Component Id="cmp96C3E61E7C127CCF41CA84C9C9BAD6FE" Directory="dir6A3FB14D44407D98893BF80BCE9CA1C2" Guid="*">
                 <File Id="filCAEF51AD5738A93F1B8209FB4ECBFFE1" KeyPath="yes" Source="$(sys.SOURCEFILEDIR)..\skins\Default\config-definitions.json" />
             </Component>
-            <Component Id="cmpA9EE311B0E2E77EEC54BCD3AA6A103F5" Directory="dir6A3FB14D44407D98893BF80BCE9CA1C2" Guid="*">
-                <File Id="fil14FF55CBD5292BDE84F3D4E1B326C260" KeyPath="yes" Source="$(sys.SOURCEFILEDIR)..\skins\Default\skin_config.cfg" />
-            </Component>
             <Component Id="cmp00A77F7EB6D8BD287CF65C3EFE5092B7" Directory="dirC46B145E6BACAF3CDAC80FD8F2EBD4D4" Guid="*">
                 <File Id="fil04835E522BA2895B5757D08D6024E50D" KeyPath="yes" Source="$(sys.SOURCEFILEDIR)..\skins\Default\audio\applause.wav" />
             </Component>
