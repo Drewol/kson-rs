@@ -8,7 +8,7 @@ jobs:
         steps:
             - uses: actions/checkout@v1
             - run: cargo install cargo-wix
-            - run: cargo wix -p rusc
+            - run: cargo wix -p rusc --nocapture
             - uses: actions/upload-artifact@v3
               with:
                   name: Windows installer
