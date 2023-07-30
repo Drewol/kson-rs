@@ -8,589 +8,589 @@
     <Fragment>
         <ComponentGroup Id="skins">
             <Component Id="cmp96C3E61E7C127CCF41CA84C9C9BAD6FE" Directory="dir6A3FB14D44407D98893BF80BCE9CA1C2" Guid="*">
-                <File Id="filCAEF51AD5738A93F1B8209FB4ECBFFE1" KeyPath="yes" Source="$(sys.SOURCEFILEDIR)\..\skins\Default\config-definitions.json" />
+                <File Id="filCAEF51AD5738A93F1B8209FB4ECBFFE1" KeyPath="yes" Source="$(sys.SOURCEFILEDIR)..\skins\Default\config-definitions.json" />
             </Component>
             <Component Id="cmpA9EE311B0E2E77EEC54BCD3AA6A103F5" Directory="dir6A3FB14D44407D98893BF80BCE9CA1C2" Guid="*">
-                <File Id="fil14FF55CBD5292BDE84F3D4E1B326C260" KeyPath="yes" Source="$(sys.SOURCEFILEDIR)\..\skins\Default\skin_config.cfg" />
+                <File Id="fil14FF55CBD5292BDE84F3D4E1B326C260" KeyPath="yes" Source="$(sys.SOURCEFILEDIR)..\skins\Default\skin_config.cfg" />
             </Component>
             <Component Id="cmp00A77F7EB6D8BD287CF65C3EFE5092B7" Directory="dirC46B145E6BACAF3CDAC80FD8F2EBD4D4" Guid="*">
-                <File Id="fil04835E522BA2895B5757D08D6024E50D" KeyPath="yes" Source="$(sys.SOURCEFILEDIR)\..\skins\Default\audio\applause.wav" />
+                <File Id="fil04835E522BA2895B5757D08D6024E50D" KeyPath="yes" Source="$(sys.SOURCEFILEDIR)..\skins\Default\audio\applause.wav" />
             </Component>
             <Component Id="cmp4825830A13E98A98CFBAAB82653CB7E6" Directory="dirC46B145E6BACAF3CDAC80FD8F2EBD4D4" Guid="*">
-                <File Id="fil2F8050EEFA19572D1AE51AE3E4C5F502" KeyPath="yes" Source="$(sys.SOURCEFILEDIR)\..\skins\Default\audio\clap.wav" />
+                <File Id="fil2F8050EEFA19572D1AE51AE3E4C5F502" KeyPath="yes" Source="$(sys.SOURCEFILEDIR)..\skins\Default\audio\clap.wav" />
             </Component>
             <Component Id="cmpEBC3F4CF6DA87820A466E3E7E53CB2E3" Directory="dirC46B145E6BACAF3CDAC80FD8F2EBD4D4" Guid="*">
-                <File Id="fil3F2D4ADF42D212279D5575DCE2DB8680" KeyPath="yes" Source="$(sys.SOURCEFILEDIR)\..\skins\Default\audio\clap_impact.wav" />
+                <File Id="fil3F2D4ADF42D212279D5575DCE2DB8680" KeyPath="yes" Source="$(sys.SOURCEFILEDIR)..\skins\Default\audio\clap_impact.wav" />
             </Component>
             <Component Id="cmpFF7F6C01B1B044CA11830258A40BB665" Directory="dirC46B145E6BACAF3CDAC80FD8F2EBD4D4" Guid="*">
-                <File Id="filD0641A39CA7125C2BA084C662AEE5BEE" KeyPath="yes" Source="$(sys.SOURCEFILEDIR)\..\skins\Default\audio\clap_punchy.wav" />
+                <File Id="filD0641A39CA7125C2BA084C662AEE5BEE" KeyPath="yes" Source="$(sys.SOURCEFILEDIR)..\skins\Default\audio\clap_punchy.wav" />
             </Component>
             <Component Id="cmpFC864C371E2FD7BD791D9FDEFBC463EE" Directory="dirC46B145E6BACAF3CDAC80FD8F2EBD4D4" Guid="*">
-                <File Id="filF4BF0FAA8F9420349ED88F8C4DA4C8A3" KeyPath="yes" Source="$(sys.SOURCEFILEDIR)\..\skins\Default\audio\click-01.wav" />
+                <File Id="filF4BF0FAA8F9420349ED88F8C4DA4C8A3" KeyPath="yes" Source="$(sys.SOURCEFILEDIR)..\skins\Default\audio\click-01.wav" />
             </Component>
             <Component Id="cmpB5360AC63E5C2253A8A472CB8A3F7BE8" Directory="dirC46B145E6BACAF3CDAC80FD8F2EBD4D4" Guid="*">
-                <File Id="filAB5AF130E1366A4501D6C4C5CACF24E8" KeyPath="yes" Source="$(sys.SOURCEFILEDIR)\..\skins\Default\audio\click-02.wav" />
+                <File Id="filAB5AF130E1366A4501D6C4C5CACF24E8" KeyPath="yes" Source="$(sys.SOURCEFILEDIR)..\skins\Default\audio\click-02.wav" />
             </Component>
             <Component Id="cmp7514E97B3F33D68FF22EEB24043F2DDE" Directory="dirC46B145E6BACAF3CDAC80FD8F2EBD4D4" Guid="*">
-                <File Id="filBB7D195EB99C203816342FFA394B70F4" KeyPath="yes" Source="$(sys.SOURCEFILEDIR)\..\skins\Default\audio\laser_slam.wav" />
+                <File Id="filBB7D195EB99C203816342FFA394B70F4" KeyPath="yes" Source="$(sys.SOURCEFILEDIR)..\skins\Default\audio\laser_slam.wav" />
             </Component>
             <Component Id="cmp8C9C35CE3720E4BB63EE88EF4BBC80AB" Directory="dirC46B145E6BACAF3CDAC80FD8F2EBD4D4" Guid="*">
-                <File Id="filD49AB0319C3C1E5C9F7A469DB251121D" KeyPath="yes" Source="$(sys.SOURCEFILEDIR)\..\skins\Default\audio\laser_slam1.wav" />
+                <File Id="filD49AB0319C3C1E5C9F7A469DB251121D" KeyPath="yes" Source="$(sys.SOURCEFILEDIR)..\skins\Default\audio\laser_slam1.wav" />
             </Component>
             <Component Id="cmpF29816AEEE43EE0FCFC675A08410BFE4" Directory="dirC46B145E6BACAF3CDAC80FD8F2EBD4D4" Guid="*">
-                <File Id="filC5D891C64F502D331F0C3C1EDDF07FBC" KeyPath="yes" Source="$(sys.SOURCEFILEDIR)\..\skins\Default\audio\laser_slam2.wav" />
+                <File Id="filC5D891C64F502D331F0C3C1EDDF07FBC" KeyPath="yes" Source="$(sys.SOURCEFILEDIR)..\skins\Default\audio\laser_slam2.wav" />
             </Component>
             <Component Id="cmpA24CB92BC913D8E52E2025F0D0DADEF0" Directory="dirC46B145E6BACAF3CDAC80FD8F2EBD4D4" Guid="*">
-                <File Id="fil4509AA9B4AC556C0A739F15FA3C8054D" KeyPath="yes" Source="$(sys.SOURCEFILEDIR)\..\skins\Default\audio\laser_slam3.wav" />
+                <File Id="fil4509AA9B4AC556C0A739F15FA3C8054D" KeyPath="yes" Source="$(sys.SOURCEFILEDIR)..\skins\Default\audio\laser_slam3.wav" />
             </Component>
             <Component Id="cmpF41E742F6575F95812C3BB0CF3F6010F" Directory="dirC46B145E6BACAF3CDAC80FD8F2EBD4D4" Guid="*">
-                <File Id="fil7CFFDBD5552521FD8326350D516B3436" KeyPath="yes" Source="$(sys.SOURCEFILEDIR)\..\skins\Default\audio\laser_slam_fast.wav" />
+                <File Id="fil7CFFDBD5552521FD8326350D516B3436" KeyPath="yes" Source="$(sys.SOURCEFILEDIR)..\skins\Default\audio\laser_slam_fast.wav" />
             </Component>
             <Component Id="cmpCD21BF9F0EFEC56EDEC15E6A82754EE5" Directory="dirC46B145E6BACAF3CDAC80FD8F2EBD4D4" Guid="*">
-                <File Id="filD5C86B2DDFC137103AABA04C87B75C26" KeyPath="yes" Source="$(sys.SOURCEFILEDIR)\..\skins\Default\audio\menu_click.wav" />
+                <File Id="filD5C86B2DDFC137103AABA04C87B75C26" KeyPath="yes" Source="$(sys.SOURCEFILEDIR)..\skins\Default\audio\menu_click.wav" />
             </Component>
             <Component Id="cmp1E27204493D82EF409132B5F56F5F1F6" Directory="dirC46B145E6BACAF3CDAC80FD8F2EBD4D4" Guid="*">
-                <File Id="filB2E3AF67401B7EC5536C42300684BC22" KeyPath="yes" Source="$(sys.SOURCEFILEDIR)\..\skins\Default\audio\shutter.wav" />
+                <File Id="filB2E3AF67401B7EC5536C42300684BC22" KeyPath="yes" Source="$(sys.SOURCEFILEDIR)..\skins\Default\audio\shutter.wav" />
             </Component>
             <Component Id="cmpD70CD57B4CD982C3E9F8780FE884E601" Directory="dirC46B145E6BACAF3CDAC80FD8F2EBD4D4" Guid="*">
-                <File Id="filCAC8A862BC9BD5AC73B47822E37F0DCD" KeyPath="yes" Source="$(sys.SOURCEFILEDIR)\..\skins\Default\audio\snare.wav" />
+                <File Id="filCAC8A862BC9BD5AC73B47822E37F0DCD" KeyPath="yes" Source="$(sys.SOURCEFILEDIR)..\skins\Default\audio\snare.wav" />
             </Component>
             <Component Id="cmpB8A70F700D3FA146CF2BFFD5AC00ACEF" Directory="dirC46B145E6BACAF3CDAC80FD8F2EBD4D4" Guid="*">
-                <File Id="filEA4590AEF6F7E06D0FE3025B4F5CEC88" KeyPath="yes" Source="$(sys.SOURCEFILEDIR)\..\skins\Default\audio\snare_lo.wav" />
+                <File Id="filEA4590AEF6F7E06D0FE3025B4F5CEC88" KeyPath="yes" Source="$(sys.SOURCEFILEDIR)..\skins\Default\audio\snare_lo.wav" />
             </Component>
             <Component Id="cmp680D413F062A4D6E9E2F74E744589D8F" Directory="dirC46B145E6BACAF3CDAC80FD8F2EBD4D4" Guid="*">
-                <File Id="filBC72F63865EF04AD9B41629122CB8437" KeyPath="yes" Source="$(sys.SOURCEFILEDIR)\..\skins\Default\audio\woosh.wav" />
+                <File Id="filBC72F63865EF04AD9B41629122CB8437" KeyPath="yes" Source="$(sys.SOURCEFILEDIR)..\skins\Default\audio\woosh.wav" />
             </Component>
             <Component Id="cmp446A84A0F9E140968229256CD6F1844C" Directory="dir4DB4DC3B3A9C2BA06AF55942EB2B71D1" Guid="*">
-                <File Id="fil7EB35FD1E70161B715D3F26A46B72557" KeyPath="yes" Source="$(sys.SOURCEFILEDIR)\..\skins\Default\backgrounds\arrow\bg.fs" />
+                <File Id="fil7EB35FD1E70161B715D3F26A46B72557" KeyPath="yes" Source="$(sys.SOURCEFILEDIR)..\skins\Default\backgrounds\arrow\bg.fs" />
             </Component>
             <Component Id="cmp4266D8459A6160533CDA541344718FAE" Directory="dir4DB4DC3B3A9C2BA06AF55942EB2B71D1" Guid="*">
-                <File Id="fil36CD96F006E9A476A6AE525D6BC602CC" KeyPath="yes" Source="$(sys.SOURCEFILEDIR)\..\skins\Default\backgrounds\arrow\bg.lua" />
+                <File Id="fil36CD96F006E9A476A6AE525D6BC602CC" KeyPath="yes" Source="$(sys.SOURCEFILEDIR)..\skins\Default\backgrounds\arrow\bg.lua" />
             </Component>
             <Component Id="cmp9632C4B41B7F287BDA92617F0E355FB9" Directory="dir4DB4DC3B3A9C2BA06AF55942EB2B71D1" Guid="*">
-                <File Id="fil723022C0039966AF8949AFE13527834E" KeyPath="yes" Source="$(sys.SOURCEFILEDIR)\..\skins\Default\backgrounds\arrow\bg.png" />
+                <File Id="fil723022C0039966AF8949AFE13527834E" KeyPath="yes" Source="$(sys.SOURCEFILEDIR)..\skins\Default\backgrounds\arrow\bg.png" />
             </Component>
             <Component Id="cmpD014FC72D752B696727955096AD0C85D" Directory="dir4DB4DC3B3A9C2BA06AF55942EB2B71D1" Guid="*">
-                <File Id="fil7EB1961874BF1693CB014D2FD1FCE6D9" KeyPath="yes" Source="$(sys.SOURCEFILEDIR)\..\skins\Default\backgrounds\arrow\bg_clear.png" />
+                <File Id="fil7EB1961874BF1693CB014D2FD1FCE6D9" KeyPath="yes" Source="$(sys.SOURCEFILEDIR)..\skins\Default\backgrounds\arrow\bg_clear.png" />
             </Component>
             <Component Id="cmp5078A82B70A5303450092AB1A69DF83E" Directory="dirEA94806E0D7DBC4B14C5EA7174452BC4" Guid="*">
-                <File Id="filFC47DF412242BCEF4E43590EADD5140E" KeyPath="yes" Source="$(sys.SOURCEFILEDIR)\..\skins\Default\backgrounds\fallback\bg.fs" />
+                <File Id="filFC47DF412242BCEF4E43590EADD5140E" KeyPath="yes" Source="$(sys.SOURCEFILEDIR)..\skins\Default\backgrounds\fallback\bg.fs" />
             </Component>
             <Component Id="cmp25BD2403C6AE07EF3154B5F8B4B5DECC" Directory="dirEA94806E0D7DBC4B14C5EA7174452BC4" Guid="*">
-                <File Id="fil811554906E696D3AFD1BC03FE6F812D7" KeyPath="yes" Source="$(sys.SOURCEFILEDIR)\..\skins\Default\backgrounds\fallback\bg.lua" />
+                <File Id="fil811554906E696D3AFD1BC03FE6F812D7" KeyPath="yes" Source="$(sys.SOURCEFILEDIR)..\skins\Default\backgrounds\fallback\bg.lua" />
             </Component>
             <Component Id="cmp8D05096C2C846262EAD76A3757482E6D" Directory="dirEA94806E0D7DBC4B14C5EA7174452BC4" Guid="*">
-                <File Id="fil298D9372E4AE29C2823EE91C2FF0D615" KeyPath="yes" Source="$(sys.SOURCEFILEDIR)\..\skins\Default\backgrounds\fallback\bg.png" />
+                <File Id="fil298D9372E4AE29C2823EE91C2FF0D615" KeyPath="yes" Source="$(sys.SOURCEFILEDIR)..\skins\Default\backgrounds\fallback\bg.png" />
             </Component>
             <Component Id="cmpBFB110A4C87AE1A5CD691543FABD840E" Directory="dirA239CACBB5D83B08351E13F8C46D66DF" Guid="*">
-                <File Id="fil8F07BB33B594765DF1E1B6D21F262FCB" KeyPath="yes" Source="$(sys.SOURCEFILEDIR)\..\skins\Default\backgrounds\sakura\bg.fs" />
+                <File Id="fil8F07BB33B594765DF1E1B6D21F262FCB" KeyPath="yes" Source="$(sys.SOURCEFILEDIR)..\skins\Default\backgrounds\sakura\bg.fs" />
             </Component>
             <Component Id="cmpF7F53F94FA4E9DC6E048643C6437D00E" Directory="dirA239CACBB5D83B08351E13F8C46D66DF" Guid="*">
-                <File Id="fil168B5D89F1411587F215494B526E6E12" KeyPath="yes" Source="$(sys.SOURCEFILEDIR)\..\skins\Default\backgrounds\sakura\bg.lua" />
+                <File Id="fil168B5D89F1411587F215494B526E6E12" KeyPath="yes" Source="$(sys.SOURCEFILEDIR)..\skins\Default\backgrounds\sakura\bg.lua" />
             </Component>
             <Component Id="cmpD19A9A31B69FAFB5643687BAD3AC89F0" Directory="dirA239CACBB5D83B08351E13F8C46D66DF" Guid="*">
-                <File Id="fil8F7CF73376C2A58E8BEE932787A91977" KeyPath="yes" Source="$(sys.SOURCEFILEDIR)\..\skins\Default\backgrounds\sakura\petal.png" />
+                <File Id="fil8F7CF73376C2A58E8BEE932787A91977" KeyPath="yes" Source="$(sys.SOURCEFILEDIR)..\skins\Default\backgrounds\sakura\petal.png" />
             </Component>
             <Component Id="cmpE09AFB9F3847FE9FEEED8D31C4EFB7BA" Directory="dirC8B534E1B0AAECA9769F9ECFC9460BAD" Guid="*">
-                <File Id="filA75AD9969B4C5DF244DDCC4129908777" KeyPath="yes" Source="$(sys.SOURCEFILEDIR)\..\skins\Default\backgrounds\smoke\bg.fs" />
+                <File Id="filA75AD9969B4C5DF244DDCC4129908777" KeyPath="yes" Source="$(sys.SOURCEFILEDIR)..\skins\Default\backgrounds\smoke\bg.fs" />
             </Component>
             <Component Id="cmp07EB06269232FEA4583F5AA74CAFE241" Directory="dirC8B534E1B0AAECA9769F9ECFC9460BAD" Guid="*">
-                <File Id="fil8185A54990BD4AA5EEBE86688CA9A3C8" KeyPath="yes" Source="$(sys.SOURCEFILEDIR)\..\skins\Default\backgrounds\smoke\bg.lua" />
+                <File Id="fil8185A54990BD4AA5EEBE86688CA9A3C8" KeyPath="yes" Source="$(sys.SOURCEFILEDIR)..\skins\Default\backgrounds\smoke\bg.lua" />
             </Component>
             <Component Id="cmpFB59E46E05416865F8139BD07FDF2CA9" Directory="dirC8B534E1B0AAECA9769F9ECFC9460BAD" Guid="*">
-                <File Id="filE33D4C318A2E3847195B9BBB7B100FD6" KeyPath="yes" Source="$(sys.SOURCEFILEDIR)\..\skins\Default\backgrounds\smoke\bg.png" />
+                <File Id="filE33D4C318A2E3847195B9BBB7B100FD6" KeyPath="yes" Source="$(sys.SOURCEFILEDIR)..\skins\Default\backgrounds\smoke\bg.png" />
             </Component>
             <Component Id="cmp2F54782D41175E826D49E3AB038B4E35" Directory="dir67E4BB2EE12702E905D07035E56A4536" Guid="*">
-                <File Id="fil9E2204ED1404891A01C058BBC6F5713A" KeyPath="yes" Source="$(sys.SOURCEFILEDIR)\..\skins\Default\backgrounds\snow\bg.fs" />
+                <File Id="fil9E2204ED1404891A01C058BBC6F5713A" KeyPath="yes" Source="$(sys.SOURCEFILEDIR)..\skins\Default\backgrounds\snow\bg.fs" />
             </Component>
             <Component Id="cmp9AB4DF4423847EBFE6D7FBF2283C6AB0" Directory="dir67E4BB2EE12702E905D07035E56A4536" Guid="*">
-                <File Id="fil7BE3C14ECF588B17312D365E9F51207E" KeyPath="yes" Source="$(sys.SOURCEFILEDIR)\..\skins\Default\backgrounds\snow\bg.lua" />
+                <File Id="fil7BE3C14ECF588B17312D365E9F51207E" KeyPath="yes" Source="$(sys.SOURCEFILEDIR)..\skins\Default\backgrounds\snow\bg.lua" />
             </Component>
             <Component Id="cmp2E37A7259DE35F44C4E156C52003F2C3" Directory="dir5D57FEEEDAB2F075462F2D2FF51089B8" Guid="*">
-                <File Id="fil673295E6C38575645759CB4D760158BD" KeyPath="yes" Source="$(sys.SOURCEFILEDIR)\..\skins\Default\backgrounds\techno\bg.fs" />
+                <File Id="fil673295E6C38575645759CB4D760158BD" KeyPath="yes" Source="$(sys.SOURCEFILEDIR)..\skins\Default\backgrounds\techno\bg.fs" />
             </Component>
             <Component Id="cmp71FEA0649C486E61A39712E8FA657EB2" Directory="dir5D57FEEEDAB2F075462F2D2FF51089B8" Guid="*">
-                <File Id="filE8F075129194CB1ADE402BC8745E37AF" KeyPath="yes" Source="$(sys.SOURCEFILEDIR)\..\skins\Default\backgrounds\techno\bg.lua" />
+                <File Id="filE8F075129194CB1ADE402BC8745E37AF" KeyPath="yes" Source="$(sys.SOURCEFILEDIR)..\skins\Default\backgrounds\techno\bg.lua" />
             </Component>
             <Component Id="cmpB63BC521F730919DB4798CA1A7CB0F84" Directory="dir5D57FEEEDAB2F075462F2D2FF51089B8" Guid="*">
-                <File Id="fil01CDD85FE05852CC219012484F29E5D9" KeyPath="yes" Source="$(sys.SOURCEFILEDIR)\..\skins\Default\backgrounds\techno\bg1.png" />
+                <File Id="fil01CDD85FE05852CC219012484F29E5D9" KeyPath="yes" Source="$(sys.SOURCEFILEDIR)..\skins\Default\backgrounds\techno\bg1.png" />
             </Component>
             <Component Id="cmpB9A74C74092F29416944A83A2EDE40D3" Directory="dir5D57FEEEDAB2F075462F2D2FF51089B8" Guid="*">
-                <File Id="fil64484BD4B91F7202E103CC1E8042DCAE" KeyPath="yes" Source="$(sys.SOURCEFILEDIR)\..\skins\Default\backgrounds\techno\bg2.png" />
+                <File Id="fil64484BD4B91F7202E103CC1E8042DCAE" KeyPath="yes" Source="$(sys.SOURCEFILEDIR)..\skins\Default\backgrounds\techno\bg2.png" />
             </Component>
             <Component Id="cmp2DD65CDEC6BFE33F7DE126BE38F137F0" Directory="dirF38391B07047FFFD8B7B5ABCCD4A1188" Guid="*">
-                <File Id="fil17D5371AB83C49BAC432DAF96328903A" KeyPath="yes" Source="$(sys.SOURCEFILEDIR)\..\skins\Default\backgrounds\wave\bg.fs" />
+                <File Id="fil17D5371AB83C49BAC432DAF96328903A" KeyPath="yes" Source="$(sys.SOURCEFILEDIR)..\skins\Default\backgrounds\wave\bg.fs" />
             </Component>
             <Component Id="cmpC10F27BFA342F91816E757FD99DECF22" Directory="dirF38391B07047FFFD8B7B5ABCCD4A1188" Guid="*">
-                <File Id="fil039B4614B1181B18C50FC84661B22464" KeyPath="yes" Source="$(sys.SOURCEFILEDIR)\..\skins\Default\backgrounds\wave\bg.lua" />
+                <File Id="fil039B4614B1181B18C50FC84661B22464" KeyPath="yes" Source="$(sys.SOURCEFILEDIR)..\skins\Default\backgrounds\wave\bg.lua" />
             </Component>
             <Component Id="cmpABB657F5B2BACB9AF5027977AADEE222" Directory="dirF38391B07047FFFD8B7B5ABCCD4A1188" Guid="*">
-                <File Id="filF650486736ED639A9B9539276910E21E" KeyPath="yes" Source="$(sys.SOURCEFILEDIR)\..\skins\Default\backgrounds\wave\bg.png" />
+                <File Id="filF650486736ED639A9B9539276910E21E" KeyPath="yes" Source="$(sys.SOURCEFILEDIR)..\skins\Default\backgrounds\wave\bg.png" />
             </Component>
             <Component Id="cmp8CB648232769ECA9C1078B8C0EE10B4C" Directory="dirF1E24858ABD5EB01B23524BA38D07D8A" Guid="*">
-                <File Id="fil10D62EEF6FEBE7B2BE97F14974C2A96F" KeyPath="yes" Source="$(sys.SOURCEFILEDIR)\..\skins\Default\fonts\divlit_custom.ttf" />
+                <File Id="fil10D62EEF6FEBE7B2BE97F14974C2A96F" KeyPath="yes" Source="$(sys.SOURCEFILEDIR)..\skins\Default\fonts\divlit_custom.ttf" />
             </Component>
             <Component Id="cmp43E73D188D7AAC995D8BFD31447461A6" Directory="dirF1E24858ABD5EB01B23524BA38D07D8A" Guid="*">
-                <File Id="fil2BEF3519C05BBD3F9B882D1EF4D5E24D" KeyPath="yes" Source="$(sys.SOURCEFILEDIR)\..\skins\Default\fonts\NotoSans-Regular.ttf" />
+                <File Id="fil2BEF3519C05BBD3F9B882D1EF4D5E24D" KeyPath="yes" Source="$(sys.SOURCEFILEDIR)..\skins\Default\fonts\NotoSans-Regular.ttf" />
             </Component>
             <Component Id="cmp07B502D02C368349F2CA925D10DDF88F" Directory="dirF1E24858ABD5EB01B23524BA38D07D8A" Guid="*">
-                <File Id="filE1627D56E0BFB7E80BFE63D02FCAD8C8" KeyPath="yes" Source="$(sys.SOURCEFILEDIR)\..\skins\Default\fonts\NovaMono.ttf" />
+                <File Id="filE1627D56E0BFB7E80BFE63D02FCAD8C8" KeyPath="yes" Source="$(sys.SOURCEFILEDIR)..\skins\Default\fonts\NovaMono.ttf" />
             </Component>
             <Component Id="cmp9AB382FADBFC6410F61F8EFC23C8E0D2" Directory="dir0D62870DF71C059D63E8037C517F38BE" Guid="*">
-                <File Id="fil8E33EBC6927448C48192657F6BB54A8D" KeyPath="yes" Source="$(sys.SOURCEFILEDIR)\..\skins\Default\scripts\challengeresult.lua" />
+                <File Id="fil8E33EBC6927448C48192657F6BB54A8D" KeyPath="yes" Source="$(sys.SOURCEFILEDIR)..\skins\Default\scripts\challengeresult.lua" />
             </Component>
             <Component Id="cmpEC088D54D92C74DA38BE76BE35807CB0" Directory="dir0D62870DF71C059D63E8037C517F38BE" Guid="*">
-                <File Id="fil15BBC535F4C2F97614CDA50DA0F8C14F" KeyPath="yes" Source="$(sys.SOURCEFILEDIR)\..\skins\Default\scripts\collectiondialog.lua" />
+                <File Id="fil15BBC535F4C2F97614CDA50DA0F8C14F" KeyPath="yes" Source="$(sys.SOURCEFILEDIR)..\skins\Default\scripts\collectiondialog.lua" />
             </Component>
             <Component Id="cmpCA2ADD669D25BC2320C5B7115FA5405C" Directory="dir0D62870DF71C059D63E8037C517F38BE" Guid="*">
-                <File Id="filD091487787A9FD46A7081691012D0000" KeyPath="yes" Source="$(sys.SOURCEFILEDIR)\..\skins\Default\scripts\common.lua" />
+                <File Id="filD091487787A9FD46A7081691012D0000" KeyPath="yes" Source="$(sys.SOURCEFILEDIR)..\skins\Default\scripts\common.lua" />
             </Component>
             <Component Id="cmp9DB314227A59198D64EA775EBF336A22" Directory="dir0D62870DF71C059D63E8037C517F38BE" Guid="*">
-                <File Id="filB13E36CB23A198FA5EC15F7872033200" KeyPath="yes" Source="$(sys.SOURCEFILEDIR)\..\skins\Default\scripts\downloadscreen.lua" />
+                <File Id="filB13E36CB23A198FA5EC15F7872033200" KeyPath="yes" Source="$(sys.SOURCEFILEDIR)..\skins\Default\scripts\downloadscreen.lua" />
             </Component>
             <Component Id="cmp51E77B2012C9B90774916BC9DBCB08B0" Directory="dir0D62870DF71C059D63E8037C517F38BE" Guid="*">
-                <File Id="filDA9C978C93B7EFB026C50F2A5FCBDCBB" KeyPath="yes" Source="$(sys.SOURCEFILEDIR)\..\skins\Default\scripts\gameplay.lua" />
+                <File Id="filDA9C978C93B7EFB026C50F2A5FCBDCBB" KeyPath="yes" Source="$(sys.SOURCEFILEDIR)..\skins\Default\scripts\gameplay.lua" />
             </Component>
             <Component Id="cmp1B36019A72DB0C68E4019FA6922731B1" Directory="dir0D62870DF71C059D63E8037C517F38BE" Guid="*">
-                <File Id="fil277CAB545592415D80446A0EC15C9CD3" KeyPath="yes" Source="$(sys.SOURCEFILEDIR)\..\skins\Default\scripts\gamesettingsdialog.lua" />
+                <File Id="fil277CAB545592415D80446A0EC15C9CD3" KeyPath="yes" Source="$(sys.SOURCEFILEDIR)..\skins\Default\scripts\gamesettingsdialog.lua" />
             </Component>
             <Component Id="cmp9ACC8C5BCC979E8549CA766E0A0A8A43" Directory="dir0D62870DF71C059D63E8037C517F38BE" Guid="*">
-                <File Id="filC7668A627C15D9F6B95686714C93D7D2" KeyPath="yes" Source="$(sys.SOURCEFILEDIR)\..\skins\Default\scripts\json.lua" />
+                <File Id="filC7668A627C15D9F6B95686714C93D7D2" KeyPath="yes" Source="$(sys.SOURCEFILEDIR)..\skins\Default\scripts\json.lua" />
             </Component>
             <Component Id="cmpAA8153FD8D82541AEC3FE488D27D5E9B" Directory="dir0D62870DF71C059D63E8037C517F38BE" Guid="*">
-                <File Id="fil1191ED2A6BBAC4D94B5AABD099CC4D51" KeyPath="yes" Source="$(sys.SOURCEFILEDIR)\..\skins\Default\scripts\multiplayerscreen.lua" />
+                <File Id="fil1191ED2A6BBAC4D94B5AABD099CC4D51" KeyPath="yes" Source="$(sys.SOURCEFILEDIR)..\skins\Default\scripts\multiplayerscreen.lua" />
             </Component>
             <Component Id="cmp49D005B8F47C546014CA1668C411E222" Directory="dir0D62870DF71C059D63E8037C517F38BE" Guid="*">
-                <File Id="fil359C1D77C04116EBE7558BCFA335D510" KeyPath="yes" Source="$(sys.SOURCEFILEDIR)\..\skins\Default\scripts\result.lua" />
+                <File Id="fil359C1D77C04116EBE7558BCFA335D510" KeyPath="yes" Source="$(sys.SOURCEFILEDIR)..\skins\Default\scripts\result.lua" />
             </Component>
             <Component Id="cmp173B0E45B01180285ABBB454EEBE1ED9" Directory="dir0D62870DF71C059D63E8037C517F38BE" Guid="*">
-                <File Id="fil3A734CB81D02AC53C0B1A7B8A7A449FD" KeyPath="yes" Source="$(sys.SOURCEFILEDIR)\..\skins\Default\scripts\songtransition.lua" />
+                <File Id="fil3A734CB81D02AC53C0B1A7B8A7A449FD" KeyPath="yes" Source="$(sys.SOURCEFILEDIR)..\skins\Default\scripts\songtransition.lua" />
             </Component>
             <Component Id="cmp481B5E3675A6BDF80C65F66C5111B9EF" Directory="dir0D62870DF71C059D63E8037C517F38BE" Guid="*">
-                <File Id="fil579B78DE2F9433956381DC7DDADDD133" KeyPath="yes" Source="$(sys.SOURCEFILEDIR)\..\skins\Default\scripts\titlescreen.lua" />
+                <File Id="fil579B78DE2F9433956381DC7DDADDD133" KeyPath="yes" Source="$(sys.SOURCEFILEDIR)..\skins\Default\scripts\titlescreen.lua" />
             </Component>
             <Component Id="cmp8FF338FDCE68B76677C78FA67498517B" Directory="dir0D62870DF71C059D63E8037C517F38BE" Guid="*">
-                <File Id="filB60062A948DBCFFC7D01007EF31009D7" KeyPath="yes" Source="$(sys.SOURCEFILEDIR)\..\skins\Default\scripts\transition.lua" />
+                <File Id="filB60062A948DBCFFC7D01007EF31009D7" KeyPath="yes" Source="$(sys.SOURCEFILEDIR)..\skins\Default\scripts\transition.lua" />
             </Component>
             <Component Id="cmp80EB0036CD8C244AF1BBCEAE438EB548" Directory="dirB392C9C384445BDDDF5CF4A7C5E0BD06" Guid="*">
-                <File Id="fil07971F49E387E301CB724DC8FAC88AC6" KeyPath="yes" Source="$(sys.SOURCEFILEDIR)\..\skins\Default\scripts\songselect\background.lua" />
+                <File Id="fil07971F49E387E301CB724DC8FAC88AC6" KeyPath="yes" Source="$(sys.SOURCEFILEDIR)..\skins\Default\scripts\songselect\background.lua" />
             </Component>
             <Component Id="cmpD20BB8EDBA0EB2923D1731E4F3FC9FD5" Directory="dirB392C9C384445BDDDF5CF4A7C5E0BD06" Guid="*">
-                <File Id="filD8BB87F7B2B1CDAD586DD44DE4E89922" KeyPath="yes" Source="$(sys.SOURCEFILEDIR)\..\skins\Default\scripts\songselect\chalwheel.lua" />
+                <File Id="filD8BB87F7B2B1CDAD586DD44DE4E89922" KeyPath="yes" Source="$(sys.SOURCEFILEDIR)..\skins\Default\scripts\songselect\chalwheel.lua" />
             </Component>
             <Component Id="cmpF026305AA04FA6D271B85815D44207C1" Directory="dirB392C9C384445BDDDF5CF4A7C5E0BD06" Guid="*">
-                <File Id="fil5C1EC7EC659D5B6ACE6FA52A1DBD2CD5" KeyPath="yes" Source="$(sys.SOURCEFILEDIR)\..\skins\Default\scripts\songselect\filterwheel.lua" />
+                <File Id="fil5C1EC7EC659D5B6ACE6FA52A1DBD2CD5" KeyPath="yes" Source="$(sys.SOURCEFILEDIR)..\skins\Default\scripts\songselect\filterwheel.lua" />
             </Component>
             <Component Id="cmp041E0B510C6B59E91CF0F72A20B4355B" Directory="dirB392C9C384445BDDDF5CF4A7C5E0BD06" Guid="*">
-                <File Id="fil7A92A1C9A980E5F5035F0880945D2F43" KeyPath="yes" Source="$(sys.SOURCEFILEDIR)\..\skins\Default\scripts\songselect\settingswheel.lua" />
+                <File Id="fil7A92A1C9A980E5F5035F0880945D2F43" KeyPath="yes" Source="$(sys.SOURCEFILEDIR)..\skins\Default\scripts\songselect\settingswheel.lua" />
             </Component>
             <Component Id="cmp9A6F05C42E8D25EF295B615E373AD3C4" Directory="dirB392C9C384445BDDDF5CF4A7C5E0BD06" Guid="*">
-                <File Id="filDDC166A7AC71F313081D1EA308F0AE04" KeyPath="yes" Source="$(sys.SOURCEFILEDIR)\..\skins\Default\scripts\songselect\songwheel.lua" />
+                <File Id="filDDC166A7AC71F313081D1EA308F0AE04" KeyPath="yes" Source="$(sys.SOURCEFILEDIR)..\skins\Default\scripts\songselect\songwheel.lua" />
             </Component>
             <Component Id="cmpEA4D6D4DB9CCA27E7B9FBF3C3E816EE5" Directory="dirB392C9C384445BDDDF5CF4A7C5E0BD06" Guid="*">
-                <File Id="filCBBBE59DA86A8A0FC5C4698BE93A2677" KeyPath="yes" Source="$(sys.SOURCEFILEDIR)\..\skins\Default\scripts\songselect\sortwheel.lua" />
+                <File Id="filCBBBE59DA86A8A0FC5C4698BE93A2677" KeyPath="yes" Source="$(sys.SOURCEFILEDIR)..\skins\Default\scripts\songselect\sortwheel.lua" />
             </Component>
             <Component Id="cmpDB67262EB99E835BB6C1C320376639B4" Directory="dir0FFD701354FE9538CEDA60D8D7E6061B" Guid="*">
-                <File Id="filEE1951357C259D68A947E9B7D3BADBF3" KeyPath="yes" Source="$(sys.SOURCEFILEDIR)\..\skins\Default\shaders\background.vs" />
+                <File Id="filEE1951357C259D68A947E9B7D3BADBF3" KeyPath="yes" Source="$(sys.SOURCEFILEDIR)..\skins\Default\shaders\background.vs" />
             </Component>
             <Component Id="cmpC8704213242190AB02E75F7D2111135F" Directory="dir0FFD701354FE9538CEDA60D8D7E6061B" Guid="*">
-                <File Id="filB36898BCCE166A049A295674B5B31DCA" KeyPath="yes" Source="$(sys.SOURCEFILEDIR)\..\skins\Default\shaders\blackLaser.fs" />
+                <File Id="filB36898BCCE166A049A295674B5B31DCA" KeyPath="yes" Source="$(sys.SOURCEFILEDIR)..\skins\Default\shaders\blackLaser.fs" />
             </Component>
             <Component Id="cmpA24C2E5A2913D527E710F8E5A905FD79" Directory="dir0FFD701354FE9538CEDA60D8D7E6061B" Guid="*">
-                <File Id="fil1D99DF26219F132503AA37EFE18224BB" KeyPath="yes" Source="$(sys.SOURCEFILEDIR)\..\skins\Default\shaders\blackLaser.vs" />
+                <File Id="fil1D99DF26219F132503AA37EFE18224BB" KeyPath="yes" Source="$(sys.SOURCEFILEDIR)..\skins\Default\shaders\blackLaser.vs" />
             </Component>
             <Component Id="cmp847950E0308D6B601F1417A30BEC4599" Directory="dir0FFD701354FE9538CEDA60D8D7E6061B" Guid="*">
-                <File Id="fil9E855370A1F0AE542A4AB2CD7A88358D" KeyPath="yes" Source="$(sys.SOURCEFILEDIR)\..\skins\Default\shaders\button.fs" />
+                <File Id="fil9E855370A1F0AE542A4AB2CD7A88358D" KeyPath="yes" Source="$(sys.SOURCEFILEDIR)..\skins\Default\shaders\button.fs" />
             </Component>
             <Component Id="cmp476FFAE7C7D62A61BD7DFFD0EEB7F0CD" Directory="dir0FFD701354FE9538CEDA60D8D7E6061B" Guid="*">
-                <File Id="fil0DA52A519B61292AF503A0F11648558B" KeyPath="yes" Source="$(sys.SOURCEFILEDIR)\..\skins\Default\shaders\button.vs" />
+                <File Id="fil0DA52A519B61292AF503A0F11648558B" KeyPath="yes" Source="$(sys.SOURCEFILEDIR)..\skins\Default\shaders\button.vs" />
             </Component>
             <Component Id="cmpBF7B424C5C9F2D95A59C4A3B002227C2" Directory="dir0FFD701354FE9538CEDA60D8D7E6061B" Guid="*">
-                <File Id="filC6399094A0E73D75E7EDFDD307C8CEAF" KeyPath="yes" Source="$(sys.SOURCEFILEDIR)\..\skins\Default\shaders\diffFrame.fs" />
+                <File Id="filC6399094A0E73D75E7EDFDD307C8CEAF" KeyPath="yes" Source="$(sys.SOURCEFILEDIR)..\skins\Default\shaders\diffFrame.fs" />
             </Component>
             <Component Id="cmp8265377BD0C1F7417ED16CB5103B7C76" Directory="dir0FFD701354FE9538CEDA60D8D7E6061B" Guid="*">
-                <File Id="fil4C9C8E44A76DD38BF951DE591DE9523B" KeyPath="yes" Source="$(sys.SOURCEFILEDIR)\..\skins\Default\shaders\diffFrame.vs" />
+                <File Id="fil4C9C8E44A76DD38BF951DE591DE9523B" KeyPath="yes" Source="$(sys.SOURCEFILEDIR)..\skins\Default\shaders\diffFrame.vs" />
             </Component>
             <Component Id="cmpE026FB4BA3A72DE4FBE42A25F5FF0205" Directory="dir0FFD701354FE9538CEDA60D8D7E6061B" Guid="*">
-                <File Id="fil1B4643E0A713CCD2C870CA291643649A" KeyPath="yes" Source="$(sys.SOURCEFILEDIR)\..\skins\Default\shaders\font.fs" />
+                <File Id="fil1B4643E0A713CCD2C870CA291643649A" KeyPath="yes" Source="$(sys.SOURCEFILEDIR)..\skins\Default\shaders\font.fs" />
             </Component>
             <Component Id="cmp7BAE719BA5AFAB4064790B2575A5EAA9" Directory="dir0FFD701354FE9538CEDA60D8D7E6061B" Guid="*">
-                <File Id="filA1496500A0CF49DDAA07F85ACE1A11EE" KeyPath="yes" Source="$(sys.SOURCEFILEDIR)\..\skins\Default\shaders\font.vs" />
+                <File Id="filA1496500A0CF49DDAA07F85ACE1A11EE" KeyPath="yes" Source="$(sys.SOURCEFILEDIR)..\skins\Default\shaders\font.vs" />
             </Component>
             <Component Id="cmpC4873674548AC7B9901389CA63B372BC" Directory="dir0FFD701354FE9538CEDA60D8D7E6061B" Guid="*">
-                <File Id="fil1507D05D062DC85FF8682342BC0F0A43" KeyPath="yes" Source="$(sys.SOURCEFILEDIR)\..\skins\Default\shaders\foreground.fs" />
+                <File Id="fil1507D05D062DC85FF8682342BC0F0A43" KeyPath="yes" Source="$(sys.SOURCEFILEDIR)..\skins\Default\shaders\foreground.fs" />
             </Component>
             <Component Id="cmpA617CBDB7160F2B5B9BAB993322774B8" Directory="dir0FFD701354FE9538CEDA60D8D7E6061B" Guid="*">
-                <File Id="fil88B074CF751C1553816D056ECBDA5893" KeyPath="yes" Source="$(sys.SOURCEFILEDIR)\..\skins\Default\shaders\gauge.fs" />
+                <File Id="fil88B074CF751C1553816D056ECBDA5893" KeyPath="yes" Source="$(sys.SOURCEFILEDIR)..\skins\Default\shaders\gauge.fs" />
             </Component>
             <Component Id="cmp38CFA074D09E11E012D729BFCF729614" Directory="dir0FFD701354FE9538CEDA60D8D7E6061B" Guid="*">
-                <File Id="filB9EC12CB0912BE8125A2930A302A8459" KeyPath="yes" Source="$(sys.SOURCEFILEDIR)\..\skins\Default\shaders\gauge.vs" />
+                <File Id="filB9EC12CB0912BE8125A2930A302A8459" KeyPath="yes" Source="$(sys.SOURCEFILEDIR)..\skins\Default\shaders\gauge.vs" />
             </Component>
             <Component Id="cmp883E469C65A8BB65D9B60F263ED077AD" Directory="dir0FFD701354FE9538CEDA60D8D7E6061B" Guid="*">
-                <File Id="filFCCDBE1904B6CEFEF4EAC47E0416CE2A" KeyPath="yes" Source="$(sys.SOURCEFILEDIR)\..\skins\Default\shaders\guiButton.fs" />
+                <File Id="filFCCDBE1904B6CEFEF4EAC47E0416CE2A" KeyPath="yes" Source="$(sys.SOURCEFILEDIR)..\skins\Default\shaders\guiButton.fs" />
             </Component>
             <Component Id="cmpB7E5F16C871C94EC87BC00CD974EF6C8" Directory="dir0FFD701354FE9538CEDA60D8D7E6061B" Guid="*">
-                <File Id="filD37941802C57149424B1FAFE816E01F1" KeyPath="yes" Source="$(sys.SOURCEFILEDIR)\..\skins\Default\shaders\guiButton.gs" />
+                <File Id="filD37941802C57149424B1FAFE816E01F1" KeyPath="yes" Source="$(sys.SOURCEFILEDIR)..\skins\Default\shaders\guiButton.gs" />
             </Component>
             <Component Id="cmpDC85E99D8D0303364EC689DCB53FE8CD" Directory="dir0FFD701354FE9538CEDA60D8D7E6061B" Guid="*">
-                <File Id="filF54A96446CF81AC6189B974F9C062487" KeyPath="yes" Source="$(sys.SOURCEFILEDIR)\..\skins\Default\shaders\guiButton.vs" />
+                <File Id="filF54A96446CF81AC6189B974F9C062487" KeyPath="yes" Source="$(sys.SOURCEFILEDIR)..\skins\Default\shaders\guiButton.vs" />
             </Component>
             <Component Id="cmp3D5927BC7F2632C203E57A8CBCBF3E06" Directory="dir0FFD701354FE9538CEDA60D8D7E6061B" Guid="*">
-                <File Id="filEF486A34BB8CD9BADEC6A34A97DC1D6E" KeyPath="yes" Source="$(sys.SOURCEFILEDIR)\..\skins\Default\shaders\guiColor.fs" />
+                <File Id="filEF486A34BB8CD9BADEC6A34A97DC1D6E" KeyPath="yes" Source="$(sys.SOURCEFILEDIR)..\skins\Default\shaders\guiColor.fs" />
             </Component>
             <Component Id="cmpA17B215B4151173E61B6C72C7A2A33E9" Directory="dir0FFD701354FE9538CEDA60D8D7E6061B" Guid="*">
-                <File Id="fil07418B9F2C8A7EE79C2B0BA375BB3197" KeyPath="yes" Source="$(sys.SOURCEFILEDIR)\..\skins\Default\shaders\guiColor.vs" />
+                <File Id="fil07418B9F2C8A7EE79C2B0BA375BB3197" KeyPath="yes" Source="$(sys.SOURCEFILEDIR)..\skins\Default\shaders\guiColor.vs" />
             </Component>
             <Component Id="cmp337AFFFDF5CC28078B1439A5FB2F8F10" Directory="dir0FFD701354FE9538CEDA60D8D7E6061B" Guid="*">
-                <File Id="filF80C4C630DD60870411A21324BC0E18B" KeyPath="yes" Source="$(sys.SOURCEFILEDIR)\..\skins\Default\shaders\guiGraph.fs" />
+                <File Id="filF80C4C630DD60870411A21324BC0E18B" KeyPath="yes" Source="$(sys.SOURCEFILEDIR)..\skins\Default\shaders\guiGraph.fs" />
             </Component>
             <Component Id="cmp693C71E3F9372E88DC11CF7734CDA6C5" Directory="dir0FFD701354FE9538CEDA60D8D7E6061B" Guid="*">
-                <File Id="filAF18F10D5E091B3109F437BC01590B1C" KeyPath="yes" Source="$(sys.SOURCEFILEDIR)\..\skins\Default\shaders\guiGraph.vs" />
+                <File Id="filAF18F10D5E091B3109F437BC01590B1C" KeyPath="yes" Source="$(sys.SOURCEFILEDIR)..\skins\Default\shaders\guiGraph.vs" />
             </Component>
             <Component Id="cmp6EA58D01403A0C9735FB1494AFED31C9" Directory="dir0FFD701354FE9538CEDA60D8D7E6061B" Guid="*">
-                <File Id="fil5921ADCE5A3A51DF96FC84AB074989D3" KeyPath="yes" Source="$(sys.SOURCEFILEDIR)\..\skins\Default\shaders\guiTex.fs" />
+                <File Id="fil5921ADCE5A3A51DF96FC84AB074989D3" KeyPath="yes" Source="$(sys.SOURCEFILEDIR)..\skins\Default\shaders\guiTex.fs" />
             </Component>
             <Component Id="cmpF4D2ACD3C31F4B1AA1386E61D3D1AB94" Directory="dir0FFD701354FE9538CEDA60D8D7E6061B" Guid="*">
-                <File Id="fil83C4DC4F476E8381D7A37A06F8FF7A2D" KeyPath="yes" Source="$(sys.SOURCEFILEDIR)\..\skins\Default\shaders\guiTex.vs" />
+                <File Id="fil83C4DC4F476E8381D7A37A06F8FF7A2D" KeyPath="yes" Source="$(sys.SOURCEFILEDIR)..\skins\Default\shaders\guiTex.vs" />
             </Component>
             <Component Id="cmp75E9DDA8526032C40C3B5AD3332329B0" Directory="dir0FFD701354FE9538CEDA60D8D7E6061B" Guid="*">
-                <File Id="fil9F9338A00392B865323DF5A570E957CD" KeyPath="yes" Source="$(sys.SOURCEFILEDIR)\..\skins\Default\shaders\holdbutton.fs" />
+                <File Id="fil9F9338A00392B865323DF5A570E957CD" KeyPath="yes" Source="$(sys.SOURCEFILEDIR)..\skins\Default\shaders\holdbutton.fs" />
             </Component>
             <Component Id="cmp6ACA5CA5A610AAF95A0525F5C55D88DF" Directory="dir0FFD701354FE9538CEDA60D8D7E6061B" Guid="*">
-                <File Id="filA869AFAF8BDB9236A1172B7797804186" KeyPath="yes" Source="$(sys.SOURCEFILEDIR)\..\skins\Default\shaders\holdbutton.vs" />
+                <File Id="filA869AFAF8BDB9236A1172B7797804186" KeyPath="yes" Source="$(sys.SOURCEFILEDIR)..\skins\Default\shaders\holdbutton.vs" />
             </Component>
             <Component Id="cmp0941197EABADB0900A3C2720A300516F" Directory="dir0FFD701354FE9538CEDA60D8D7E6061B" Guid="*">
-                <File Id="fil568D68AA0E9947EE3F000F3AEC6FC5BA" KeyPath="yes" Source="$(sys.SOURCEFILEDIR)\..\skins\Default\shaders\laser.fs" />
+                <File Id="fil568D68AA0E9947EE3F000F3AEC6FC5BA" KeyPath="yes" Source="$(sys.SOURCEFILEDIR)..\skins\Default\shaders\laser.fs" />
             </Component>
             <Component Id="cmp00658EF67D640FDC2F9D563D26CEBEF9" Directory="dir0FFD701354FE9538CEDA60D8D7E6061B" Guid="*">
-                <File Id="filBF2AED088D5A21C4A5B0B3664147CD76" KeyPath="yes" Source="$(sys.SOURCEFILEDIR)\..\skins\Default\shaders\laser.vs" />
+                <File Id="filBF2AED088D5A21C4A5B0B3664147CD76" KeyPath="yes" Source="$(sys.SOURCEFILEDIR)..\skins\Default\shaders\laser.vs" />
             </Component>
             <Component Id="cmpADE5B8A5E2E8FC5A14BF42A68E3F937A" Directory="dir0FFD701354FE9538CEDA60D8D7E6061B" Guid="*">
-                <File Id="filE27B0607D3FF05E0943DBA4B750B8BF0" KeyPath="yes" Source="$(sys.SOURCEFILEDIR)\..\skins\Default\shaders\overlay.fs" />
+                <File Id="filE27B0607D3FF05E0943DBA4B750B8BF0" KeyPath="yes" Source="$(sys.SOURCEFILEDIR)..\skins\Default\shaders\overlay.fs" />
             </Component>
             <Component Id="cmp81CE74D0CA09098552323D0DCF4C1F3F" Directory="dir0FFD701354FE9538CEDA60D8D7E6061B" Guid="*">
-                <File Id="fil76BBE76DE3B4FC0E1491E95BD6D0CC64" KeyPath="yes" Source="$(sys.SOURCEFILEDIR)\..\skins\Default\shaders\overlay.vs" />
+                <File Id="fil76BBE76DE3B4FC0E1491E95BD6D0CC64" KeyPath="yes" Source="$(sys.SOURCEFILEDIR)..\skins\Default\shaders\overlay.vs" />
             </Component>
             <Component Id="cmp862958CD7E1B001A1FD3D58DC1579AD1" Directory="dir0FFD701354FE9538CEDA60D8D7E6061B" Guid="*">
-                <File Id="filA5FE8D12B8D84EB03C5D46D4B69802D3" KeyPath="yes" Source="$(sys.SOURCEFILEDIR)\..\skins\Default\shaders\particle.fs" />
+                <File Id="filA5FE8D12B8D84EB03C5D46D4B69802D3" KeyPath="yes" Source="$(sys.SOURCEFILEDIR)..\skins\Default\shaders\particle.fs" />
             </Component>
             <Component Id="cmpF4401C4EAD6613E863D0BBF61F163338" Directory="dir0FFD701354FE9538CEDA60D8D7E6061B" Guid="*">
-                <File Id="filDEBE8164F9FE8256910D19F72BD253A1" KeyPath="yes" Source="$(sys.SOURCEFILEDIR)\..\skins\Default\shaders\particle.gs" />
+                <File Id="filDEBE8164F9FE8256910D19F72BD253A1" KeyPath="yes" Source="$(sys.SOURCEFILEDIR)..\skins\Default\shaders\particle.gs" />
             </Component>
             <Component Id="cmp5F0243367362DBC9282451D5C2DF24C8" Directory="dir0FFD701354FE9538CEDA60D8D7E6061B" Guid="*">
-                <File Id="fil0F1C8CC3280E93438E1E8786C28F6B26" KeyPath="yes" Source="$(sys.SOURCEFILEDIR)\..\skins\Default\shaders\particle.vs" />
+                <File Id="fil0F1C8CC3280E93438E1E8786C28F6B26" KeyPath="yes" Source="$(sys.SOURCEFILEDIR)..\skins\Default\shaders\particle.vs" />
             </Component>
             <Component Id="cmp8BCC17785B3B19B8F3DC54B448499830" Directory="dir0FFD701354FE9538CEDA60D8D7E6061B" Guid="*">
-                <File Id="fil0162D07AEEB121FAAFA8407C75632B49" KeyPath="yes" Source="$(sys.SOURCEFILEDIR)\..\skins\Default\shaders\progressBar.fs" />
+                <File Id="fil0162D07AEEB121FAAFA8407C75632B49" KeyPath="yes" Source="$(sys.SOURCEFILEDIR)..\skins\Default\shaders\progressBar.fs" />
             </Component>
             <Component Id="cmp87FEE442784B9509ABF8EE1D64C6183F" Directory="dir0FFD701354FE9538CEDA60D8D7E6061B" Guid="*">
-                <File Id="fil34B14338F2BCBBC638FD412AF5D48C71" KeyPath="yes" Source="$(sys.SOURCEFILEDIR)\..\skins\Default\shaders\progressBar.vs" />
+                <File Id="fil34B14338F2BCBBC638FD412AF5D48C71" KeyPath="yes" Source="$(sys.SOURCEFILEDIR)..\skins\Default\shaders\progressBar.vs" />
             </Component>
             <Component Id="cmp54CA7006015D4C2F15F4D9BAB7EA6D8F" Directory="dir0FFD701354FE9538CEDA60D8D7E6061B" Guid="*">
-                <File Id="fil2AE904B70E648C4D27CE6138CFDA5D90" KeyPath="yes" Source="$(sys.SOURCEFILEDIR)\..\skins\Default\shaders\songSelBack.fs" />
+                <File Id="fil2AE904B70E648C4D27CE6138CFDA5D90" KeyPath="yes" Source="$(sys.SOURCEFILEDIR)..\skins\Default\shaders\songSelBack.fs" />
             </Component>
             <Component Id="cmp6B14A42CC2AEFDC1CDF46FD4801C9F25" Directory="dir0FFD701354FE9538CEDA60D8D7E6061B" Guid="*">
-                <File Id="fil372AAE10300AE24BE04B9551D65426A6" KeyPath="yes" Source="$(sys.SOURCEFILEDIR)\..\skins\Default\shaders\songSelBack.vs" />
+                <File Id="fil372AAE10300AE24BE04B9551D65426A6" KeyPath="yes" Source="$(sys.SOURCEFILEDIR)..\skins\Default\shaders\songSelBack.vs" />
             </Component>
             <Component Id="cmpD6BF358655AF5FF9039063435F7B5392" Directory="dir0FFD701354FE9538CEDA60D8D7E6061B" Guid="*">
-                <File Id="fil8EB95F6570BE7DE84A682EC8BE6A3D53" KeyPath="yes" Source="$(sys.SOURCEFILEDIR)\..\skins\Default\shaders\sprite.fs" />
+                <File Id="fil8EB95F6570BE7DE84A682EC8BE6A3D53" KeyPath="yes" Source="$(sys.SOURCEFILEDIR)..\skins\Default\shaders\sprite.fs" />
             </Component>
             <Component Id="cmpFA11A8DF45D7E93B61828FC5487BA431" Directory="dir0FFD701354FE9538CEDA60D8D7E6061B" Guid="*">
-                <File Id="fil5C5977137633064FD26F5528999886FF" KeyPath="yes" Source="$(sys.SOURCEFILEDIR)\..\skins\Default\shaders\sprite.vs" />
+                <File Id="fil5C5977137633064FD26F5528999886FF" KeyPath="yes" Source="$(sys.SOURCEFILEDIR)..\skins\Default\shaders\sprite.vs" />
             </Component>
             <Component Id="cmp835402A56A27B1A1D90D7C0FDBEBCCC0" Directory="dir0FFD701354FE9538CEDA60D8D7E6061B" Guid="*">
-                <File Id="fil5A2B21D7972C84C7453A7E7F7D9159AA" KeyPath="yes" Source="$(sys.SOURCEFILEDIR)\..\skins\Default\shaders\track.fs" />
+                <File Id="fil5A2B21D7972C84C7453A7E7F7D9159AA" KeyPath="yes" Source="$(sys.SOURCEFILEDIR)..\skins\Default\shaders\track.fs" />
             </Component>
             <Component Id="cmpAC15F0D975010D326280547A83859218" Directory="dir0FFD701354FE9538CEDA60D8D7E6061B" Guid="*">
-                <File Id="filC4B14711B8CC4D2651289450BD8B9630" KeyPath="yes" Source="$(sys.SOURCEFILEDIR)\..\skins\Default\shaders\track.vs" />
+                <File Id="filC4B14711B8CC4D2651289450BD8B9630" KeyPath="yes" Source="$(sys.SOURCEFILEDIR)..\skins\Default\shaders\track.vs" />
             </Component>
             <Component Id="cmpCD74FF84FE57841DA19AE01F962FEC9F" Directory="dir0FFD701354FE9538CEDA60D8D7E6061B" Guid="*">
-                <File Id="fil9697585C582C898F7A915176A0B275D0" KeyPath="yes" Source="$(sys.SOURCEFILEDIR)\..\skins\Default\shaders\trackCover.fs" />
+                <File Id="fil9697585C582C898F7A915176A0B275D0" KeyPath="yes" Source="$(sys.SOURCEFILEDIR)..\skins\Default\shaders\trackCover.fs" />
             </Component>
             <Component Id="cmp45023C6FB8E7803810BFF752EEE26AEA" Directory="dir0FFD701354FE9538CEDA60D8D7E6061B" Guid="*">
-                <File Id="fil95D33C26E9613FED64945D9BF1F332CD" KeyPath="yes" Source="$(sys.SOURCEFILEDIR)\..\skins\Default\shaders\trackCover.vs" />
+                <File Id="fil95D33C26E9613FED64945D9BF1F332CD" KeyPath="yes" Source="$(sys.SOURCEFILEDIR)..\skins\Default\shaders\trackCover.vs" />
             </Component>
             <Component Id="cmp7B77361DC1E8D185718BE2B2C7137727" Directory="dir6617A90CC81774C75037C230A3CE5BC7" Guid="*">
-                <File Id="fil89644FB8FE157B3B2C9B5EEAEEB35834" KeyPath="yes" Source="$(sys.SOURCEFILEDIR)\..\skins\Default\shaders\examples\foreground\scanlines.fs" />
+                <File Id="fil89644FB8FE157B3B2C9B5EEAEEB35834" KeyPath="yes" Source="$(sys.SOURCEFILEDIR)..\skins\Default\shaders\examples\foreground\scanlines.fs" />
             </Component>
             <Component Id="cmpFDBD6633B97B457573C2343CB83BEC31" Directory="dir63C85B14213C83970AD359F9835E2EDE" Guid="*">
-                <File Id="fil2484DE1BE47CD70A710C4207F608DDA3" KeyPath="yes" Source="$(sys.SOURCEFILEDIR)\..\skins\Default\textures\bg.png" />
+                <File Id="fil2484DE1BE47CD70A710C4207F608DDA3" KeyPath="yes" Source="$(sys.SOURCEFILEDIR)..\skins\Default\textures\bg.png" />
             </Component>
             <Component Id="cmp7ED3BC20363177D6959CA2712587D4B3" Directory="dir63C85B14213C83970AD359F9835E2EDE" Guid="*">
-                <File Id="fil5A51AD204FFC5EF88B4E383F130C93A4" KeyPath="yes" Source="$(sys.SOURCEFILEDIR)\..\skins\Default\textures\bg_pattern.png" />
+                <File Id="fil5A51AD204FFC5EF88B4E383F130C93A4" KeyPath="yes" Source="$(sys.SOURCEFILEDIR)..\skins\Default\textures\bg_pattern.png" />
             </Component>
             <Component Id="cmpEE567F715ACA0DE19E608DCFAB8A86AE" Directory="dir63C85B14213C83970AD359F9835E2EDE" Guid="*">
-                <File Id="filBF421DD065F480431DF6BD21974D0931" KeyPath="yes" Source="$(sys.SOURCEFILEDIR)\..\skins\Default\textures\button.png" />
+                <File Id="filBF421DD065F480431DF6BD21974D0931" KeyPath="yes" Source="$(sys.SOURCEFILEDIR)..\skins\Default\textures\button.png" />
             </Component>
             <Component Id="cmp8FE1FF8EF5C96FF3E49969BC2E51E745" Directory="dir63C85B14213C83970AD359F9835E2EDE" Guid="*">
-                <File Id="fil38E065691625B487D87991593DA796C3" KeyPath="yes" Source="$(sys.SOURCEFILEDIR)\..\skins\Default\textures\buttonhold.png" />
+                <File Id="fil38E065691625B487D87991593DA796C3" KeyPath="yes" Source="$(sys.SOURCEFILEDIR)..\skins\Default\textures\buttonhold.png" />
             </Component>
             <Component Id="cmp30EAA2E2E80FED07267E2EBF7BC4D761" Directory="dir63C85B14213C83970AD359F9835E2EDE" Guid="*">
-                <File Id="fil3A4F2D176F33DA300B9F58B7FEBCD83C" KeyPath="yes" Source="$(sys.SOURCEFILEDIR)\..\skins\Default\textures\crit_anim.png" />
+                <File Id="fil3A4F2D176F33DA300B9F58B7FEBCD83C" KeyPath="yes" Source="$(sys.SOURCEFILEDIR)..\skins\Default\textures\crit_anim.png" />
             </Component>
             <Component Id="cmp19C610F808B25D68F36F439EAAB4C35A" Directory="dir63C85B14213C83970AD359F9835E2EDE" Guid="*">
-                <File Id="filBBEFC0075A78540E7652DE81051E7BFF" KeyPath="yes" Source="$(sys.SOURCEFILEDIR)\..\skins\Default\textures\crit_cap.png" />
+                <File Id="filBBEFC0075A78540E7652DE81051E7BFF" KeyPath="yes" Source="$(sys.SOURCEFILEDIR)..\skins\Default\textures\crit_cap.png" />
             </Component>
             <Component Id="cmpEE71C5D69816A116FFA4E1EE7CF1104F" Directory="dir63C85B14213C83970AD359F9835E2EDE" Guid="*">
-                <File Id="fil6FE038A486C9B35CDDDF47CB59F265F2" KeyPath="yes" Source="$(sys.SOURCEFILEDIR)\..\skins\Default\textures\crit_cap_back.png" />
+                <File Id="fil6FE038A486C9B35CDDDF47CB59F265F2" KeyPath="yes" Source="$(sys.SOURCEFILEDIR)..\skins\Default\textures\crit_cap_back.png" />
             </Component>
             <Component Id="cmpA0B591753F1A165680E3B4FBF5EDF3DA" Directory="dir63C85B14213C83970AD359F9835E2EDE" Guid="*">
-                <File Id="fil49DEE396D6CEEBDDF188136635D348BC" KeyPath="yes" Source="$(sys.SOURCEFILEDIR)\..\skins\Default\textures\cursor.png" />
+                <File Id="fil49DEE396D6CEEBDDF188136635D348BC" KeyPath="yes" Source="$(sys.SOURCEFILEDIR)..\skins\Default\textures\cursor.png" />
             </Component>
             <Component Id="cmpBDE4627BAEFFA5DD17A21F25FAAB7E5F" Directory="dir63C85B14213C83970AD359F9835E2EDE" Guid="*">
-                <File Id="filEFECD822C8ED4E022FC64D138417393B" KeyPath="yes" Source="$(sys.SOURCEFILEDIR)\..\skins\Default\textures\fg_texture.png" />
+                <File Id="filEFECD822C8ED4E022FC64D138417393B" KeyPath="yes" Source="$(sys.SOURCEFILEDIR)..\skins\Default\textures\fg_texture.png" />
             </Component>
             <Component Id="cmp2BDBB01C4995000A1E1E3C71B6412B95" Directory="dir63C85B14213C83970AD359F9835E2EDE" Guid="*">
-                <File Id="fil5B51592BE84A7EBAF3DECCA3754DBEB7" KeyPath="yes" Source="$(sys.SOURCEFILEDIR)\..\skins\Default\textures\fill_top.png" />
+                <File Id="fil5B51592BE84A7EBAF3DECCA3754DBEB7" KeyPath="yes" Source="$(sys.SOURCEFILEDIR)..\skins\Default\textures\fill_top.png" />
             </Component>
             <Component Id="cmpC060D289E4F88E99AD5A50CD94FCE9BB" Directory="dir63C85B14213C83970AD359F9835E2EDE" Guid="*">
-                <File Id="fil5A783819B003B894508BA91E310A8451" KeyPath="yes" Source="$(sys.SOURCEFILEDIR)\..\skins\Default\textures\fxbutton.png" />
+                <File Id="fil5A783819B003B894508BA91E310A8451" KeyPath="yes" Source="$(sys.SOURCEFILEDIR)..\skins\Default\textures\fxbutton.png" />
             </Component>
             <Component Id="cmp20FCEC57F56182696B4EA3AEB0AB9DED" Directory="dir63C85B14213C83970AD359F9835E2EDE" Guid="*">
-                <File Id="filA226A3D3EF1A4195E974BC066F676CED" KeyPath="yes" Source="$(sys.SOURCEFILEDIR)\..\skins\Default\textures\fxbuttonhold.png" />
+                <File Id="filA226A3D3EF1A4195E974BC066F676CED" KeyPath="yes" Source="$(sys.SOURCEFILEDIR)..\skins\Default\textures\fxbuttonhold.png" />
             </Component>
             <Component Id="cmp2008AFA5D1A3D94FC421C5487ACE9F1C" Directory="dir63C85B14213C83970AD359F9835E2EDE" Guid="*">
-                <File Id="fil9BBC7550244E8BDF6D84211405BC4036" KeyPath="yes" Source="$(sys.SOURCEFILEDIR)\..\skins\Default\textures\hitcolors.png" />
+                <File Id="fil9BBC7550244E8BDF6D84211405BC4036" KeyPath="yes" Source="$(sys.SOURCEFILEDIR)..\skins\Default\textures\hitcolors.png" />
             </Component>
             <Component Id="cmp2A4405096667F3776C0B47DEAFC4EA9F" Directory="dir63C85B14213C83970AD359F9835E2EDE" Guid="*">
-                <File Id="filC613F5FC529061E56D916047B99AC047" KeyPath="yes" Source="$(sys.SOURCEFILEDIR)\..\skins\Default\textures\laser_entry_l.png" />
+                <File Id="filC613F5FC529061E56D916047B99AC047" KeyPath="yes" Source="$(sys.SOURCEFILEDIR)..\skins\Default\textures\laser_entry_l.png" />
             </Component>
             <Component Id="cmpC60660D4CEF3B70EEBE07D3B4A9FE432" Directory="dir63C85B14213C83970AD359F9835E2EDE" Guid="*">
-                <File Id="filE9CFD2B59189A428319F08D5BFE6118E" KeyPath="yes" Source="$(sys.SOURCEFILEDIR)\..\skins\Default\textures\laser_entry_r.png" />
+                <File Id="filE9CFD2B59189A428319F08D5BFE6118E" KeyPath="yes" Source="$(sys.SOURCEFILEDIR)..\skins\Default\textures\laser_entry_r.png" />
             </Component>
             <Component Id="cmpBE9B5F56AF310BDAA04B9A7B76C32F28" Directory="dir63C85B14213C83970AD359F9835E2EDE" Guid="*">
-                <File Id="fil99C2377DBBE25A1C1206F7A052DE3B04" KeyPath="yes" Source="$(sys.SOURCEFILEDIR)\..\skins\Default\textures\laser_exit_l.png" />
+                <File Id="fil99C2377DBBE25A1C1206F7A052DE3B04" KeyPath="yes" Source="$(sys.SOURCEFILEDIR)..\skins\Default\textures\laser_exit_l.png" />
             </Component>
             <Component Id="cmp199FCA85A577F5007B4D1CB174D84D59" Directory="dir63C85B14213C83970AD359F9835E2EDE" Guid="*">
-                <File Id="fil656ECB063B6E0CFDE5AEE78182364C0A" KeyPath="yes" Source="$(sys.SOURCEFILEDIR)\..\skins\Default\textures\laser_exit_r.png" />
+                <File Id="fil656ECB063B6E0CFDE5AEE78182364C0A" KeyPath="yes" Source="$(sys.SOURCEFILEDIR)..\skins\Default\textures\laser_exit_r.png" />
             </Component>
             <Component Id="cmp86146289BA83A93AA33E5B5F3F45C557" Directory="dir63C85B14213C83970AD359F9835E2EDE" Guid="*">
-                <File Id="fil8A5A0BE73A6D57AC3C4D7EE3BA0021C3" KeyPath="yes" Source="$(sys.SOURCEFILEDIR)\..\skins\Default\textures\laser_l.png" />
+                <File Id="fil8A5A0BE73A6D57AC3C4D7EE3BA0021C3" KeyPath="yes" Source="$(sys.SOURCEFILEDIR)..\skins\Default\textures\laser_l.png" />
             </Component>
             <Component Id="cmp88C6550B141CEF1E5DDAA22E56685F91" Directory="dir63C85B14213C83970AD359F9835E2EDE" Guid="*">
-                <File Id="fil64C59A76F8F08A916A68A653BB8EFA78" KeyPath="yes" Source="$(sys.SOURCEFILEDIR)\..\skins\Default\textures\laser_r.png" />
+                <File Id="fil64C59A76F8F08A916A68A653BB8EFA78" KeyPath="yes" Source="$(sys.SOURCEFILEDIR)..\skins\Default\textures\laser_r.png" />
             </Component>
             <Component Id="cmp43ED0743A4E91D422CEBC4D2B6062A34" Directory="dir63C85B14213C83970AD359F9835E2EDE" Guid="*">
-                <File Id="fil15823B849B0026F47FEFE09B39B8E3F3" KeyPath="yes" Source="$(sys.SOURCEFILEDIR)\..\skins\Default\textures\particle_flare.png" />
+                <File Id="fil15823B849B0026F47FEFE09B39B8E3F3" KeyPath="yes" Source="$(sys.SOURCEFILEDIR)..\skins\Default\textures\particle_flare.png" />
             </Component>
             <Component Id="cmp9C611B087C4CC2E7F3F37C7DE5B9EAAA" Directory="dir63C85B14213C83970AD359F9835E2EDE" Guid="*">
-                <File Id="fil09082FE86C46898E9857C57301EA75CA" KeyPath="yes" Source="$(sys.SOURCEFILEDIR)\..\skins\Default\textures\pointer.png" />
+                <File Id="fil09082FE86C46898E9857C57301EA75CA" KeyPath="yes" Source="$(sys.SOURCEFILEDIR)..\skins\Default\textures\pointer.png" />
             </Component>
             <Component Id="cmp235848A43A681CDF3ADB4A9D4EBA4711" Directory="dir63C85B14213C83970AD359F9835E2EDE" Guid="*">
-                <File Id="fil2D44C23F38180548EF5178FB69241790" KeyPath="yes" Source="$(sys.SOURCEFILEDIR)\..\skins\Default\textures\pointer_overlay.png" />
+                <File Id="fil2D44C23F38180548EF5178FB69241790" KeyPath="yes" Source="$(sys.SOURCEFILEDIR)..\skins\Default\textures\pointer_overlay.png" />
             </Component>
             <Component Id="cmp50DFA5D60A7C070E0A021973D6D585FB" Directory="dir63C85B14213C83970AD359F9835E2EDE" Guid="*">
-                <File Id="fil0EBC1B298B69EE010C433DAC3AC08F76" KeyPath="yes" Source="$(sys.SOURCEFILEDIR)\..\skins\Default\textures\score0.png" />
+                <File Id="fil0EBC1B298B69EE010C433DAC3AC08F76" KeyPath="yes" Source="$(sys.SOURCEFILEDIR)..\skins\Default\textures\score0.png" />
             </Component>
             <Component Id="cmp85AA6FA6D1C9CFC349E626A64536EE05" Directory="dir63C85B14213C83970AD359F9835E2EDE" Guid="*">
-                <File Id="filE437F548AD7A2CFE02FCC4444DC2CEDB" KeyPath="yes" Source="$(sys.SOURCEFILEDIR)\..\skins\Default\textures\score1.png" />
+                <File Id="filE437F548AD7A2CFE02FCC4444DC2CEDB" KeyPath="yes" Source="$(sys.SOURCEFILEDIR)..\skins\Default\textures\score1.png" />
             </Component>
             <Component Id="cmp1B7FDBE0517FE8A3F8EF0DB744EC4B39" Directory="dir63C85B14213C83970AD359F9835E2EDE" Guid="*">
-                <File Id="filF260AA0F03FEAC89F9B6E467EC2E0AD3" KeyPath="yes" Source="$(sys.SOURCEFILEDIR)\..\skins\Default\textures\score2.png" />
+                <File Id="filF260AA0F03FEAC89F9B6E467EC2E0AD3" KeyPath="yes" Source="$(sys.SOURCEFILEDIR)..\skins\Default\textures\score2.png" />
             </Component>
             <Component Id="cmp46AB8BC47D17CD97698DA55E793B64C1" Directory="dir63C85B14213C83970AD359F9835E2EDE" Guid="*">
-                <File Id="fil4941D65EE218206EE43389B8A32AF60A" KeyPath="yes" Source="$(sys.SOURCEFILEDIR)\..\skins\Default\textures\scorehit.png" />
+                <File Id="fil4941D65EE218206EE43389B8A32AF60A" KeyPath="yes" Source="$(sys.SOURCEFILEDIR)..\skins\Default\textures\scorehit.png" />
             </Component>
             <Component Id="cmpB0449C6C87469697937CDFC930D305A3" Directory="dir63C85B14213C83970AD359F9835E2EDE" Guid="*">
-                <File Id="fil161AD62DB2386D413BB5389ADFF15A82" KeyPath="yes" Source="$(sys.SOURCEFILEDIR)\..\skins\Default\textures\tick.png" />
+                <File Id="fil161AD62DB2386D413BB5389ADFF15A82" KeyPath="yes" Source="$(sys.SOURCEFILEDIR)..\skins\Default\textures\tick.png" />
             </Component>
             <Component Id="cmpC51AF1E928027DF4B360D59015D60E75" Directory="dir63C85B14213C83970AD359F9835E2EDE" Guid="*">
-                <File Id="fil22190984DE0308E41DAC0F1C94D68197" KeyPath="yes" Source="$(sys.SOURCEFILEDIR)\..\skins\Default\textures\track.png" />
+                <File Id="fil22190984DE0308E41DAC0F1C94D68197" KeyPath="yes" Source="$(sys.SOURCEFILEDIR)..\skins\Default\textures\track.png" />
             </Component>
             <Component Id="cmp1E85F5D6CAA2DC2BB621ECA1032CE100" Directory="dir63C85B14213C83970AD359F9835E2EDE" Guid="*">
-                <File Id="fil4D3110D93F415472D18A64CDE094E54D" KeyPath="yes" Source="$(sys.SOURCEFILEDIR)\..\skins\Default\textures\trackCover.png" />
+                <File Id="fil4D3110D93F415472D18A64CDE094E54D" KeyPath="yes" Source="$(sys.SOURCEFILEDIR)..\skins\Default\textures\trackCover.png" />
             </Component>
             <Component Id="cmp4562D20031708527FDC52077E924A761" Directory="dirDA28A541675DC66B5C943C4B4FA1B0BA" Guid="*">
-                <File Id="fil53FEF40AB1B8F0511F4751BAB55A32AC" KeyPath="yes" Source="$(sys.SOURCEFILEDIR)\..\skins\Default\textures\badges\clear.png" />
+                <File Id="fil53FEF40AB1B8F0511F4751BAB55A32AC" KeyPath="yes" Source="$(sys.SOURCEFILEDIR)..\skins\Default\textures\badges\clear.png" />
             </Component>
             <Component Id="cmpDD30195A2B7DA1CD2F940D1A01B047CD" Directory="dirDA28A541675DC66B5C943C4B4FA1B0BA" Guid="*">
-                <File Id="fil5D43207BDE80F820CEF508384F843153" KeyPath="yes" Source="$(sys.SOURCEFILEDIR)\..\skins\Default\textures\badges\full-combo.png" />
+                <File Id="fil5D43207BDE80F820CEF508384F843153" KeyPath="yes" Source="$(sys.SOURCEFILEDIR)..\skins\Default\textures\badges\full-combo.png" />
             </Component>
             <Component Id="cmpB4D032AF2592F48F4867B555B7299E86" Directory="dirDA28A541675DC66B5C943C4B4FA1B0BA" Guid="*">
-                <File Id="fil9D36B8BFFC4E6E8D4B61807508D7D414" KeyPath="yes" Source="$(sys.SOURCEFILEDIR)\..\skins\Default\textures\badges\hard-clear.png" />
+                <File Id="fil9D36B8BFFC4E6E8D4B61807508D7D414" KeyPath="yes" Source="$(sys.SOURCEFILEDIR)..\skins\Default\textures\badges\hard-clear.png" />
             </Component>
             <Component Id="cmpCD0861DE393D84B656674FA751765170" Directory="dirDA28A541675DC66B5C943C4B4FA1B0BA" Guid="*">
-                <File Id="filFAD49714B83C29B2F07768DDF08728FF" KeyPath="yes" Source="$(sys.SOURCEFILEDIR)\..\skins\Default\textures\badges\perfect.png" />
+                <File Id="filFAD49714B83C29B2F07768DDF08728FF" KeyPath="yes" Source="$(sys.SOURCEFILEDIR)..\skins\Default\textures\badges\perfect.png" />
             </Component>
             <Component Id="cmp94E47D7882DC65573AAE4F4FC9B806A3" Directory="dirDA28A541675DC66B5C943C4B4FA1B0BA" Guid="*">
-                <File Id="fil20602BAA02E960F2CBA5974245B19758" KeyPath="yes" Source="$(sys.SOURCEFILEDIR)\..\skins\Default\textures\badges\played.png" />
+                <File Id="fil20602BAA02E960F2CBA5974245B19758" KeyPath="yes" Source="$(sys.SOURCEFILEDIR)..\skins\Default\textures\badges\played.png" />
             </Component>
             <Component Id="cmp77B5F15939CD6C986292FCD27F5C9E4A" Directory="dirFE3B351B14BDBF37956CD8FDC74C66CB" Guid="*">
-                <File Id="fil988FB7470E97CA8C6C94F3C3405C8259" KeyPath="yes" Source="$(sys.SOURCEFILEDIR)\..\skins\Default\textures\console\console.png" />
+                <File Id="fil988FB7470E97CA8C6C94F3C3405C8259" KeyPath="yes" Source="$(sys.SOURCEFILEDIR)..\skins\Default\textures\console\console.png" />
             </Component>
             <Component Id="cmp62F012BCABD916D2FDAE20EDEC5748A3" Directory="dirFE3B351B14BDBF37956CD8FDC74C66CB" Guid="*">
-                <File Id="filA1250B26305023072CEC016DA678A5F2" KeyPath="yes" Source="$(sys.SOURCEFILEDIR)\..\skins\Default\textures\console\detail_left.png" />
+                <File Id="filA1250B26305023072CEC016DA678A5F2" KeyPath="yes" Source="$(sys.SOURCEFILEDIR)..\skins\Default\textures\console\detail_left.png" />
             </Component>
             <Component Id="cmpBDBE61D73979686F28462707A311F0B6" Directory="dirFE3B351B14BDBF37956CD8FDC74C66CB" Guid="*">
-                <File Id="fil47D36074DF7A38A427094E7688808A38" KeyPath="yes" Source="$(sys.SOURCEFILEDIR)\..\skins\Default\textures\console\detail_right.png" />
+                <File Id="fil47D36074DF7A38A427094E7688808A38" KeyPath="yes" Source="$(sys.SOURCEFILEDIR)..\skins\Default\textures\console\detail_right.png" />
             </Component>
             <Component Id="cmpCC8DD0FEBDFF9BB6592D82C610D629B4" Directory="dirFE3B351B14BDBF37956CD8FDC74C66CB" Guid="*">
-                <File Id="filD8E468C031A5FEE74001D9727E0800B1" KeyPath="yes" Source="$(sys.SOURCEFILEDIR)\..\skins\Default\textures\console\glow_bta.png" />
+                <File Id="filD8E468C031A5FEE74001D9727E0800B1" KeyPath="yes" Source="$(sys.SOURCEFILEDIR)..\skins\Default\textures\console\glow_bta.png" />
             </Component>
             <Component Id="cmp21F4FD5C90D79CD7802041A20F72FF45" Directory="dirFE3B351B14BDBF37956CD8FDC74C66CB" Guid="*">
-                <File Id="fil97D3DB56706FCA42E277AEA590F752E5" KeyPath="yes" Source="$(sys.SOURCEFILEDIR)\..\skins\Default\textures\console\glow_btb.png" />
+                <File Id="fil97D3DB56706FCA42E277AEA590F752E5" KeyPath="yes" Source="$(sys.SOURCEFILEDIR)..\skins\Default\textures\console\glow_btb.png" />
             </Component>
             <Component Id="cmp11BFF76585DA932B331B93F249C71D88" Directory="dirFE3B351B14BDBF37956CD8FDC74C66CB" Guid="*">
-                <File Id="fil8738B5496C5B72F8C799EEDF485B59C1" KeyPath="yes" Source="$(sys.SOURCEFILEDIR)\..\skins\Default\textures\console\glow_btc.png" />
+                <File Id="fil8738B5496C5B72F8C799EEDF485B59C1" KeyPath="yes" Source="$(sys.SOURCEFILEDIR)..\skins\Default\textures\console\glow_btc.png" />
             </Component>
             <Component Id="cmpECF13A47E72B2AC2CBF9ED5C1BCD6D15" Directory="dirFE3B351B14BDBF37956CD8FDC74C66CB" Guid="*">
-                <File Id="filCF998CEFEFBB585D2241C44F4826B0B1" KeyPath="yes" Source="$(sys.SOURCEFILEDIR)\..\skins\Default\textures\console\glow_btd.png" />
+                <File Id="filCF998CEFEFBB585D2241C44F4826B0B1" KeyPath="yes" Source="$(sys.SOURCEFILEDIR)..\skins\Default\textures\console\glow_btd.png" />
             </Component>
             <Component Id="cmp09D368B2EBA63B635175AC6EC6AB7EC2" Directory="dirFE3B351B14BDBF37956CD8FDC74C66CB" Guid="*">
-                <File Id="filAFA57F77032CB099502030C5C78387AA" KeyPath="yes" Source="$(sys.SOURCEFILEDIR)\..\skins\Default\textures\console\glow_fxl.png" />
+                <File Id="filAFA57F77032CB099502030C5C78387AA" KeyPath="yes" Source="$(sys.SOURCEFILEDIR)..\skins\Default\textures\console\glow_fxl.png" />
             </Component>
             <Component Id="cmp52DDF09A567959743C20842F444C72E5" Directory="dirFE3B351B14BDBF37956CD8FDC74C66CB" Guid="*">
-                <File Id="filC903FC8A1F3362924B6F56D3F1EE0DA7" KeyPath="yes" Source="$(sys.SOURCEFILEDIR)\..\skins\Default\textures\console\glow_fxr.png" />
+                <File Id="filC903FC8A1F3362924B6F56D3F1EE0DA7" KeyPath="yes" Source="$(sys.SOURCEFILEDIR)..\skins\Default\textures\console\glow_fxr.png" />
             </Component>
             <Component Id="cmp6D85AF43640B7C459D9F53CEEB00213A" Directory="dirFE3B351B14BDBF37956CD8FDC74C66CB" Guid="*">
-                <File Id="filE003757C9C7763F7A033748E47BEF3B4" KeyPath="yes" Source="$(sys.SOURCEFILEDIR)\..\skins\Default\textures\console\glow_voll.png" />
+                <File Id="filE003757C9C7763F7A033748E47BEF3B4" KeyPath="yes" Source="$(sys.SOURCEFILEDIR)..\skins\Default\textures\console\glow_voll.png" />
             </Component>
             <Component Id="cmp5F8F40E4948464392EE898A0A2E37C3D" Directory="dirFE3B351B14BDBF37956CD8FDC74C66CB" Guid="*">
-                <File Id="filF8B8C2EA9F95481983E474F36BB3DA0A" KeyPath="yes" Source="$(sys.SOURCEFILEDIR)\..\skins\Default\textures\console\glow_volr.png" />
+                <File Id="filF8B8C2EA9F95481983E474F36BB3DA0A" KeyPath="yes" Source="$(sys.SOURCEFILEDIR)..\skins\Default\textures\console\glow_volr.png" />
             </Component>
             <Component Id="cmp048D5CCAB01CE7B4045B93D2E6DD5191" Directory="dir3CE6B8BA46D1947816ECBFA19BDBD23B" Guid="*">
-                <File Id="filF5CE54C66D896FE22F72A0524A48E970" KeyPath="yes" Source="$(sys.SOURCEFILEDIR)\..\skins\Default\textures\gauges\blastive\gauge_back.png" />
+                <File Id="filF5CE54C66D896FE22F72A0524A48E970" KeyPath="yes" Source="$(sys.SOURCEFILEDIR)..\skins\Default\textures\gauges\blastive\gauge_back.png" />
             </Component>
             <Component Id="cmp83562CB02D6C0938F36A8796A98B6873" Directory="dir3CE6B8BA46D1947816ECBFA19BDBD23B" Guid="*">
-                <File Id="fil76FAEEE428E4A137603D17CA36561D4F" KeyPath="yes" Source="$(sys.SOURCEFILEDIR)\..\skins\Default\textures\gauges\blastive\gauge_fill.png" />
+                <File Id="fil76FAEEE428E4A137603D17CA36561D4F" KeyPath="yes" Source="$(sys.SOURCEFILEDIR)..\skins\Default\textures\gauges\blastive\gauge_fill.png" />
             </Component>
             <Component Id="cmp2725D14DC161B7C65ED6471F4F5D7755" Directory="dir3CE6B8BA46D1947816ECBFA19BDBD23B" Guid="*">
-                <File Id="filA5AC59D3A1C0701493FE31DC625CD3C1" KeyPath="yes" Source="$(sys.SOURCEFILEDIR)\..\skins\Default\textures\gauges\blastive\gauge_front.png" />
+                <File Id="filA5AC59D3A1C0701493FE31DC625CD3C1" KeyPath="yes" Source="$(sys.SOURCEFILEDIR)..\skins\Default\textures\gauges\blastive\gauge_front.png" />
             </Component>
             <Component Id="cmp567F50D74E0521B628D6BDB03F1CC0BE" Directory="dir3CE6B8BA46D1947816ECBFA19BDBD23B" Guid="*">
-                <File Id="fil59DD73DD86546E818D5E5885D95642DC" KeyPath="yes" Source="$(sys.SOURCEFILEDIR)\..\skins\Default\textures\gauges\blastive\gauge_mask.png" />
+                <File Id="fil59DD73DD86546E818D5E5885D95642DC" KeyPath="yes" Source="$(sys.SOURCEFILEDIR)..\skins\Default\textures\gauges\blastive\gauge_mask.png" />
             </Component>
             <Component Id="cmp54A7226B387C48715FD03331C0B43D61" Directory="dir1F473E4D26381B4CB1D2DA04CA526AC2" Guid="*">
-                <File Id="fil9A5C1A998F2B564E60C70C949D105DFA" KeyPath="yes" Source="$(sys.SOURCEFILEDIR)\..\skins\Default\textures\gauges\hard\gauge_back.png" />
+                <File Id="fil9A5C1A998F2B564E60C70C949D105DFA" KeyPath="yes" Source="$(sys.SOURCEFILEDIR)..\skins\Default\textures\gauges\hard\gauge_back.png" />
             </Component>
             <Component Id="cmp1ECA26A83A86260B55A22C629592389E" Directory="dir1F473E4D26381B4CB1D2DA04CA526AC2" Guid="*">
-                <File Id="fil9399DF908A5EA50281AF1623FB45D71F" KeyPath="yes" Source="$(sys.SOURCEFILEDIR)\..\skins\Default\textures\gauges\hard\gauge_fill.png" />
+                <File Id="fil9399DF908A5EA50281AF1623FB45D71F" KeyPath="yes" Source="$(sys.SOURCEFILEDIR)..\skins\Default\textures\gauges\hard\gauge_fill.png" />
             </Component>
             <Component Id="cmpBFDFCE6A5BB964CB2643E3A6059C4385" Directory="dir1F473E4D26381B4CB1D2DA04CA526AC2" Guid="*">
-                <File Id="fil7CF8FAA5180A84206657F8ED084C68F9" KeyPath="yes" Source="$(sys.SOURCEFILEDIR)\..\skins\Default\textures\gauges\hard\gauge_front.png" />
+                <File Id="fil7CF8FAA5180A84206657F8ED084C68F9" KeyPath="yes" Source="$(sys.SOURCEFILEDIR)..\skins\Default\textures\gauges\hard\gauge_front.png" />
             </Component>
             <Component Id="cmpE8F54430DADE5E9C731428D6ECA22B9C" Directory="dir1F473E4D26381B4CB1D2DA04CA526AC2" Guid="*">
-                <File Id="fil6806DE31028AB5BCF16081E0C9754D30" KeyPath="yes" Source="$(sys.SOURCEFILEDIR)\..\skins\Default\textures\gauges\hard\gauge_mask.png" />
+                <File Id="fil6806DE31028AB5BCF16081E0C9754D30" KeyPath="yes" Source="$(sys.SOURCEFILEDIR)..\skins\Default\textures\gauges\hard\gauge_mask.png" />
             </Component>
             <Component Id="cmp56FCCF90E56890025634EF4FFDB70F2B" Directory="dir401FDAED666D1B56D754154E0A3FF6D7" Guid="*">
-                <File Id="filDCD926A88F1C327F5B4E1ACF2702FCAC" KeyPath="yes" Source="$(sys.SOURCEFILEDIR)\..\skins\Default\textures\gauges\normal\gauge_back.png" />
+                <File Id="filDCD926A88F1C327F5B4E1ACF2702FCAC" KeyPath="yes" Source="$(sys.SOURCEFILEDIR)..\skins\Default\textures\gauges\normal\gauge_back.png" />
             </Component>
             <Component Id="cmp7F635CF591B693842E8BC0C9B68051E4" Directory="dir401FDAED666D1B56D754154E0A3FF6D7" Guid="*">
-                <File Id="filA2ACE025BEF5BDC3DDD650559CB1C633" KeyPath="yes" Source="$(sys.SOURCEFILEDIR)\..\skins\Default\textures\gauges\normal\gauge_fill.png" />
+                <File Id="filA2ACE025BEF5BDC3DDD650559CB1C633" KeyPath="yes" Source="$(sys.SOURCEFILEDIR)..\skins\Default\textures\gauges\normal\gauge_fill.png" />
             </Component>
             <Component Id="cmp25C6AD0F2FE11412CDCD7141A7E9454F" Directory="dir401FDAED666D1B56D754154E0A3FF6D7" Guid="*">
-                <File Id="filA1F41FDB136A052BA1591E982B4E9FE6" KeyPath="yes" Source="$(sys.SOURCEFILEDIR)\..\skins\Default\textures\gauges\normal\gauge_front.png" />
+                <File Id="filA1F41FDB136A052BA1591E982B4E9FE6" KeyPath="yes" Source="$(sys.SOURCEFILEDIR)..\skins\Default\textures\gauges\normal\gauge_front.png" />
             </Component>
             <Component Id="cmp57F87F2BA6503ED5C60BF93193CAA116" Directory="dir401FDAED666D1B56D754154E0A3FF6D7" Guid="*">
-                <File Id="fil12205B4013D3CDA3E6633B053CC357B2" KeyPath="yes" Source="$(sys.SOURCEFILEDIR)\..\skins\Default\textures\gauges\normal\gauge_mask.png" />
+                <File Id="fil12205B4013D3CDA3E6633B053CC357B2" KeyPath="yes" Source="$(sys.SOURCEFILEDIR)..\skins\Default\textures\gauges\normal\gauge_mask.png" />
             </Component>
             <Component Id="cmp37AF46E1217EE109B3AC0460679C3D73" Directory="dir37864BDAA8650F4C0D4B38FB9FF499AA" Guid="*">
-                <File Id="filAE40C162B4447D935BA553B881ECC0F3" KeyPath="yes" Source="$(sys.SOURCEFILEDIR)\..\skins\Default\textures\gauges\permissive\gauge_back.png" />
+                <File Id="filAE40C162B4447D935BA553B881ECC0F3" KeyPath="yes" Source="$(sys.SOURCEFILEDIR)..\skins\Default\textures\gauges\permissive\gauge_back.png" />
             </Component>
             <Component Id="cmpAE7B0BB987EA0FF96C0E8E5BB2448C29" Directory="dir37864BDAA8650F4C0D4B38FB9FF499AA" Guid="*">
-                <File Id="fil6BDCC1BC3C999179E60C8CD14F08C9BF" KeyPath="yes" Source="$(sys.SOURCEFILEDIR)\..\skins\Default\textures\gauges\permissive\gauge_fill.png" />
+                <File Id="fil6BDCC1BC3C999179E60C8CD14F08C9BF" KeyPath="yes" Source="$(sys.SOURCEFILEDIR)..\skins\Default\textures\gauges\permissive\gauge_fill.png" />
             </Component>
             <Component Id="cmp141DD2F01A6B6ED76708926D644DF1EA" Directory="dir37864BDAA8650F4C0D4B38FB9FF499AA" Guid="*">
-                <File Id="filD5825603F78E47B03C5471BF78FCB649" KeyPath="yes" Source="$(sys.SOURCEFILEDIR)\..\skins\Default\textures\gauges\permissive\gauge_front.png" />
+                <File Id="filD5825603F78E47B03C5471BF78FCB649" KeyPath="yes" Source="$(sys.SOURCEFILEDIR)..\skins\Default\textures\gauges\permissive\gauge_front.png" />
             </Component>
             <Component Id="cmp873F101B8D1DEE4367F4426F44C6FD7D" Directory="dir37864BDAA8650F4C0D4B38FB9FF499AA" Guid="*">
-                <File Id="fil8EF5C90ECC6139E48E9E104F4A330FB5" KeyPath="yes" Source="$(sys.SOURCEFILEDIR)\..\skins\Default\textures\gauges\permissive\gauge_mask.png" />
+                <File Id="fil8EF5C90ECC6139E48E9E104F4A330FB5" KeyPath="yes" Source="$(sys.SOURCEFILEDIR)..\skins\Default\textures\gauges\permissive\gauge_mask.png" />
             </Component>
             <Component Id="cmp7717E086273C0AE7354A2A0DFC505659" Directory="dirC0558C16608E06E93F699245F5A1827E" Guid="*">
-                <File Id="filD57CEA866755183CD0FFBDBFAABCF251" KeyPath="yes" Source="$(sys.SOURCEFILEDIR)\..\skins\Default\textures\legend\BT-A.png" />
+                <File Id="filD57CEA866755183CD0FFBDBFAABCF251" KeyPath="yes" Source="$(sys.SOURCEFILEDIR)..\skins\Default\textures\legend\BT-A.png" />
             </Component>
             <Component Id="cmpDD5C59BF7A719E367AF59634D9A09BBD" Directory="dirC0558C16608E06E93F699245F5A1827E" Guid="*">
-                <File Id="fil160F130D30CD91FE37FF1516A27B092F" KeyPath="yes" Source="$(sys.SOURCEFILEDIR)\..\skins\Default\textures\legend\BT-AB.png" />
+                <File Id="fil160F130D30CD91FE37FF1516A27B092F" KeyPath="yes" Source="$(sys.SOURCEFILEDIR)..\skins\Default\textures\legend\BT-AB.png" />
             </Component>
             <Component Id="cmp192B96965C2CD4D4CF899D5815F5E7FF" Directory="dirC0558C16608E06E93F699245F5A1827E" Guid="*">
-                <File Id="fil684023645EC938E7C66132E864BE7A3A" KeyPath="yes" Source="$(sys.SOURCEFILEDIR)\..\skins\Default\textures\legend\BT-ABC.png" />
+                <File Id="fil684023645EC938E7C66132E864BE7A3A" KeyPath="yes" Source="$(sys.SOURCEFILEDIR)..\skins\Default\textures\legend\BT-ABC.png" />
             </Component>
             <Component Id="cmp962E73AFC93F312216100949DF7485AF" Directory="dirC0558C16608E06E93F699245F5A1827E" Guid="*">
-                <File Id="filE2738115BD51B9FC18A7318E1642CEBD" KeyPath="yes" Source="$(sys.SOURCEFILEDIR)\..\skins\Default\textures\legend\BT-ABCD.png" />
+                <File Id="filE2738115BD51B9FC18A7318E1642CEBD" KeyPath="yes" Source="$(sys.SOURCEFILEDIR)..\skins\Default\textures\legend\BT-ABCD.png" />
             </Component>
             <Component Id="cmp9732618B92538E14E16EA5BFD1BD0996" Directory="dirC0558C16608E06E93F699245F5A1827E" Guid="*">
-                <File Id="fil3FFA94CA87BD30E09FCCEBDF318DDD80" KeyPath="yes" Source="$(sys.SOURCEFILEDIR)\..\skins\Default\textures\legend\BT-ABD.png" />
+                <File Id="fil3FFA94CA87BD30E09FCCEBDF318DDD80" KeyPath="yes" Source="$(sys.SOURCEFILEDIR)..\skins\Default\textures\legend\BT-ABD.png" />
             </Component>
             <Component Id="cmp6E9959F600729BD3C3DF93BBADC6B519" Directory="dirC0558C16608E06E93F699245F5A1827E" Guid="*">
-                <File Id="filB8135DD8E27A875DB91664431E901DF1" KeyPath="yes" Source="$(sys.SOURCEFILEDIR)\..\skins\Default\textures\legend\BT-AC.png" />
+                <File Id="filB8135DD8E27A875DB91664431E901DF1" KeyPath="yes" Source="$(sys.SOURCEFILEDIR)..\skins\Default\textures\legend\BT-AC.png" />
             </Component>
             <Component Id="cmp04782EE0AA7E0631CC0C3CC1C95D2D12" Directory="dirC0558C16608E06E93F699245F5A1827E" Guid="*">
-                <File Id="filE1B9E921D1000A31144D335E03369D09" KeyPath="yes" Source="$(sys.SOURCEFILEDIR)\..\skins\Default\textures\legend\BT-ACD.png" />
+                <File Id="filE1B9E921D1000A31144D335E03369D09" KeyPath="yes" Source="$(sys.SOURCEFILEDIR)..\skins\Default\textures\legend\BT-ACD.png" />
             </Component>
             <Component Id="cmpBD5C3BF56483CF79870A6608D3EB0A4E" Directory="dirC0558C16608E06E93F699245F5A1827E" Guid="*">
-                <File Id="filD61EB56A5AA04BC431D5E7788A1605DB" KeyPath="yes" Source="$(sys.SOURCEFILEDIR)\..\skins\Default\textures\legend\BT-AD.png" />
+                <File Id="filD61EB56A5AA04BC431D5E7788A1605DB" KeyPath="yes" Source="$(sys.SOURCEFILEDIR)..\skins\Default\textures\legend\BT-AD.png" />
             </Component>
             <Component Id="cmp5B2E1A0A2CADDBFEFCD5A239850390D9" Directory="dirC0558C16608E06E93F699245F5A1827E" Guid="*">
-                <File Id="fil0D1F961449289F478ED110089D48E42F" KeyPath="yes" Source="$(sys.SOURCEFILEDIR)\..\skins\Default\textures\legend\BT-B.png" />
+                <File Id="fil0D1F961449289F478ED110089D48E42F" KeyPath="yes" Source="$(sys.SOURCEFILEDIR)..\skins\Default\textures\legend\BT-B.png" />
             </Component>
             <Component Id="cmp884513A904E74E0BC8DA7021AD833FFE" Directory="dirC0558C16608E06E93F699245F5A1827E" Guid="*">
-                <File Id="fil301CC774005AD86AED9B89DD471A5F3A" KeyPath="yes" Source="$(sys.SOURCEFILEDIR)\..\skins\Default\textures\legend\BT-BC.png" />
+                <File Id="fil301CC774005AD86AED9B89DD471A5F3A" KeyPath="yes" Source="$(sys.SOURCEFILEDIR)..\skins\Default\textures\legend\BT-BC.png" />
             </Component>
             <Component Id="cmpC343FBB8B1DF8E4EE6E3C20ECFE8BB49" Directory="dirC0558C16608E06E93F699245F5A1827E" Guid="*">
-                <File Id="filAA2A275A3FE12E2F518D77741091F4B7" KeyPath="yes" Source="$(sys.SOURCEFILEDIR)\..\skins\Default\textures\legend\BT-BCD.png" />
+                <File Id="filAA2A275A3FE12E2F518D77741091F4B7" KeyPath="yes" Source="$(sys.SOURCEFILEDIR)..\skins\Default\textures\legend\BT-BCD.png" />
             </Component>
             <Component Id="cmpC3BE49F1FBF142F03FC45B212B11F93D" Directory="dirC0558C16608E06E93F699245F5A1827E" Guid="*">
-                <File Id="fil595BCFD8EDF48DC9D1BA16B6C00CD1AF" KeyPath="yes" Source="$(sys.SOURCEFILEDIR)\..\skins\Default\textures\legend\BT-BD.png" />
+                <File Id="fil595BCFD8EDF48DC9D1BA16B6C00CD1AF" KeyPath="yes" Source="$(sys.SOURCEFILEDIR)..\skins\Default\textures\legend\BT-BD.png" />
             </Component>
             <Component Id="cmpAD8BCB6B8604DD203C6BCB56F2B4AD26" Directory="dirC0558C16608E06E93F699245F5A1827E" Guid="*">
-                <File Id="filE387F1EAF180E3BFBE7E7BD1C9262598" KeyPath="yes" Source="$(sys.SOURCEFILEDIR)\..\skins\Default\textures\legend\BT-C.png" />
+                <File Id="filE387F1EAF180E3BFBE7E7BD1C9262598" KeyPath="yes" Source="$(sys.SOURCEFILEDIR)..\skins\Default\textures\legend\BT-C.png" />
             </Component>
             <Component Id="cmpD1D6642EB3AA9DC874D25CF176C52836" Directory="dirC0558C16608E06E93F699245F5A1827E" Guid="*">
-                <File Id="fil50966A06DEF16C14778237D929C340D1" KeyPath="yes" Source="$(sys.SOURCEFILEDIR)\..\skins\Default\textures\legend\BT-CD.png" />
+                <File Id="fil50966A06DEF16C14778237D929C340D1" KeyPath="yes" Source="$(sys.SOURCEFILEDIR)..\skins\Default\textures\legend\BT-CD.png" />
             </Component>
             <Component Id="cmp86EE553390CC8BFD802BCA32022F5DC9" Directory="dirC0558C16608E06E93F699245F5A1827E" Guid="*">
-                <File Id="fil00AC37E5126EB0B75C7EEAFF83955C60" KeyPath="yes" Source="$(sys.SOURCEFILEDIR)\..\skins\Default\textures\legend\BT-D.png" />
+                <File Id="fil00AC37E5126EB0B75C7EEAFF83955C60" KeyPath="yes" Source="$(sys.SOURCEFILEDIR)..\skins\Default\textures\legend\BT-D.png" />
             </Component>
             <Component Id="cmpC5DCDACBB98D8952F967C620B4E1ABDA" Directory="dirC0558C16608E06E93F699245F5A1827E" Guid="*">
-                <File Id="fil8E58FA9D019A514D800BADCADCAC073E" KeyPath="yes" Source="$(sys.SOURCEFILEDIR)\..\skins\Default\textures\legend\FX-L.png" />
+                <File Id="fil8E58FA9D019A514D800BADCADCAC073E" KeyPath="yes" Source="$(sys.SOURCEFILEDIR)..\skins\Default\textures\legend\FX-L.png" />
             </Component>
             <Component Id="cmp747928535CB9F6FC8EDA31F4DC9B2B12" Directory="dirC0558C16608E06E93F699245F5A1827E" Guid="*">
-                <File Id="fil20D50B9EA6CADF967357870D75742D4D" KeyPath="yes" Source="$(sys.SOURCEFILEDIR)\..\skins\Default\textures\legend\FX-LR.png" />
+                <File Id="fil20D50B9EA6CADF967357870D75742D4D" KeyPath="yes" Source="$(sys.SOURCEFILEDIR)..\skins\Default\textures\legend\FX-LR.png" />
             </Component>
             <Component Id="cmp9220ADC81206BE28B4439915EDDE8CBA" Directory="dirC0558C16608E06E93F699245F5A1827E" Guid="*">
-                <File Id="filBE9B3A123960CCF1433F0F2DA395871D" KeyPath="yes" Source="$(sys.SOURCEFILEDIR)\..\skins\Default\textures\legend\FX-R.png" />
+                <File Id="filBE9B3A123960CCF1433F0F2DA395871D" KeyPath="yes" Source="$(sys.SOURCEFILEDIR)..\skins\Default\textures\legend\FX-R.png" />
             </Component>
             <Component Id="cmp44B78912A4A0DA43285463E75DAFBD2E" Directory="dirC0558C16608E06E93F699245F5A1827E" Guid="*">
-                <File Id="filF3CB148B5DD56F084E8C67CF5AD788CE" KeyPath="yes" Source="$(sys.SOURCEFILEDIR)\..\skins\Default\textures\legend\knob-left.png" />
+                <File Id="filF3CB148B5DD56F084E8C67CF5AD788CE" KeyPath="yes" Source="$(sys.SOURCEFILEDIR)..\skins\Default\textures\legend\knob-left.png" />
             </Component>
             <Component Id="cmp052ABA06BF3A8E4EB1BC95F818351A7B" Directory="dirC0558C16608E06E93F699245F5A1827E" Guid="*">
-                <File Id="fil358310A3319D80036E21489C5CDFC46A" KeyPath="yes" Source="$(sys.SOURCEFILEDIR)\..\skins\Default\textures\legend\knob-right.png" />
+                <File Id="fil358310A3319D80036E21489C5CDFC46A" KeyPath="yes" Source="$(sys.SOURCEFILEDIR)..\skins\Default\textures\legend\knob-right.png" />
             </Component>
             <Component Id="cmp733FDB920C043990C474E849A9A59D41" Directory="dirC0558C16608E06E93F699245F5A1827E" Guid="*">
-                <File Id="filF1833053E239299872D72FCFA23E366E" KeyPath="yes" Source="$(sys.SOURCEFILEDIR)\..\skins\Default\textures\legend\start.png" />
+                <File Id="filF1833053E239299872D72FCFA23E366E" KeyPath="yes" Source="$(sys.SOURCEFILEDIR)..\skins\Default\textures\legend\start.png" />
             </Component>
             <Component Id="cmp3D1DE97B77370A765EB5C477A1CCC2B8" Directory="dir6AB1EA4C4D75B24D1EFA87E74C19C52A" Guid="*">
-                <File Id="fil1D57FD16AB609084F9248BC4420AC5F0" KeyPath="yes" Source="$(sys.SOURCEFILEDIR)\..\skins\Default\textures\score\A+.png" />
+                <File Id="fil1D57FD16AB609084F9248BC4420AC5F0" KeyPath="yes" Source="$(sys.SOURCEFILEDIR)..\skins\Default\textures\score\A+.png" />
             </Component>
             <Component Id="cmpB8793AAACD653B0EB6D3464E6DE6DEF5" Directory="dir6AB1EA4C4D75B24D1EFA87E74C19C52A" Guid="*">
-                <File Id="fil60E49EF7FF5CC8602F4D2313D9D13556" KeyPath="yes" Source="$(sys.SOURCEFILEDIR)\..\skins\Default\textures\score\A.png" />
+                <File Id="fil60E49EF7FF5CC8602F4D2313D9D13556" KeyPath="yes" Source="$(sys.SOURCEFILEDIR)..\skins\Default\textures\score\A.png" />
             </Component>
             <Component Id="cmpACC035C95BC239235B04EDB491D3655C" Directory="dir6AB1EA4C4D75B24D1EFA87E74C19C52A" Guid="*">
-                <File Id="fil72FD87A4E2C0ACE5F4947B3B5B875035" KeyPath="yes" Source="$(sys.SOURCEFILEDIR)\..\skins\Default\textures\score\AA+.png" />
+                <File Id="fil72FD87A4E2C0ACE5F4947B3B5B875035" KeyPath="yes" Source="$(sys.SOURCEFILEDIR)..\skins\Default\textures\score\AA+.png" />
             </Component>
             <Component Id="cmp3CE414C1F5D22EEA8C9940868978990B" Directory="dir6AB1EA4C4D75B24D1EFA87E74C19C52A" Guid="*">
-                <File Id="fil0BB375B1DCC0B01D8E1E9821AF52F84F" KeyPath="yes" Source="$(sys.SOURCEFILEDIR)\..\skins\Default\textures\score\AA.png" />
+                <File Id="fil0BB375B1DCC0B01D8E1E9821AF52F84F" KeyPath="yes" Source="$(sys.SOURCEFILEDIR)..\skins\Default\textures\score\AA.png" />
             </Component>
             <Component Id="cmp3FB706C966DEAEF0A7FDB76668FBE6DC" Directory="dir6AB1EA4C4D75B24D1EFA87E74C19C52A" Guid="*">
-                <File Id="fil4D25AB7BD7E4654E1F3A3411C242D987" KeyPath="yes" Source="$(sys.SOURCEFILEDIR)\..\skins\Default\textures\score\AAA+.png" />
+                <File Id="fil4D25AB7BD7E4654E1F3A3411C242D987" KeyPath="yes" Source="$(sys.SOURCEFILEDIR)..\skins\Default\textures\score\AAA+.png" />
             </Component>
             <Component Id="cmp6A7D0A9406DF22A7018106EB2ED98F38" Directory="dir6AB1EA4C4D75B24D1EFA87E74C19C52A" Guid="*">
-                <File Id="filEE68FEF5DF8DE54AF6EB52875392451C" KeyPath="yes" Source="$(sys.SOURCEFILEDIR)\..\skins\Default\textures\score\AAA.png" />
+                <File Id="filEE68FEF5DF8DE54AF6EB52875392451C" KeyPath="yes" Source="$(sys.SOURCEFILEDIR)..\skins\Default\textures\score\AAA.png" />
             </Component>
             <Component Id="cmpAFC3D3BFCFE6E468BAD6255B82C83D44" Directory="dir6AB1EA4C4D75B24D1EFA87E74C19C52A" Guid="*">
-                <File Id="fil2B79683136E408DACFDED94EFDE71992" KeyPath="yes" Source="$(sys.SOURCEFILEDIR)\..\skins\Default\textures\score\B.png" />
+                <File Id="fil2B79683136E408DACFDED94EFDE71992" KeyPath="yes" Source="$(sys.SOURCEFILEDIR)..\skins\Default\textures\score\B.png" />
             </Component>
             <Component Id="cmp78B7E1760F990EF3375D9996541763E0" Directory="dir6AB1EA4C4D75B24D1EFA87E74C19C52A" Guid="*">
-                <File Id="fil8767E44C0231AB821154C2EC4F19D198" KeyPath="yes" Source="$(sys.SOURCEFILEDIR)\..\skins\Default\textures\score\C.png" />
+                <File Id="fil8767E44C0231AB821154C2EC4F19D198" KeyPath="yes" Source="$(sys.SOURCEFILEDIR)..\skins\Default\textures\score\C.png" />
             </Component>
             <Component Id="cmp20B974D9F927378DE186994E092E50BC" Directory="dir6AB1EA4C4D75B24D1EFA87E74C19C52A" Guid="*">
-                <File Id="fil283A37D72BB62C4B76EF556B198FE4FE" KeyPath="yes" Source="$(sys.SOURCEFILEDIR)\..\skins\Default\textures\score\D.png" />
+                <File Id="fil283A37D72BB62C4B76EF556B198FE4FE" KeyPath="yes" Source="$(sys.SOURCEFILEDIR)..\skins\Default\textures\score\D.png" />
             </Component>
             <Component Id="cmp02DAC5B8DAEBD58F41C0170B6C683791" Directory="dir6AB1EA4C4D75B24D1EFA87E74C19C52A" Guid="*">
-                <File Id="filE147CE62FFACDF0718892C0EB46062C9" KeyPath="yes" Source="$(sys.SOURCEFILEDIR)\..\skins\Default\textures\score\S.png" />
+                <File Id="filE147CE62FFACDF0718892C0EB46062C9" KeyPath="yes" Source="$(sys.SOURCEFILEDIR)..\skins\Default\textures\score\S.png" />
             </Component>
             <Component Id="cmp2A5965A88A38F487870BB6DC2CBEAAFB" Directory="dir32A09A0C8F83FCE6C80CA5E8F58B1E56" Guid="*">
-                <File Id="filBC05D36BA2CAF7731028F7B765A93EA8" KeyPath="yes" Source="$(sys.SOURCEFILEDIR)\..\skins\Default\textures\song_select\loading.png" />
+                <File Id="filBC05D36BA2CAF7731028F7B765A93EA8" KeyPath="yes" Source="$(sys.SOURCEFILEDIR)..\skins\Default\textures\song_select\loading.png" />
             </Component>
         </ComponentGroup>
     </Fragment>
