@@ -613,7 +613,7 @@ impl TealData for ShadedMesh {
                 .map_err(tealr::mlu::mlua::Error::external)
         });
         methods.add_method_mut("AddSkinTexture", |lua, this, params: (String, String)| {
-            let mut path = std::env::current_dir().unwrap();
+            let mut path = GameConfig::get().game_folder.clone();
             let skin = &GameConfig::get().skin;
             path.push("skins");
             path.push(skin);

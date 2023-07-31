@@ -304,7 +304,7 @@ impl GameBackground {
             data.timing.1 += data.speed_mult * (dt / kson::beat_in_ms(bpm)) as f32;
             data.timing.2 = chart_time as f32 / 1000.0;
 
-            data.roll = roll;
+            data.roll = roll / 360.0;
 
             data.clear_transition = (data.clear_transition
                 + if clear {

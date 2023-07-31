@@ -107,7 +107,7 @@
 
     <DirectoryRef Id="ApplicationProgramsFolder">
       <Component Id="ApplicationShortcut" Guid="{b16cc8b1-70e9-4606-af54-2ce09368c1af}">
-        <Shortcut Id="ApplicationStartMenuShortcut" Name="unnamed-sdvx-clone" Description="SDVX Simulator" Target="[#exe0]" WorkingDirectory="APPLICATIONROOTDIRECTORY"/>
+        <Shortcut Id="ApplicationStartMenuShortcut" Name="unnamed-sdvx-clone" Description="SDVX Simulator" Target="[#exe0]" WorkingDirectory="Bin"/>
         <RemoveFolder Id="CleanUpShortCut" Directory="ApplicationProgramsFolder" On="uninstall"/>
         <RegistryValue Root="HKCU" Key="Software\Drewol\rusc" Name="installed" Type="integer" Value="1" KeyPath="yes"/>
       </Component>
