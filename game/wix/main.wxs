@@ -97,6 +97,9 @@
             <Component Id='binary0' Guid='*'>
               <File Id='exe0' Name='rusc.exe' DiskId='1' Source='$(var.CargoTargetBinDir)\rusc.exe' KeyPath='yes'/>
             </Component>
+            <Component Id='binary1' Guid='*'>
+              <File Id='exe1' Name='kson-editor.exe' DiskId='1' Source='$(var.CargoTargetBinDir)\kson-editor.exe' KeyPath='yes'/>
+            </Component>
           </Directory>
         </Directory>
       </Directory>
@@ -107,7 +110,8 @@
 
     <DirectoryRef Id="ApplicationProgramsFolder">
       <Component Id="ApplicationShortcut" Guid="{b16cc8b1-70e9-4606-af54-2ce09368c1af}">
-        <Shortcut Id="ApplicationStartMenuShortcut" Name="unnamed-sdvx-clone" Description="SDVX Simulator" Target="[#exe0]" WorkingDirectory="Bin"/>
+        <Shortcut Id="GameApplicationStartMenuShortcut" Name="unnamed-sdvx-clone" Description="SDVX Simulator" Target="[#exe0]" WorkingDirectory="Bin"/>
+        <Shortcut Id="EditorApplicationStartMenuShortcut" Name="KSON Editor" Description="KSON Chart Editor" Target="[#exe1]" WorkingDirectory="Bin"/>
         <RemoveFolder Id="CleanUpShortCut" Directory="ApplicationProgramsFolder" On="uninstall"/>
         <RegistryValue Root="HKCU" Key="Software\Drewol\rusc" Name="installed" Type="integer" Value="1" KeyPath="yes"/>
       </Component>
@@ -123,6 +127,7 @@
       <!--<ComponentRef Id='License'/>-->
 
       <ComponentRef Id='binary0'/>
+      <ComponentRef Id='binary1'/>
       <ComponentGroupRef Id='fonts' />
       <ComponentGroupRef Id='skins' />
       <ComponentRef Id="ApplicationShortcut" />

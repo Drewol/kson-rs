@@ -6,6 +6,12 @@ authors = ["Drewol"]
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
+[[bin]]
+name = "rusc"
+
+[[bin]]
+name = "kson-editor"
+
 [dependencies]
 femtovg = { version = '*', default-features = false, features = [
     "image",
@@ -81,9 +87,7 @@ futures = "0.3.28"
 num_cpus = "1.16.0"
 encoding = "0.2.33"
 async-fs = "1.6.0"
-
-[profile.release]
-debug = true
+kson-editor = { path = "../editor", features = ["lib"] }
 
 [target.'cfg(unix)'.dependencies]
 openssl = { version = "^0.10", features = ["vendored"] }

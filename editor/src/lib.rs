@@ -878,7 +878,7 @@ impl App for AppState {
     }
 }
 
-fn main() -> Result<()> {
+pub fn main() -> Result<()> {
     env_logger::init();
     #[cfg(feature = "profiling")]
     {
