@@ -41,6 +41,7 @@ use crate::{
     main_menu::MainMenuButton,
     scene, songselect,
     transition::Transition,
+    util::lua_address,
     vg_ui::{ExportVgfx, Vgfx},
     RuscMixer, Scenes, FRAME_ACC_SIZE,
 };
@@ -241,13 +242,12 @@ impl GameMain {
                     .insert(lua.clone());
 
                 {
-                    vgfx.lock().unwrap().init_asset_scope(idx)
+                    vgfx.lock().unwrap().init_asset_scope(lua_address(&lua))
                 }
 
                 {
                     lua.set_app_data(vgfx.clone());
                     lua.set_app_data(game_data.clone());
-                    lua.set_app_data(idx);
                     lua.set_app_data(lua_frame_input.clone());
                     lua.set_app_data(lua_mixer.clone());
                     lua.set_app_data(LuaHttp::default());
@@ -588,7 +588,7 @@ impl GameMain {
                 LuaHttp::poll(lua);
                 true
             } else {
-                vgfx.drop_assets(&idx);
+                vgfx.drop_assets(lua_address(&lua));
                 false
             }
         });

@@ -59,6 +59,7 @@ mod main_menu;
 mod material;
 mod results;
 mod scene;
+mod settings_dialog;
 mod shaded_mesh;
 mod skin_settings;
 mod song_provider;

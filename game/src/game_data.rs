@@ -49,12 +49,12 @@ impl TypeName for GameData {
 impl TealData for GameData {
     fn add_methods<'lua, T: tealr::mlu::TealDataMethods<'lua, Self>>(methods: &mut T) {
         //GetMousePos
-        add_lua_static_method(methods, "GetMousePos", |_, _, _game_data, _: ()| {
+        add_lua_static_method(methods, "GetMousePos", |_, _game_data, _: ()| {
             Ok(_game_data.mouse_pos)
         });
 
         //GetResolution
-        add_lua_static_method(methods, "GetResolution", |_, _, _game_data, _: ()| {
+        add_lua_static_method(methods, "GetResolution", |_, _game_data, _: ()| {
             Ok(_game_data.resolution)
         });
 
@@ -72,7 +72,7 @@ impl TealData for GameData {
           severity : i32,
 
         );
-        add_lua_static_method(methods, "Log", |lua, _, _game_data, p: LogParams| {
+        add_lua_static_method(methods, "Log", |lua, _game_data, p: LogParams| {
             use log::*;
             let LogParams { message, severity } = p;
             let d = lua
@@ -111,7 +111,7 @@ impl TealData for GameData {
         add_lua_static_method(
             methods,
             "LoadSkinSample",
-            |_, _, game_data, p: LoadSkinSampleParams| {
+            |_, game_data, p: LoadSkinSampleParams| {
                 let LoadSkinSampleParams { name } = p;
 
                 if game_data.audio_samples.contains_key(&name) {
@@ -150,7 +150,7 @@ impl TealData for GameData {
         add_lua_static_method(
             methods,
             "PlaySample",
-            |lua, _, game_data, p: PlaySampleParams| {
+            |lua, game_data, p: PlaySampleParams| {
                 let PlaySampleParams { name, do_loop } = p;
 
                 let sample = game_data.audio_samples.get(&name);
@@ -211,7 +211,7 @@ impl TealData for GameData {
         add_lua_static_method(
             methods,
             "StopSample",
-            |_, _, game_data, p: StopSampleParams| {
+            |_, game_data, p: StopSampleParams| {
                 let StopSampleParams { name } = p;
 
                 game_data
@@ -231,7 +231,7 @@ impl TealData for GameData {
         add_lua_static_method(
             methods,
             "IsSamplePlaying",
-            |_, _, game_data, p: IsSamplePlayingParams| {
+            |_, game_data, p: IsSamplePlayingParams| {
                 let IsSamplePlayingParams { name } = p;
                 if !game_data.audio_samples.contains_key(&name) {
                     return Ok(None);
@@ -252,7 +252,7 @@ impl TealData for GameData {
         add_lua_static_method(
             methods,
             "GetLaserColor",
-            |_, _, _game_data, _p: GetLaserColorParams| {
+            |_, _game_data, _p: GetLaserColorParams| {
                 if let Some(hue) = GameConfig::get().laser_hues.get(_p.laser as usize).copied() {
                     let [r, g, b] = Hsva::new(hue / 360.0, 1.0, 1.0, 1.0).to_rgb();
                     Ok((r * 255.0, g * 255.0, b * 255.0, 255.0))
@@ -270,7 +270,7 @@ impl TealData for GameData {
         add_lua_static_method(
             methods,
             "GetButton",
-            |_, _, _game_data, _p: GetButtonParams| Ok(false),
+            |_, _game_data, _p: GetButtonParams| Ok(false),
         );
 
         //GetKnob
@@ -281,7 +281,7 @@ impl TealData for GameData {
         add_lua_static_method(
             methods,
             "GetKnob",
-            |_, _, game_data, p: GetKnobParams| match p.knob {
+            |_, game_data, p: GetKnobParams| match p.knob {
                 0 => Ok(game_data.laser_state.get_axis(kson::Side::Left).pos),
                 1 => Ok(game_data.laser_state.get_axis(kson::Side::Right).pos),
                 _ => Err(mlua::Error::RuntimeError(format!(
@@ -292,33 +292,29 @@ impl TealData for GameData {
         );
 
         //UpdateAvailable
-        add_lua_static_method(methods, "UpdateAvailable", |_, _, _game_data, _: ()| Ok(()));
+        add_lua_static_method(methods, "UpdateAvailable", |_, _game_data, _: ()| Ok(()));
 
         //GetSkin
-        add_lua_static_method(methods, "GetSkin", |_, _, _game_data, _: ()| {
+        add_lua_static_method(methods, "GetSkin", |_, _game_data, _: ()| {
             Ok(GameConfig::get().skin.clone())
+        });
+
+        //GetSkinSetting
+        add_lua_static_method(methods, "GetSkinSetting", |_, _game_data, key: String| {
+            let skin_setting_value = GameConfig::get()
+                .skin_settings
+                .get(&key)
+                .cloned()
+                .unwrap_or(SkinSettingValue::None);
+
+            Ok(skin_setting_value)
         });
 
         //GetSkinSetting
         add_lua_static_method(
             methods,
-            "GetSkinSetting",
-            |_, _, _game_data, key: String| {
-                let skin_setting_value = GameConfig::get()
-                    .skin_settings
-                    .get(&key)
-                    .cloned()
-                    .unwrap_or(SkinSettingValue::None);
-
-                Ok(skin_setting_value)
-            },
-        );
-
-        //GetSkinSetting
-        add_lua_static_method(
-            methods,
             "SetSkinSetting",
-            |_, _, _game_data, key: (String, SkinSettingValue)| {
+            |_, _game_data, key: (String, SkinSettingValue)| {
                 GameConfig::get_mut().skin_settings.insert(key.0, key.1);
 
                 Ok(())
@@ -329,7 +325,7 @@ impl TealData for GameData {
         add_lua_static_method(
             methods,
             "BeginProfile",
-            |lua, _, _game_data, scope: Option<String>| {
+            |lua, _game_data, scope: Option<String>| {
                 if puffin::are_scopes_on() {
                     let scope = scope.unwrap_or_else(|| {
                         if let Some(a) = lua.inspect_stack(1) {
@@ -352,7 +348,7 @@ impl TealData for GameData {
         );
 
         //EndProfile
-        add_lua_static_method(methods, "EndProfile", |_, _, _game_data, _: ()| {
+        add_lua_static_method(methods, "EndProfile", |_, _game_data, _: ()| {
             _game_data.profile_stack.pop();
             Ok(())
         })

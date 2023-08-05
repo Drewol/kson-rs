@@ -17,7 +17,7 @@ pub(crate) fn add_lua_static_method<'lua, M, A, R, F, T: 'static + Sized + TypeN
     M: Sized + tealr::mlu::TealDataMethods<'lua, T>,
     A: FromLuaMulti<'lua> + TealMultiValue,
     R: ToLuaMulti<'lua> + TealMultiValue,
-    F: 'static + MaybeSend + FnMut(&'lua Lua, &Index, &mut T, A) -> Result<R>,
+    F: 'static + MaybeSend + FnMut(&'lua Lua, &mut T, A) -> Result<R>,
 {
     methods.add_function_mut(name, move |lua, p: A| {
         let _profile_scope = if puffin::are_scopes_on() && !name.ends_with("Profile") {
@@ -39,13 +39,14 @@ pub(crate) fn add_lua_static_method<'lua, M, A, R, F, T: 'static + Sized + TypeN
             None
         };
 
-        let lua_index: Index = { *lua.app_data_ref().unwrap() };
-
-        let data = { lua.app_data_ref::<Arc<Mutex<T>>>() };
-        if let Some(data) = data {
+        let mut maybe_data = { lua.app_data_ref::<Arc<Mutex<T>>>().map(|x| x.clone()) };
+        if let Some(data_arc) = maybe_data.take() {
+            let data = data_arc.clone();
+            drop(data_arc);
+            drop(maybe_data);
             let data_lock = data.try_lock();
             if let Ok(mut data) = data_lock {
-                function(lua, &lua_index, &mut data, p)
+                function(lua, &mut data, p)
             } else {
                 Err(mlua::Error::external("App data not set"))
             }

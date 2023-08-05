@@ -1,3 +1,6 @@
+use std::sync::Arc;
+
+use tealr::mlu::mlua::Lua;
 use three_d::{context::*, *};
 
 pub fn back_pixels(context: &three_d::Context, viewport: Viewport) -> Vec<[u8; 4]> {
@@ -18,4 +21,27 @@ pub fn back_pixels(context: &three_d::Context, viewport: Viewport) -> Vec<[u8; 4
         );
     }
     unsafe { bytes.align_to::<[u8; 4]>() }.1.to_vec()
+}
+
+pub fn lua_address(lua: &Lua) -> usize {
+    let v = lua.clone();
+    let ptr = &**lua as *const _;
+    ptr as usize
+}
+
+#[cfg(test)]
+mod tests {
+    use tealr::mlu::mlua::Lua;
+
+    use super::lua_address;
+
+    #[test]
+    fn lua_addresses() {
+        let lua = &Lua::new();
+
+        let a = lua_address(lua);
+        let b = lua_address(lua.clone());
+        println!("{a}");
+        assert!(a == b);
+    }
 }

@@ -8,6 +8,7 @@ use std::{
 use crate::{
     game_data::{ExportGame, GameData, LuaPath},
     shaded_mesh::ShadedMesh,
+    util::lua_address,
     vg_ui::{ExportVgfx, Vgfx},
 };
 use generational_arena::Index;
@@ -201,16 +202,12 @@ impl TealData for GameBackgroundLua {
 impl Drop for GameBackground {
     fn drop(&mut self) {
         if let Ok(mut vgfx) = self.vgfx.lock() {
-            vgfx.drop_assets(&Self::gen_index(self.background));
+            vgfx.drop_assets(lua_address(&self.lua));
         }
     }
 }
 
 impl GameBackground {
-    fn gen_index(background: bool) -> Index {
-        Index::from_raw_parts(5000, if background { 10 } else { 20 }) //TODO: Shouldn't just assume this won't collide with anything
-    }
-
     pub fn new(
         context: &three_d::Context,
         background: bool,
@@ -228,11 +225,6 @@ impl GameBackground {
         } else {
             "foreground"
         };
-        {
-            vgfx.lock()
-                .unwrap()
-                .init_asset_scope(Self::gen_index(background))
-        }
 
         path.push(name);
         path.set_extension("fs");
@@ -242,6 +234,10 @@ impl GameBackground {
         let lua = Lua::new_with(StdLib::MATH | StdLib::STRING, LuaOptions::new())?;
         lua.globals().set(full_name, GameBackgroundLua)?;
 
+        {
+            vgfx.lock().unwrap().init_asset_scope(lua_address(&lua))
+        }
+
         tealr::mlu::set_global_env(ExportVgfx, &lua)?;
         tealr::mlu::set_global_env(ExportGame, &lua)?;
         tealr::mlu::set_global_env(LuaPath, &lua)?;
@@ -250,7 +246,6 @@ impl GameBackground {
         lua.set_app_data(game_data.clone());
         lua.set_app_data(mesh);
         lua.set_app_data(BackgroundData::default());
-        lua.set_app_data(Self::gen_index(background));
 
         let mut beat_iter = chart.beat_line_iter();
 
