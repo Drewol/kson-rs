@@ -312,7 +312,7 @@ impl GameBackground {
 
         if let Ok(render_fn) = self.lua.globals().get::<_, Function>(self.name.as_str()) {
             if let Some(e) = render_fn.call::<_, ()>(dt / 1000.0).err() {
-                warn!("{} error: {:?}", &self.name, e);
+                warn!("{} error: {}", &self.name, e);
             }
         } else {
             warn!("No render fn");

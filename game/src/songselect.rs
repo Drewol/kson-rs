@@ -28,9 +28,10 @@ use crate::{
     button_codes::{LaserAxis, LaserState, UscButton, UscInputEvent},
     config::GameConfig,
     game_data::GameData,
-    input_state::InputState,
+    input_state::{self, InputState},
     results::Score,
     scene::{Scene, SceneData},
+    settings_dialog::{SettingsDialog, SettingsDialogTab},
     song_provider::{
         FileSongProvider, NauticaSongProvider, ScoreProvider, SongProvider, SongProviderEvent,
     },
@@ -140,7 +141,7 @@ impl TypeName for SongSelect {
 }
 
 impl SongSelect {
-    pub fn new() -> Self {
+    pub fn new(input_state: input_state::InputState) -> Self {
         let song_path = { GameConfig::get().songs_path.clone() };
 
         let (song_provider, score_provider): (
@@ -184,13 +185,14 @@ impl SongSelect {
 impl SceneData for SongSelect {
     fn make_scene(
         self: Box<Self>,
-        _input_state: InputState,
+        input_state: InputState,
         _: Arc<Mutex<Vgfx>>,
         _: Arc<Mutex<GameData>>,
     ) -> Box<dyn Scene> {
-        Box::new(SongSelectScene::new(self))
+        Box::new(SongSelectScene::new(self, input_state))
     }
 }
+pub const KNOB_NAV_THRESHOLD: f32 = std::f32::consts::PI / 3.0;
 
 pub struct SongSelectScene {
     state: Box<SongSelect>,
@@ -204,10 +206,12 @@ pub struct SongSelectScene {
     mixer: Option<RuscMixer>,
     sample_owner: Receiver<()>,
     sample_marker: Sender<()>,
+    settings_dialog: SettingsDialog,
+    input_state: InputState,
 }
 
 impl SongSelectScene {
-    pub fn new(song_select: Box<SongSelect>) -> Self {
+    pub fn new(song_select: Box<SongSelect>, input_state: input_state::InputState) -> Self {
         let (sample_marker, sample_owner) = channel();
         Self {
             background_lua: Rc::new(Lua::new()),
@@ -221,6 +225,8 @@ impl SongSelectScene {
             mixer: None,
             sample_marker,
             sample_owner,
+            input_state: input_state.clone(),
+            settings_dialog: SettingsDialog::general_settings(input_state),
         }
     }
 }
@@ -233,6 +239,8 @@ impl Scene for SongSelectScene {
 
         let render_wheel: Function = self.lua.globals().get("render")?;
         render_wheel.call(dt / 1000.0)?;
+
+        self.settings_dialog.render(dt)?;
 
         Ok(())
     }
@@ -308,6 +316,8 @@ impl Scene for SongSelectScene {
         self.lua
             .globals()
             .set("songwheel", self.lua.to_value(&self.state)?)?;
+
+        self.settings_dialog.init_lua(load_lua.clone())?;
         self.program_control = Some(app_control_tx);
         load_lua(self.lua.clone(), "songselect/songwheel.lua")?;
         load_lua(self.background_lua.clone(), "songselect/background.lua")?;
@@ -344,7 +354,6 @@ impl Scene for SongSelectScene {
         if self.suspended.load(std::sync::atomic::Ordering::Relaxed) {
             return Ok(());
         }
-        const KNOB_NAV_THRESHOLD: f32 = std::f32::consts::PI / 3.0;
         let song_advance_steps = (self.song_advance / KNOB_NAV_THRESHOLD).trunc() as i32;
         self.song_advance -= song_advance_steps as f32 * KNOB_NAV_THRESHOLD;
 
@@ -494,6 +503,14 @@ impl Scene for SongSelectScene {
     }
 
     fn on_event(&mut self, event: &Event<UscInputEvent>) {
+        if self.settings_dialog.show {
+            if let Event::UserEvent(e) = event {
+                self.settings_dialog.on_input(e);
+            }
+
+            return;
+        }
+
         if let Event::UserEvent(UscInputEvent::Laser(ls)) = event {
             self.song_advance += LaserAxis::from(ls.get(kson::Side::Right)).delta;
             self.diff_advance += LaserAxis::from(ls.get(kson::Side::Left)).delta;
@@ -501,19 +518,42 @@ impl Scene for SongSelectScene {
     }
 
     fn on_button_pressed(&mut self, button: crate::button_codes::UscButton) {
-        if let UscButton::Start = button {
-            let state = &self.state;
-            let song = state.songs.get(state.selected_index as usize).cloned();
+        if self.settings_dialog.show {
+            self.settings_dialog.on_button_press(button);
+            return;
+        }
 
-            if let (Some(pc), Some(song)) = (&self.program_control, song) {
-                let diff = state.selected_diff_index as usize;
-                let loader = state
-                    .song_provider
-                    .lock()
-                    .unwrap()
-                    .load_song(song.id, song.difficulties[diff].id);
-                _ = pc.send(ControlMessage::Song { diff, loader, song });
+        match button {
+            UscButton::Start => {
+                let state = &self.state;
+                let song = state.songs.get(state.selected_index as usize).cloned();
+
+                if let (Some(pc), Some(song)) = (&self.program_control, song) {
+                    let diff = state.selected_diff_index as usize;
+                    let loader = state
+                        .song_provider
+                        .lock()
+                        .unwrap()
+                        .load_song(song.id, song.difficulties[diff].id);
+                    _ = pc.send(ControlMessage::Song { diff, loader, song });
+                }
             }
+            UscButton::FX(s) => {
+                let press_time = std::time::SystemTime::now();
+
+                if let Some(other_press_time) =
+                    self.input_state.is_button_held(UscButton::FX(s.opposite()))
+                {
+                    let detla_ms = press_time
+                        .duration_since(other_press_time)
+                        .unwrap()
+                        .as_millis();
+                    if detla_ms < 100 {
+                        self.settings_dialog.show = true;
+                    }
+                }
+            }
+            _ => (),
         }
     }
 

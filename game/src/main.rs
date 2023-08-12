@@ -216,7 +216,7 @@ impl Scenes {
         self.loaded.retain_mut(|x| {
             let result = x.init(load_lua.clone(), app_control_tx.clone(), self.mixer.clone());
             if let Err(e) = &result {
-                log::error!("{:?}", e);
+                log::error!("{}", e);
             }
             result.is_ok()
         });
@@ -262,14 +262,14 @@ impl Scenes {
             }
             scene.render(dt, td_context, &mut target, viewport);
             if let Err(e) = scene.render_ui(dt) {
-                log::error!("{:?}", e)
+                log::error!("{}", e)
             };
         }
 
         if let Some(transition) = self.transition.as_mut() {
             transition.render(dt, td_context, &mut target, viewport);
             if let Err(e) = transition.render_ui(dt) {
-                log::error!("{:?}", e)
+                log::error!("{}", e)
             };
         }
     }
@@ -431,7 +431,7 @@ fn main() -> anyhow::Result<()> {
                 };
 
                 if let Some(Err(send_err)) = sent {
-                    info!("Gilrs thread closing: {:?}", send_err);
+                    info!("Gilrs thread closing: {}", send_err);
                     return;
                 }
             } else {

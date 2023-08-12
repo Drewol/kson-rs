@@ -48,6 +48,15 @@ pub enum Side {
     Right,
 }
 
+impl Side {
+    pub fn opposite(&self) -> Self {
+        match self {
+            Side::Left => Self::Right,
+            Side::Right => Self::Left,
+        }
+    }
+}
+
 #[repr(usize)]
 #[derive(Debug, Hash, PartialEq, Eq, Clone, Copy, Serialize, Deserialize)]
 pub enum BtLane {

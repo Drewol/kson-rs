@@ -174,7 +174,7 @@ impl Scene for MainMenu {
                     game_loop::winit::event::MouseButton::Middle => 1,
                     game_loop::winit::event::MouseButton::Other(b) => *b,
                 }) {
-                    log::error!("{:?}", e);
+                    log::error!("{}", e);
                 };
             }
         }

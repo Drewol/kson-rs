@@ -33,6 +33,7 @@ pub struct GameConfig {
     pub mouse_ppr: f64,
     pub keyboard_buttons: bool,
     pub keyboard_knobs: bool,
+    pub global_offset: i32,
     #[serde(skip_serializing, skip_deserializing)]
     pub skin_settings: HashMap<String, SkinSettingValue>,
     #[serde(skip_serializing, skip_deserializing)]
@@ -127,6 +128,7 @@ impl Default for GameConfig {
             keyboard_buttons: false,
             keybinds: vec![Keybinds::default()],
             keyboard_knobs: false,
+            global_offset: 0
 
         }
     }
@@ -267,7 +269,7 @@ impl GameConfig {
         }
 
         if let Err(err) = GameConfig::get_mut().init_skin_settings() {
-            log::warn!("{:?}", err)
+            log::warn!("{}", err)
         };
     }
 

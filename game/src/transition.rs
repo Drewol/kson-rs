@@ -14,7 +14,7 @@ use ureq::json;
 
 use crate::{
     game_data::GameData,
-    input_state::InputState,
+    input_state::{self, InputState},
     main_menu::MainMenuButton,
     results::SongResultData,
     scene::{Scene, SceneData},
@@ -45,11 +45,8 @@ pub struct Transition {
     game_data: Arc<Mutex<GameData>>,
 }
 
-fn load_songs() -> anyhow::Result<Box<dyn SceneData + Send>> {
-    //TODO: Global config object?
-    // Song databse?
-    // Song provider?
-    Ok(Box::new(SongSelect::new()))
+fn load_songs(input_state: InputState) -> anyhow::Result<Box<dyn SceneData + Send>> {
+    Ok(Box::new(SongSelect::new(input_state)))
 }
 
 fn load_chart(
@@ -208,7 +205,10 @@ impl Scene for Transition {
 
                     self.target_state = match target {
                         ControlMessage::MainMenu(MainMenuButton::Start) => {
-                            Some(Promise::spawn_thread("Load song select", load_songs))
+                            let is = self.input_state.clone();
+                            Some(Promise::spawn_thread("Load song select", move || {
+                                load_songs(is)
+                            }))
                         }
                         ControlMessage::Song { song, diff, loader } => {
                             let context = self.context.clone();
@@ -254,7 +254,7 @@ impl Scene for Transition {
                             )))
                             .unwrap(),
                         Ok(Err(loading_error)) => {
-                            log::error!("{:?}", loading_error);
+                            log::error!("{}", loading_error);
                             self.state = TransitionState::Countdown(5);
                         }
                         Err(loading) => self.target_state = Some(loading),

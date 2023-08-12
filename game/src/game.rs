@@ -1473,7 +1473,7 @@ impl Scene for Game {
             if let Ok(func) = self.lua.globals().get::<_, Function>("render_intro") {
                 match func.call::<_, bool>(dt / 1000.0) {
                     Err(e) => {
-                        log::error!("{:?}", e.to_string());
+                        log::error!("{}", e);
                     }
                     Ok(intro_complete) => self.intro_done = intro_complete,
                 };
@@ -1482,7 +1482,7 @@ impl Scene for Game {
 
         if let Ok(func) = self.lua.globals().get::<_, Function>("render_crit_base") {
             if let Err(e) = func.call::<_, ()>(dt / 1000.0) {
-                log::error!("{:?}", e.to_string());
+                log::error!("{}", e);
             };
         }
         self.reset_canvas();
@@ -1501,14 +1501,14 @@ impl Scene for Game {
 
         if let Ok(func) = self.lua.globals().get::<_, Function>("render_crit_overlay") {
             if let Err(e) = func.call::<_, ()>(dt / 1000.0) {
-                log::error!("{:?}", e.to_string());
+                log::error!("{}", e);
             };
         }
         self.reset_canvas();
 
         if let Ok(func) = self.lua.globals().get::<_, Function>("render") {
             if let Err(e) = func.call::<_, ()>(dt / 1000.0) {
-                log::error!("{:?}", e.to_string());
+                log::error!("{}", e);
             };
         }
         self.reset_canvas();
