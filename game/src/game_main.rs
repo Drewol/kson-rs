@@ -39,7 +39,9 @@ use crate::{
     input_state::InputState,
     lua_http::{ExportLuaHttp, LuaHttp},
     main_menu::MainMenuButton,
-    scene, songselect,
+    scene,
+    settings_screen::SettingsScreen,
+    songselect,
     transition::Transition,
     util::lua_address,
     vg_ui::{ExportVgfx, Vgfx},
@@ -355,6 +357,7 @@ impl GameMain {
                     MainMenuButton::Exit => {
                         scenes.clear();
                     }
+                    MainMenuButton::Options => scenes.loaded.push(Box::new(SettingsScreen::new())),
                     _ => {}
                 },
                 ControlMessage::Song { diff, loader, song } => {
@@ -414,9 +417,14 @@ impl GameMain {
         scenes.render(frame_input.clone(), vgfx);
         Self::render_overlays(vgfx, &frame_input, fps, fps_paint);
 
-        if *show_debug_ui {
-            Self::debug_ui(gui, window, scenes);
-        }
+        gui.run(window, |ctx| {
+            scenes.render_egui(ctx);
+
+            if *show_debug_ui {
+                Self::debug_ui(ctx, scenes);
+            }
+        });
+        gui.paint(window);
 
         Self::run_lua_gc(
             lua_arena,
@@ -451,7 +459,7 @@ impl GameMain {
             event,
         } = event
         {
-            if self.show_debug_ui {
+            if self.show_debug_ui || self.scenes.should_render_egui() {
                 let event_response = self.gui.on_event(event);
                 if event_response.consumed {
                     return;
@@ -594,52 +602,44 @@ impl GameMain {
         });
     }
 
-    fn debug_ui(
-        gui: &mut EguiGlow,
-        window: &game_loop::winit::window::Window,
-        scenes: &mut Scenes,
-    ) {
+    fn debug_ui(gui_context: &egui::Context, scenes: &mut Scenes) {
         profile_function!();
-        gui.run(window, |gui_context| {
-            if let Some(s) = scenes.active.last_mut() {
-                s.debug_ui(gui_context);
+        if let Some(s) = scenes.active.last_mut() {
+            s.debug_ui(gui_context);
+        }
+        puffin_egui::profiler_window(gui_context);
+        egui::Window::new("Scenes").show(gui_context, |ui| {
+            ui.label("Loaded");
+            for ele in &scenes.loaded {
+                ui.label(ele.name());
             }
-            puffin_egui::profiler_window(gui_context);
-            egui::Window::new("Scenes").show(gui_context, |ui| {
-                ui.label("Loaded");
-                for ele in &scenes.loaded {
+            ui.separator();
+            ui.label("Initialized");
+            for ele in &scenes.initialized {
+                ui.label(ele.name());
+            }
+            ui.separator();
+            ui.label("Active");
+
+            let mut closed_scene = None;
+
+            for (i, ele) in scenes.active.iter().enumerate() {
+                ui.horizontal(|ui| {
                     ui.label(ele.name());
-                }
-                ui.separator();
-                ui.label("Initialized");
-                for ele in &scenes.initialized {
-                    ui.label(ele.name());
-                }
-                ui.separator();
-                ui.label("Active");
+                    if ui.button("Close").clicked() {
+                        closed_scene = Some(i);
+                    }
+                });
+            }
 
-                let mut closed_scene = None;
+            if let Some(closed) = closed_scene {
+                scenes.active.remove(closed);
+            }
 
-                for (i, ele) in scenes.active.iter().enumerate() {
-                    ui.horizontal(|ui| {
-                        ui.label(ele.name());
-                        if ui.button("Close").clicked() {
-                            closed_scene = Some(i);
-                        }
-                    });
-                }
-
-                if let Some(closed) = closed_scene {
-                    scenes.active.remove(closed);
-                }
-
-                if scenes.transition.is_some() {
-                    ui.label("Transitioning");
-                }
-            });
+            if scenes.transition.is_some() {
+                ui.label("Transitioning");
+            }
         });
-
-        gui.paint(window);
     }
 
     fn render_overlays(

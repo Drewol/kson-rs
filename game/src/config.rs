@@ -10,7 +10,7 @@ use crate::{
     skin_settings::{SkinSettingEntry, SkinSettingValue},
 };
 
-#[derive(Debug, Default, Parser)]
+#[derive(Debug, Default, Parser, Clone)]
 pub struct Args {
     pub chart: Option<String>,
     #[arg(short, long)]
@@ -21,7 +21,7 @@ pub struct Args {
     pub profiling: bool,
 }
 
-#[derive(Debug, Deserialize, Serialize)]
+#[derive(Debug, Deserialize, Serialize, Clone)]
 pub struct GameConfig {
     #[serde(skip_serializing, skip_deserializing)]
     config_file: PathBuf,
@@ -34,6 +34,8 @@ pub struct GameConfig {
     pub keyboard_buttons: bool,
     pub keyboard_knobs: bool,
     pub global_offset: i32,
+    #[serde(skip_serializing, skip_deserializing)]
+    pub skin_definition: Vec<SkinSettingEntry>,
     #[serde(skip_serializing, skip_deserializing)]
     pub skin_settings: HashMap<String, SkinSettingValue>,
     #[serde(skip_serializing, skip_deserializing)]
@@ -115,6 +117,7 @@ impl Default for GameConfig {
             songs_path: PathBuf::from_iter([".", "songs"]),
             skin: "Default".into(),
             skin_settings: HashMap::new(),
+            skin_definition: vec![],
             laser_hues: [200.0, 330.0],
             game_folder: crate::default_game_dir(),
             args: Default::default(),
@@ -175,48 +178,48 @@ impl GameConfig {
         let file = File::open(definition_path)?;
         let definitions: Vec<SkinSettingEntry> = serde_json::from_reader(file)?;
 
-        for def in definitions {
+        for def in &definitions {
             let entry = match def {
                 SkinSettingEntry::Selection {
                     default,
                     label: _,
                     name,
                     values: _,
-                } => (name, SkinSettingValue::Text(default)),
+                } => (name, SkinSettingValue::Text(default.clone())),
                 SkinSettingEntry::Text {
                     default,
                     label: _,
                     name,
                     secret: _,
-                } => (name, SkinSettingValue::Text(default)),
+                } => (name, SkinSettingValue::Text(default.clone())),
                 SkinSettingEntry::Color {
                     default,
                     label: _,
                     name,
-                } => (name, SkinSettingValue::Color(default)),
+                } => (name, SkinSettingValue::Color(*default)),
                 SkinSettingEntry::Bool {
                     default,
                     label: _,
                     name,
-                } => (name, SkinSettingValue::Bool(default)),
+                } => (name, SkinSettingValue::Bool(*default)),
                 SkinSettingEntry::Float {
                     default,
                     label: _,
                     name,
                     min: _,
                     max: _,
-                } => (name, SkinSettingValue::Float(default)),
+                } => (name, SkinSettingValue::Float(*default)),
                 SkinSettingEntry::Integer {
                     default,
                     label: _,
                     name,
                     min: _,
                     max: _,
-                } => (name, SkinSettingValue::Integer(default)),
+                } => (name, SkinSettingValue::Integer(*default)),
                 _ => continue,
             };
 
-            self.skin_settings.insert(entry.0, entry.1);
+            self.skin_settings.insert(entry.0.clone(), entry.1);
         }
 
         let mut file = File::open(self.skin_config_path())?;
@@ -229,6 +232,8 @@ impl GameConfig {
         for (k, v) in skin_settings {
             self.skin_settings.insert(k, v);
         }
+
+        self.skin_definition = definitions;
 
         Ok(())
     }

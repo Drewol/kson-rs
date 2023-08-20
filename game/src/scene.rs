@@ -43,6 +43,12 @@ pub trait Scene {
     ) {
     }
     fn render_ui(&mut self, dt: f64) -> Result<()>;
+    fn has_egui(&self) -> bool {
+        false
+    }
+    fn render_egui(&mut self, ctx: &egui::Context) -> Result<()> {
+        Ok(())
+    }
     fn suspend(&mut self) {}
     fn resume(&mut self) {}
     fn is_suspended(&self) -> bool;

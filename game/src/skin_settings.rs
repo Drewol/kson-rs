@@ -6,7 +6,7 @@ use tealr::{
 };
 
 #[derive(Debug, Clone, Copy)]
-pub struct SettingsColor(Color32);
+pub struct SettingsColor(pub Color32);
 
 impl Serialize for SettingsColor {
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
@@ -60,7 +60,7 @@ impl<'de> Deserialize<'de> for SettingsColor {
     }
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize, Clone)]
 #[serde(tag = "type", rename_all = "lowercase")]
 pub enum SkinSettingEntry {
     Label {

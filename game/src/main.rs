@@ -23,6 +23,7 @@ use crate::{
 use anyhow::bail;
 use clap::Parser;
 use directories::ProjectDirs;
+use egui_glow::EguiGlow;
 use femtovg as vg;
 
 use game_main::ControlMessage;
@@ -60,6 +61,7 @@ mod material;
 mod results;
 mod scene;
 mod settings_dialog;
+mod settings_screen;
 mod shaded_mesh;
 mod skin_settings;
 mod song_provider;
@@ -274,6 +276,20 @@ impl Scenes {
         }
     }
 
+    pub fn should_render_egui(&self) -> bool {
+        self.active.iter().any(|s| s.has_egui())
+    }
+
+    pub fn render_egui(&mut self, ctx: &egui::Context) {
+        profile_function!();
+        for scene in &mut self.active {
+            if scene.is_suspended() {
+                continue;
+            }
+            scene.render_egui(ctx);
+        }
+    }
+
     pub fn suspend_top(&mut self) {
         if let Some(top) = self.active.last_mut() {
             top.suspend()
@@ -303,7 +319,10 @@ fn main() -> anyhow::Result<()> {
     config_path.push("Main.cfg");
     let args = Args::parse();
     let show_debug_ui = args.debug;
-    init_game_dir(default_game_dir())?;
+    if let Some(e) = init_game_dir(default_game_dir()).err() {
+        warn!("{e}");
+        info!("Running anyway");
+    };
     GameConfig::init(config_path, args);
     let (_outputStream, outputStreamHandle) = rodio::OutputStream::try_default()?;
     let sink = rodio::Sink::try_new(&outputStreamHandle)?;
