@@ -63,7 +63,7 @@ three-d-asset = { version = "0.5.0", features = [
     "tga",
     "tiff",
 ] }
-directories = "4.0.1"
+directories = "5.0.1"
 zip = "0.6.4"
 rayon = "1.7.0"
 puffin_egui = "0.22.0"
