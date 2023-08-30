@@ -1274,7 +1274,6 @@ checksum = "e2db585e1d738fc771bf08a151420d3ed193d9d895a36df7f6f8a9456b911ddc"
 [[package]]
 name = "kson"
 version = "0.1.1"
-source = "git+https://github.com/Drewol/kson-rs.git#d8fa51afa78b472b1314e2fbb7e7beda13d22737"
 dependencies = [
  "kson-effect-param-macro",
  "num-traits",
@@ -1285,7 +1284,6 @@ dependencies = [
 [[package]]
 name = "kson-audio"
 version = "0.1.0"
-source = "git+https://github.com/Drewol/kson-rs.git#d8fa51afa78b472b1314e2fbb7e7beda13d22737"
 dependencies = [
  "kson",
 ]
@@ -1326,7 +1324,6 @@ dependencies = [
 [[package]]
 name = "kson-effect-param-macro"
 version = "0.1.1"
-source = "git+https://github.com/Drewol/kson-rs.git#d8fa51afa78b472b1314e2fbb7e7beda13d22737"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -2970,9 +2967,9 @@ dependencies = [
 
 [[package]]
 name = "xml-rs"
-version = "0.8.13"
+version = "0.8.16"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "2d8f380ae16a37b30e6a2cf67040608071384b1450c189e61bea3ff57cde922d"
+checksum = "47430998a7b5d499ccee752b41567bc3afc57e1327dc855b1a2aa44ce29b5fa1"
 
 [[package]]
 name = "zstd"
