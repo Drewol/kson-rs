@@ -7,4 +7,4 @@ edition = "2021"
 
 [dependencies]
 serde_json = "1.0.96"
-sqlx = { version = "0.6.3", features = ["sqlite", "runtime-async-std-native-tls", "migrate", "json"] }
+sqlx = { version = "0.7.1", features = ["sqlite", "runtime-async-std-native-tls", "migrate", "json"] }
