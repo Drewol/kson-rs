@@ -945,7 +945,7 @@ impl MainState {
             self.chart = current_chart;
         }
 
-        let delta_time = (10.0 * ctx.input().unstable_dt).min(1.0);
+        let delta_time = (10.0 * ctx.input(|x| x.unstable_dt)).min(1.0);
         if self.screen.update(delta_time, self.chart.beat.resolution)
             || self.audio_playback.is_playing()
         {
@@ -1178,7 +1178,7 @@ impl MainState {
             //laser
             {
                 profile_scope!("Laser Mesh");
-                painter.extend(laser_builder.into_iter().map(Shape::mesh).collect());
+                painter.extend(laser_builder.into_iter().map(Shape::mesh));
             }
         }
 

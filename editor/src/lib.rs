@@ -529,7 +529,7 @@ fn menu_ui(ui: &mut Ui, title: impl ToString, min_width: f32, add_contents: impl
 }
 
 impl App for AppState {
-    fn on_exit_event(&mut self) -> bool {
+    fn on_close_event(&mut self) -> bool {
         let at_save = self.editor.actions.saved();
         if !at_save {
             self.exiting = true;
@@ -553,8 +553,6 @@ impl App for AppState {
         eframe::set_value(storage, CONFIG_KEY, &new_config)
     }
 
-    fn on_exit(&mut self, _ctx: &eframe::glow::Context) {}
-
     fn auto_save_interval(&self) -> std::time::Duration {
         std::time::Duration::from_secs(300)
     }
@@ -562,7 +560,7 @@ impl App for AppState {
     fn update(&mut self, ctx: &egui::Context, frame: &mut eframe::Frame) {
         //input checking
         //TODO: Block events when exiting?
-        let events = { ctx.input().events.clone() };
+        let events = { ctx.input(|x| x.events.clone()) };
         for e in events {
             match e {
                 egui::Event::Copy => {}
@@ -571,6 +569,7 @@ impl App for AppState {
                     key,
                     pressed,
                     modifiers,
+                    repeat,
                 } => {
                     if pressed && !ctx.wants_keyboard_input() {
                         let key_combo = KeyCombo {
@@ -680,7 +679,7 @@ impl App for AppState {
                     });
 
                     if !self.editor.actions.saved() {
-                        ui.with_layout(Layout::right_to_left(), |ui| {
+                        ui.with_layout(Layout::right_to_left(emath::Align::Max), |ui| {
                             ui.add(egui::Label::new(RichText::new("*").color(Color32::RED)))
                                 .on_hover_text(i18n::fl!("unsaved_changes"))
                         });
@@ -814,9 +813,10 @@ impl App for AppState {
 
             match main_response {
                 Ok(response) => {
-                    let pos = ctx.input().pointer.hover_pos().unwrap_or(Pos2::ZERO);
-                    if response.hovered() && ctx.input().scroll_delta != Vec2::ZERO {
-                        self.editor.mouse_wheel_event(ctx.input().scroll_delta.y);
+                    let pos = ctx.pointer_hover_pos().unwrap_or(Pos2::ZERO);
+                    if response.hovered() && ctx.input(|x| x.scroll_delta) != Vec2::ZERO {
+                        self.editor
+                            .mouse_wheel_event(ctx.input(|x| x.scroll_delta.y));
                     }
 
                     if response.clicked() {
@@ -828,16 +828,13 @@ impl App for AppState {
                     }
 
                     if response.drag_started()
-                        && ctx
-                            .input()
-                            .pointer
-                            .button_down(egui::PointerButton::Primary)
+                        && ctx.input(|x| x.pointer.button_down(egui::PointerButton::Primary))
                     {
                         self.editor.drag_start(
                             egui::PointerButton::Primary,
                             pos.x,
                             pos.y,
-                            &Modifiers::from(ctx.input().modifiers),
+                            &Modifiers::from(ctx.input(|x| x.modifiers)),
                         )
                     }
 
@@ -922,6 +919,8 @@ pub fn main() -> Result<()> {
             Box::new(app)
         }),
     );
+
+    Ok(())
 }
 
 //https://github.com/emilk/egui/blob/master/examples/puffin_profiler/src/main.rs

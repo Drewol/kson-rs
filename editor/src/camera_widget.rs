@@ -1,9 +1,9 @@
-use std::rc::Rc;
+use std::{rc::Rc, sync::Arc};
 
 use bytemuck::offset_of;
 use eframe::{
     egui::{Sense, Widget},
-    epaint::{color::Hsva, Color32, PaintCallback, Stroke, Vertex},
+    epaint::{Color32, Hsva, PaintCallback, Stroke, Vertex},
     glow::{Context, HasContext, NativeBuffer},
 };
 use egui_glow::check_for_gl_error;
@@ -259,7 +259,7 @@ impl Widget for CameraView {
     fn ui(self, ui: &mut eframe::egui::Ui) -> eframe::egui::Response {
         let width = ui.available_size_before_wrap().x.max(self.desired_size.x);
         let height = width / (16.0 / 9.0); //16:9 aspect ratio, potentially allow toggle to 9:16
-        let time = ui.ctx().input().time;
+        let time = ui.ctx().input(|x| x.time);
         let (response, painter) = ui.allocate_painter(vec2(width, height), Sense::click());
         let view_rect = response.rect;
         let size = view_rect.size();
@@ -275,7 +275,7 @@ impl Widget for CameraView {
             let proj = projection.to_cols_array();
             let callback = PaintCallback {
                 rect: view_rect,
-                callback: std::sync::Arc::new(move |_info, render_ctx| unsafe {
+                callback: std::sync::Arc::new(move |render_ctx| unsafe {
                     paint_mesh_callback(render_ctx, &mesh, &proj, time);
                 }),
             };
@@ -452,7 +452,7 @@ pub enum BlendMode {
     Min,
 }
 
-unsafe fn set_blend_mode(gl: &Rc<Context>, mode: BlendMode) {
+unsafe fn set_blend_mode(gl: &Arc<Context>, mode: BlendMode) {
     use egui_glow::glow;
     gl.enable(glow::BLEND);
     match mode {

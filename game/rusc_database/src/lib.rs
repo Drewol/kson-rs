@@ -83,8 +83,8 @@ impl LocalSongsDb {
             .create_if_missing(true)
             .journal_mode(sqlx::sqlite::SqliteJournalMode::Memory)
             .synchronous(sqlx::sqlite::SqliteSynchronous::Off)
-            .busy_timeout(Duration::from_secs(20));
-        options.disable_statement_logging();
+            .busy_timeout(Duration::from_secs(20))
+            .disable_statement_logging();
 
         let res = Self {
             sqlite_pool: Pool::connect_with(options).await?,

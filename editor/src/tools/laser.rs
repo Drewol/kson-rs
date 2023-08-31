@@ -329,7 +329,7 @@ impl CursorObject for LaserTool {
                 state
                     .screen
                     .draw_laser_section(&self.section, &mut mb, color.into(), false)?;
-                painter.extend(mb.into_iter().map(Shape::mesh).collect());
+                painter.extend(mb.into_iter().map(Shape::mesh));
             }
 
             //Draw curve control points
