@@ -54,6 +54,17 @@ fn load_shader(
                 }
             }
 
+            let uniforms = gl.get_active_uniforms(program);
+            log::debug!("Listing uniforms");
+            for i in 0..uniforms {
+                if let Some(uniform) = gl.get_active_uniform(program, i) {
+                    log::debug!("name: {}, type: {}", uniform.name, uniform.utype);
+                }
+            }
+
+            gl.delete_shader(frag);
+            gl.delete_shader(vert);
+
             Ok(program)
         } else {
             Err(gl.get_program_info_log(program))

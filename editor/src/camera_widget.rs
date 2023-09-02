@@ -6,7 +6,10 @@ use eframe::{
     epaint::{Color32, Hsva, PaintCallback, Stroke, Vertex},
     glow::{Context, HasContext, NativeBuffer},
 };
-use egui_glow::check_for_gl_error;
+use egui_glow::{
+    check_for_gl_error,
+    glow::{NativeVertexArray, VertexArray},
+};
 use emath::{pos2, vec2, Rect, Vec2};
 use kson::Chart;
 use once_cell::sync::OnceCell;
@@ -76,7 +79,7 @@ impl CameraView {
 
     pub fn add_chart_objects(&mut self, chart: &Chart, tick: f32, laser_colors: &[Color32; 2]) {
         profile_function!();
-        let tick_height = -0.05;
+        let tick_height = -0.03;
         let bottom_margin = -tick * tick_height;
 
         let min_tick_render = tick as i32 - chart.beat.resolution as i32 * 8;
@@ -275,9 +278,11 @@ impl Widget for CameraView {
             let proj = projection.to_cols_array();
             let callback = PaintCallback {
                 rect: view_rect,
-                callback: std::sync::Arc::new(move |render_ctx| unsafe {
-                    paint_mesh_callback(render_ctx, &mesh, &proj, time);
-                }),
+                callback: std::sync::Arc::new(egui_glow::CallbackFn::new(
+                    move |_info, render_ctx| unsafe {
+                        paint_mesh_callback(render_ctx, &mesh, &proj, time);
+                    },
+                )),
             };
             painter.add(callback);
         }
@@ -292,157 +297,166 @@ thread_local! {
 }
 
 unsafe fn paint_mesh_callback(
-    render_ctx: &mut dyn std::any::Any,
+    painter: &egui_glow::Painter,
     mesh: &Mesh,
     projection: &[f32],
     _time: f64,
 ) {
-    if let Some(painter) = render_ctx.downcast_ref::<egui_glow::Painter>() {
-        use egui_glow::glow;
-        let gl = painter.gl();
-        gl.bind_vertex_array(None); // Unbind egui_glow vertex array object
+    use egui_glow::glow;
+    static CAMERA_ARRAY_BUFFER: OnceCell<NativeBuffer> = OnceCell::new();
+    static CAMERA_ELEMENT_BUFFER: OnceCell<NativeBuffer> = OnceCell::new();
+    static VAO: OnceCell<NativeVertexArray> = OnceCell::new();
+    let gl = painter.gl();
 
-        let assets = assets::instance(gl);
+    let vao = Some(VAO.get_or_init(|| gl.create_vertex_array().unwrap()));
 
-        static CAMERA_ARRAY_BUFFER: OnceCell<NativeBuffer> = OnceCell::new();
-        static CAMERA_ELEMENT_BUFFER: OnceCell<NativeBuffer> = OnceCell::new();
+    gl.bind_vertex_array(vao.copied()); // Unbind egui_glow vertex array object
 
-        let vertex_buffer = CAMERA_ARRAY_BUFFER.get_or_init(|| gl.create_buffer().unwrap());
-        gl.bind_buffer(glow::ARRAY_BUFFER, Some(*vertex_buffer));
+    let assets = assets::instance(gl);
 
-        let index_buffer = CAMERA_ELEMENT_BUFFER.get_or_init(|| gl.create_buffer().unwrap());
-        gl.bind_buffer(glow::ELEMENT_ARRAY_BUFFER, Some(*index_buffer));
-        let stride = std::mem::size_of::<Vertex>() as i32;
+    let vertex_buffer = CAMERA_ARRAY_BUFFER.get_or_init(|| gl.create_buffer().unwrap());
+    gl.bind_buffer(glow::ARRAY_BUFFER, Some(*vertex_buffer));
 
-        let (program, texture) = match mesh.material {
-            Material::Track(lcol, rcol) => {
-                gl.use_program(Some(assets.track_shader));
+    let index_buffer = CAMERA_ELEMENT_BUFFER.get_or_init(|| gl.create_buffer().unwrap());
+    gl.bind_buffer(glow::ELEMENT_ARRAY_BUFFER, Some(*index_buffer));
+    let stride = std::mem::size_of::<Vertex>() as i32;
 
-                gl.uniform_4_f32_slice(
-                    gl.get_uniform_location(assets.track_shader, "lCol")
-                        .as_ref(),
-                    &lcol.to_srgba_unmultiplied().map(|v| v as f32 / 255.0),
-                );
+    let (program, texture) = match mesh.material {
+        Material::Track(lcol, rcol) => {
+            gl.use_program(Some(assets.track_shader));
 
-                gl.uniform_4_f32_slice(
-                    gl.get_uniform_location(assets.track_shader, "rCol")
-                        .as_ref(),
-                    &rcol.to_srgba_unmultiplied().map(|v| v as f32 / 255.0),
-                );
+            gl.uniform_4_f32_slice(
+                gl.get_uniform_location(assets.track_shader, "lCol")
+                    .as_ref(),
+                &lcol.to_srgba_unmultiplied().map(|v| v as f32 / 255.0),
+            );
 
-                (assets.track_shader, Some(assets.track_texture))
-            }
-            Material::ChipBT => (assets.chip_shader, Some(assets.bt_chip_texture)),
-            Material::ChipFX => (assets.chip_shader, Some(assets.fx_chip_texture)),
-            Material::LongBT => (assets.hold_shader, Some(assets.bt_hold_texture)),
-            Material::LongFX => (assets.hold_shader, Some(assets.fx_hold_texture)),
-            Material::Laser(side) => {
-                gl.use_program(Some(assets.laser_shader));
-                let color = if side == 0 {
-                    Hsva::new(0.5, 1.0, 1.0, 1.0)
-                } else {
-                    Hsva::new(0.0, 1.0, 1.0, 1.0)
-                };
+            gl.uniform_4_f32_slice(
+                gl.get_uniform_location(assets.track_shader, "rCol")
+                    .as_ref(),
+                &rcol.to_srgba_unmultiplied().map(|v| v as f32 / 255.0),
+            );
 
-                gl.uniform_3_f32_slice(
-                    gl.get_uniform_location(assets.laser_shader, "color")
-                        .as_ref(),
-                    &color.to_srgb().map(|v| v as f32 / 255.0),
-                );
-                (assets.laser_shader, Some(assets.laser_texture))
-            }
-            Material::Solid(mode) => {
-                set_blend_mode(gl, mode);
-                (assets.color_mesh_shader, None)
-            }
-        };
-
-        match mesh.material {
-            Material::LongFX | Material::Laser(_) => set_blend_mode(gl, BlendMode::Add),
-            _ => {}
+            (assets.track_shader, Some(assets.track_texture))
         }
+        Material::ChipBT => (assets.chip_shader, Some(assets.bt_chip_texture)),
+        Material::ChipFX => (assets.chip_shader, Some(assets.fx_chip_texture)),
+        Material::LongBT => (assets.hold_shader, Some(assets.bt_hold_texture)),
+        Material::LongFX => (assets.hold_shader, Some(assets.fx_hold_texture)),
+        Material::Laser(side) => {
+            gl.use_program(Some(assets.laser_shader));
+            let color = if side == 0 {
+                Hsva::new(0.5, 1.0, 1.0, 1.0)
+            } else {
+                Hsva::new(0.0, 1.0, 1.0, 1.0)
+            };
 
-        gl.use_program(Some(program));
-        gl.bind_texture(glow::TEXTURE_2D, texture);
-        gl.active_texture(glow::TEXTURE0);
-
-        if let Some(pos_loc) = gl.get_attrib_location(program, "position") {
-            gl.vertex_attrib_pointer_f32(
-                pos_loc,
-                2,
-                glow::FLOAT,
-                false,
-                stride,
-                offset_of!(Vertex, pos) as i32,
+            gl.uniform_3_f32_slice(
+                gl.get_uniform_location(assets.laser_shader, "color")
+                    .as_ref(),
+                &color.to_srgb().map(|v| v as f32 / 255.0),
             );
-            gl.enable_vertex_attrib_array(pos_loc);
-        };
-        if let Some(texcoord_loc) = gl.get_attrib_location(program, "texcoord") {
-            gl.vertex_attrib_pointer_f32(
-                texcoord_loc,
-                2,
-                glow::FLOAT,
-                false,
-                stride,
-                offset_of!(Vertex, uv) as i32,
-            );
-            gl.enable_vertex_attrib_array(texcoord_loc);
+            (assets.laser_shader, Some(assets.laser_texture))
         }
-        if let Some(color_loc) = gl.get_attrib_location(program, "color0") {
-            gl.vertex_attrib_pointer_f32(
-                color_loc,
-                4,
-                glow::UNSIGNED_BYTE,
-                false,
-                stride,
-                offset_of!(Vertex, color) as i32,
-            );
-            gl.enable_vertex_attrib_array(color_loc);
+        Material::Solid(mode) => {
+            set_blend_mode(gl, mode);
+            (assets.color_mesh_shader, None)
         }
+    };
 
-        MODEL.with(|m| {
-            gl.uniform_matrix_4_f32_slice(
-                gl.get_uniform_location(program, "Model").as_ref(),
-                false,
-                m,
-            );
-        });
-
-        gl.uniform_matrix_4_f32_slice(
-            gl.get_uniform_location(program, "Projection").as_ref(),
-            false,
-            projection,
-        );
-
-        gl.uniform_1_i32(gl.get_uniform_location(program, "mainTex").as_ref(), 0);
-        gl.uniform_1_i32(gl.get_uniform_location(program, "hitState").as_ref(), 1);
-        gl.uniform_1_i32(gl.get_uniform_location(program, "hasSample").as_ref(), 0);
-        gl.uniform_1_f32(gl.get_uniform_location(program, "objectGlow").as_ref(), 0.0);
-
-        gl.buffer_data_u8_slice(
-            glow::ARRAY_BUFFER,
-            bytemuck::cast_slice(&mesh.mesh.vertices),
-            glow::STREAM_DRAW,
-        );
-
-        gl.buffer_data_u8_slice(
-            glow::ELEMENT_ARRAY_BUFFER,
-            bytemuck::cast_slice(&mesh.mesh.indices),
-            glow::STREAM_DRAW,
-        );
-        check_for_gl_error!(gl);
-
-        gl.draw_elements(
-            glow::TRIANGLES,
-            mesh.mesh.indices.len() as i32,
-            glow::UNSIGNED_INT,
-            0,
-        );
-        set_blend_mode(gl, BlendMode::Normal);
-        check_for_gl_error!(gl);
-    } else {
-        eprintln!("Can't do custom painting because we are not using a glow context");
+    match mesh.material {
+        Material::LongFX | Material::Laser(_) => set_blend_mode(gl, BlendMode::Add),
+        _ => {}
     }
+    check_for_gl_error!(gl);
+
+    gl.buffer_data_u8_slice(
+        glow::ARRAY_BUFFER,
+        bytemuck::cast_slice(&mesh.mesh.vertices),
+        glow::STREAM_DRAW,
+    );
+
+    gl.buffer_data_u8_slice(
+        glow::ELEMENT_ARRAY_BUFFER,
+        bytemuck::cast_slice(&mesh.mesh.indices),
+        glow::STREAM_DRAW,
+    );
+    check_for_gl_error!(gl);
+
+    gl.use_program(Some(program));
+    gl.bind_texture(glow::TEXTURE_2D, texture);
+    gl.active_texture(glow::TEXTURE0);
+    check_for_gl_error!(gl);
+
+    if let Some(pos_loc) = gl.get_attrib_location(program, "position") {
+        gl.vertex_attrib_pointer_f32(
+            pos_loc,
+            2,
+            glow::FLOAT,
+            false,
+            stride,
+            offset_of!(Vertex, pos) as i32,
+        );
+        check_for_gl_error!(gl);
+        gl.enable_vertex_attrib_array(pos_loc);
+        check_for_gl_error!(gl);
+    };
+    if let Some(texcoord_loc) = gl.get_attrib_location(program, "texcoord") {
+        gl.vertex_attrib_pointer_f32(
+            texcoord_loc,
+            2,
+            glow::FLOAT,
+            false,
+            stride,
+            offset_of!(Vertex, uv) as i32,
+        );
+        check_for_gl_error!(gl);
+        gl.enable_vertex_attrib_array(texcoord_loc);
+        check_for_gl_error!(gl);
+    }
+    if let Some(color_loc) = gl.get_attrib_location(program, "color0") {
+        gl.vertex_attrib_pointer_f32(
+            color_loc,
+            4,
+            glow::UNSIGNED_BYTE,
+            false,
+            stride,
+            offset_of!(Vertex, color) as i32,
+        );
+        gl.enable_vertex_attrib_array(color_loc);
+        check_for_gl_error!(gl);
+    }
+
+    MODEL.with(|m| {
+        gl.uniform_matrix_4_f32_slice(gl.get_uniform_location(program, "Model").as_ref(), false, m);
+    });
+    check_for_gl_error!(gl);
+
+    gl.uniform_matrix_4_f32_slice(
+        gl.get_uniform_location(program, "Projection").as_ref(),
+        false,
+        projection,
+    );
+    check_for_gl_error!(gl);
+
+    gl.uniform_1_i32(gl.get_uniform_location(program, "mainTex").as_ref(), 0);
+    check_for_gl_error!(gl);
+    gl.uniform_1_i32(gl.get_uniform_location(program, "hitState").as_ref(), 1);
+    check_for_gl_error!(gl);
+    gl.uniform_1_i32(gl.get_uniform_location(program, "hasSample").as_ref(), 0);
+    check_for_gl_error!(gl);
+    gl.uniform_1_f32(gl.get_uniform_location(program, "objectGlow").as_ref(), 0.0);
+    check_for_gl_error!(gl);
+
+    gl.draw_elements(
+        glow::TRIANGLES,
+        mesh.mesh.indices.len() as i32,
+        glow::UNSIGNED_INT,
+        0,
+    );
+    check_for_gl_error!(gl);
+    set_blend_mode(gl, BlendMode::Normal);
+    check_for_gl_error!(gl);
 }
 
 #[derive(Debug, Copy, Clone)]
