@@ -69,7 +69,7 @@ rayon = "1.7.0"
 puffin_egui = "0.22.0"
 serde_json = "1.0.96"
 game-loop = { version = "*", features = ["winit"] }
-glutin = "0.30.7"
+glutin = "0.30.10"
 glutin-winit = "0.3.0"
 glow = "0.12.1"
 raw-window-handle = "0.5.2"
