@@ -597,7 +597,7 @@ fn main() -> anyhow::Result<()> {
 
     game_loop::game_loop(
         eventloop,
-        window,
+        Arc::new(window),
         game,
         240,
         0.1,
