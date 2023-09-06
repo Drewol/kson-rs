@@ -354,30 +354,6 @@ fn main() -> anyhow::Result<()> {
     let gl_context = Arc::new(gl_context);
     let canvas = Arc::new(Mutex::new(canvas));
 
-    let skin_setting: Vec<SkinSettingEntry> = {
-        let skin = &GameConfig::get().skin;
-        let mut config_def_path = default_game_dir();
-        config_def_path.push("skins");
-        config_def_path.push(skin);
-        config_def_path.push("config-definitions.json");
-        let res = File::open(config_def_path).map(|f| {
-            let res = serde_json::from_reader::<_, Vec<SkinSettingEntry>>(f);
-            if let Err(e) = &res {
-                log::error!("{:?}", e);
-            }
-
-            res.unwrap_or_default()
-        });
-
-        if let Err(e) = &res {
-            log::error!("{:?}", e);
-        }
-
-        res.unwrap_or_default()
-    };
-
-    log::info!("Skin Settings: {:#?}", skin_setting);
-
     let mut input = gilrs::GilrsBuilder::default()
         .add_included_mappings(false)
         .with_default_filters(false)
