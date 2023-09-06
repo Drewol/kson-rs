@@ -359,6 +359,7 @@ fn main() -> anyhow::Result<()> {
         let mut config_def_path = default_game_dir();
         config_def_path.push("skins");
         config_def_path.push(skin);
+        config_def_path.push("config-definitions.json");
         let res = File::open(config_def_path).map(|f| {
             let res = serde_json::from_reader::<_, Vec<SkinSettingEntry>>(f);
             if let Err(e) = &res {
