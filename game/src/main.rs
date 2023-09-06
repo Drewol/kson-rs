@@ -108,7 +108,11 @@ pub fn default_game_dir() -> PathBuf {
 }
 
 pub fn init_game_dir(game_dir: impl AsRef<Path>) -> anyhow::Result<()> {
-    let mut install_dir = std::env::current_dir()?;
+    let mut install_dir = if let Ok(manifest_dir) = std::env::var("CARGO_MANIFEST_DIR") {
+        PathBuf::from(manifest_dir) // should be correct when started from `cargo run`
+    } else {
+        std::env::current_dir()?
+    };
     install_dir.push("fonts");
 
     if !install_dir.exists() {
