@@ -133,7 +133,7 @@ pub fn init_game_dir(game_dir: impl AsRef<Path>) -> anyhow::Result<()> {
         let folder_name = ele.file_name().into_string().unwrap();
 
         if ele.file_type()?.is_dir() && (folder_name == "fonts" || folder_name == "skins") {
-            // Quickly check if the root file/folder exists, ignore it (and it's subchildren, if applicable) if it does
+            // Quickly check if the root path exists, ignore it if it does
             let path = ele.path();
             let target = path.strip_prefix(&install_dir)?;
             let mut target_path = game_dir.as_ref().to_path_buf();
