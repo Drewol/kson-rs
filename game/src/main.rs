@@ -131,8 +131,17 @@ pub fn init_game_dir(game_dir: impl AsRef<Path>) -> anyhow::Result<()> {
     for ele in r.into_iter() {
         let ele = ele?;
         let folder_name = ele.file_name().into_string().unwrap();
+
         if ele.file_type()?.is_dir() && (folder_name == "fonts" || folder_name == "skins") {
-            for data_file in walkdir::WalkDir::new(ele.path()).into_iter() {
+            // Quickly check if the root file/folder exists, ignore it (and it's subchildren, if applicable) if it does
+            let path = ele.path();
+            let target = path.strip_prefix(&install_dir)?;
+            let mut target_path = game_dir.as_ref().to_path_buf();
+            target_path.push(target);
+
+            if target_path.exists() { continue; }
+
+            for data_file in walkdir::WalkDir::new(path).into_iter() {
                 let data_file = data_file?;
 
                 let target_file = data_file.path().strip_prefix(&install_dir)?;
