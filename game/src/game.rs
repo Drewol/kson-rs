@@ -153,8 +153,8 @@ impl Gauge {
     pub fn is_cleared(&self) -> bool {
         match self {
             Gauge::Normal {
-                chip_gain,
-                tick_gain,
+                chip_gain: _,
+                tick_gain: _,
                 value,
             } => *value >= 0.7,
             Gauge::None => false,
@@ -1674,7 +1674,7 @@ pub struct ChartView {
 
 use anyhow::{ensure, Result};
 use three_d::{
-    vec2, vec3, Blend, Camera, Color, ColorMaterial, CpuMesh, Deg, DepthTest, Indices, InnerSpace,
+    vec2, vec3, Blend, Camera, Color, ColorMaterial, CpuMesh, DepthTest, Indices, InnerSpace,
     Mat3, Mat4, Matrix4, Positions, Rad, RenderStates, Texture2D, Transform, Vec2, Vec3, Vec4,
     Vector3, Viewport, Zero,
 };

@@ -1,4 +1,4 @@
-use std::{rc::Rc, sync::Arc};
+use std::{sync::Arc};
 
 use bytemuck::offset_of;
 use eframe::{
@@ -8,7 +8,7 @@ use eframe::{
 };
 use egui_glow::{
     check_for_gl_error,
-    glow::{NativeVertexArray, VertexArray},
+    glow::{NativeVertexArray},
 };
 use emath::{pos2, vec2, Rect, Vec2};
 use kson::Chart;

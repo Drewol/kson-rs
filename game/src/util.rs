@@ -1,5 +1,3 @@
-use std::sync::Arc;
-
 use tealr::mlu::mlua::Lua;
 use three_d::{context::*, *};
 
@@ -24,7 +22,6 @@ pub fn back_pixels(context: &three_d::Context, viewport: Viewport) -> Vec<[u8; 4
 }
 
 pub fn lua_address(lua: &Lua) -> usize {
-    let v = lua.clone();
     let ptr = &**lua as *const _;
     ptr as usize
 }

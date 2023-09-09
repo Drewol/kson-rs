@@ -8,7 +8,7 @@ const COMPAT_TEXT_SCALE: f32 = 21.5 / 30.0; // Needed because old usc has two di
 
 use femtovg::{renderer::OpenGl, Canvas, Color, FontId, ImageFlags, ImageId, Paint, Path};
 
-use generational_arena::Index;
+
 use log::warn;
 use poll_promise::Promise;
 use puffin::profile_scope;

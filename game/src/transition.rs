@@ -4,7 +4,7 @@ use std::{
     sync::{mpsc::Sender, Arc, Mutex},
 };
 
-use generational_arena::Index;
+
 use log::warn;
 use poll_promise::Promise;
 use rodio::Source;
@@ -14,7 +14,7 @@ use ureq::json;
 
 use crate::{
     game_data::GameData,
-    input_state::{self, InputState},
+    input_state::{InputState},
     main_menu::MainMenuButton,
     results::SongResultData,
     scene::{Scene, SceneData},

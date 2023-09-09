@@ -1,5 +1,4 @@
 use std::{
-    ops::Sub,
     rc::Rc,
     sync::{atomic::AtomicU32, Arc},
 };
@@ -257,7 +256,7 @@ impl SettingsDialog {
 
         let setting = &mut tab.settings[tab.current_setting];
 
-        let (_, SettingsDialogSetting::Float { min, max, mult, set, get }) = setting else {
+        let (_, SettingsDialogSetting::Float { min, max, mult: _, set, get }) = setting else {
             _ = self.lua.globals().set("SettingsDiag", &*self);
             return;
         };

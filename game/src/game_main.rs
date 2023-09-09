@@ -4,14 +4,12 @@ use std::{
         mpsc::{Receiver, Sender},
         Arc, Mutex, RwLock,
     },
-    time::Duration,
 };
 
-use egui_glow::{winit, EguiGlow};
+use egui_glow::{EguiGlow};
 use femtovg::Paint;
 use game_loop::{
-    winit::{dpi::PhysicalPosition, event, monitor::VideoMode, window::Window},
-    GameLoop, Time,
+    winit::{dpi::PhysicalPosition, event, window::Window},
 };
 use generational_arena::{Arena, Index};
 

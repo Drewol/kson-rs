@@ -1,7 +1,5 @@
 use std::{
-    cell::RefMut,
     path::{Path, PathBuf},
-    rc::{Rc, Weak},
     sync::{Arc, Mutex},
 };
 
@@ -11,7 +9,7 @@ use crate::{
     util::lua_address,
     vg_ui::{ExportVgfx, Vgfx},
 };
-use generational_arena::Index;
+
 use glow::HasContext;
 use kson::MeasureBeatLines;
 use log::warn;
@@ -23,11 +21,11 @@ use tealr::{
     },
     mlu::{
         mlua::{Function, Lua, LuaOptions},
-        TealData, UserDataProxy,
+        TealData,
     },
     mlua_create_named_parameters, TypeName,
 };
-use three_d_asset::{vec2, vec3, Vec2, Vector2, Vector3, Viewport};
+use three_d_asset::{vec2, vec3, Vector2, Vector3, Viewport};
 
 #[derive(Debug, Clone, Copy)]
 pub struct BackgroundData {

@@ -466,7 +466,7 @@ void main() {
         let [c0r0, c0r1, c1r0, c1r1, c2r0, c2r1] = {
             let vgfx = vgfx.lock().unwrap();
             let canvas = vgfx.canvas.lock().unwrap();
-            let mut transform = canvas.transform();
+            let transform = canvas.transform();
             //transform.scale(1.0, -1.0);
 
             transform.0
@@ -608,11 +608,11 @@ impl TealData for ShadedMesh {
             let vgfx = &lua.app_data_ref::<Arc<Mutex<Vgfx>>>().unwrap();
             this.draw_lua_skin(frame, vgfx)
         });
-        methods.add_method_mut("AddTexture", |lua, this, params: (String, String)| {
+        methods.add_method_mut("AddTexture", |_lua, this, params: (String, String)| {
             this.use_texture(params.0, params.1, (false, false))
                 .map_err(tealr::mlu::mlua::Error::external)
         });
-        methods.add_method_mut("AddSkinTexture", |lua, this, params: (String, String)| {
+        methods.add_method_mut("AddSkinTexture", |_lua, this, params: (String, String)| {
             let mut path = GameConfig::get().game_folder.clone();
             let skin = &GameConfig::get().skin;
             path.push("skins");
@@ -623,7 +623,7 @@ impl TealData for ShadedMesh {
             this.use_texture(params.0, path, (false, false))
                 .map_err(tealr::mlu::mlua::Error::external)
         });
-        methods.add_method_mut("AddSharedTexture", |lua, this, params: (String, String)| {
+        methods.add_method_mut("AddSharedTexture", |_lua, this, params: (String, String)| {
             this.use_texture(params.0, params.1, (false, false))
                 .map_err(tealr::mlu::mlua::Error::external)
         });

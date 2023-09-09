@@ -1,7 +1,7 @@
 use std::{
     f32::consts::SQRT_2,
     sync::{
-        mpsc::{channel, Receiver, Sender},
+        mpsc::{channel, Receiver},
         Arc, RwLock,
     },
     time::Duration,
@@ -11,21 +11,18 @@ use egui_inspect::*;
 
 use rodio::{
     decoder::LoopedDecoder,
-    dynamic_mixer::{self, mixer},
-    source::SamplesConverter,
+    dynamic_mixer::{self},
     Source,
 };
 
 use crate::{
     scene::Scene,
     sources::{
-        self,
-        biquad::{self, BiQuadState, BiquadController},
-        biquad::{biquad, BiQuad},
-        flanger::flanger,
+        biquad::{BiQuadState, BiquadController},
+        biquad::{biquad},
         noise::NoiseSource,
         owned_source::owned_source,
-        takeable_source::{self, TakeableSource},
+        takeable_source::{TakeableSource},
     },
     RuscMixer,
 };
@@ -172,7 +169,7 @@ struct EnabledEffects {
 }
 
 impl Scene for AudioTest {
-    fn render_ui(&mut self, dt: f64) -> anyhow::Result<()> {
+    fn render_ui(&mut self, _dt: f64) -> anyhow::Result<()> {
         Ok(())
     }
 

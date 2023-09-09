@@ -1,5 +1,5 @@
 use std::f32::consts::SQRT_2;
-use std::sync::mpsc::{channel, Sender};
+use std::sync::mpsc::{channel};
 
 use super::biquad::{biquad, BiQuad, BiQuadState, BiQuadType, BiquadController};
 use super::triangle::TriangleWave;

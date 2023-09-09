@@ -1,6 +1,6 @@
 use std::sync::{Arc, Mutex};
 
-use generational_arena::Index;
+
 use tealr::{
     mlu::{
         mlua::{self, FromLuaMulti, Lua, Result, ToLuaMulti},

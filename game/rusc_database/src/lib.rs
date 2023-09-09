@@ -78,7 +78,7 @@ pub struct ScoreEntry {
 
 impl LocalSongsDb {
     pub async fn new(db_path: impl AsRef<Path>) -> Result<Self, sqlx::Error> {
-        let mut options = sqlx::sqlite::SqliteConnectOptions::new()
+        let options = sqlx::sqlite::SqliteConnectOptions::new()
             .filename(db_path)
             .create_if_missing(true)
             .journal_mode(sqlx::sqlite::SqliteJournalMode::Memory)

@@ -1,5 +1,4 @@
 use std::{
-    fs::File,
     io::Write,
     path::{Path, PathBuf},
     rc::Rc,
@@ -15,7 +14,6 @@ use crate::{
     game_main::GameMain,
     input_state::InputState,
     scene::SceneData,
-    skin_settings::SkinSettingEntry,
     songselect::{Difficulty, Song},
     transition::Transition,
     vg_ui::Vgfx,
@@ -23,7 +21,7 @@ use crate::{
 use anyhow::bail;
 use clap::Parser;
 use directories::ProjectDirs;
-use egui_glow::EguiGlow;
+
 use femtovg as vg;
 
 use game_main::ControlMessage;

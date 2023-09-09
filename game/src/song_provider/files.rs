@@ -1,10 +1,10 @@
 use std::{
-    collections::{HashMap, VecDeque},
-    io::{Read, Write},
+    collections::{HashMap},
+    io::{Read},
     path::PathBuf,
     sync::{
         mpsc::{channel, Receiver, Sender, TryRecvError},
-        Arc, Mutex, RwLock,
+        Arc,
     },
     time::Duration,
 };
@@ -12,22 +12,21 @@ use std::{
 use crate::{
     block_on,
     config::GameConfig,
-    default_game_dir,
     results::Score,
     songselect::{Difficulty, Song},
 };
 
 use super::{ScoreProvider, SongProvider, SongProviderEvent};
 use anyhow::ensure;
-use egui::epaint::ahash::HashSet;
+
 use futures::{AsyncReadExt, StreamExt, TryStreamExt};
 use itertools::Itertools;
-use kson::{Chart, Ksh};
+use kson::{Ksh};
 use log::info;
 use puffin::profile_function;
 use rodio::Source;
 use rusc_database::{ChartEntry, LocalSongsDb, ScoreEntry};
-use walkdir::DirEntry;
+
 
 enum WorkerControlMessage {
     Stop,
@@ -127,7 +126,7 @@ impl FileSongProvider {
         let (worker_tx, sender_rx) = channel();
         let worker = poll_promise::Promise::spawn_async(async move {
             loop {
-                let mut songs = {
+                let songs = {
                     let song_path = crate::config::GameConfig::get().songs_path.clone();
                     let song_path = if song_path.is_absolute() {
                         song_path

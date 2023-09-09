@@ -4,12 +4,12 @@ use kson::parameter::EffectParameter;
 use kson::parameter::*;
 use kson::{Chart, GraphSectionPoint};
 use kson_audio::Dsp;
-use kson_audio::*;
+
 pub use rodio::Source;
-use rodio::*;
-use std::fmt::Debug;
+
+
 use std::fs::File;
-use std::io::{BufReader, Read, Seek};
+use std::io::{BufReader};
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 
@@ -90,7 +90,7 @@ impl Iterator for AudioFile {
 
                 //apply Laser DSP
                 {
-                    let mut laser = self.laser_dsp.lock().unwrap();
+                    let _laser = self.laser_dsp.lock().unwrap();
                     //(*laser).process(&mut v, pos % self.channels as usize);
                 }
                 self.pos.store(pos, Ordering::SeqCst);

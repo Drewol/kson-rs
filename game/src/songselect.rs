@@ -31,13 +31,12 @@ use crate::{
     input_state::{self, InputState},
     results::Score,
     scene::{Scene, SceneData},
-    settings_dialog::{SettingsDialog, SettingsDialogTab},
+    settings_dialog::{SettingsDialog},
     song_provider::{
         FileSongProvider, NauticaSongProvider, ScoreProvider, SongProvider, SongProviderEvent,
     },
     sources::{
-        bitcrush::bit_crusher, effected_part::effected_part, flanger::flanger,
-        owned_source::owned_source, pitch_shift::pitch_shift, wobble::wobble,
+        owned_source::owned_source,
     },
     take_duration_fade::take_duration_fade,
     vg_ui::Vgfx,
@@ -141,7 +140,7 @@ impl TypeName for SongSelect {
 }
 
 impl SongSelect {
-    pub fn new(input_state: input_state::InputState) -> Self {
+    pub fn new(_input_state: input_state::InputState) -> Self {
         let song_path = { GameConfig::get().songs_path.clone() };
 
         let (song_provider, score_provider): (

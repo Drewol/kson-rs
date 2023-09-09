@@ -22,7 +22,7 @@ impl SettingsScreen {
 }
 
 impl Scene for SettingsScreen {
-    fn render_ui(&mut self, dt: f64) -> anyhow::Result<()> {
+    fn render_ui(&mut self, _dt: f64) -> anyhow::Result<()> {
         Ok(())
     }
 
@@ -30,7 +30,7 @@ impl Scene for SettingsScreen {
         false
     }
 
-    fn debug_ui(&mut self, ctx: &egui::Context) -> anyhow::Result<()> {
+    fn debug_ui(&mut self, _ctx: &egui::Context) -> anyhow::Result<()> {
         Ok(())
     }
 
@@ -88,7 +88,7 @@ impl Scene for SettingsScreen {
                                 ui.add(Separator::default().grow(0.0).spacing(5.0).horizontal());
                             }
                             crate::skin_settings::SkinSettingEntry::Selection {
-                                default,
+                                default: _,
                                 label,
                                 name,
                                 values,
@@ -103,7 +103,7 @@ impl Scene for SettingsScreen {
                                     });
                             }
                             crate::skin_settings::SkinSettingEntry::Text {
-                                default,
+                                default: _,
                                 label,
                                 name,
                                 secret,
@@ -113,7 +113,7 @@ impl Scene for SettingsScreen {
                                 ui.add(TextEdit::singleline(t).password(*secret));
                             }
                             crate::skin_settings::SkinSettingEntry::Color {
-                                default,
+                                default: _,
                                 label,
                                 name,
                             } => {
@@ -122,7 +122,7 @@ impl Scene for SettingsScreen {
                                 ui.color_edit_button_srgba(&mut col.0);
                             }
                             crate::skin_settings::SkinSettingEntry::Bool {
-                                default,
+                                default: _,
                                 label,
                                 name,
                             } => {
@@ -130,7 +130,7 @@ impl Scene for SettingsScreen {
                                 ui.checkbox(v, label);
                             }
                             crate::skin_settings::SkinSettingEntry::Float {
-                                default,
+                                default: _,
                                 label,
                                 name,
                                 min,
@@ -141,7 +141,7 @@ impl Scene for SettingsScreen {
                                 ui.add(egui::Slider::new(v, *min..=*max));
                             }
                             crate::skin_settings::SkinSettingEntry::Integer {
-                                default,
+                                default: _,
                                 label,
                                 name,
                                 min,

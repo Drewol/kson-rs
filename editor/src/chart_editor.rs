@@ -12,10 +12,9 @@ use eframe::epaint::FontId;
 use egui::Ui;
 use kson::{GraphPoint, GraphSectionPoint, Interval, Ksh, Vox};
 use kson_music_playback as playback;
-use log::debug;
-use playback::*;
+
 use puffin::profile_scope;
-use rodio::Source;
+
 use rodio::{OutputStream, OutputStreamHandle, Sink};
 use std::collections::VecDeque;
 use std::ffi::OsStr;
@@ -596,20 +595,24 @@ impl MainState {
         Ok(s)
     }
 
+    #[allow(unused)]
     pub fn get_cursor_ms_from_mouse(&self) -> f64 {
         let tick = self.screen.pos_to_tick(self.mouse_x, self.mouse_y);
         let tick = tick - (tick % (self.chart.beat.resolution / 2));
         self.chart.tick_to_ms(tick)
     }
 
+    #[allow(unused)]
     pub fn get_cursor_tick_from_mouse(&self) -> u32 {
         self.screen.pos_to_tick(self.mouse_x, self.mouse_y)
     }
 
+    #[allow(unused)]
     pub fn get_cursor_tick_from_mouse_f(&self) -> f64 {
         self.screen.pos_to_tick_f(self.mouse_x, self.mouse_y)
     }
 
+    #[allow(unused)]
     pub fn get_cursor_lane_from_mouse(&self) -> f32 {
         self.screen.pos_to_lane(self.mouse_x)
     }
@@ -1378,7 +1381,7 @@ impl MainState {
         self.screen.x_offset_target = self.screen.x_offset_target.max(0.0);
     }
 }
-
+#[allow(unused)]
 fn get_extension_from_filename(filename: &str) -> Option<&str> {
     Path::new(filename).extension().and_then(OsStr::to_str)
 }

@@ -6,12 +6,6 @@ authors = ["Emil Draws <emildraws@gmail.com>"]
 
 [lib]
 crate-type = ["lib"]
-required-features = ["lib"]
-
-[[bin]]
-name = "kson-editor"
-path = "src/lib.rs"
-required-features = ["bin"]
 
 [dependencies]
 serde = { version = "1.0", features = ["derive"] }
@@ -43,7 +37,5 @@ rust-embed = "6.4.1"
 kson-music-playback = { path = "../kson-music-playback" }
 
 [features]
-default_features = ["lib"]
+default_features = []
 profiling = ["eframe/puffin"]
-bin = []
-lib = []

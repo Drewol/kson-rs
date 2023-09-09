@@ -6,7 +6,7 @@ use std::str::FromStr;
 
 use anyhow::Result;
 use chart_editor::MainState;
-use eframe::egui::style::Selection;
+
 use eframe::egui::{
     self, menu, warn_if_debug_build, Button, Color32, ComboBox, DragValue, Frame, Grid, Key, Label,
     Layout, Pos2, Rect, Response, RichText, Sense, Slider, Ui, Vec2, Visuals,
@@ -30,7 +30,7 @@ pub trait Widget {
     fn ui(self, ui: &mut Ui) -> Response;
 }
 
-use i18n::fl;
+
 use tracing::info;
 
 #[derive(Default, Clone, Debug, Serialize, Deserialize, PartialEq, Eq, PartialOrd, Ord)]
@@ -569,7 +569,7 @@ impl App for AppState {
                     key,
                     pressed,
                     modifiers,
-                    repeat,
+                    repeat: _,
                 } => {
                     if pressed && !ctx.wants_keyboard_input() {
                         let key_combo = KeyCombo {

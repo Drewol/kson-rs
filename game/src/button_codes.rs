@@ -1,7 +1,7 @@
 use std::{borrow::BorrowMut, collections::HashMap};
 
 use game_loop::winit::event::ElementState;
-use gilrs::{ev::filter::FilterFn, Axis, Button, Event, Mapping};
+use gilrs::{ev::filter::FilterFn, Axis, Button, Event};
 use kson::{BtLane, Side};
 
 pub struct RuscFilter {
