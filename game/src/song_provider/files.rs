@@ -15,7 +15,7 @@ use crate::{
     songselect::{Difficulty, Song},
 };
 
-use super::{ScoreProvider, SongProvider, SongProviderEvent};
+use super::{LoadSongFn, ScoreProvider, SongProvider, SongProviderEvent};
 use anyhow::ensure;
 
 use futures::{AsyncReadExt, StreamExt};
@@ -433,11 +433,7 @@ impl SongProvider for FileSongProvider {
 
     fn set_current_index(&mut self, _index: u64) {}
 
-    fn load_song(
-        &self,
-        _index: u64,
-        _diff_index: u64,
-    ) -> Box<dyn FnOnce() -> (kson::Chart, Box<dyn rodio::Source<Item = f32> + Send>) + Send> {
+    fn load_song(&self, _index: u64, _diff_index: u64) -> LoadSongFn {
         let db = self.database.clone();
         let path = PathBuf::from(
             block_on!(db.get_song(_diff_index as _))
