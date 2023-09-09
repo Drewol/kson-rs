@@ -1,9 +1,10 @@
 use std::{
     collections::VecDeque,
     path::{Path, PathBuf},
+    rc::Rc,
     sync::{
         mpsc::{channel, Receiver, Sender},
-        Arc, Mutex,
+        Mutex,
     },
     thread::JoinHandle,
 };
@@ -29,7 +30,7 @@ pub struct VgAnimation {
     frame_time: f64,
     frame_timer: f64,
     compressed: bool,
-    canvas: Arc<Mutex<Canvas<OpenGl>>>,
+    canvas: Rc<Mutex<Canvas<OpenGl>>>,
     loader_tx: Sender<LoaderRequest>,
     loader_rx: Receiver<LoaderResponse>,
     _loader_thread: JoinHandle<()>,
@@ -62,7 +63,7 @@ impl VgAnimation {
     pub fn new(
         image_root: impl AsRef<Path>,
         frame_time: f64,
-        canvas: Arc<Mutex<Canvas<OpenGl>>>,
+        canvas: Rc<Mutex<Canvas<OpenGl>>>,
         loop_count: usize,
         compressed: bool,
     ) -> anyhow::Result<Self> {

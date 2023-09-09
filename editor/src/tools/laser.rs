@@ -76,7 +76,7 @@ impl LaserTool {
         };
 
         if let Some(secont_last) = self.get_second_to_last() {
-            (*secont_last).ry.max(ry)
+            secont_last.ry.max(ry)
         } else {
             ry
         }
@@ -132,7 +132,7 @@ impl CursorObject for LaserTool {
             }
             LaserEditMode::New => {
                 if let Some(last) = self.get_second_to_last() {
-                    finalize = match (*last).vf {
+                    finalize = match last.vf {
                         Some(_) => ry == last.ry,
                         None => ry == last.ry && (v - last.v).abs() < f64::EPSILON,
                     };
@@ -262,15 +262,15 @@ impl CursorObject for LaserTool {
                 let v = LaserTool::lane_to_pos(lane, self.section.wide());
                 let second_last: Option<GraphSectionPoint> = self.get_second_to_last().copied();
                 if let Some(last) = self.section.1.last_mut() {
-                    (*last).ry = ry;
-                    (*last).v = v;
+                    last.ry = ry;
+                    last.v = v;
 
                     if let Some(second_last) = second_last {
                         if second_last.ry == ry {
-                            (*last).v = second_last.v;
-                            (*last).vf = Some(v);
+                            last.v = second_last.v;
+                            last.vf = Some(v);
                         } else {
-                            (*last).vf = None;
+                            last.vf = None;
                         }
                     }
                 }
@@ -347,7 +347,7 @@ impl CursorObject for LaserTool {
                         (0.0, 1.0),
                         Some((0.5 / 6.0, 5.5 / 6.0)),
                     ) {
-                        painter.circle(pos, 5.0, color, Stroke::none());
+                        painter.circle(pos, 5.0, color, Stroke::NONE);
                     }
                 }
             }

@@ -1,3 +1,5 @@
+#![allow(unused)]
+
 use std::sync::mpsc::channel;
 
 use rodio::{source::UniformSourceIterator, Source};

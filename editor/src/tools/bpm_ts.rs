@@ -29,6 +29,8 @@ impl BpmTool {
     }
 }
 
+type CompletionFn<T> = Box<dyn Fn(&mut ActionStack<Chart>, T)>;
+
 impl CursorObject for BpmTool {
     fn primary_click(
         &mut self,
@@ -66,7 +68,7 @@ impl CursorObject for BpmTool {
     }
 
     fn draw_ui(&mut self, state: &mut MainState, ctx: &Context) {
-        let complete_func: Option<Box<dyn Fn(&mut ActionStack<Chart>, f64)>> = match self.state {
+        let complete_func: Option<CompletionFn<f64>> = match self.state {
             CursorToolStates::None => None,
             CursorToolStates::Add(tick) => {
                 Some(Box::new(move |a: &mut ActionStack<Chart>, bpm: f64| {
@@ -75,7 +77,7 @@ impl CursorObject for BpmTool {
 
                     let new_action = a.new_action();
 
-                    new_action.description = String::from(i18n::fl!("add_bpm_change"));
+                    new_action.description = i18n::fl!("add_bpm_change");
                     new_action.action = Box::new(move |c| {
                         c.beat.bpm.push((y, v));
                         c.beat.bpm.sort_by(|a, b| a.0.cmp(&b.0));
@@ -88,7 +90,7 @@ impl CursorObject for BpmTool {
                     let v = bpm;
 
                     let new_action = a.new_action();
-                    new_action.description = String::from(i18n::fl!("edit_bpm_change"));
+                    new_action.description = i18n::fl!("edit_bpm_change");
                     new_action.action = Box::new(move |c| {
                         if let Some(change) = c.beat.bpm.get_mut(index) {
                             change.1 = v;
@@ -140,7 +142,7 @@ impl CursorObject for BpmTool {
     ) {
         if let Ok(index) = chart.beat.bpm.binary_search_by_key(&tick, |f| f.0) {
             let new_action = actions.new_action();
-            new_action.description = i18n::fl!("remove_bpm_change").into();
+            new_action.description = i18n::fl!("remove_bpm_change");
             new_action.action = Box::new(move |chart: &mut Chart| {
                 chart.beat.bpm.remove(index);
                 Ok(())
@@ -206,7 +208,7 @@ impl CursorObject for TimeSigTool {
         let measure = chart.tick_to_measure(tick);
         if let Ok(index) = chart.beat.time_sig.binary_search_by_key(&measure, |f| f.0) {
             let new_action = actions.new_action();
-            new_action.description = i18n::fl!("remove_time_signature_change").into();
+            new_action.description = i18n::fl!("remove_time_signature_change");
             new_action.action = Box::new(move |chart: &mut Chart| {
                 chart.beat.time_sig.remove(index);
                 Ok(())
@@ -229,15 +231,14 @@ impl CursorObject for TimeSigTool {
     }
 
     fn draw_ui(&mut self, state: &mut MainState, ctx: &Context) {
-        let complete_func: Option<Box<dyn Fn(&mut ActionStack<Chart>, [i32; 2])>> = match self.state
-        {
+        let complete_func: Option<CompletionFn<[i32; 2]>> = match self.state {
             CursorToolStates::None => None,
             CursorToolStates::Add(measure) => Some(Box::new(move |a, ts| {
                 let v = kson::TimeSignature(ts[0] as u32, ts[1] as u32);
                 let idx = measure;
 
                 let new_action = a.new_action();
-                new_action.description = String::from(i18n::fl!("add_time_signature_change"));
+                new_action.description = i18n::fl!("add_time_signature_change");
                 new_action.action = Box::new(move |c| {
                     c.beat.time_sig.push((idx, v));
                     c.beat.time_sig.sort_by(|a, b| a.0.cmp(&b.0));
@@ -246,7 +247,7 @@ impl CursorObject for TimeSigTool {
             })),
             CursorToolStates::Edit(index) => Some(Box::new(move |a, ts| {
                 let new_action = a.new_action();
-                new_action.description = String::from(i18n::fl!("edit_time_signature_change"));
+                new_action.description = i18n::fl!("edit_time_signature_change");
                 new_action.action = Box::new(move |c| {
                     if let Some(change) = c.beat.time_sig.get_mut(index) {
                         change.1 .0 = ts[0] as u32;

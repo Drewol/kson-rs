@@ -1,6 +1,7 @@
 use std::{
     path::{Path, PathBuf},
-    sync::{Arc, Mutex},
+    rc::Rc,
+    sync::Mutex,
 };
 
 use crate::{
@@ -10,7 +11,6 @@ use crate::{
     vg_ui::{ExportVgfx, Vgfx},
 };
 
-use glow::HasContext;
 use kson::MeasureBeatLines;
 use log::warn;
 use puffin::profile_function;
@@ -61,7 +61,7 @@ pub struct GameBackground {
     lua: Lua,
     beat_bounds: (f64, f64),
     beat_iter: MeasureBeatLines,
-    vgfx: Arc<Mutex<Vgfx>>,
+    vgfx: Rc<Mutex<Vgfx>>,
     background: bool,
 }
 
@@ -211,8 +211,8 @@ impl GameBackground {
         background: bool,
         path: impl AsRef<Path>,
         chart: &kson::Chart,
-        vgfx: Arc<Mutex<Vgfx>>,
-        game_data: Arc<Mutex<GameData>>,
+        vgfx: Rc<Mutex<Vgfx>>,
+        game_data: Rc<Mutex<GameData>>,
     ) -> anyhow::Result<Self> {
         use mlua::StdLib;
         let mut path = path.as_ref().to_path_buf();
@@ -306,6 +306,10 @@ impl GameBackground {
                     -dt / kson::beat_in_ms(bpm)
                 } as f32)
                 .clamp(0.0, 1.0);
+        }
+
+        if !self.background {
+            //TODO: put current screen in texture for shader
         }
 
         if let Ok(render_fn) = self.lua.globals().get::<_, Function>(self.name.as_str()) {

@@ -1,5 +1,4 @@
-use std::sync::{Arc, Mutex};
-
+use std::{rc::Rc, sync::Mutex};
 
 use tealr::{
     mlu::{
@@ -39,10 +38,10 @@ pub(crate) fn add_lua_static_method<'lua, M, A, R, F, T: 'static + Sized + TypeN
             None
         };
 
-        let mut maybe_data = { lua.app_data_ref::<Arc<Mutex<T>>>().map(|x| x.clone()) };
-        if let Some(data_arc) = maybe_data.take() {
-            let data = data_arc.clone();
-            drop(data_arc);
+        let mut maybe_data = { lua.app_data_ref::<Rc<Mutex<T>>>().map(|x| x.clone()) };
+        if let Some(data_rc) = maybe_data.take() {
+            let data = data_rc.clone();
+            drop(data_rc);
             drop(maybe_data);
             let data_lock = data.try_lock();
             if let Ok(mut data) = data_lock {

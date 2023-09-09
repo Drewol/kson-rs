@@ -1,9 +1,7 @@
+#![allow(unused)]
 use std::time::Duration;
 
-use rodio::{
-    source::{UniformSourceIterator},
-    Sample, Source,
-};
+use rodio::{source::UniformSourceIterator, Sample, Source};
 
 pub fn effected_part<I: Source<Item = D>, E: Source<Item = D>, D: Sample>(
     original: I,

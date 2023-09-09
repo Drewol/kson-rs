@@ -115,7 +115,7 @@ pub enum UscButton {
 }
 
 impl UscButton {
-    pub fn to_gilrs_code_u32(&self) -> u32 {
+    pub fn to_gilrs_code_u32(self) -> u32 {
         match self {
             UscButton::BT(bt) => match bt {
                 BtLane::A => 1,

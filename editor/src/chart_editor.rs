@@ -60,6 +60,8 @@ pub struct ScreenState {
     pub curve_per_tick: f32,
 }
 
+type MakeVertFn = Box<dyn Fn(&[f32; 3]) -> Vertex>;
+
 impl ScreenState {
     pub fn draw_laser_section(
         &self,
@@ -82,14 +84,14 @@ impl ScreenState {
         let track_lane_diff = self.track_width - self.lane_width();
 
         let mut mesh = Mesh::with_texture(Default::default());
-        let make_vert: Box<dyn Fn(&[f32; 3]) -> Vertex> = if with_uv {
-            Box::new(|p: &[f32; 3]| Vertex {
+        let make_vert: MakeVertFn = if with_uv {
+            Box::new(move |p: &[f32; 3]| Vertex {
                 pos: [p[0], p[1]].into(),
                 color,
                 uv: pos2(p[2], 0.5),
             })
         } else {
-            Box::new(|p: &[f32; 3]| Vertex {
+            Box::new(move |p: &[f32; 3]| Vertex {
                 pos: [p[0], p[1]].into(),
                 color,
                 uv: WHITE_UV,
@@ -170,7 +172,7 @@ impl ScreenState {
                 }
             }
 
-            let mut value_width = (e.v as f32 - start_value) as f32;
+            let mut value_width = e.v as f32 - start_value;
             if wide {
                 value_width *= 2.0;
                 start_value = start_value * 2.0 - 0.5;
@@ -194,7 +196,7 @@ impl ScreenState {
                     let ey = y + h;
 
                     let xoff = half_lane;
-                    let mut points = vec![
+                    let mut points = [
                         [ex - xoff, ey, 0.0],
                         [ex + xoff, ey, 1.0],
                         [sx + xoff, sy - syoff, 1.0],
@@ -248,7 +250,7 @@ impl ScreenState {
                         let xoff = half_lane;
                         let i_off = mesh.vertices.len() as u32;
 
-                        let mut points: Vec<Vertex> = vec![
+                        let mut points: Vec<Vertex> = [
                             [ex - xoff, cey, 0.0],
                             [ex + xoff, cey, 1.0],
                             [sx + xoff, csy, 1.0],
@@ -284,7 +286,7 @@ impl ScreenState {
 
                 let (x, y) = self.tick_to_pos(l.ry + y_base);
                 let sx = x + sv * track_lane_diff + half_track + half_lane;
-                let ex = x + ev as f32 * track_lane_diff + half_track + half_lane;
+                let ex = x + ev * track_lane_diff + half_track + half_lane;
 
                 let (x, w): (f32, f32) = if sx > ex {
                     (sx + half_lane, (ex - half_lane) - (sx + half_lane))
@@ -395,14 +397,14 @@ impl ScreenState {
         let h = self.chart_draw_height() as f64;
         let y: f64 = 1.0 - ((in_y - self.top_margin).max(0.0) / h as f32).min(1.0) as f64;
         let x = (in_x + self.x_offset - self.left_margin) as f64;
-        let x = math::round::floor(x as f64 / self.track_spacing() as f64, 0);
+        let x = math::round::floor(x / self.track_spacing() as f64, 0);
         ((y + x) * self.beats_per_col as f64 * self.beat_res as f64).max(0.0)
     }
 
     pub fn pos_to_lane(&self, in_x: f32) -> f32 {
         let mut x = (in_x + self.x_offset + self.left_margin) % self.track_spacing();
-        x = ((x - self.track_width as f32 / 2.0).max(0.0) / self.track_width as f32).min(1.0);
-        (x * 6.0).min(6.0) as f32
+        x = ((x - self.track_width / 2.0).max(0.0) / self.track_width).min(1.0);
+        (x * 6.0).min(6.0)
     }
 
     pub fn update(&mut self, delta_time: f32, beat_res: u32) -> bool {
@@ -626,7 +628,7 @@ impl MainState {
     }
 
     pub fn draw_cursor_line(&self, painter: &Painter, tick: u32, color: Color32) {
-        let (x, y) = self.screen.tick_to_pos(tick as u32);
+        let (x, y) = self.screen.tick_to_pos(tick);
         let x = x + self.screen.track_width / 2.0;
         let p1 = egui::pos2(x, y);
         let p2 = egui::pos2(x + self.screen.track_width, y);
@@ -739,7 +741,7 @@ impl MainState {
                 }
             }
             (Some(path), Ok(chart)) => {
-                let mut file = File::create(&path).unwrap();
+                let mut file = File::create(path).unwrap();
                 profile_scope!("Write kson");
                 file.write_all(serde_json::to_string(&chart)?.as_bytes())?;
                 self.actions.save();
@@ -788,7 +790,7 @@ impl MainState {
                             ChartTool::RLaser => Some(Box::new(LaserTool::new(true))),
                             ChartTool::BPM => Some(Box::new(BpmTool::new())),
                             ChartTool::TimeSig => Some(Box::new(TimeSigTool::new())),
-                            ChartTool::Camera => Some(Box::new(CameraTool::default())),
+                            ChartTool::Camera => Some(Box::<CameraTool>::default()),
                         };
                         self.current_tool = new_tool;
                         ctx.request_repaint();
@@ -1045,8 +1047,8 @@ impl MainState {
                                 + 1.0 * i as f32
                                 + self.screen.lane_width()
                                 + self.screen.track_width / 2.0;
-                            let y = y as f32;
-                            let w = self.screen.track_width as f32 / 6.0 - 2.0;
+                            let y = y;
+                            let w = self.screen.track_width / 6.0 - 2.0;
                             let h = -2.0 * self.screen.note_height_mult();
 
                             bt_builder.push(Shape::rect_filled(
@@ -1061,7 +1063,7 @@ impl MainState {
                                     + 1.0 * i as f32
                                     + self.screen.lane_width()
                                     + self.screen.track_width / 2.0;
-                                let w = self.screen.track_width as f32 / 6.0 - 2.0;
+                                let w = self.screen.track_width / 6.0 - 2.0;
 
                                 long_bt_builder.push(Shape::rect_filled(
                                     rect_xy_wh([x, y, w, h]),

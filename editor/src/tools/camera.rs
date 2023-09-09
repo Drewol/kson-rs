@@ -121,7 +121,7 @@ impl CursorObject for CameraTool {
                 .screen
                 .get_control_point_pos(&points, (-3.0, 3.0), None)
             {
-                painter.circle(pos, 5.0, color, Stroke::none());
+                painter.circle(pos, 5.0, color, Stroke::NONE);
             }
         }
 

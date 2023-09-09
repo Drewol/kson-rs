@@ -17,7 +17,7 @@ use crate::{
     songselect::{Difficulty, Song},
 };
 
-use super::{SongProvider, SongProviderEvent};
+use super::{LoadSongFn, SongProvider, SongProviderEvent};
 use anyhow::{bail, ensure, Result};
 use kson::Ksh;
 use poll_promise::Promise;
@@ -415,10 +415,7 @@ impl SongProvider for NauticaSongProvider {
     }
 }
 
-fn download_song(
-    id: Uuid,
-    diff: u8,
-) -> Box<dyn FnOnce() -> (kson::Chart, Box<dyn rodio::Source<Item = f32> + Send>) + Send> {
+fn download_song(id: Uuid, diff: u8) -> LoadSongFn {
     Box::new(move || {
         let mut song_path = project_dirs().cache_dir().to_path_buf();
 

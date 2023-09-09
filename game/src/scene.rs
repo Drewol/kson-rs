@@ -61,18 +61,18 @@ pub trait SceneData: Send {
     fn make_scene(
         self: Box<Self>,
         input_state: InputState,
-        vgfx: Arc<Mutex<Vgfx>>,
-        game_data: Arc<Mutex<GameData>>,
-    ) -> Box<dyn Scene>;
+        vgfx: Rc<Mutex<Vgfx>>,
+        game_data: Rc<Mutex<GameData>>,
+    ) -> anyhow::Result<Box<dyn Scene>>;
 }
 
 impl SceneData for dyn Scene + Send {
     fn make_scene(
         self: Box<Self>,
         _: InputState,
-        _: Arc<Mutex<Vgfx>>,
-        _: Arc<Mutex<GameData>>,
-    ) -> Box<dyn Scene> {
-        self
+        _: Rc<Mutex<Vgfx>>,
+        _: Rc<Mutex<GameData>>,
+    ) -> anyhow::Result<Box<dyn Scene>> {
+        Ok(self)
     }
 }

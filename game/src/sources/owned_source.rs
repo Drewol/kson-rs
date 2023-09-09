@@ -1,8 +1,7 @@
+#![allow(unused)]
 use std::{sync::mpsc::Sender, time::Duration};
 
-use rodio::{
-    Sample, Source,
-};
+use rodio::{Sample, Source};
 
 pub fn owned_source<I>(source: I, owner: Sender<()>) -> OwnedSource<I>
 where

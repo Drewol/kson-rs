@@ -1,3 +1,5 @@
+#![allow(unused)]
+
 use std::{collections::HashSet, fmt::Debug, sync::Arc, time::Duration};
 
 use kson::Chart;
@@ -40,17 +42,15 @@ pub enum SongFilter {
     Collection(String),
 }
 
+type LoadSongFn = Box<dyn FnOnce() -> (Chart, Box<dyn rodio::Source<Item = f32> + Send>) + Send>;
+
 pub trait SongProvider {
     fn poll(&mut self) -> Option<SongProviderEvent>;
     fn set_search(&mut self, query: &str);
     fn set_sort(&mut self, sort: SongSort);
     fn set_filter(&mut self, filter: SongFilter);
     fn set_current_index(&mut self, index: u64);
-    fn load_song(
-        &self,
-        song_index: u64,
-        diff_index: u64,
-    ) -> Box<dyn FnOnce() -> (Chart, Box<dyn rodio::Source<Item = f32> + Send>) + Send>;
+    fn load_song(&self, song_index: u64, diff_index: u64) -> LoadSongFn;
     /// Returns: `(music, skip, duration)`
     fn get_preview(
         &self,

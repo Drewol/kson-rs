@@ -6,11 +6,9 @@ use std::{
     },
 };
 
-use egui_glow::{EguiGlow};
+use egui_glow::EguiGlow;
 use femtovg::Paint;
-use game_loop::{
-    winit::{dpi::PhysicalPosition, event, window::Window},
-};
+use game_loop::winit::{dpi::PhysicalPosition, event, window::Window};
 use generational_arena::{Arena, Index};
 
 use kson::Chart;
@@ -18,7 +16,7 @@ use log::*;
 use puffin::{profile_function, profile_scope};
 
 use serde_json::json;
-use td::FrameOutput;
+use td::{FrameOutput, Modifiers};
 use tealr::mlu::mlua::Lua;
 use three_d::FrameInput;
 
@@ -31,7 +29,6 @@ use tealr::mlu::mlua::LuaSerdeExt;
 use crate::{
     button_codes::{LaserState, UscInputEvent},
     config::GameConfig,
-    default_game_dir,
     game::HitRating,
     game_data::{ExportGame, GameData, LuaPath},
     input_state::InputState,
@@ -83,9 +80,9 @@ pub struct GameMain {
     fps_paint: Paint,
     transition_lua_idx: Index,
     transition_song_lua_idx: Index,
-    game_data: Arc<Mutex<GameData>>,
-    vgfx: Arc<Mutex<Vgfx>>,
-    canvas: Arc<Mutex<Canvas<OpenGl>>>,
+    game_data: Rc<Mutex<GameData>>,
+    vgfx: Rc<Mutex<Vgfx>>,
+    canvas: Rc<Mutex<Canvas<OpenGl>>>,
     frame_count: u32,
     gui: EguiGlow,
     show_debug_ui: bool,
@@ -93,6 +90,7 @@ pub struct GameMain {
     mousey: f64,
     input_state: InputState,
     mixer: RuscMixer,
+    modifiers: Modifiers,
 }
 
 impl GameMain {
@@ -107,9 +105,9 @@ impl GameMain {
         fps_paint: Paint,
         transition_lua_idx: Index,
         transition_song_lua_idx: Index,
-        game_data: Arc<Mutex<GameData>>,
-        vgfx: Arc<Mutex<Vgfx>>,
-        canvas: Arc<Mutex<Canvas<OpenGl>>>,
+        game_data: Rc<Mutex<GameData>>,
+        vgfx: Rc<Mutex<Vgfx>>,
+        canvas: Rc<Mutex<Canvas<OpenGl>>>,
         frame_count: u32,
         gui: EguiGlow,
         show_debug_ui: bool,
@@ -139,6 +137,7 @@ impl GameMain {
             mousey,
             input_state,
             mixer,
+            modifiers: Modifiers::default(),
         }
     }
 
@@ -200,6 +199,7 @@ impl GameMain {
             mousey,
             input_state: _,
             mixer,
+            modifiers: _,
         } = self;
 
         knob_state.zero_deltas();
@@ -211,17 +211,14 @@ impl GameMain {
         }
         let lua_frame_input = frame_input.clone();
         let lua_mixer = mixer.clone();
-        let load_lua = |game_data: Arc<Mutex<GameData>>,
-                        vgfx: Arc<Mutex<Vgfx>>,
+        let load_lua = |game_data: Rc<Mutex<GameData>>,
+                        vgfx: Rc<Mutex<Vgfx>>,
                         arena: Rc<RwLock<Arena<Rc<Lua>>>>| {
             let lua_frame_input = lua_frame_input.clone();
             let lua_mixer = lua_mixer.clone();
             Rc::new(move |lua: Rc<Lua>, script_path| {
                 //Set path for 'require' (https://stackoverflow.com/questions/4125971/setting-the-global-lua-path-variable-from-c-c?lq=1)
-                let skin = &GameConfig::get().skin;
-                let mut real_script_path = default_game_dir();
-                real_script_path.push("skins");
-                real_script_path.push(skin);
+                let mut real_script_path = GameConfig::get().skin_path();
 
                 tealr::mlu::set_global_env(ExportVgfx, &lua)?;
                 tealr::mlu::set_global_env(ExportGame, &lua)?;
@@ -294,7 +291,7 @@ impl GameMain {
             let mut canvas = canvas.lock().unwrap();
             canvas.reset();
             canvas.set_size(frame_input.viewport.width, frame_input.viewport.height, 1.0);
-            canvas.fill_text(
+            _ = canvas.fill_text(
                 10.0,
                 10.0,
                 "Loading...",
@@ -490,6 +487,18 @@ impl GameMain {
                 self.mousex = position.x;
                 self.mousey = position.y;
             }
+
+            Event::WindowEvent {
+                event: WindowEvent::ModifiersChanged(mods),
+                ..
+            } => {
+                self.modifiers = Modifiers {
+                    alt: mods.alt(),
+                    ctrl: mods.ctrl(),
+                    shift: mods.shift(),
+                    command: mods.ctrl(),
+                }
+            }
             Event::WindowEvent {
                 event: WindowEvent::CloseRequested,
                 ..
@@ -499,21 +508,19 @@ impl GameMain {
                     DeviceEvent::Key(KeyboardInput {
                         virtual_keycode: Some(VirtualKeyCode::D),
                         state: ElementState::Pressed,
-                        modifiers,
                         ..
                     }),
                 ..
-            } if modifiers.alt() => self.show_debug_ui = !self.show_debug_ui,
+            } if self.modifiers.alt => self.show_debug_ui = !self.show_debug_ui,
             Event::DeviceEvent {
                 event:
                     DeviceEvent::Key(KeyboardInput {
                         virtual_keycode: Some(VirtualKeyCode::Return),
                         state: ElementState::Pressed,
-                        modifiers,
                         ..
                     }),
                 ..
-            } if modifiers.alt() => self.toggle_fullscreen(window),
+            } if self.modifiers.alt => self.toggle_fullscreen(window),
             Event::DeviceEvent {
                 event:
                     DeviceEvent::Key(KeyboardInput {
@@ -594,7 +601,7 @@ impl GameMain {
                 LuaHttp::poll(lua);
                 true
             } else {
-                vgfx.drop_assets(lua_address(&lua));
+                vgfx.drop_assets(lua_address(lua));
                 false
             }
         });
@@ -603,7 +610,7 @@ impl GameMain {
     fn debug_ui(gui_context: &egui::Context, scenes: &mut Scenes) {
         profile_function!();
         if let Some(s) = scenes.active.last_mut() {
-            s.debug_ui(gui_context);
+            crate::log_result!(s.debug_ui(gui_context));
         }
         puffin_egui::profiler_window(gui_context);
         egui::Window::new("Scenes").show(gui_context, |ui| {
@@ -641,7 +648,7 @@ impl GameMain {
     }
 
     fn render_overlays(
-        vgfx: &Arc<Mutex<Vgfx>>,
+        vgfx: &Rc<Mutex<Vgfx>>,
         frame_input: &td::FrameInput<()>,
         fps: f64,
         fps_paint: &vg::Paint,
@@ -652,7 +659,7 @@ impl GameMain {
             let mut canvas_lock = vgfx.canvas.try_lock();
             if let Ok(ref mut canvas) = canvas_lock {
                 canvas.reset();
-                canvas.fill_text(
+                _ = canvas.fill_text(
                     frame_input.viewport.width as f32 - 5.0,
                     frame_input.viewport.height as f32 - 5.0,
                     format!("{:.1} FPS", fps),
@@ -668,7 +675,7 @@ impl GameMain {
     }
 
     fn update_game_data_and_clear(
-        game_data: &Arc<Mutex<GameData>>,
+        game_data: &Rc<Mutex<GameData>>,
         mousex: f64,
         mousey: f64,
         frame_input: &td::FrameInput<()>,
@@ -699,7 +706,7 @@ impl GameMain {
         }
     }
 
-    fn reset_viewport_size(vgfx: Arc<Mutex<Vgfx>>, frame_input: &td::FrameInput<()>) {
+    fn reset_viewport_size(vgfx: Rc<Mutex<Vgfx>>, frame_input: &td::FrameInput<()>) {
         let vgfx_lock = vgfx.try_lock();
         if let Ok(vgfx) = vgfx_lock {
             let mut canvas_lock = vgfx.canvas.try_lock();

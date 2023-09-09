@@ -1,4 +1,4 @@
-use std::{sync::Arc};
+use std::sync::Arc;
 
 use bytemuck::offset_of;
 use eframe::{
@@ -6,10 +6,7 @@ use eframe::{
     epaint::{Color32, Hsva, PaintCallback, Stroke, Vertex},
     glow::{Context, HasContext, NativeBuffer},
 };
-use egui_glow::{
-    check_for_gl_error,
-    glow::{NativeVertexArray},
-};
+use egui_glow::{check_for_gl_error, glow::NativeVertexArray};
 use emath::{pos2, vec2, Rect, Vec2};
 use kson::Chart;
 use once_cell::sync::OnceCell;
@@ -119,8 +116,8 @@ impl CameraView {
                         let (x, y) = screen.tick_to_pos(n.y);
 
                         let x = x + i as f32 * lane_width + lane_width + screen.track_width / 2.0;
-                        let y = y as f32;
-                        let w = screen.track_width as f32 / 6.0;
+                        let y = y;
+                        let w = screen.track_width / 6.0;
                         let h = Self::TRACK_LENGH / 100.0;
 
                         bt_chip_mesh.add_rect_with_uv(
@@ -132,7 +129,7 @@ impl CameraView {
                         for (x, y, h, _) in screen.interval_to_ranges(n) {
                             let x =
                                 x + i as f32 * lane_width + lane_width + screen.track_width / 2.0;
-                            let w = screen.track_width as f32 / 6.0;
+                            let w = screen.track_width / 6.0;
 
                             bt_hold_mesh.add_rect_with_uv(
                                 rect_xy_wh([x, y, w, h]),
@@ -267,12 +264,7 @@ impl Widget for CameraView {
         let view_rect = response.rect;
         let size = view_rect.size();
         let projection = self.camera.matrix(size);
-        painter.rect(
-            ui.max_rect(),
-            0.0,
-            Color32::from_rgb(0, 0, 0),
-            Stroke::none(),
-        );
+        painter.rect(ui.max_rect(), 0.0, Color32::from_rgb(0, 0, 0), Stroke::NONE);
 
         for mesh in self.meshes {
             let proj = projection.to_cols_array();

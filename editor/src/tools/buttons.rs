@@ -198,12 +198,12 @@ impl CursorObject for ButtonInterval {
                     + state.screen.lane_width()
                     + state.screen.track_width / 2.0
             };
-            let y = y as f32;
+            let y = y;
 
             let w = if self.fx {
-                state.screen.track_width as f32 / 3.0 - 1.0
+                state.screen.track_width / 3.0 - 1.0
             } else {
-                state.screen.track_width as f32 / 6.0 - 2.0
+                state.screen.track_width / 6.0 - 2.0
             };
             let h = -2.0;
 
@@ -225,9 +225,9 @@ impl CursorObject for ButtonInterval {
                 };
 
                 let w = if self.fx {
-                    state.screen.track_width as f32 / 3.0 - 1.0
+                    state.screen.track_width / 3.0 - 1.0
                 } else {
-                    state.screen.track_width as f32 / 6.0 - 2.0
+                    state.screen.track_width / 6.0 - 2.0
                 };
 
                 long_bt_builder.push(Shape::rect_filled(rect_xy_wh([x, y, w, h]), 0.0, color));

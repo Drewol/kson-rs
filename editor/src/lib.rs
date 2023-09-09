@@ -4,7 +4,6 @@ use std::collections::HashMap;
 use std::path::PathBuf;
 use std::str::FromStr;
 
-use anyhow::Result;
 use chart_editor::MainState;
 
 use eframe::egui::{
@@ -29,7 +28,6 @@ mod utils;
 pub trait Widget {
     fn ui(self, ui: &mut Ui) -> Response;
 }
-
 
 use tracing::info;
 
@@ -299,6 +297,7 @@ impl std::fmt::Display for KeyCombo {
     }
 }
 
+#[allow(unused)]
 impl Modifiers {
     fn new() -> Self {
         Self {
@@ -477,7 +476,7 @@ impl AppState {
         );
 
         let selected = ComboBox::new("lang_select", "Language")
-            .selected_text(&self.language.language.to_string())
+            .selected_text(self.language.language.to_string())
             .show_ui(ui, |ui| {
                 [
                     ui.selectable_value(
@@ -634,7 +633,7 @@ impl App for AppState {
                         }
                         ui.separator();
                         if ui.button(i18n::fl!("exit")).clicked() {
-                            frame.quit();
+                            frame.close();
                         }
                     });
                     menu_ui(ui, i18n::fl!("edit"), 70.0, |ui| {
@@ -672,7 +671,6 @@ impl App for AppState {
                         }
                         if ui.button(i18n::fl!("music_info")).clicked() && self.meta_edit.is_none()
                         {
-                            i18n::localizer().select(&vec!["sv".parse().unwrap()]);
                             self.bgm_edit =
                                 Some(self.editor.chart.audio.bgm.clone().unwrap_or_default());
                         }
@@ -756,7 +754,7 @@ impl App for AppState {
                                 chart.meta = new_meta.clone();
                                 Ok(())
                             });
-                            new_action.description = String::from(i18n::fl!("update_metadata"));
+                            new_action.description = i18n::fl!("update_metadata");
                         }
                     });
                 if !open {
@@ -775,7 +773,7 @@ impl App for AppState {
                         if ui.button(i18n::fl!("ok")).clicked() {
                             let new_action = self.editor.actions.new_action();
                             let new_bgm = self.bgm_edit.take().unwrap();
-                            new_action.description = i18n::fl!("update_music_info").into();
+                            new_action.description = i18n::fl!("update_music_info");
                             new_action.action = Box::new(move |chart: &mut Chart| {
                                 chart.audio.bgm = Some(new_bgm.clone());
                                 Ok(())
@@ -857,13 +855,13 @@ impl App for AppState {
                             if ui.button(i18n::fl!("yes")).clicked() {
                                 self.exiting = false;
                                 if matches!(self.editor.save(), Ok(true)) {
-                                    frame.quit();
+                                    frame.close();
                                 }
                             }
                             if ui.button(i18n::fl!("no")).clicked() {
                                 self.exiting = false;
                                 self.editor.actions.save(); //marks as saved but doesn't actually save
-                                frame.quit();
+                                frame.close();
                             }
                             if ui.button(i18n::fl!("cancel")).clicked() {
                                 self.exiting = false;
@@ -875,7 +873,7 @@ impl App for AppState {
     }
 }
 
-pub fn main() -> Result<()> {
+pub fn main() -> eframe::Result<()> {
     env_logger::init();
     #[cfg(feature = "profiling")]
     {
@@ -918,9 +916,7 @@ pub fn main() -> Result<()> {
 
             Box::new(app)
         }),
-    );
-
-    Ok(())
+    )
 }
 
 //https://github.com/emilk/egui/blob/master/examples/puffin_profiler/src/main.rs

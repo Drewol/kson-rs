@@ -56,6 +56,7 @@ impl ChartCamera {
     }
 }
 
+#[allow(unused)]
 fn create_perspective(field_of_view: f32, aspect_ratio: f32, z_near: f32, z_far: f32) -> Mat4 {
     let mut result = [0_f32; 16];
 

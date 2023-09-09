@@ -154,8 +154,7 @@ impl GameConfig {
     }
 
     pub fn skin_path(&self) -> PathBuf {
-        let mut skin_path = self.config_file.clone();
-        skin_path.pop();
+        let mut skin_path = self.game_folder.clone();
         skin_path.push("skins");
         skin_path.push(&self.skin);
         skin_path
@@ -243,13 +242,13 @@ impl GameConfig {
         let file_content =
             std::fs::read_to_string(&path).map(|str| toml::from_str::<GameConfig>(&str));
 
-        match file_content {
+        let instance_result = match file_content {
             Ok(Ok(mut config)) => {
                 config.args = args;
                 config.config_file = path.clone();
                 path.pop();
                 config.game_folder = path;
-                INSTANCE.set(RwLock::new(config));
+                INSTANCE.set(RwLock::new(config))
             }
             Ok(Err(e)) => {
                 error!("{}", e);
@@ -259,7 +258,7 @@ impl GameConfig {
                     skin: "Default".into(),
                     args,
                     ..Default::default()
-                }));
+                }))
             }
             Err(e) => {
                 error!("{}", e);
@@ -269,9 +268,11 @@ impl GameConfig {
                     skin: "Default".into(),
                     args,
                     ..Default::default()
-                }));
+                }))
             }
-        }
+        };
+
+        instance_result.expect("Config already initialized");
 
         if let Err(err) = GameConfig::get_mut().init_skin_settings() {
             log::warn!("{}", err)
@@ -281,18 +282,22 @@ impl GameConfig {
     pub fn save(&self) {
         info!("Saving config");
 
-        match toml::to_string_pretty(self) {
-            Ok(data) => {
-                std::fs::write(&self.config_file, data);
-            }
-            Err(e) => error!("Could not save config: {e}"),
+        if let Err(e) = toml::to_string_pretty(self)
+            .map_err(|e| anyhow::anyhow!(e))
+            .and_then(|data| {
+                std::fs::write(&self.config_file, data).map_err(|e| anyhow::anyhow!(e))
+            })
+        {
+            error!("Could not save config: {e}")
         }
 
-        match toml::to_string_pretty(&self.skin_settings) {
-            Ok(data) => {
-                std::fs::write(self.skin_config_path(), data);
-            }
-            Err(e) => error!("Could not save skin config: {e}"),
+        if let Err(e) = toml::to_string_pretty(&self.skin_settings)
+            .map_err(|e| anyhow::anyhow!(e))
+            .and_then(|data| {
+                std::fs::write(self.skin_config_path(), data).map_err(|e| anyhow::anyhow!(e))
+            })
+        {
+            error!("Could not save skin config: {e}")
         }
     }
 }

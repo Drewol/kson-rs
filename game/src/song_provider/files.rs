@@ -1,6 +1,5 @@
 use std::{
-    collections::{HashMap},
-    io::{Read},
+    collections::HashMap,
     path::PathBuf,
     sync::{
         mpsc::{channel, Receiver, Sender, TryRecvError},
@@ -19,14 +18,13 @@ use crate::{
 use super::{ScoreProvider, SongProvider, SongProviderEvent};
 use anyhow::ensure;
 
-use futures::{AsyncReadExt, StreamExt, TryStreamExt};
+use futures::{AsyncReadExt, StreamExt};
 use itertools::Itertools;
-use kson::{Ksh};
+use kson::Ksh;
 use log::info;
 use puffin::profile_function;
 use rodio::Source;
 use rusc_database::{ChartEntry, LocalSongsDb, ScoreEntry};
-
 
 enum WorkerControlMessage {
     Stop,

@@ -18,11 +18,11 @@ use rodio::{
 use crate::{
     scene::Scene,
     sources::{
+        biquad::biquad,
         biquad::{BiQuadState, BiquadController},
-        biquad::{biquad},
         noise::NoiseSource,
         owned_source::owned_source,
-        takeable_source::{TakeableSource},
+        takeable_source::TakeableSource,
     },
     RuscMixer,
 };
@@ -30,7 +30,7 @@ use crate::{
 pub struct AudioTest {
     mixer: RuscMixer,
     source_owner: Receiver<()>,
-    master_owner: Receiver<()>,
+    _master_owner: Receiver<()>,
     real_source: Option<Arc<RwLock<Option<LoopedDecoder<std::fs::File>>>>>,
     effects: EnabledEffects,
     biquad_controllers: [BiquadController; 3],
@@ -55,7 +55,7 @@ impl AudioTest {
         } else {
             None
         }
-        .map(|source| TakeableSource::new(source));
+        .map(TakeableSource::new);
 
         let source = if let Some((source, real_source)) = source {
             mixer.add(source.convert_samples());
@@ -67,7 +67,7 @@ impl AudioTest {
         Self {
             mixer,
             source_owner,
-            master_owner,
+            _master_owner: master_owner,
             effects: Default::default(),
             real_source: source,
             biquad_controllers: [a.0, b.0, c.0],

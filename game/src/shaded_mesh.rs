@@ -1,8 +1,4 @@
-use std::{
-    collections::HashMap,
-    path::Path,
-    sync::{Arc, Mutex},
-};
+use std::{collections::HashMap, path::Path, rc::Rc, sync::Mutex};
 
 use anyhow::ensure;
 use itertools::Itertools;
@@ -319,6 +315,7 @@ void main() {
         }
     }
 
+    #[allow(unused)]
     pub fn draw(&self, frame: &FrameInput<()>) -> Result<(), tealr::mlu::mlua::Error> {
         self.use_params();
         self.material
@@ -352,12 +349,11 @@ void main() {
         self.material.draw_arrays(self.state, viewport, 3)
     }
 
-    pub fn draw_camera(&self, camera: &three_d::Camera) -> Result<(), tealr::mlu::mlua::Error> {
+    pub fn draw_camera(&self, camera: &three_d::Camera) {
         self.set_camera_uniforms(camera);
 
         self.material
             .draw_elements(self.state, camera.viewport(), &self.indecies);
-        Ok(())
     }
 
     fn set_camera_uniforms(&self, camera: &three_d_asset::Camera) {
@@ -403,7 +399,7 @@ void main() {
         colors: &Option<Vec<V>>,
     ) {
         self.set_data_indexed(pos, uv, &[] as &[u32], colors);
-        self.update_indecies();
+        self.update_indecies().expect("Bad mesh data");
     }
 
     pub fn set_data_mesh(&mut self, mesh: &three_d::CpuMesh) {
@@ -605,7 +601,7 @@ impl TealData for ShadedMesh {
     fn add_methods<'lua, T: tealr::mlu::TealDataMethods<'lua, Self>>(methods: &mut T) {
         methods.add_method_mut("Draw", |lua, this, _: ()| {
             let frame = &lua.app_data_ref::<FrameInput<()>>().unwrap();
-            let vgfx = &lua.app_data_ref::<Arc<Mutex<Vgfx>>>().unwrap();
+            let vgfx = &lua.app_data_ref::<Rc<Mutex<Vgfx>>>().unwrap();
             this.draw_lua_skin(frame, vgfx)
         });
         methods.add_method_mut("AddTexture", |_lua, this, params: (String, String)| {
@@ -623,10 +619,13 @@ impl TealData for ShadedMesh {
             this.use_texture(params.0, path, (false, false))
                 .map_err(tealr::mlu::mlua::Error::external)
         });
-        methods.add_method_mut("AddSharedTexture", |_lua, this, params: (String, String)| {
-            this.use_texture(params.0, params.1, (false, false))
-                .map_err(tealr::mlu::mlua::Error::external)
-        });
+        methods.add_method_mut(
+            "AddSharedTexture",
+            |_lua, this, params: (String, String)| {
+                this.use_texture(params.0, params.1, (false, false))
+                    .map_err(tealr::mlu::mlua::Error::external)
+            },
+        );
 
         methods.add_method_mut("SetParam", |_, this, params: (String, f32)| {
             this.set_param(params.0, params.1);

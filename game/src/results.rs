@@ -235,15 +235,15 @@ impl SceneData for SongResultData {
     fn make_scene(
         self: Box<Self>,
         _input_state: InputState,
-        _: Arc<Mutex<Vgfx>>,
-        _: Arc<Mutex<GameData>>,
-    ) -> Box<dyn Scene> {
-        Box::new(SongResult {
+        _: Rc<Mutex<Vgfx>>,
+        _: Rc<Mutex<GameData>>,
+    ) -> anyhow::Result<Box<dyn Scene>> {
+        Ok(Box::new(SongResult {
             close: false,
             control_tx: None,
             data: *self,
             lua: Rc::new(Lua::new()),
-        })
+        }))
     }
 }
 

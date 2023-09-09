@@ -31,13 +31,11 @@ use crate::{
     input_state::{self, InputState},
     results::Score,
     scene::{Scene, SceneData},
-    settings_dialog::{SettingsDialog},
+    settings_dialog::SettingsDialog,
     song_provider::{
         FileSongProvider, NauticaSongProvider, ScoreProvider, SongProvider, SongProviderEvent,
     },
-    sources::{
-        owned_source::owned_source,
-    },
+    sources::owned_source::owned_source,
     take_duration_fade::take_duration_fade,
     vg_ui::Vgfx,
     ControlMessage, RuscMixer,
@@ -96,16 +94,17 @@ impl TealData for Song {
 }
 
 #[derive(Serialize, UserData)]
+#[serde(rename_all = "camelCase")]
 pub struct SongSelect {
     songs: Vec<Arc<Song>>,
-    searchInputActive: bool, //true when the user is currently inputting search text
-    searchText: String,      //current string used by the song search
+    search_input_active: bool, //true when the user is currently inputting search text
+    search_text: String,       //current string used by the song search
     selected_index: i32,
     selected_diff_index: i32,
     #[serde(skip_serializing)]
     song_provider: Arc<Mutex<dyn SongProvider + Send>>,
     #[serde(skip_serializing)]
-    score_provider: Arc<Mutex<dyn ScoreProvider + Send>>,
+    _score_provider: Arc<Mutex<dyn ScoreProvider + Send>>, //TODO
     preview_countdown: f64,
     preview_finished: Arc<AtomicUsize>,
     preview_playing: Arc<AtomicU64>,
@@ -115,10 +114,10 @@ impl TealData for SongSelect {
     fn add_fields<'lua, F: tealr::mlu::TealDataFields<'lua, Self>>(fields: &mut F) {
         fields.add_field_method_get("songs", |_, _| Ok([] as [Song; 0]));
         fields.add_field_method_get("searchInputActive", |_, songwheel| {
-            Ok(songwheel.searchInputActive)
+            Ok(songwheel.search_input_active)
         });
         fields.add_field_method_get("searchText", |_, songwheel| {
-            Ok(songwheel.searchText.clone())
+            Ok(songwheel.search_text.clone())
         });
         fields.add_field_method_get(
             "searchStatus",
@@ -139,22 +138,23 @@ impl TypeName for SongSelect {
     }
 }
 
+type SyncSongProvider = Arc<Mutex<dyn SongProvider + Send>>;
+type SyncScoreProvider = Arc<Mutex<dyn ScoreProvider + Send>>;
+
 impl SongSelect {
     pub fn new(_input_state: input_state::InputState) -> Self {
         let song_path = { GameConfig::get().songs_path.clone() };
 
-        let (song_provider, score_provider): (
-            Arc<Mutex<dyn SongProvider + Send>>,
-            Arc<Mutex<dyn ScoreProvider + Send>>,
-        ) = if song_path == PathBuf::from("nautica") {
-            (
-                Arc::new(Mutex::new(NauticaSongProvider::new())),
-                Arc::new(Mutex::new(crate::block_on!(FileSongProvider::new()))),
-            )
-        } else {
-            let val = Arc::new(Mutex::new(crate::block_on!(FileSongProvider::new())));
-            (val.clone(), val)
-        };
+        let (song_provider, score_provider): (SyncSongProvider, SyncScoreProvider) =
+            if song_path == PathBuf::from("nautica") {
+                (
+                    Arc::new(Mutex::new(NauticaSongProvider::new())),
+                    Arc::new(Mutex::new(crate::block_on!(FileSongProvider::new()))),
+                )
+            } else {
+                let val = Arc::new(Mutex::new(crate::block_on!(FileSongProvider::new())));
+                (val.clone(), val)
+            };
 
         let mut songs = if let Some(SongProviderEvent::SongsAdded(songs)) =
             song_provider.lock().unwrap().poll()
@@ -168,12 +168,12 @@ impl SongSelect {
 
         Self {
             songs,
-            searchInputActive: false,
-            searchText: String::new(),
+            search_input_active: false,
+            search_text: String::new(),
             selected_index: 0,
             selected_diff_index: 0,
             song_provider,
-            score_provider,
+            _score_provider: score_provider,
             preview_countdown: 1500.0,
             preview_finished: Arc::new(AtomicUsize::new(0)),
             preview_playing: Arc::new(AtomicU64::new(0)),
@@ -185,10 +185,10 @@ impl SceneData for SongSelect {
     fn make_scene(
         self: Box<Self>,
         input_state: InputState,
-        _: Arc<Mutex<Vgfx>>,
-        _: Arc<Mutex<GameData>>,
-    ) -> Box<dyn Scene> {
-        Box::new(SongSelectScene::new(self, input_state))
+        _: Rc<Mutex<Vgfx>>,
+        _: Rc<Mutex<GameData>>,
+    ) -> anyhow::Result<Box<dyn Scene>> {
+        Ok(Box::new(SongSelectScene::new(self, input_state)))
     }
 }
 pub const KNOB_NAV_THRESHOLD: f32 = std::f32::consts::PI / 3.0;
@@ -203,7 +203,7 @@ pub struct SongSelectScene {
     suspended: Arc<AtomicBool>,
     closed: bool,
     mixer: Option<RuscMixer>,
-    sample_owner: Receiver<()>,
+    _sample_owner: Receiver<()>,
     sample_marker: Sender<()>,
     settings_dialog: SettingsDialog,
     input_state: InputState,
@@ -223,7 +223,7 @@ impl SongSelectScene {
             closed: false,
             mixer: None,
             sample_marker,
-            sample_owner,
+            _sample_owner: sample_owner,
             input_state: input_state.clone(),
             settings_dialog: SettingsDialog::general_settings(input_state),
         }

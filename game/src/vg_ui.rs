@@ -1,13 +1,8 @@
-use std::{
-    collections::HashMap,
-    path::PathBuf,
-    sync::{Arc, Mutex},
-};
+use std::{collections::HashMap, path::PathBuf, rc::Rc, sync::Mutex};
 
 const COMPAT_TEXT_SCALE: f32 = 21.5 / 30.0; // Needed because old usc has two different text rendering methods for text, and fasttext/labels
 
 use femtovg::{renderer::OpenGl, Canvas, Color, FontId, ImageFlags, ImageId, Paint, Path};
-
 
 use log::warn;
 use poll_promise::Promise;
@@ -21,7 +16,7 @@ use tealr::mlu::mlua;
 use three_d::FrameInput;
 
 use crate::{
-    animation::VgAnimation, config::GameConfig, help::add_lua_static_method,
+    animation::VgAnimation, config::GameConfig, help::add_lua_static_method, log_result,
     shaded_mesh::ShadedMesh, util::lua_address,
 };
 
@@ -40,17 +35,23 @@ impl From<&VgImage> for ImageId {
     }
 }
 
+fn unimplemented() -> mlua::Result<()> {
+    Err(mlua::Error::RuntimeError(
+        "Function not implemented".to_string(),
+    ))
+}
+
 struct ScopedAssets {
     images: HashMap<u32, VgImage>,
     paints: HashMap<u32, Paint>,
     labels: HashMap<u32, Label>,
     paint_imgs: HashMap<u32, ImageId>,
     job_imgs: HashMap<String, u32>,
-    canvas: Arc<Mutex<Canvas<OpenGl>>>,
+    canvas: Rc<Mutex<Canvas<OpenGl>>>,
 }
 
 impl ScopedAssets {
-    fn new(canvas: Arc<Mutex<Canvas<OpenGl>>>) -> Self {
+    fn new(canvas: Rc<Mutex<Canvas<OpenGl>>>) -> Self {
         Self {
             images: Default::default(),
             paints: Default::default(),
@@ -85,7 +86,7 @@ struct VgfxPoint {
 
 #[derive(UserData)]
 pub struct Vgfx {
-    pub canvas: Arc<Mutex<Canvas<OpenGl>>>,
+    pub canvas: Rc<Mutex<Canvas<OpenGl>>>,
     skin: String,
     restore_stack: Vec<VgfxPoint>,
     path: Option<Path>,
@@ -101,9 +102,7 @@ pub struct Vgfx {
     next_label_id: u32,
     scoped_assets: HashMap<usize, ScopedAssets>,
     fonts: HashMap<String, FontId>,
-    font_size: f32,
     image_jobs: HashMap<String, Promise<image::DynamicImage>>,
-    fallback_img: ImageId,
 }
 
 impl TypeName for Vgfx {
@@ -122,13 +121,13 @@ impl TypeName for Vgfx {
 struct Label {
     text: String,
     size: i32,
-    monospace: bool,
+    _monospace: bool, //TODO
     font: FontId,
 }
 
 impl Vgfx {
-    pub fn new(canvas: Arc<Mutex<Canvas<OpenGl>>>, game_folder: std::path::PathBuf) -> Self {
-        let (fallback_img, default_fonts) = {
+    pub fn new(canvas: Rc<Mutex<Canvas<OpenGl>>>, game_folder: std::path::PathBuf) -> Self {
+        let default_fonts = {
             let mut canvas = canvas.lock().unwrap();
 
             let mut font_dir = game_folder.clone();
@@ -140,19 +139,8 @@ impl Vgfx {
             _ = canvas
                 .add_font_dir(&font_dir)
                 .expect("Failed to load settings fonts");
-            (
-                canvas
-                    .create_image(
-                        femtovg::ImageSource::try_from(
-                            &image::load_from_memory(include_bytes!("static_assets/missing.png"))
-                                .unwrap(),
-                        )
-                        .unwrap(),
-                        ImageFlags::empty(),
-                    )
-                    .unwrap(),
-                default_fonts,
-            )
+
+            default_fonts
         };
 
         let config = &GameConfig::get();
@@ -171,10 +159,8 @@ impl Vgfx {
             next_paint_id: 1,
             next_label_id: 1,
             image_jobs: Default::default(),
-            fallback_img,
             scoped_assets: Default::default(),
             image_tint: None,
-            font_size: 12.0,
             label_color: Color::white(),
             label_font: *default_fonts.first().expect("No default font loaded"),
         }
@@ -229,7 +215,7 @@ impl Vgfx {
     pub fn delete_image(&mut self, image: u32, lua_index: usize) {
         if let Some(VgImage::Static(id)) = self.scoped_assets[&lua_index].images.get(&image) {
             let id = *id;
-            self.with_canvas(|x| x.delete_image(id));
+            log_result!(self.with_canvas(|x| x.delete_image(id)));
         }
     }
 
@@ -486,7 +472,7 @@ impl TealData for Vgfx {
                         };
                         let mut rect = Path::new();
                         rect.rect(0.0, 0.0, img_w as f32, img_h as f32);
-                        canvas.fill_path(&mut rect, &paint);
+                        canvas.fill_path(&rect, &paint);
                     });
                 })
             } else {
@@ -748,7 +734,7 @@ impl TealData for Vgfx {
                         Label {
                             text: text.unwrap_or_default(),
                             size,
-                            monospace,
+                            _monospace: monospace,
                             font: _vgfx.label_font,
                         },
                     );
@@ -1494,10 +1480,7 @@ impl TealData for Vgfx {
         add_lua_static_method(
             methods,
             "PathWinding",
-            |_lua_index, _vgfx, _p: PathWindingParams| {
-                todo!();
-                Ok(0)
-            },
+            |_lua_index, _vgfx, _p: PathWindingParams| unimplemented(),
         );
 
         //ForceRender
@@ -1610,10 +1593,7 @@ impl TealData for Vgfx {
         add_lua_static_method(
             methods,
             "LoadWebImageJob",
-            |_lua_index, _vgfx, _p: LoadWebImageJobParams| {
-                todo!();
-                Ok(0)
-            },
+            |_lua_index, _vgfx, _p: LoadWebImageJobParams| unimplemented(),
         );
 
         //Scissor
@@ -1719,10 +1699,7 @@ impl TealData for Vgfx {
         add_lua_static_method(
             methods,
             "FastTextSize",
-            |_lua_index, _vgfx, _p: FastTextSizeParams| {
-                todo!();
-                Ok(0)
-            },
+            |_lua_index, _vgfx, _p: FastTextSizeParams| unimplemented(),
         );
 
         //ImageSize
@@ -1859,10 +1836,7 @@ impl TealData for Vgfx {
         add_lua_static_method(
             methods,
             "GlobalCompositeBlendFuncSeparate",
-            |_lua_index, _vgfx, _p: GlobalCompositeBlendFuncSeparateParams| {
-                todo!();
-                Ok(0)
-            },
+            |_lua_index, _vgfx, _p: GlobalCompositeBlendFuncSeparateParams| unimplemented(),
         );
 
         //LoadAnimation
@@ -1914,7 +1888,6 @@ impl TealData for Vgfx {
             methods,
             "GlobalAlpha",
             |_lua_index, _vgfx, p: GlobalAlphaParams| {
-                // todo!();
                 _vgfx.canvas.lock().unwrap().set_global_alpha(p.alpha);
                 Ok(())
             },
@@ -1996,10 +1969,7 @@ impl TealData for Vgfx {
         add_lua_static_method(
             methods,
             "LoadSharedTexture",
-            |_lua_index, _vgfx, _p: LoadSharedTextureParams| {
-                todo!();
-                Ok(0)
-            },
+            |_lua_index, _vgfx, _p: LoadSharedTextureParams| unimplemented(),
         );
 
         //LoadSharedSkinTexture
@@ -2011,10 +1981,7 @@ impl TealData for Vgfx {
         add_lua_static_method(
             methods,
             "LoadSharedSkinTexture",
-            |_, _vgfx, _p: LoadSharedSkinTextureParams| {
-                todo!();
-                Ok(0)
-            },
+            |_, _vgfx, _p: LoadSharedSkinTextureParams| unimplemented(),
         );
 
         //GetSharedTexture
@@ -2025,10 +1992,7 @@ impl TealData for Vgfx {
         add_lua_static_method(
             methods,
             "GetSharedTexture",
-            |_, _vgfx, _p: GetSharedTextureParams| {
-                todo!();
-                Ok(0)
-            },
+            |_, _vgfx, _p: GetSharedTextureParams| unimplemented(),
         );
 
         tealr::mlu::create_named_parameters!(CreateShadedMeshParams with
@@ -2038,7 +2002,7 @@ impl TealData for Vgfx {
 
         methods.add_function_mut("CreateShadedMesh", |lua, p: CreateShadedMeshParams| {
             let context = &lua.app_data_ref::<FrameInput<()>>().unwrap().context;
-            let vgfx = &lua.app_data_ref::<Arc<Mutex<Vgfx>>>().unwrap();
+            let vgfx = &lua.app_data_ref::<Rc<Mutex<Vgfx>>>().unwrap();
             let vgfx = vgfx.lock().unwrap();
 
             let mut shader_path = vgfx.game_folder.clone();

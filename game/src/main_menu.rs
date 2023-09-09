@@ -109,7 +109,7 @@ impl MainMenu {
         let lua = Rc::new(Lua::new());
         let (tx, button_rx) = std::sync::mpsc::channel();
         lua.set_app_data(tx);
-        tealr::mlu::set_global_env(ExportBindings, &lua);
+        tealr::mlu::set_global_env(ExportBindings, &lua).expect("Failed to set menu bindings");
         Self {
             lua,
             button_rx,

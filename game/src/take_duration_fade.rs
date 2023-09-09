@@ -1,3 +1,4 @@
+#![allow(unused)]
 /// Copied from rodio source and modified with fade out logic.
 /// TODO: Upstream?
 use std::{
@@ -147,7 +148,7 @@ where
             None
         } else if let Some(sample) = self.input.next() {
             let (sample, send_signal) = match &self.filter {
-                Some(filter) => filter.apply(sample, &self),
+                Some(filter) => filter.apply(sample, self),
                 None => (sample, false),
             };
             if send_signal {

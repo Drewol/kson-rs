@@ -7,9 +7,8 @@ use kson_audio::Dsp;
 
 pub use rodio::Source;
 
-
 use std::fs::File;
-use std::io::{BufReader};
+use std::io::BufReader;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 
@@ -401,5 +400,11 @@ impl AudioPlayback {
         if let Some(file) = &mut self.file {
             file.set_ms(ms);
         }
+    }
+}
+
+impl Default for AudioPlayback {
+    fn default() -> Self {
+        Self::new()
     }
 }

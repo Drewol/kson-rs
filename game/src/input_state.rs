@@ -4,24 +4,22 @@ use std::{
     time::SystemTime,
 };
 
-
 use game_loop::winit::event::ElementState;
-
 
 use crate::button_codes::{LaserState, UscButton, UscInputEvent};
 
 #[derive(Debug, Clone)]
 pub struct InputState {
     laser_state: Arc<RwLock<LaserState>>,
-    gilrs: Arc<Mutex<gilrs::Gilrs>>,
+    _gilrs: Arc<Mutex<gilrs::Gilrs>>,
     buttons_held: Arc<RwLock<HashMap<UscButton, SystemTime>>>,
 }
 
 impl InputState {
-    pub fn new(gilrs: Arc<Mutex<gilrs::Gilrs>>) -> Self {
+    pub fn new(_gilrs: Arc<Mutex<gilrs::Gilrs>>) -> Self {
         Self {
             laser_state: Arc::new(RwLock::new(LaserState::default())),
-            gilrs,
+            _gilrs,
             buttons_held: Arc::new(RwLock::new(HashMap::default())),
         }
     }

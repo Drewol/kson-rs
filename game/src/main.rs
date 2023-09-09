@@ -1,5 +1,4 @@
 use std::{
-    io::Write,
     path::{Path, PathBuf},
     rc::Rc,
     sync::{mpsc::channel, Arc, Mutex, RwLock},
@@ -35,7 +34,7 @@ use puffin::profile_function;
 use rodio::{dynamic_mixer::DynamicMixerController, Source};
 use scene::Scene;
 
-use td::{FrameInput, HasContext, Viewport};
+use td::{FrameInput, Viewport};
 use tealr::mlu::mlua::Lua;
 use three_d as td;
 
@@ -55,7 +54,6 @@ mod help;
 mod input_state;
 mod lua_http;
 mod main_menu;
-mod material;
 mod results;
 mod scene;
 mod settings_dialog;
@@ -137,7 +135,9 @@ pub fn init_game_dir(game_dir: impl AsRef<Path>) -> anyhow::Result<()> {
             let mut target_path = game_dir.as_ref().to_path_buf();
             target_path.push(target);
 
-            if target_path.exists() { continue; }
+            if target_path.exists() {
+                continue;
+            }
 
             for data_file in walkdir::WalkDir::new(path).into_iter() {
                 let data_file = data_file?;
@@ -205,7 +205,7 @@ impl Scenes {
 
         self.active.retain(|x| !x.closed());
         if let Some(t) = self.transition.as_mut() {
-            t.tick(dt, knob_state);
+            log_result!(t.tick(dt, knob_state));
         }
 
         if self.transition.is_some() && self.transition.as_ref().unwrap().closed() {
@@ -213,7 +213,7 @@ impl Scenes {
         }
 
         for ele in &mut self.active {
-            ele.tick(dt, knob_state);
+            log_result!(ele.tick(dt, knob_state));
         }
 
         if !self.initialized.is_empty() {
@@ -262,7 +262,7 @@ impl Scenes {
             && self.transition.is_none()
     }
 
-    pub fn render(&mut self, frame: FrameInput<()>, _vgfx: &Arc<Mutex<Vgfx>>) {
+    pub fn render(&mut self, frame: FrameInput<()>, _vgfx: &Rc<Mutex<Vgfx>>) {
         profile_function!();
         let dt = frame.elapsed_time;
         let td_context = &frame.context;
@@ -297,7 +297,7 @@ impl Scenes {
             if scene.is_suspended() {
                 continue;
             }
-            scene.render_egui(ctx);
+            log_result!(scene.render_egui(ctx));
         }
     }
 
@@ -335,8 +335,8 @@ fn main() -> anyhow::Result<()> {
         info!("Running anyway");
     };
     GameConfig::init(config_path, args);
-    let (_outputStream, outputStreamHandle) = rodio::OutputStream::try_default()?;
-    let sink = rodio::Sink::try_new(&outputStreamHandle)?;
+    let (_output_stream, output_stream_handle) = rodio::OutputStream::try_default()?;
+    let sink = rodio::Sink::try_new(&output_stream_handle)?;
     let (mixer_controls, mixer) = rodio::dynamic_mixer::mixer::<f32>(2, 44100);
     mixer_controls.add(rodio::source::Zero::new(2, 44100));
     sink.append(mixer);
@@ -363,7 +363,7 @@ fn main() -> anyhow::Result<()> {
     }
 
     let gl_context = Arc::new(gl_context);
-    let canvas = Arc::new(Mutex::new(canvas));
+    let canvas = Rc::new(Mutex::new(canvas));
 
     let mut input = gilrs::GilrsBuilder::default()
         .add_included_mappings(false)
@@ -375,7 +375,7 @@ fn main() -> anyhow::Result<()> {
     while input.next_event().is_some() {} //empty events
 
     let context = td::Context::from_gl_context(gl_context.clone())?;
-    let vgfx = Arc::new(Mutex::new(vg_ui::Vgfx::new(
+    let vgfx = Rc::new(Mutex::new(vg_ui::Vgfx::new(
         canvas.clone(),
         default_game_dir(),
     )));
@@ -447,38 +447,8 @@ fn main() -> anyhow::Result<()> {
         }
     });
 
-    let mut typedef_folder = default_game_dir();
-    typedef_folder.push("types");
-    if !typedef_folder.exists() {
-        std::fs::create_dir_all(&typedef_folder)?;
-    }
+    //TODO: Export tealr types, or move to some other typed lua
 
-    let gfx_typedef = tealr::TypeWalker::new()
-        .process_type_inline::<vg_ui::Vgfx>()
-        .generate_global("gfx")?;
-
-    let game_typedef = tealr::TypeWalker::new()
-        .process_type_inline::<game_data::GameData>()
-        .generate_global("game")?;
-
-    let songwheel_typedef = tealr::TypeWalker::new()
-        .process_type::<songselect::Song>()
-        .process_type::<songselect::Difficulty>()
-        .process_type_inline::<songselect::SongSelect>()
-        .generate_global("songwheel")?;
-
-    let mut typedef_file_path = typedef_folder;
-    typedef_file_path.push("rusc.d.tl");
-    let mut typedef_file = std::fs::File::create(typedef_file_path).expect("Failed to create");
-    let file_content = format!("{}\n{}\n{}", gfx_typedef, game_typedef, songwheel_typedef)
-        .lines()
-        .filter(|l| !l.starts_with("return"))
-        .collect::<Vec<_>>()
-        .join("\n");
-
-    write!(typedef_file, "{}", file_content)?;
-    typedef_file.flush()?;
-    drop(typedef_file);
     let gui = egui_glow::EguiGlow::new(&eventloop, gl_context, None);
 
     let frame_times = [16.0; FRAME_ACC_SIZE];
@@ -486,7 +456,7 @@ fn main() -> anyhow::Result<()> {
 
     let fps_paint = vg::Paint::color(vg::Color::white()).with_text_align(vg::Align::Right);
 
-    let game_data = Arc::new(Mutex::new(game_data::GameData {
+    let game_data = Rc::new(Mutex::new(game_data::GameData {
         mouse_pos: (mousex, mousey),
         resolution: (800, 600),
         profile_stack: vec![],
@@ -539,7 +509,7 @@ fn main() -> anyhow::Result<()> {
                 skin_folder,
                 Box::new(audio.convert_samples()),
             )?)
-            .make_scene(input_state.clone(), vgfx.clone(), game_data.clone()),
+            .make_scene(input_state.clone(), vgfx.clone(), game_data.clone())?,
         );
     }
 
@@ -610,7 +580,9 @@ fn main() -> anyhow::Result<()> {
                 },
                 &g.window,
             );
-            surface.swap_buffers(&window_gl);
+            surface
+                .swap_buffers(&window_gl)
+                .expect("Failed to swap buffer");
 
             if frame_out.exit {
                 g.exit()
@@ -618,4 +590,13 @@ fn main() -> anyhow::Result<()> {
         },
         move |g, e| g.game.handle(&g.window, e),
     );
+}
+
+#[macro_export]
+macro_rules! log_result {
+    ($expression:expr) => {
+        if let Err(e) = $expression {
+            log::warn!("{e}");
+        }
+    };
 }

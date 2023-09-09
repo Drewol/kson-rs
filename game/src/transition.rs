@@ -4,7 +4,6 @@ use std::{
     sync::{mpsc::Sender, Arc, Mutex},
 };
 
-
 use log::warn;
 use poll_promise::Promise;
 use rodio::Source;
@@ -14,7 +13,8 @@ use ureq::json;
 
 use crate::{
     game_data::GameData,
-    input_state::{InputState},
+    input_state::InputState,
+    log_result,
     main_menu::MainMenuButton,
     results::SongResultData,
     scene::{Scene, SceneData},
@@ -39,10 +39,10 @@ pub struct Transition {
     pub state: TransitionState,
     transition_lua: Rc<Lua>,
     context: three_d::Context,
-    vgfx: Arc<Mutex<crate::Vgfx>>,
+    vgfx: Rc<Mutex<crate::Vgfx>>,
     prev_screengrab: Option<Gm<Rectangle, ColorMaterial>>,
     input_state: InputState,
-    game_data: Arc<Mutex<GameData>>,
+    game_data: Rc<Mutex<GameData>>,
 }
 
 fn load_songs(input_state: InputState) -> anyhow::Result<Box<dyn SceneData + Send>> {
@@ -77,10 +77,10 @@ impl Transition {
         target: ControlMessage,
         control_tx: Sender<ControlMessage>,
         context: three_d::Context,
-        vgfx: Arc<Mutex<crate::Vgfx>>,
+        vgfx: Rc<Mutex<crate::Vgfx>>,
         viewport: three_d::Viewport,
         input_state: InputState,
-        game_data: Arc<Mutex<GameData>>,
+        game_data: Rc<Mutex<GameData>>,
     ) -> Self {
         if let Ok(reset_fn) = transition_lua.globals().get::<_, Function>("reset") {
             if let Some(e) = reset_fn.call::<(), ()>(()).err() {
@@ -118,7 +118,7 @@ impl Transition {
             let mut vgfx = vgfx.lock().unwrap();
             let diff = &song.difficulties[*diff];
             let lua_idx = lua_address(&transition_lua);
-            transition_lua.globals().set(
+            log_result!(transition_lua.globals().set(
                 "song",
                 transition_lua
                     .to_value(&json!({
@@ -131,7 +131,7 @@ impl Transition {
                         "effector": diff.effector
                     }))
                     .unwrap(),
-            );
+            ));
         }
 
         Self {
@@ -179,7 +179,7 @@ impl Scene for Transition {
                         viewport.width as f32 / 2.0,
                         viewport.height as f32 / 2.0,
                     ));
-                    target.render(&camera2d(viewport), screengrab.into_iter(), &[]);
+                    target.render(&camera2d(viewport), &[screengrab], &[]);
                 }
             }
             TransitionState::Countdown(0) => self.state = TransitionState::Outro,
@@ -251,7 +251,7 @@ impl Scene for Transition {
                                 self.input_state.clone(),
                                 self.vgfx.clone(),
                                 self.game_data.clone(),
-                            )))
+                            )?))
                             .unwrap(),
                         Ok(Err(loading_error)) => {
                             log::error!("{}", loading_error);

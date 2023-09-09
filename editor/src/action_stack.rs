@@ -1,10 +1,10 @@
-
 use anyhow::Result;
 
+type ActionFn<T> = Box<dyn Fn(&mut T) -> Result<()>>;
 pub struct Action<T> {
     id: u32,
     pub description: String,
-    pub action: Box<dyn Fn(&mut T) -> Result<()>>,
+    pub action: ActionFn<T>,
 }
 
 pub struct ActionStack<T: Clone> {
@@ -59,6 +59,7 @@ where
         self.saved = None;
     }
 
+    #[allow(unused)]
     pub fn apply(&mut self) {
         if let Ok(current) = self.get_current() {
             self.reset(current);

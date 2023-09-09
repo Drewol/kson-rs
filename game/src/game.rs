@@ -3,6 +3,7 @@ use crate::{
     game_background::GameBackground,
     game_camera::{CameraShake, ChartCamera},
     input_state::InputState,
+    log_result,
     scene::{Scene, SceneData},
     shaded_mesh::ShadedMesh,
     songselect::Song,
@@ -31,7 +32,7 @@ const LASER_THRESHOLD: f64 = 1.0 / 12.0;
 pub struct Game {
     view: ChartView,
     chart: kson::Chart,
-    camera_pos: Vec3,
+
     time: f64,
     duration: f64,
     fx_long_shaders: ShadedMesh,
@@ -327,9 +328,9 @@ impl SceneData for GameData {
     fn make_scene(
         self: Box<Self>,
         input_state: InputState,
-        vgfx: Arc<Mutex<Vgfx>>,
-        game_data: Arc<Mutex<crate::game_data::GameData>>,
-    ) -> Box<dyn Scene> {
+        vgfx: Rc<Mutex<Vgfx>>,
+        game_data: Rc<Mutex<crate::game_data::GameData>>,
+    ) -> anyhow::Result<Box<dyn Scene>> {
         let Self {
             context,
             chart,
@@ -360,7 +361,7 @@ impl SceneData for GameData {
             "mainTex",
             texture_folder.with_file_name("scorehit.png"),
             (false, false),
-        );
+        )?;
 
         beam_shader.set_data_mesh(&xy_rect(Vec3::zero(), vec2(1.0, 1.0)));
 
@@ -368,7 +369,7 @@ impl SceneData for GameData {
             "mainTex",
             texture_folder.with_file_name("fxbuttonhold.png"),
             (false, false),
-        );
+        )?;
 
         fx_long_shader.set_data_mesh(&xy_rect(vec3(0.0, 0.5, 0.0), vec2(2.0 / 6.0, 1.0)));
 
@@ -380,7 +381,7 @@ impl SceneData for GameData {
             "mainTex",
             texture_folder.with_file_name("buttonhold.png"),
             (false, false),
-        );
+        )?;
 
         bt_long_shader.set_data_mesh(&xy_rect(vec3(0.0, 0.5, 0.0), vec2(1.0 / 6.0, 1.0)));
 
@@ -391,7 +392,7 @@ impl SceneData for GameData {
             "mainTex",
             texture_folder.with_file_name("fxbutton.png"),
             (false, false),
-        );
+        )?;
         let fx_height = 1.0 / 12.0;
 
         fx_chip_shader.set_data_mesh(&xy_rect(
@@ -412,7 +413,7 @@ impl SceneData for GameData {
             "mainTex",
             texture_folder.with_file_name("button.png"),
             (false, false),
-        );
+        )?;
 
         let mut track_shader =
             ShadedMesh::new(&context, "track", &shader_folder).expect("Failed to load shader:");
@@ -428,7 +429,7 @@ impl SceneData for GameData {
             "mainTex",
             texture_folder.with_file_name("track.png"),
             (false, false),
-        );
+        )?;
 
         let mut laser_left =
             ShadedMesh::new(&context, "laser", &shader_folder).expect("Failed to load shader:");
@@ -444,22 +445,22 @@ impl SceneData for GameData {
             "mainTex",
             texture_folder.with_file_name("laser_l.png"),
             (false, true),
-        );
+        )?;
         laser_left_active.use_texture(
             "mainTex",
             texture_folder.with_file_name("laser_l.png"),
             (false, true),
-        );
+        )?;
         laser_right.use_texture(
             "mainTex",
             texture_folder.with_file_name("laser_r.png"),
             (false, true),
-        );
+        )?;
         laser_right_active.use_texture(
             "mainTex",
             texture_folder.with_file_name("laser_r.png"),
             (false, true),
-        );
+        )?;
 
         let beam_colors: Vec<_> = image::open(texture_folder.with_file_name("hitcolors.png"))
             .expect("Failed to load hitcolors.png")
@@ -503,7 +504,7 @@ impl SceneData for GameData {
             GameBackground::new(
                 &context,
                 true,
-                &bg_folder.with_file_name("fallback"),
+                bg_folder.with_file_name("fallback"),
                 &chart,
                 vgfx.clone(),
                 game_data.clone(),
@@ -525,7 +526,7 @@ impl SceneData for GameData {
         let foreground =
             GameBackground::new(&context, false, bg_folder, &chart, vgfx, game_data).ok();
 
-        Box::new(
+        Ok(Box::new(
             Game::new(
                 chart,
                 &skin_folder,
@@ -550,18 +551,18 @@ impl SceneData for GameData {
                 foreground,
             )
             .unwrap(),
-        )
+        ))
     }
 }
 
 fn camera_to_screen(camera: &Camera, point: Vec3, screen: Vec2) -> Vec2 {
     let Vector3 { x, y, z } = point;
-    let cameraSpace = camera.view().transform_point(three_d::Point3 { x, y, z });
-    let mut screenSpace = camera.projection().transform_point(cameraSpace);
-    screenSpace.y = -screenSpace.y;
-    screenSpace *= 0.5f32;
-    screenSpace += vec3(0.5, 0.5, 0.5);
-    vec2(screenSpace.x * screen.x, screenSpace.y * screen.y)
+    let camera_space = camera.view().transform_point(three_d::Point3 { x, y, z });
+    let mut screen_space = camera.projection().transform_point(camera_space);
+    screen_space.y = -screen_space.y;
+    screen_space *= 0.5f32;
+    screen_space += vec3(0.5, 0.5, 0.5);
+    vec2(screen_space.x * screen.x, screen_space.y * screen.y)
 }
 
 impl Game {
@@ -606,7 +607,6 @@ impl Game {
             view,
             duration,
             time: 0f64,
-            camera_pos: vec3(0.0, 1.0, 1.0),
             bt_chip_shader,
             track_shader,
             bt_long_shaders,
@@ -702,10 +702,10 @@ impl Game {
 
     fn lua_game_state(&self, viewport: Viewport, camera: &Camera) -> LuaGameState {
         let screen = vec2(viewport.width as f32, viewport.height as f32);
-        let track_center = camera_to_screen(&camera, Vec3::zero(), screen);
+        let track_center = camera_to_screen(camera, Vec3::zero(), screen);
 
-        let track_left = camera_to_screen(&camera, Vec3::unit_x() * -0.5, screen);
-        let track_right = camera_to_screen(&camera, Vec3::unit_x() * 0.5, screen);
+        let track_left = camera_to_screen(camera, Vec3::unit_x() * -0.5, screen);
+        let track_right = camera_to_screen(camera, Vec3::unit_x() * 0.5, screen);
         let crit_line = track_right - track_left;
         let rotation = -crit_line.y.atan2(crit_line.x);
 
@@ -740,7 +740,7 @@ impl Game {
                 cursors: [
                     Cursor::new(
                         self.laser_cursors[0] as f32,
-                        &camera,
+                        camera,
                         if self.laser_target[0].is_some() {
                             1.0
                         } else {
@@ -749,7 +749,7 @@ impl Game {
                     ),
                     Cursor::new(
                         self.laser_cursors[1] as f32,
-                        &camera,
+                        camera,
                         if self.laser_target[1].is_some() {
                             1.0
                         } else {
@@ -778,7 +778,7 @@ impl Game {
     }
 
     fn reset_canvas(&mut self) {
-        let vgfx = self.lua.app_data_mut::<Arc<Mutex<Vgfx>>>().unwrap();
+        let vgfx = self.lua.app_data_mut::<Rc<Mutex<Vgfx>>>().unwrap();
         let vgfx = vgfx.lock().unwrap();
         let canvas = &mut vgfx.canvas.lock().unwrap();
         canvas.flush();
@@ -836,13 +836,13 @@ impl Game {
 
         if combo_updated {
             if let Ok(update_score) = self.lua.globals().get::<_, Function>("update_combo") {
-                update_score.call::<_, ()>(self.combo);
+                crate::log_result!(update_score.call::<_, ()>(self.combo));
             }
         }
 
         if last_score != self.real_score {
             if let Ok(update_score) = self.lua.globals().get::<_, Function>("update_score") {
-                update_score.call::<_, ()>(self.calculate_display_score());
+                crate::log_result!(update_score.call::<_, ()>(self.calculate_display_score()));
             }
         }
 
@@ -858,7 +858,7 @@ impl Game {
                 ScoreTick::Chip { lane } => {
                     self.beam_colors_current[lane] = (self.beam_colors[2] / 255.0).into();
                     if let Ok(button_hit) = button_hit {
-                        button_hit.call::<_, ()>((lane, 2, delta));
+                        crate::log_result!(button_hit.call::<_, ()>((lane, 2, delta)));
                     }
                 }
                 ScoreTick::Slam { lane, start, end } => {
@@ -874,7 +874,7 @@ impl Game {
                     }
 
                     if let Ok(laser_slam_hit) = laser_slam_hit {
-                        laser_slam_hit.call::<_, ()>((end - start, start, end, lane));
+                        log_result!(laser_slam_hit.call::<_, ()>((end - start, start, end, lane)));
                     }
                 }
                 _ => (),
@@ -886,10 +886,10 @@ impl Game {
             } => {
                 if let ScoreTick::Chip { lane } = tick.tick {
                     if let Ok(near_hit) = self.lua.globals().get::<_, Function>("near_hit") {
-                        near_hit.call::<_, ()>(delta < 0.0);
+                        log_result!(near_hit.call::<_, ()>(delta < 0.0));
                     }
                     if let Ok(button_hit) = button_hit {
-                        button_hit.call::<_, ()>((lane, 1, delta));
+                        log_result!(button_hit.call::<_, ()>((lane, 1, delta)));
                     }
                     self.beam_colors_current[lane] = (self.beam_colors[1] / 255.0).into()
                 }
@@ -902,7 +902,7 @@ impl Game {
                 if let ScoreTick::Chip { lane } = tick.tick {
                     self.beam_colors_current[lane] = (self.beam_colors[0] / 255.0).into();
                     if let Ok(button_hit) = button_hit {
-                        button_hit.call::<_, ()>((lane, 0, 0));
+                        log_result!(button_hit.call::<_, ()>((lane, 0, 0)));
                     }
                 }
             }
@@ -913,7 +913,7 @@ impl Game {
             } => {
                 if let ScoreTick::Chip { lane } = tick.tick {
                     if let Ok(button_hit) = button_hit {
-                        button_hit.call::<_, ()>((lane, 0, 0));
+                        log_result!(button_hit.call::<_, ()>((lane, 0, 0)));
                     }
                 }
             }
@@ -1030,7 +1030,8 @@ impl Scene for Game {
                     score: self.calculate_display_score() as u32,
                     gauge: self.gauge.value(),
                     hit_ratings: std::mem::take(&mut self.hit_ratings),
-                });
+                })
+                .unwrap();
 
             self.results_requested = true;
         }
@@ -1362,9 +1363,10 @@ impl Scene for Game {
         let new_lua_state = self.lua_game_state(viewport, &td_camera);
         if new_lua_state != self.lua_game_state {
             self.lua_game_state = new_lua_state;
-            self.lua
+            log_result!(self
+                .lua
                 .globals()
-                .set("gameplay", self.lua.to_value(&self.lua_game_state).unwrap());
+                .set("gameplay", self.lua.to_value(&self.lua_game_state).unwrap()));
         }
 
         //Set glow/hit states
@@ -1674,9 +1676,9 @@ pub struct ChartView {
 
 use anyhow::{ensure, Result};
 use three_d::{
-    vec2, vec3, Blend, Camera, Color, ColorMaterial, CpuMesh, DepthTest, Indices, InnerSpace,
-    Mat3, Mat4, Matrix4, Positions, Rad, RenderStates, Texture2D, Transform, Vec2, Vec3, Vec4,
-    Vector3, Viewport, Zero,
+    vec2, vec3, Blend, Camera, Color, ColorMaterial, CpuMesh, DepthTest, Indices, InnerSpace, Mat3,
+    Mat4, Matrix4, Positions, RenderStates, Texture2D, Transform, Vec2, Vec3, Vec4, Vector3,
+    Viewport, Zero,
 };
 
 #[derive(Debug)]
@@ -1840,44 +1842,6 @@ fn generate_slam_verts(
     }
 }
 
-pub fn xz_rect(center: Vec3, size: Vec2) -> CpuMesh {
-    let indices = vec![0u8, 1, 2, 2, 3, 0];
-    let halfsize_x = size.x / 2.0;
-    let halfsize_z = size.y / 2.0;
-    let positions = vec![
-        center + Vec3::new(-halfsize_x, 0.0, -halfsize_z),
-        center + Vec3::new(halfsize_x, 0.0, -halfsize_z),
-        center + Vec3::new(halfsize_x, 0.0, halfsize_z),
-        center + Vec3::new(-halfsize_x, 0.0, halfsize_z),
-    ];
-    let normals = vec![
-        Vec3::new(0.0, 0.0, 1.0),
-        Vec3::new(0.0, 0.0, 1.0),
-        Vec3::new(0.0, 0.0, 1.0),
-        Vec3::new(0.0, 0.0, 1.0),
-    ];
-    let tangents = vec![
-        Vec4::new(1.0, 0.0, 0.0, 1.0),
-        Vec4::new(1.0, 0.0, 0.0, 1.0),
-        Vec4::new(1.0, 0.0, 0.0, 1.0),
-        Vec4::new(1.0, 0.0, 0.0, 1.0),
-    ];
-    let uvs = vec![
-        Vec2::new(0.0, 0.0),
-        Vec2::new(1.0, 0.0),
-        Vec2::new(1.0, 1.0),
-        Vec2::new(0.0, 1.0),
-    ];
-    CpuMesh {
-        indices: Indices::U8(indices),
-        positions: Positions::F32(positions),
-        normals: Some(normals),
-        tangents: Some(tangents),
-        uvs: Some(uvs),
-        ..Default::default()
-    }
-}
-
 pub fn xy_rect(center: Vec3, size: Vec2) -> CpuMesh {
     let indices = vec![0u8, 1, 2, 2, 3, 0];
     let halfsize_x = size.x / 2.0;
@@ -1901,90 +1865,6 @@ pub fn xy_rect(center: Vec3, size: Vec2) -> CpuMesh {
         uvs: Some(uvs),
         ..Default::default()
     }
-}
-
-pub fn xy_rect_color(center: Vec3, size: Vec2, color: Color) -> CpuMesh {
-    let mut rect = xy_rect(center, size);
-    rect.colors = Some(vec![color; 4]);
-    rect
-}
-
-fn plane_normal(a: Vec3, b: Vec3, c: Vec3) -> Vector3<f32> {
-    // Calculate the edge vectors formed by the three points
-    let ab = b - a;
-    let ac = c - a;
-
-    // Use the cross product to get the normal to the plane
-    ab.cross(ac).normalize()
-}
-
-fn plane_angle(v1: Vector3<f32>, v2: Vector3<f32>, normal: Vector3<f32>) -> f32 {
-    // Project the vectors onto the plane
-    let v1_on_plane = v1 - (v1.dot(normal) / normal.dot(normal)) * normal;
-    let v2_on_plane = v2 - (v2.dot(normal) / normal.dot(normal)) * normal;
-
-    // Calculate the angle between the vectors on the plane
-    let dot = v1_on_plane.dot(v2_on_plane);
-    let mag = v1_on_plane.magnitude() * v2_on_plane.magnitude();
-    (dot / mag).acos()
-}
-
-fn draw_line_3d(a: Vec3, b: Vec3, r: f32) -> CpuMesh {
-    let mut mesh = CpuMesh::cylinder(8);
-
-    let line_vector = b - a;
-    let line_length = line_vector.magnitude();
-    let line_direction = line_vector.normalize();
-
-    let rotation_axis = plane_normal(line_direction, Vec3::unit_x(), Vec3::zero());
-
-    //vector difference should make up a plane and rotating along the normal should work?
-
-    let trans = Matrix4::from_translation(a)
-        * Matrix4::from_axis_angle(
-            rotation_axis,
-            Rad(plane_angle(line_direction, Vec3::unit_x(), rotation_axis)),
-        )
-        * Matrix4::from_nonuniform_scale(line_length, r, r);
-    mesh.transform(&trans);
-
-    mesh
-}
-
-fn draw_plane(center: Vec3, size: Vec2, normal: Vec3) -> CpuMesh {
-    let mut square = CpuMesh::square();
-    let plane_matrix = [
-        [size.x, 0.0, 0.0, 0.0],
-        [0.0, size.y, 0.0, 0.0],
-        [normal.x, normal.y, normal.z, 0.0],
-        [center.x, center.y, center.z, 1.0],
-    ];
-
-    square.transform(&Matrix4::from_cols(
-        plane_matrix[0].into(),
-        plane_matrix[1].into(),
-        plane_matrix[2].into(),
-        plane_matrix[3].into(),
-    ));
-    square
-}
-
-fn hsl_to_rgb(h: f32, s: f32, l: f32) -> [f32; 3] {
-    let h = h % 1.0; // wrap hue value around 1.0
-    let c = (1.0 - (2.0 * l - 1.0).abs()) * s;
-    let x = c * (1.0 - ((h / 60.0) % 2.0 - 1.0).abs());
-    let m = l - c / 2.0;
-
-    let (r, g, b) = match h {
-        h if h < 0.166_666_67 => (c, x, 0.0),
-        h if h < 0.333_333_34 => (x, c, 0.0),
-        h if h < 0.5 => (0.0, c, x),
-        h if h < 0.666_666_7 => (0.0, x, c),
-        h if h < 0.833_333_3 => (x, 0.0, c),
-        _ => (c, 0.0, x),
-    };
-
-    [r + m, g + m, b + m]
 }
 
 impl ChartView {
@@ -2154,6 +2034,7 @@ impl ChartView {
         });
 
         #[derive(Debug, PartialEq, Eq, Clone, Copy)]
+        #[allow(unused)]
         enum NoteType {
             BtChip,
             BtHold,

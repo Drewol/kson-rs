@@ -6,6 +6,7 @@ use std::{
 use rodio::Source;
 
 #[derive(Debug, Copy, Clone)]
+#[allow(unused)]
 pub enum BiQuadType {
     Peaking(f32),
     AllPass,
