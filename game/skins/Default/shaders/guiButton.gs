@@ -10,10 +10,6 @@ in gl_PerVertex
 } gl_in[1];
 
 // Output
-out gl_PerVertex
-{
-	vec4 gl_Position;
-};
 out vec2 fsTex;
 
 uniform mat4 proj;

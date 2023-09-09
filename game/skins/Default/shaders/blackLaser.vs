@@ -9,10 +9,6 @@ varying vec4 position;
 in vec2 inPos;
 in vec2 inTex;
 
-out gl_PerVertex
-{
-	vec4 gl_Position;
-};
 out vec2 fsTex;
 out vec4 position;
 #endif

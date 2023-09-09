@@ -11,10 +11,6 @@ in vec4 inColor[1];
 in vec4 inParams[1];
 
 // Output
-out gl_PerVertex
-{
-	vec4 gl_Position;
-};
 out vec4 fsColor;
 out vec2 fsTex;
 
