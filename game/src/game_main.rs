@@ -175,7 +175,7 @@ impl GameMain {
     }
     pub fn render(
         &mut self,
-        frame_input: FrameInput<()>,
+        frame_input: FrameInput,
         window: &game_loop::winit::window::Window,
     ) -> FrameOutput {
         let GameMain {
@@ -649,7 +649,7 @@ impl GameMain {
 
     fn render_overlays(
         vgfx: &Rc<Mutex<Vgfx>>,
-        frame_input: &td::FrameInput<()>,
+        frame_input: &td::FrameInput,
         fps: f64,
         fps_paint: &vg::Paint,
     ) {
@@ -678,7 +678,7 @@ impl GameMain {
         game_data: &Rc<Mutex<GameData>>,
         mousex: f64,
         mousey: f64,
-        frame_input: &td::FrameInput<()>,
+        frame_input: &td::FrameInput,
         laser_state: LaserState,
     ) {
         profile_function!();
@@ -706,7 +706,7 @@ impl GameMain {
         }
     }
 
-    fn reset_viewport_size(vgfx: Rc<Mutex<Vgfx>>, frame_input: &td::FrameInput<()>) {
+    fn reset_viewport_size(vgfx: Rc<Mutex<Vgfx>>, frame_input: &td::FrameInput) {
         let vgfx_lock = vgfx.try_lock();
         if let Ok(vgfx) = vgfx_lock {
             let mut canvas_lock = vgfx.canvas.try_lock();

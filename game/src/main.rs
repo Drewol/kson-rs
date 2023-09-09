@@ -262,7 +262,7 @@ impl Scenes {
             && self.transition.is_none()
     }
 
-    pub fn render(&mut self, frame: FrameInput<()>, _vgfx: &Rc<Mutex<Vgfx>>) {
+    pub fn render(&mut self, frame: FrameInput, _vgfx: &Rc<Mutex<Vgfx>>) {
         profile_function!();
         let dt = frame.elapsed_time;
         let td_context = &frame.context;

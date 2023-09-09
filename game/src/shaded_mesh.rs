@@ -15,7 +15,7 @@ use three_d::{
     ElementBuffer, ElementBufferDataType, FrameInput, Geometry, Mat4, Object, Program,
     RenderStates, SquareMatrix, Texture2D, Vec2, Vec3, Vec4, VertexBuffer, Wrapping,
 };
-use three_d_asset::{Vector2, Vector3, Vector4};
+use three_d_asset::{Srgba, Vector2, Vector3, Vector4};
 
 use crate::{config::GameConfig, vg_ui::Vgfx};
 
@@ -79,6 +79,12 @@ impl From<Texture2D> for ShaderParam {
 impl From<i32> for ShaderParam {
     fn from(value: i32) -> Self {
         Self::Int(value)
+    }
+}
+
+impl From<Srgba> for ShaderParam {
+    fn from(value: Srgba) -> Self {
+        Self::Vec4(value.into())
     }
 }
 
@@ -316,7 +322,7 @@ void main() {
     }
 
     #[allow(unused)]
-    pub fn draw(&self, frame: &FrameInput<()>) -> Result<(), tealr::mlu::mlua::Error> {
+    pub fn draw(&self, frame: &FrameInput) -> Result<(), tealr::mlu::mlua::Error> {
         self.use_params();
         self.material
             .use_vertex_attribute("inPos", &self.vertecies_pos);
@@ -405,19 +411,22 @@ void main() {
     pub fn set_data_mesh(&mut self, mesh: &three_d::CpuMesh) {
         profile_function!();
         self.aabb = mesh.compute_aabb();
-
+        let colors: Option<Vec<Vec4>> = mesh
+            .colors
+            .as_ref()
+            .map(|x| x.iter().copied().map(|x| x.into()).collect_vec());
         if let Some(indicies) = mesh.indices.to_u32() {
             self.set_data_indexed(
                 &mesh.positions.to_f32(),
                 mesh.uvs.as_ref().unwrap_or(&vec![]),
                 &indicies,
-                &mesh.colors,
+                &colors,
             );
         } else {
             self.set_data(
                 &mesh.positions.to_f32(),
                 mesh.uvs.as_ref().unwrap_or(&vec![]),
-                &mesh.colors,
+                &colors,
             );
         }
     }
@@ -456,7 +465,7 @@ void main() {
 
     pub fn draw_lua_skin(
         &mut self,
-        frame: &FrameInput<()>,
+        frame: &FrameInput,
         vgfx: &Mutex<Vgfx>,
     ) -> Result<(), tealr::mlu::mlua::Error> {
         let [c0r0, c0r1, c1r0, c1r1, c2r0, c2r1] = {
@@ -508,19 +517,37 @@ impl Geometry for ShadedMesh {
         self.draw_camera(camera);
     }
 
-    fn render_with_post_material(
+    fn aabb(&self) -> three_d::AxisAlignedBoundingBox {
+        three_d::AxisAlignedBoundingBox::EMPTY
+    }
+
+    fn draw(
         &self,
-        _material: &dyn three_d::PostMaterial,
         camera: &three_d::Camera,
-        _lights: &[&dyn three_d::Light],
-        _color_texture: Option<three_d::ColorTexture>,
-        _depth_texture: Option<three_d::DepthTexture>,
+        _program: &Program,
+        _render_states: RenderStates,
+        _attributes: three_d::FragmentAttributes,
     ) {
         self.draw_camera(camera);
     }
 
-    fn aabb(&self) -> three_d::AxisAlignedBoundingBox {
-        three_d::AxisAlignedBoundingBox::EMPTY
+    fn vertex_shader_source(&self, _required_attributes: three_d::FragmentAttributes) -> String {
+        todo!()
+    }
+
+    fn id(&self, _required_attributes: three_d::FragmentAttributes) -> u16 {
+        todo!()
+    }
+
+    fn render_with_effect(
+        &self,
+        _material: &dyn three_d::Effect,
+        _camera: &three_d::Camera,
+        _lights: &[&dyn three_d::Light],
+        _color_texture: Option<three_d::ColorTexture>,
+        _depth_texture: Option<three_d::DepthTexture>,
+    ) {
+        todo!()
     }
 }
 
@@ -600,7 +627,7 @@ fn create_orthographic(
 impl TealData for ShadedMesh {
     fn add_methods<'lua, T: tealr::mlu::TealDataMethods<'lua, Self>>(methods: &mut T) {
         methods.add_method_mut("Draw", |lua, this, _: ()| {
-            let frame = &lua.app_data_ref::<FrameInput<()>>().unwrap();
+            let frame = &lua.app_data_ref::<FrameInput>().unwrap();
             let vgfx = &lua.app_data_ref::<Rc<Mutex<Vgfx>>>().unwrap();
             this.draw_lua_skin(frame, vgfx)
         });
@@ -660,7 +687,7 @@ impl TealData for ShadedMesh {
                 .map(|vert| (vec2(vert.0 .0, vert.0 .1), vec2(vert.1 .0, vert.1 .1)))
                 .unzip();
 
-            let context = &lua.app_data_ref::<FrameInput<()>>().unwrap().context;
+            let context = &lua.app_data_ref::<FrameInput>().unwrap().context;
             this.vertecies_pos = VertexBuffer::new_with_data(context, &pos);
             this.vertecies_uv = VertexBuffer::new_with_data(context, &uv);
 

@@ -25,7 +25,7 @@ use puffin::{profile_function, profile_scope};
 use rodio::{dynamic_mixer::DynamicMixerController, source::Buffered, Decoder, Source};
 use serde::{Deserialize, Serialize};
 use tealr::mlu::mlua::{Function, Lua, LuaSerdeExt};
-use three_d_asset::vec4;
+use three_d_asset::{vec4, Srgba};
 
 const LASER_THRESHOLD: f64 = 1.0 / 12.0;
 
@@ -229,7 +229,7 @@ struct TrackRenderMeshes {
     fx_chip: Vec<(Mat4, bool)>,
     bt_chip: Vec<Mat4>,
     lasers: [CpuMesh; 4],
-    lane_beams: [(Mat4, Color); 6],
+    lane_beams: [(Mat4, Srgba); 6],
 }
 pub struct GameData {
     song: Arc<Song>,
@@ -422,8 +422,8 @@ impl SceneData for GameData {
             vec2(1.0, ChartView::TRACK_LENGTH * 2.0),
         ));
 
-        track_shader.set_param("lCol", Color::BLUE.to_vec4());
-        track_shader.set_param("rCol", Color::RED.to_vec4());
+        track_shader.set_param("lCol", Srgba::BLUE);
+        track_shader.set_param("rCol", Srgba::RED);
 
         track_shader.use_texture(
             "mainTex",
@@ -694,10 +694,10 @@ impl Game {
         });
         self.laser_shaders[0]
             .iter_mut()
-            .for_each(|ll| ll.set_param("color", Color::BLUE.to_vec4()));
+            .for_each(|ll| ll.set_param("color", Srgba::BLUE));
         self.laser_shaders[1]
             .iter_mut()
-            .for_each(|rl| rl.set_param("color", Color::RED.to_vec4()));
+            .for_each(|rl| rl.set_param("color", Srgba::RED));
     }
 
     fn lua_game_state(&self, viewport: Viewport, camera: &Camera) -> LuaGameState {
@@ -1459,7 +1459,7 @@ impl Scene for Game {
             &td_camera,
             render_data.lane_beams,
             |material, tranform, (light, color)| {
-                material.use_uniform_if_required("color", color);
+                material.use_uniform_if_required::<Vec4>("color", color.into());
                 material.use_uniform("world", tranform * light);
             },
         );
@@ -1676,9 +1676,9 @@ pub struct ChartView {
 
 use anyhow::{ensure, Result};
 use three_d::{
-    vec2, vec3, Blend, Camera, Color, ColorMaterial, CpuMesh, DepthTest, Indices, InnerSpace, Mat3,
-    Mat4, Matrix4, Positions, RenderStates, Texture2D, Transform, Vec2, Vec3, Vec4, Vector3,
-    Viewport, Zero,
+    vec2, vec3, Blend, Camera, ColorMaterial, CpuMesh, DepthTest, Indices, InnerSpace, Mat3, Mat4,
+    Matrix4, Positions, RenderStates, Texture2D, Transform, Vec2, Vec3, Vec4, Vector3, Viewport,
+    Zero,
 };
 
 #[derive(Debug)]
@@ -1902,7 +1902,7 @@ impl ChartView {
         let track_texture = Arc::new(Texture2D::new(td, &textures.deserialize("track").unwrap()));
 
         let _track_mat = Rc::new(ColorMaterial {
-            color: Color::WHITE,
+            color: Srgba::WHITE,
             texture: Some(three_d::Texture2DRef {
                 texture: track_texture,
                 transformation: Mat3::from_scale(1.0),
@@ -2029,7 +2029,7 @@ impl ChartView {
         let first_view_tick = view_tick - view_distance as i64;
         let y_view_div = ((chart.beat.resolution as f32 * 4.0) / self.hispeed) / Self::TRACK_LENGTH;
         let _white_mat = Rc::new(ColorMaterial {
-            color: Color::WHITE,
+            color: Srgba::WHITE,
             ..Default::default()
         });
 
@@ -2147,32 +2147,32 @@ impl ChartView {
             (
                 Mat4::from_translation(vec3(-1.5 / 6.0, 0.0, 0.0))
                     * Mat4::from_nonuniform_scale(1.0 / 6.0, -ChartView::TRACK_LENGTH, 1.0),
-                Color::from_rgba_slice(&beam_colors[0]),
+                Srgba::from(beam_colors[0]),
             ),
             (
                 Mat4::from_translation(-vec3(0.5 / 6.0, 0.0, 0.0))
                     * Mat4::from_nonuniform_scale(1.0 / 6.0, -ChartView::TRACK_LENGTH, 1.0),
-                Color::from_rgba_slice(&beam_colors[1]),
+                Srgba::from(beam_colors[1]),
             ),
             (
                 Mat4::from_translation(vec3(0.5 / 6.0, 0.0, 0.0))
                     * Mat4::from_nonuniform_scale(1.0 / 6.0, -ChartView::TRACK_LENGTH, 1.0),
-                Color::from_rgba_slice(&beam_colors[2]),
+                Srgba::from(beam_colors[2]),
             ),
             (
                 Mat4::from_translation(vec3(1.5 / 6.0, 0.0, 0.0))
                     * Mat4::from_nonuniform_scale(1.0 / 6.0, -ChartView::TRACK_LENGTH, 1.0),
-                Color::from_rgba_slice(&beam_colors[3]),
+                Srgba::from(beam_colors[3]),
             ),
             (
                 Mat4::from_translation(-vec3(1.0 / 6.0, 0.0, 0.0))
                     * Mat4::from_nonuniform_scale(2.0 / 6.0, -ChartView::TRACK_LENGTH, 1.0),
-                Color::from_rgba_slice(&beam_colors[4]),
+                Srgba::from(beam_colors[4]),
             ),
             (
                 Mat4::from_translation(vec3(1.0 / 6.0, 0.0, 0.0))
                     * Mat4::from_nonuniform_scale(2.0 / 6.0, -ChartView::TRACK_LENGTH, 1.0),
-                Color::from_rgba_slice(&beam_colors[5]),
+                Srgba::from(beam_colors[5]),
             ),
         ];
 

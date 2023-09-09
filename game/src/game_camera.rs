@@ -1,5 +1,6 @@
+use three_d::Camera;
 use three_d::{Vec2, Vec3};
-use three_d_asset::{Camera, Deg, InnerSpace, Rad, Viewport};
+use three_d_asset::{Deg, InnerSpace, Rad, Viewport};
 
 use crate::game::ChartView;
 

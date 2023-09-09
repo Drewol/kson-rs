@@ -101,9 +101,9 @@ impl Transition {
                 three_d::ColorMaterial {
                     texture: Some(Texture2DRef {
                         texture: Arc::new(three_d::Texture2D::new(&context, &screen_tex)),
-                        transformation: Mat3::from_scale(1.0),
+                        transformation: Mat3::from_nonuniform_scale(1.0, -1.0),
                     }),
-                    color: three_d::Color::WHITE,
+                    color: three_d::Srgba::WHITE,
                     ..Default::default()
                 },
             ))
@@ -179,7 +179,9 @@ impl Scene for Transition {
                         viewport.width as f32 / 2.0,
                         viewport.height as f32 / 2.0,
                     ));
-                    target.render(&camera2d(viewport), &[screengrab], &[]);
+                    let mut new_2d = Camera::new_2d(viewport);
+                    new_2d.disable_tone_and_color_mapping();
+                    target.render(&new_2d, &[screengrab], &[]);
                 }
             }
             TransitionState::Countdown(0) => self.state = TransitionState::Outro,

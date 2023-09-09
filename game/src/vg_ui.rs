@@ -2001,7 +2001,7 @@ impl TealData for Vgfx {
         );
 
         methods.add_function_mut("CreateShadedMesh", |lua, p: CreateShadedMeshParams| {
-            let context = &lua.app_data_ref::<FrameInput<()>>().unwrap().context;
+            let context = &lua.app_data_ref::<FrameInput>().unwrap().context;
             let vgfx = &lua.app_data_ref::<Rc<Mutex<Vgfx>>>().unwrap();
             let vgfx = vgfx.lock().unwrap();
 

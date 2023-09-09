@@ -283,7 +283,7 @@ impl GameBackground {
                 .lua
                 .app_data_mut::<BackgroundData>()
                 .expect("No background data");
-            data.screen_center = center;
+            data.screen_center = center.into();
             data.viewport = camera.viewport();
 
             while chart_time > self.beat_bounds.1 {

@@ -116,6 +116,12 @@ pub fn create_window() -> (
     let mut canvas = Canvas::new(renderer).expect("Cannot create canvas");
     let scale_factor = window.scale_factor();
     canvas.set_size(width, height, scale_factor as f32);
+    surface
+        .set_swap_interval(
+            &gl_context,
+            glutin::surface::SwapInterval::Wait(NonZeroU32::new(1).unwrap()),
+        )
+        .unwrap();
 
     (window, surface, canvas, context, event_loop, gl_context)
 }
