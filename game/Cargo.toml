@@ -38,7 +38,7 @@ tealr = { git = "https://github.com/lenscas/tealr.git", features = [
     "mlua_vendored",
     "mlua_serialize",
 ] }
-three-d = { version = "0.15.0" }
+three-d = { version = "0.16.0" }
 anyhow = { version = "1", features = ["backtrace"] }
 bitflags = "1"
 generational-arena = "*"
