@@ -2924,7 +2924,7 @@ dependencies = [
  "nfd",
  "once_cell",
  "puffin 0.13.3",
- "puffin_http 0.10.1",
+ "puffin_http",
  "regex",
  "rodio",
  "rust-embed",
@@ -3972,14 +3972,8 @@ version = "0.13.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "b40725b2702b9c660938b8d9c56978091252374cc50d73a83b59695b8d32ec03"
 dependencies = [
- "anyhow",
- "bincode",
  "byteorder",
  "once_cell",
- "parking_lot",
- "ruzstd",
- "serde",
- "zstd",
 ]
 
 [[package]]
@@ -4024,18 +4018,6 @@ dependencies = [
  "puffin 0.16.0",
  "time",
  "vec1",
-]
-
-[[package]]
-name = "puffin_http"
-version = "0.10.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "97416b785caf341b82fcf48ef820fffc8f661009f994c194f734193298aefe53"
-dependencies = [
- "anyhow",
- "crossbeam-channel",
- "log",
- "puffin 0.13.3",
 ]
 
 [[package]]
@@ -4365,7 +4347,7 @@ dependencies = [
  "poll-promise",
  "puffin 0.16.0",
  "puffin_egui",
- "puffin_http 0.13.0",
+ "puffin_http",
  "rand 0.8.5",
  "raw-window-handle",
  "rayon",
@@ -4514,16 +4496,6 @@ dependencies = [
  "unicode-ccc",
  "unicode-general-category",
  "unicode-script",
-]
-
-[[package]]
-name = "ruzstd"
-version = "0.2.4"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "8cada0ef59efa6a5f4dc5e491f93d9f31e3fc7758df421ff1de8a706338e1100"
-dependencies = [
- "byteorder",
- "twox-hash",
 ]
 
 [[package]]
@@ -5559,16 +5531,6 @@ name = "ttf-parser"
 version = "0.19.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "a464a4b34948a5f67fddd2b823c62d9d92e44be75058b99939eae6c5b6960b33"
-
-[[package]]
-name = "twox-hash"
-version = "1.6.3"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "97fee6b57c6a41524a810daee9286c02d7752c4253064d0b05472833a438f675"
-dependencies = [
- "cfg-if",
- "static_assertions",
-]
 
 [[package]]
 name = "type-map"
