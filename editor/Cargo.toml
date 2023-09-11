@@ -31,7 +31,7 @@ egui_glow = "0.22.0"
 image = { version = "0.24", default_features = false, features = ["png"] }
 bytemuck = "1.9.1"
 tracing = { version = "0.1.34", features = ["log-always"] }
-i18n-embed-fl = "0.6.4"
+i18n-embed-fl = "0.7.0"
 i18n-embed = { version = "0.13.4", features = ["fluent-system"] }
 rust-embed = "6.4.1"
 kson-music-playback = { path = "../kson-music-playback" }

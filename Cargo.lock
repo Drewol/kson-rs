@@ -2567,9 +2567,9 @@ checksum = "9a3a5bfb195931eeb336b2a7b4d761daec841b97f947d34394601737a7bba5e4"
 
 [[package]]
 name = "i18n-config"
-version = "0.4.4"
+version = "0.4.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b987084cadad6e2f2b1e6ea62c44123591a3c044793a1beabf71a8356ea768d5"
+checksum = "6691f16c6a35c1bb99a0f01aa39dd2b884d342b646689e9b8e4d51faf2cfdbd9"
 dependencies = [
  "log",
  "serde",
@@ -2594,7 +2594,27 @@ dependencies = [
  "lazy_static",
  "log",
  "parking_lot",
- "rust-embed",
+ "rust-embed 6.8.1",
+ "thiserror",
+ "unic-langid",
+]
+
+[[package]]
+name = "i18n-embed"
+version = "0.14.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "26261c73a1670a3f632a8765bb6b22c62fc391f3ddc805b87fd00cd6158e4456"
+dependencies = [
+ "arc-swap",
+ "fluent",
+ "fluent-langneg",
+ "fluent-syntax",
+ "i18n-embed-impl",
+ "intl-memoizer",
+ "lazy_static",
+ "log",
+ "parking_lot",
+ "rust-embed 8.0.0",
  "thiserror",
  "unic-langid",
  "walkdir",
@@ -2602,16 +2622,16 @@ dependencies = [
 
 [[package]]
 name = "i18n-embed-fl"
-version = "0.6.7"
+version = "0.7.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d26a3d3569737dfaac7fc1c4078e6af07471c3060b8e570bcd83cdd5f4685395"
+checksum = "9fc1f8715195dffc4caddcf1cf3128da15fe5d8a137606ea8856c9300047d5a2"
 dependencies = [
  "dashmap",
  "find-crate",
  "fluent",
  "fluent-syntax",
  "i18n-config",
- "i18n-embed",
+ "i18n-embed 0.14.0",
  "lazy_static",
  "proc-macro-error",
  "proc-macro2",
@@ -2913,7 +2933,7 @@ dependencies = [
  "emath",
  "env_logger",
  "glam",
- "i18n-embed",
+ "i18n-embed 0.13.9",
  "i18n-embed-fl",
  "image",
  "kson",
@@ -2927,7 +2947,7 @@ dependencies = [
  "puffin_http 0.10.1",
  "regex",
  "rodio",
- "rust-embed",
+ "rust-embed 6.8.1",
  "serde",
  "serde_cbor",
  "serde_json",
@@ -4401,8 +4421,19 @@ version = "6.8.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "a36224c3276f8c4ebc8c20f158eca7ca4359c8db89991c4925132aaaf6702661"
 dependencies = [
- "rust-embed-impl",
- "rust-embed-utils",
+ "rust-embed-impl 6.8.1",
+ "rust-embed-utils 7.8.1",
+ "walkdir",
+]
+
+[[package]]
+name = "rust-embed"
+version = "8.0.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "b1e7d90385b59f0a6bf3d3b757f3ca4ece2048265d70db20a2016043d4509a40"
+dependencies = [
+ "rust-embed-impl 8.0.0",
+ "rust-embed-utils 8.0.0",
  "walkdir",
 ]
 
@@ -4414,7 +4445,20 @@ checksum = "49b94b81e5b2c284684141a2fb9e2a31be90638caf040bf9afbc5a0416afe1ac"
 dependencies = [
  "proc-macro2",
  "quote",
- "rust-embed-utils",
+ "rust-embed-utils 7.8.1",
+ "syn 2.0.31",
+ "walkdir",
+]
+
+[[package]]
+name = "rust-embed-impl"
+version = "8.0.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "3c3d8c6fd84090ae348e63a84336b112b5c3918b3bf0493a581f7bd8ee623c29"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "rust-embed-utils 8.0.0",
  "syn 2.0.31",
  "walkdir",
 ]
@@ -4424,6 +4468,16 @@ name = "rust-embed-utils"
 version = "7.8.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "9d38ff6bf570dc3bb7100fce9f7b60c33fa71d80e88da3f2580df4ff2bdded74"
+dependencies = [
+ "sha2",
+ "walkdir",
+]
+
+[[package]]
+name = "rust-embed-utils"
+version = "8.0.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "873feff8cb7bf86fdf0a71bb21c95159f4e4a37dd7a4bd1855a940909b583ada"
 dependencies = [
  "sha2",
  "walkdir",
