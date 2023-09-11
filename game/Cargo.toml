@@ -54,7 +54,7 @@ poll-promise = { git = "https://github.com/EmbarkStudios/poll-promise", features
     "smol",
 ] }
 serde = { version = "1.0.152", features = ["derive"] }
-toml = "0.7.2"
+toml = "0.7.8"
 ureq = { version = "2.6.2", features = ["json", "native-tls"] }
 three-d-asset = { version = "0.6.0", features = [
     "image",
