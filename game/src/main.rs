@@ -392,11 +392,12 @@ fn main() -> anyhow::Result<()> {
     let mousey = 0.0;
 
     let event_proxy = eventloop.create_proxy();
+    let (mut rusc_filter, offset_tx) = RuscFilter::new(GameConfig::get().global_offset as _);
 
     let _input_thread = poll_promise::Promise::spawn_thread("gilrs", move || {
         let mut knob_state = LaserState::default();
-        let rusc_filter = RuscFilter::new();
         loop {
+            rusc_filter.update();
             use button_codes::*;
             use game_loop::winit::event::ElementState::*;
             use gilrs::*;
@@ -413,13 +414,15 @@ fn main() -> anyhow::Result<()> {
                     EventType::ButtonPressed(button, _) => {
                         let button = UscButton::from(button);
                         info!("{:?}", button);
-                        Some(event_proxy.send_event(UscInputEvent::Button(button, Pressed)))
+                        Some(event_proxy.send_event(UscInputEvent::Button(button, Pressed, e.time)))
                     }
                     EventType::ButtonRepeated(_, _) => None,
                     EventType::ButtonReleased(button, _) => {
                         let button = UscButton::from(button);
                         info!("{:?}", button);
-                        Some(event_proxy.send_event(UscInputEvent::Button(button, Released)))
+                        Some(
+                            event_proxy.send_event(UscInputEvent::Button(button, Released, e.time)),
+                        )
                     }
                     EventType::ButtonChanged(_, _, _) => None,
                     EventType::AxisChanged(axis, value, _) => {
@@ -430,7 +433,7 @@ fn main() -> anyhow::Result<()> {
                                 info!("{:?}", e)
                             }
                         }
-                        Some(event_proxy.send_event(UscInputEvent::Laser(knob_state)))
+                        Some(event_proxy.send_event(UscInputEvent::Laser(knob_state, e.time)))
                     }
                     EventType::Connected => None,
                     EventType::Disconnected => None,
@@ -553,6 +556,8 @@ fn main() -> anyhow::Result<()> {
         mixer_controls,
     );
 
+    let mut last_offset = { GameConfig::get().global_offset };
+
     game_loop::game_loop(
         eventloop,
         Arc::new(window),
@@ -561,6 +566,15 @@ fn main() -> anyhow::Result<()> {
         0.1,
         move |g| g.game.update(),
         move |g| {
+            // Check for offset changes
+            {
+                let current_offset = GameConfig::get().global_offset;
+                if current_offset != last_offset {
+                    log_result!(offset_tx.send(current_offset));
+                    last_offset = current_offset;
+                }
+            }
+
             let frame_out = g.game.render(
                 FrameInput {
                     events: vec![],

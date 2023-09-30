@@ -1,9 +1,11 @@
 use std::{
+    ops::{Add, Sub},
     rc::Rc,
     sync::{
         mpsc::{Receiver, Sender},
         Arc, Mutex, RwLock,
     },
+    time::{Duration, SystemTime},
 };
 
 use egui_glow::EguiGlow;
@@ -169,7 +171,10 @@ impl GameMain {
             }
 
             self.scenes.for_each_active_mut(|x| {
-                x.on_event(&event::Event::UserEvent(UscInputEvent::Laser(ls)))
+                x.on_event(&event::Event::UserEvent(UscInputEvent::Laser(
+                    ls,
+                    SystemTime::now(),
+                )))
             });
         }
     }
@@ -464,19 +469,27 @@ impl GameMain {
 
         let mut transformed_event = None;
 
+        let (offset, offset_neg) = {
+            let global_offset = GameConfig::get().global_offset;
+            (
+                Duration::from_millis(global_offset.unsigned_abs() as _),
+                global_offset < 0,
+            )
+        };
+
         match event {
             Event::UserEvent(e) => {
                 info!("{:?}", e);
                 self.input_state.update(e);
                 match e {
-                    UscInputEvent::Laser(ls) => self.knob_state = *ls,
-                    UscInputEvent::Button(b, s) => match s {
-                        ElementState::Pressed => {
-                            self.scenes.for_each_active_mut(|x| x.on_button_pressed(*b))
-                        }
+                    UscInputEvent::Laser(ls, _time) => self.knob_state = *ls,
+                    UscInputEvent::Button(b, s, time) => match s {
+                        ElementState::Pressed => self
+                            .scenes
+                            .for_each_active_mut(|x| x.on_button_pressed(*b, *time)),
                         ElementState::Released => self
                             .scenes
-                            .for_each_active_mut(|x| x.on_button_released(*b)),
+                            .for_each_active_mut(|x| x.on_button_released(*b, *time)),
                     },
                 }
             }
@@ -537,7 +550,15 @@ impl GameMain {
                         if self.input_state.is_button_held(button).is_none()
                             || *state == ElementState::Released
                         {
-                            let button = UscInputEvent::Button(button, *state);
+                            let button = UscInputEvent::Button(
+                                button,
+                                *state,
+                                if offset_neg {
+                                    SystemTime::now().add(offset)
+                                } else {
+                                    SystemTime::now().sub(offset)
+                                },
+                            );
                             transformed_event = Some(Event::UserEvent(button));
                         }
                     }
@@ -559,7 +580,10 @@ impl GameMain {
                 ls.update(kson::Side::Left, (delta.0 / sens) as _);
                 ls.update(kson::Side::Right, (delta.1 / sens) as _);
 
-                transformed_event = Some(Event::UserEvent(UscInputEvent::Laser(ls)));
+                transformed_event = Some(Event::UserEvent(UscInputEvent::Laser(
+                    ls,
+                    SystemTime::now().sub(offset),
+                )));
             }
             _ => (),
         }
@@ -567,13 +591,13 @@ impl GameMain {
         if let Some(Event::UserEvent(e)) = transformed_event {
             self.input_state.update(&e);
             match e {
-                UscInputEvent::Button(b, ElementState::Pressed) => {
-                    self.scenes.for_each_active_mut(|x| x.on_button_pressed(b))
-                }
-                UscInputEvent::Button(b, ElementState::Released) => {
-                    self.scenes.for_each_active_mut(|x| x.on_button_released(b))
-                }
-                UscInputEvent::Laser(_) => {}
+                UscInputEvent::Button(b, ElementState::Pressed, time) => self
+                    .scenes
+                    .for_each_active_mut(|x| x.on_button_pressed(b, time)),
+                UscInputEvent::Button(b, ElementState::Released, time) => self
+                    .scenes
+                    .for_each_active_mut(|x| x.on_button_released(b, time)),
+                UscInputEvent::Laser(_, _) => {}
             }
         }
 
@@ -701,7 +725,7 @@ impl GameMain {
         {
             frame_input
                 .screen()
-                .clear(td::ClearState::color_and_depth(0.0, 0.0, 0.0, 0.0, 1.0));
+                .clear(td::ClearState::color_and_depth(0.0, 0.0, 0.0, 1.0, 1.0));
             // .render(&camera, [&model], &[]);
         }
     }

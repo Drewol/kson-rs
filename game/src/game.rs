@@ -24,6 +24,7 @@ use kson::{
 use puffin::{profile_function, profile_scope};
 use rodio::{dynamic_mixer::DynamicMixerController, source::Buffered, Decoder, Source};
 use serde::{Deserialize, Serialize};
+use serde_with::*;
 use tealr::mlu::mlua::{Function, Lua, LuaSerdeExt};
 use three_d_asset::{vec4, Srgba};
 
@@ -32,9 +33,8 @@ const LASER_THRESHOLD: f64 = 1.0 / 12.0;
 pub struct Game {
     view: ChartView,
     chart: kson::Chart,
-
-    time: f64,
-    duration: f64,
+    zero_time: SystemTime,
+    duration: u32,
     fx_long_shaders: ShadedMesh,
     bt_long_shaders: ShadedMesh,
     fx_chip_shaders: ShadedMesh,
@@ -63,7 +63,7 @@ pub struct Game {
     laser_active: [bool; 2],
     laser_target: [Option<f64>; 2],
     laser_assist_ticks: [u8; 2],
-    laser_latest_dir_inputs: [[f64; 2]; 2], //last left/right turn timestamps for both knobs, for checking slam hits
+    laser_latest_dir_inputs: [[SystemTime; 2]; 2], //last left/right turn timestamps for both knobs, for checking slam hits
     beam_colors: Vec<Vec4>,
     beam_colors_current: [[f32; 4]; 6],
     draw_axis_guides: bool,
@@ -591,7 +591,6 @@ impl Game {
         let mut view = ChartView::new(skin_root, td);
         view.build_laser_meshes(&chart);
         let duration = chart.get_last_tick();
-        let duration = chart.tick_to_ms(duration);
         let mut slam_path = skin_root.clone();
         slam_path.push("audio");
         slam_path.push("laser_slam.wav");
@@ -606,7 +605,7 @@ impl Game {
             chart,
             view,
             duration,
-            time: 0f64,
+            zero_time: SystemTime::now(),
             bt_chip_shader,
             track_shader,
             bt_long_shaders,
@@ -640,7 +639,7 @@ impl Game {
             laser_active: [false, false],
             laser_target: [None, None],
             laser_assist_ticks: [0; 2],
-            laser_latest_dir_inputs: [[f64::NEG_INFINITY; 2]; 2],
+            laser_latest_dir_inputs: [[SystemTime::UNIX_EPOCH; 2]; 2],
             beam_colors: beam_colors
                 .iter()
                 .map(|x| {
@@ -718,10 +717,10 @@ impl Game {
             demo_mode: false,
             difficulty: self.chart.meta.difficulty,
             level: self.chart.meta.level,
-            progress: self.time as f32 / self.duration as f32,
+            progress: self.current_tick as f32 / self.chart.get_last_tick() as f32,
             hispeed: self.view.hispeed,
             hispeed_adjust: 0,
-            bpm: self.chart.bpm_at_tick(self.chart.ms_to_tick(self.time)) as f32,
+            bpm: self.chart.bpm_at_tick(self.current_tick) as f32,
             gauge: LuaGauge::from(&self.gauge),
             hidden_cutoff: 0.0,
             sudden_cutoff: 0.0,
@@ -766,10 +765,10 @@ impl Game {
             },
             hit_window: HitWindow {
                 variant: 1,
-                perfect: 2_500.0 / 60.0,
-                good: 6_000.0 / 60.0,
-                hold: 6_000.0 / 60.0,
-                miss: 10_000.0 / 60.0,
+                perfect: Duration::from_secs_f64(2500.0 / 60_000.0),
+                good: Duration::from_secs_f64(0.1),
+                hold: Duration::from_secs_f64(0.1),
+                miss: Duration::from_secs_f64(10_000.0 / 60_000.0),
             },
             multiplayer: false,
             user_id: "Player".into(),
@@ -908,10 +907,14 @@ impl Game {
             }
             HitRating::Miss {
                 tick,
-                delta: _,
+                delta,
                 time: _,
             } => {
                 if let ScoreTick::Chip { lane } = tick.tick {
+                    if delta.abs() > f64::EPSILON {
+                        //Button press miss, not idle miss
+                        self.beam_colors_current[lane] = (self.beam_colors[3] / 255.0).into();
+                    }
                     if let Ok(button_hit) = button_hit {
                         log_result!(button_hit.call::<_, ()>((lane, 0, 0)));
                     }
@@ -935,7 +938,7 @@ impl Game {
         chip_miss_tick: u32,
         slam_miss_tick: u32,
     ) -> HitRating {
-        let time = self.time;
+        let time = self.current_time().as_secs_f64() * 1000.0;
         match tick.tick {
             ScoreTick::Hold { lane } => {
                 if self
@@ -979,11 +982,21 @@ impl Game {
                     Ordering::Greater => 1,
                     Ordering::Equal => unreachable!(),
                 };
-                let delta = ms - self.laser_latest_dir_inputs[lane][dir];
+                let delta = ms
+                    - self
+                        .with_offset(
+                            self.laser_latest_dir_inputs[lane][dir]
+                                .duration_since(self.zero_time)
+                                .unwrap_or(Duration::ZERO),
+                        )
+                        .as_secs_f64()
+                        * 1000.0;
                 let contains_cursor = true; //TODO: (start.min(end)..=start.max(end)).contains(&self.laser_cursors[lane]);
                 if tick.y < slam_miss_tick {
                     HitRating::Miss { tick, delta, time }
-                } else if delta.abs() < self.lua_game_state.hit_window.good && contains_cursor {
+                } else if delta.abs() < (self.lua_game_state.hit_window.good.as_secs_f64() * 1000.0)
+                    && contains_cursor
+                {
                     self.laser_cursors[lane] = end;
                     self.laser_assist_ticks[lane] = 24;
                     HitRating::Crit { tick, delta, time }
@@ -1004,6 +1017,24 @@ impl Game {
             }
         }
     }
+    fn current_time(&self) -> std::time::Duration {
+        SystemTime::now()
+            .duration_since(self.zero_time)
+            .unwrap_or(Duration::ZERO)
+    }
+
+    fn with_offset(&self, time: Duration) -> Duration {
+        let offset = if let Some(bgm) = &self.chart.audio.bgm {
+            bgm.offset
+        } else {
+            0
+        };
+        if offset > 0 {
+            time.saturating_sub(Duration::from_millis(offset.unsigned_abs() as _))
+        } else {
+            time.add(Duration::from_millis(offset.unsigned_abs() as _))
+        }
+    }
 }
 
 impl Scene for Game {
@@ -1020,7 +1051,17 @@ impl Scene for Game {
 
     fn tick(&mut self, _dt: f64, _knob_state: crate::button_codes::LaserState) -> Result<()> {
         profile_function!();
-        if self.time >= self.duration && !self.results_requested {
+        let mut time = self.current_time();
+
+        let playback_ms = self.playback.get_ms();
+        let timing_delta = playback_ms.sub(time.as_secs_f64() * 1000.0);
+        if timing_delta.abs() > 20.0 {
+            log::info!("Resetting timing, delta: {timing_delta}ms");
+            self.zero_time = SystemTime::now().sub(Duration::from_secs_f64(playback_ms / 1000.0));
+            time = self.current_time();
+        }
+
+        if self.current_tick >= self.duration && !self.results_requested {
             self.control_tx
                 .as_ref()
                 .unwrap()
@@ -1035,9 +1076,11 @@ impl Scene for Game {
 
             self.results_requested = true;
         }
-        let missed_chip_tick = self
-            .chart
-            .ms_to_tick(self.time - self.lua_game_state.hit_window.good);
+        let missed_chip_tick = self.chart.ms_to_tick(
+            self.with_offset(time.saturating_sub(self.lua_game_state.hit_window.good))
+                .as_secs_f64()
+                * 1000.0,
+        );
 
         for (side, (laser_active, laser_target)) in self
             .laser_active
@@ -1161,15 +1204,17 @@ impl Scene for Game {
                     .num_columns(2)
                     .spacing([40.0, 4.0])
                     .show(ui, |ui| {
-                        let current_tick = self.chart.ms_to_tick(self.time);
-
                         ui.label("Time");
 
                         if ui
-                            .add(Slider::new(&mut self.time, 0.0..=self.duration))
+                            .add(Slider::new(&mut self.current_tick, 0..=self.duration))
                             .changed()
                         {
-                            self.playback.set_poistion(self.time);
+                            let new_time = self.chart.tick_to_ms(self.current_tick);
+                            self.playback.set_poistion(new_time);
+
+                            self.zero_time =
+                                SystemTime::now().sub(Duration::from_millis(new_time as _))
                         }
 
                         ui.end_row();
@@ -1187,16 +1232,16 @@ impl Scene for Game {
                             let mut next_tick = self
                                 .score_ticks
                                 .iter()
-                                .filter(|x| x.y > current_tick)
+                                .filter(|x| x.y > self.current_tick)
                                 .find(|x| match x.tick {
                                     ScoreTick::Chip { lane } | ScoreTick::Hold { lane } => {
                                         lane == i
                                     }
                                     _ => false,
                                 })
-                                .map(|x| self.chart.tick_to_ms(x.y))
-                                .unwrap_or(f64::INFINITY)
-                                - self.time;
+                                .map(|x| x.y)
+                                .unwrap_or(u32::MAX)
+                                .saturating_sub(self.current_tick);
                             ui.label(match i {
                                 0 => "BT A",
                                 1 => "BT B",
@@ -1206,7 +1251,7 @@ impl Scene for Game {
                                 5 => "FX R",
                                 _ => unreachable!(),
                             });
-                            ui.add(Slider::new(&mut next_tick, 0.0..=10000.0).logarithmic(true));
+                            ui.add(Slider::new(&mut next_tick, 0..=10000).logarithmic(true));
                             ui.end_row();
                         }
 
@@ -1271,8 +1316,10 @@ impl Scene for Game {
         viewport: Viewport,
     ) {
         profile_function!();
+
         self.camera.view_size = vec2(viewport.width as f32, viewport.height as f32);
         if self.intro_done && !self.playback.is_playing() {
+            self.zero_time = SystemTime::now();
             if !self.playback.play() {
                 panic!("Could not play")
             };
@@ -1290,6 +1337,8 @@ impl Scene for Game {
                 self.source_owner.0.clone(),
             ));
         }
+        let time = self.current_time();
+        let time_ms = time.as_secs_f64() * 1000.0;
 
         //Update roll
         {
@@ -1309,16 +1358,9 @@ impl Scene for Game {
 
             self.camera.tilt = self.current_roll as f32 * 12.5;
 
-            self.view.cursor = self.playback.get_ms();
-            self.time = self.view.cursor
-                - self
-                    .chart
-                    .audio
-                    .bgm
-                    .as_ref()
-                    .map(|x| x.offset as f64)
-                    .unwrap_or(0.0);
-            self.current_tick = self.chart.ms_to_tick(self.time);
+            self.view.cursor = self.with_offset(time).as_secs_f64() * 1000.0;
+
+            self.current_tick = self.chart.ms_to_tick(self.view.cursor);
             self.camera.radius = 1.1
                 + 0.6
                     * self
@@ -1348,7 +1390,7 @@ impl Scene for Game {
             bg.render(
                 dt,
                 &td_camera,
-                self.time,
+                time_ms,
                 &self.chart,
                 self.current_tick,
                 self.camera.tilt,
@@ -1370,8 +1412,8 @@ impl Scene for Game {
         }
 
         //Set glow/hit states
-        let object_glow = ((self.time as f32 % 100.0) / 50.0 - 1.0).abs() * 0.5 + 0.5;
-        let hit_state = ((self.time / 50.0) % 2.0) as i32 + 2;
+        let object_glow = ((time_ms as f32 % 100.0) / 50.0 - 1.0).abs() * 0.5 + 0.5;
+        let hit_state = ((time_ms / 50.0) % 2.0) as i32 + 2;
         for (side, [_, shader]) in self.laser_shaders.iter_mut().enumerate() {
             shader.set_param(
                 "hitState",
@@ -1493,7 +1535,7 @@ impl Scene for Game {
             fg.render(
                 dt,
                 &td_camera,
-                self.time,
+                time_ms,
                 &self.chart,
                 self.current_tick,
                 self.camera.tilt,
@@ -1524,7 +1566,9 @@ impl Scene for Game {
         &mut self,
         event: &game_loop::winit::event::Event<crate::button_codes::UscInputEvent>,
     ) {
-        if let game_loop::winit::event::Event::UserEvent(UscInputEvent::Laser(ls)) = event {
+        if let game_loop::winit::event::Event::UserEvent(UscInputEvent::Laser(ls, timestamp)) =
+            event
+        {
             //TODO: Slam detection, or always handle slam ticks in ticking function?
 
             for (side, index) in [(kson::Side::Left, 0), (kson::Side::Right, 1)] {
@@ -1537,9 +1581,9 @@ impl Scene for Game {
 
                 let input_dir = delta.total_cmp(&0.0);
                 match input_dir {
-                    Ordering::Less => self.laser_latest_dir_inputs[index][0] = self.time,
+                    Ordering::Less => self.laser_latest_dir_inputs[index][0] = *timestamp,
                     Ordering::Equal => {}
-                    Ordering::Greater => self.laser_latest_dir_inputs[index][1] = self.time,
+                    Ordering::Greater => self.laser_latest_dir_inputs[index][1] = *timestamp,
                 }
 
                 self.laser_cursors[index] = if self.laser_target[index].is_some() {
@@ -1589,7 +1633,7 @@ impl Scene for Game {
         }
     }
 
-    fn on_button_pressed(&mut self, button: crate::button_codes::UscButton) {
+    fn on_button_pressed(&mut self, button: crate::button_codes::UscButton, timestamp: SystemTime) {
         let HitWindow {
             variant: _,
             perfect,
@@ -1598,7 +1642,10 @@ impl Scene for Game {
             miss,
         } = self.lua_game_state.hit_window;
 
-        let last_tick = self.chart.ms_to_tick(self.time + miss) + 1;
+        let last_tick = self
+            .chart
+            .ms_to_tick((self.current_time() + miss).as_secs_f64() * 1000.0)
+            + 1;
         let mut hittable_ticks = self.score_ticks.iter().take_while(|x| x.y < last_tick);
         let mut hit_rating = HitRating::None;
         let button_num = Into::<u8>::into(button);
@@ -1614,9 +1661,17 @@ impl Scene for Game {
                 }) {
                     let tick = *score_tick;
                     let ms = self.chart.tick_to_ms(score_tick.y);
-                    let time = self.time;
+                    let time = self
+                        .with_offset(
+                            timestamp
+                                .duration_since(self.zero_time)
+                                .unwrap_or(Duration::ZERO),
+                        )
+                        .as_secs_f64()
+                        * 1000.0;
+
                     let delta = ms - time;
-                    let abs_delta = delta.abs();
+                    let abs_delta = Duration::from_secs_f64(delta.abs() / 1000.0);
                     log::info!("Hit delta: {}", delta);
 
                     hit_rating = if abs_delta <= perfect {
@@ -1629,11 +1684,10 @@ impl Scene for Game {
                         HitRating::None
                     };
 
-                    self.on_hit(hit_rating);
-
                     match hit_rating {
                         HitRating::None => {}
                         _ => {
+                            self.on_hit(hit_rating);
                             self.score_ticks.remove(index);
                         }
                     }
@@ -1658,12 +1712,14 @@ impl Scene for Game {
 use std::{
     cmp::Ordering,
     f32::consts::SQRT_2,
+    ops::{Add, Sub},
     path::{Path, PathBuf},
     rc::Rc,
     sync::{
         mpsc::{Receiver, Sender},
         Arc, Mutex,
     },
+    time::{Duration, SystemTime},
 };
 
 pub struct ChartView {
@@ -2013,7 +2069,7 @@ impl ChartView {
     ) -> TrackRenderMeshes {
         use three_d::prelude::*;
         profile_function!();
-        let view_time = self.cursor - chart.audio.clone().bgm.unwrap().offset as f64;
+        let view_time = self.cursor;
         let view_offset = if view_time < 0.0 {
             chart.ms_to_tick(view_time.abs()) as i64 //will be weird with early bpm changes
         } else {
@@ -2292,15 +2348,20 @@ struct LuaGauge {
     name: String,
 }
 
+#[serde_as]
 #[derive(Debug, Serialize, Default, Deserialize, Clone, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub struct HitWindow {
     #[serde(rename = "type")]
     variant: i32,
-    perfect: f64,
-    good: f64,
-    hold: f64,
-    miss: f64,
+    #[serde_as(as = "DurationMilliSecondsWithFrac<f64>")]
+    perfect: Duration,
+    #[serde_as(as = "DurationMilliSecondsWithFrac<f64>")]
+    good: Duration,
+    #[serde_as(as = "DurationMilliSecondsWithFrac<f64>")]
+    hold: Duration,
+    #[serde_as(as = "DurationMilliSecondsWithFrac<f64>")]
+    miss: Duration,
 }
 
 #[derive(Debug, Serialize, Default, Deserialize, Clone, PartialEq)]

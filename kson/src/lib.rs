@@ -882,6 +882,7 @@ impl Default for Chart {
     }
 }
 
+//TODO: Duration based API
 impl Chart {
     pub fn new() -> Self {
         Chart {

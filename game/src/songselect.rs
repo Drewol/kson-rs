@@ -14,7 +14,7 @@ use std::{
         mpsc::{channel, Receiver, Sender},
         Arc, Mutex,
     },
-    time::Duration,
+    time::{Duration, SystemTime},
 };
 use tealr::{
     mlu::{
@@ -510,13 +510,17 @@ impl Scene for SongSelectScene {
             return;
         }
 
-        if let Event::UserEvent(UscInputEvent::Laser(ls)) = event {
+        if let Event::UserEvent(UscInputEvent::Laser(ls, _time)) = event {
             self.song_advance += LaserAxis::from(ls.get(kson::Side::Right)).delta;
             self.diff_advance += LaserAxis::from(ls.get(kson::Side::Left)).delta;
         }
     }
 
-    fn on_button_pressed(&mut self, button: crate::button_codes::UscButton) {
+    fn on_button_pressed(
+        &mut self,
+        button: crate::button_codes::UscButton,
+        _timestamp: SystemTime,
+    ) {
         if self.settings_dialog.show {
             self.settings_dialog.on_button_press(button);
             return;

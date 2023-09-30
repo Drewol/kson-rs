@@ -20,6 +20,8 @@ use crate::{
     shaded_mesh::ShadedMesh, util::lua_address,
 };
 
+const FALLBACK_ID: u32 = u32::MAX;
+
 #[derive(Debug)]
 enum VgImage {
     Static(ImageId),
@@ -329,14 +331,17 @@ impl TealData for Vgfx {
                     imageflags,
                 } = p;
 
-                let img = _vgfx
+                let Ok(img) = _vgfx
                     .with_canvas(|canvas| {
                         canvas.load_image_file(
                             &filename,
                             ImageFlags::from_bits(imageflags).unwrap_or(ImageFlags::empty()),
                         )
                     })?
-                    .map_err(mlua::Error::external)?;
+                    .map_err(mlua::Error::external)
+                else {
+                    return Ok(0);
+                };
 
                 let this_id = _vgfx.next_img_id;
                 _vgfx.next_img_id += 1;
@@ -428,6 +433,10 @@ impl TealData for Vgfx {
                 alpha,
                 angle,
             } = p;
+
+            if image == FALLBACK_ID {
+                return Ok(());
+            }
 
             if let Some(img_id) = _vgfx.scoped_assets[&lua_address(lua)].images.get(&image) {
                 let img_id = img_id.into();
@@ -1313,6 +1322,10 @@ impl TealData for Vgfx {
                     alpha,
                 } = p;
 
+                if image == FALLBACK_ID {
+                    return Ok(FALLBACK_ID);
+                }
+
                 if let Some(id) = _vgfx.scoped_assets[&lua_address(lua)].images.get(&image) {
                     let id: ImageId = id.into();
                     let paint = Paint::image(id, ox, oy, ex, ey, angle, alpha);
@@ -1708,6 +1721,10 @@ impl TealData for Vgfx {
 
         );
         add_lua_static_method(methods, "ImageSize", |lua, _vgfx, p: ImageSizeParams| {
+            if p.image == FALLBACK_ID {
+                return Ok((1, 1));
+            }
+
             if let Some(id) = _vgfx.scoped_assets[&lua_address(lua)].images.get(&p.image) {
                 let id: ImageId = id.into();
                 _vgfx

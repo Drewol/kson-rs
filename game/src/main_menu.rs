@@ -5,6 +5,7 @@ use std::{
         mpsc::{Receiver, Sender},
         Arc,
     },
+    time::SystemTime,
 };
 
 use anyhow::{anyhow, Result};
@@ -180,7 +181,11 @@ impl Scene for MainMenu {
         }
     }
 
-    fn on_button_pressed(&mut self, button: crate::button_codes::UscButton) {
+    fn on_button_pressed(
+        &mut self,
+        button: crate::button_codes::UscButton,
+        _timestamp: SystemTime,
+    ) {
         if let Ok(button_pressed) = self.lua.globals().get::<_, Function>("button_pressed") {
             if let Some(e) = button_pressed.call::<u8, ()>(button.into()).err() {
                 log::error!("{:?}", e);

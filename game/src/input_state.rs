@@ -27,21 +27,21 @@ impl InputState {
     pub fn update(&mut self, e: &UscInputEvent) {
         if let Ok(mut laser_state) = self.laser_state.write() {
             match e {
-                UscInputEvent::Laser(s) => *laser_state = *s,
-                UscInputEvent::Button(_, _) => {}
+                UscInputEvent::Laser(s, _) => *laser_state = *s,
+                UscInputEvent::Button(_, _, _) => {}
             }
         }
 
         if let Ok(mut buttons_held) = self.buttons_held.write() {
             match e {
-                UscInputEvent::Button(b, ElementState::Pressed) => {
+                UscInputEvent::Button(b, ElementState::Pressed, _) => {
                     //TODO: Take time as an argument for better accuracy
                     buttons_held.insert(*b, std::time::SystemTime::now());
                 }
-                UscInputEvent::Button(b, ElementState::Released) => {
+                UscInputEvent::Button(b, ElementState::Released, _) => {
                     buttons_held.remove(b);
                 }
-                UscInputEvent::Laser(_) => {}
+                UscInputEvent::Laser(_, _) => {}
             }
         }
     }

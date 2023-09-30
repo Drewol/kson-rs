@@ -238,7 +238,7 @@ impl SettingsDialog {
         _ = self.lua.globals().set("SettingsDiag", &*self);
     }
     pub fn on_input(&mut self, input: &UscInputEvent) {
-        let UscInputEvent::Laser(ls) = input else {
+        let UscInputEvent::Laser(ls, _) = input else {
             return;
         };
 
@@ -256,7 +256,17 @@ impl SettingsDialog {
 
         let setting = &mut tab.settings[tab.current_setting];
 
-        let (_, SettingsDialogSetting::Float { min, max, mult: _, set, get }) = setting else {
+        let (
+            _,
+            SettingsDialogSetting::Float {
+                min,
+                max,
+                mult: _,
+                set,
+                get,
+            },
+        ) = setting
+        else {
             _ = self.lua.globals().set("SettingsDiag", &*self);
             return;
         };

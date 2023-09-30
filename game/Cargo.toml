@@ -88,6 +88,7 @@ num_cpus = "1.16.0"
 encoding = "0.2.33"
 async-fs = "1.6.0"
 kson-editor = { path = "../editor" }
+serde_with = "3.3.0"
 
 [target.'cfg(unix)'.dependencies]
 openssl = { version = "^0.10", features = ["vendored"] }

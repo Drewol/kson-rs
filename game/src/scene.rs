@@ -1,6 +1,7 @@
 use std::{
     rc::Rc,
     sync::{mpsc::Sender, Arc, Mutex},
+    time::SystemTime,
 };
 
 use anyhow::Result;
@@ -32,8 +33,8 @@ pub trait Scene {
         Ok(())
     }
     fn on_event(&mut self, event: &Event<UscInputEvent>) {}
-    fn on_button_pressed(&mut self, button: UscButton) {}
-    fn on_button_released(&mut self, button: UscButton) {}
+    fn on_button_pressed(&mut self, button: UscButton, timestamp: SystemTime) {}
+    fn on_button_released(&mut self, button: UscButton, timestamp: SystemTime) {}
     fn render(
         &mut self,
         dt: f64,

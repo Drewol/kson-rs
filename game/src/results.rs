@@ -2,6 +2,7 @@ use std::{
     path::PathBuf,
     rc::Rc,
     sync::{mpsc::Sender, Arc, Mutex},
+    time::SystemTime,
 };
 
 use kson::score_ticks::ScoreTick;
@@ -18,6 +19,7 @@ use crate::{
     vg_ui::Vgfx,
     ControlMessage,
 };
+use serde_with::*;
 use tealr::{
     mlu::{
         mlua::{Function, Lua, LuaSerdeExt},
@@ -30,7 +32,8 @@ use tealr::{
 #[serde(rename_all = "camelCase")]
 struct HidSud {}
 
-#[derive(Debug, TypeName, Clone, Serialize, Default)]
+#[serde_as]
+#[derive(Debug, Clone, Serialize, Default)]
 #[serde(rename_all = "camelCase")]
 pub struct SongResultData {
     score: u32,
@@ -213,13 +216,13 @@ impl SongResultData {
             earlies: hit_ratings
                 .iter()
                 .filter(
-                    |x| matches!(x, HitRating::Good { tick: _, delta, time: _ } if *delta < 0.0),
+                    |x| matches!(x, HitRating::Good { tick: _, delta, time: _ } if *delta > 0.0),
                 )
                 .count() as i32,
             lates: hit_ratings
                 .iter()
                 .filter(
-                    |x| matches!(x, HitRating::Good { tick: _, delta, time: _ } if *delta > 0.0),
+                    |x| matches!(x, HitRating::Good { tick: _, delta, time: _ } if *delta < 0.0),
                 )
                 .count() as i32,
             laser_hit_stats,
@@ -368,7 +371,7 @@ impl Scene for SongResult {
         false
     }
 
-    fn on_button_pressed(&mut self, button: crate::button_codes::UscButton) {
+    fn on_button_pressed(&mut self, button: crate::button_codes::UscButton, _time: SystemTime) {
         if let UscButton::Start = button {
             self.close = true;
         }
