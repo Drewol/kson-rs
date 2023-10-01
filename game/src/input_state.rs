@@ -5,8 +5,9 @@ use std::{
 };
 
 use game_loop::winit::event::ElementState;
+use kson::Side;
 
-use crate::button_codes::{LaserState, UscButton, UscInputEvent};
+use crate::button_codes::{LaserAxis, LaserState, UscButton, UscInputEvent};
 
 #[derive(Debug, Clone)]
 pub struct InputState {
@@ -52,5 +53,9 @@ impl InputState {
             .read()
             .ok()
             .and_then(|l| l.get(&button).copied())
+    }
+
+    pub fn get_axis(&self, side: Side) -> LaserAxis {
+        self.laser_state.read().unwrap().get_axis(side)
     }
 }

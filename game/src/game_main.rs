@@ -410,7 +410,13 @@ impl GameMain {
         *frame_time_index = (*frame_time_index + 1) % FRAME_ACC_SIZE;
         let fps = 1000_f64 / (frame_times.iter().sum::<f64>() / FRAME_ACC_SIZE as f64);
 
-        Self::update_game_data_and_clear(game_data, *mousex, *mousey, &frame_input, *knob_state);
+        Self::update_game_data_and_clear(
+            game_data,
+            *mousex,
+            *mousey,
+            &frame_input,
+            self.input_state.clone(),
+        );
 
         Self::reset_viewport_size(vgfx.clone(), &frame_input);
 
@@ -703,7 +709,7 @@ impl GameMain {
         mousex: f64,
         mousey: f64,
         frame_input: &td::FrameInput,
-        laser_state: LaserState,
+        input_state: InputState,
     ) {
         profile_function!();
         {
@@ -713,7 +719,7 @@ impl GameMain {
                     mouse_pos: (mousex, mousey),
                     resolution: (frame_input.viewport.width, frame_input.viewport.height),
                     profile_stack: std::mem::take(&mut game_data.profile_stack),
-                    laser_state,
+                    input_state,
                     audio_samples: std::mem::take(&mut game_data.audio_samples),
                     audio_sample_play_status: std::mem::take(
                         &mut game_data.audio_sample_play_status,

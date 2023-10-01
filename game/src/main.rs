@@ -463,7 +463,7 @@ fn main() -> anyhow::Result<()> {
         mouse_pos: (mousex, mousey),
         resolution: (800, 600),
         profile_stack: vec![],
-        laser_state: LaserState::default(),
+        input_state: input_state.clone(),
         audio_sample_play_status: Default::default(),
         audio_samples: Default::default(),
     }));

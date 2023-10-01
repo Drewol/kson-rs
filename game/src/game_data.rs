@@ -20,8 +20,8 @@ use tealr::{
 };
 
 use crate::{
-    button_codes::LaserState, config::GameConfig, help::add_lua_static_method,
-    skin_settings::SkinSettingValue, RuscMixer,
+    button_codes::UscButton, config::GameConfig, help::add_lua_static_method,
+    input_state::InputState, skin_settings::SkinSettingValue, RuscMixer,
 };
 
 #[derive(UserData)]
@@ -29,7 +29,7 @@ pub struct GameData {
     pub resolution: (u32, u32),
     pub mouse_pos: (f64, f64),
     pub profile_stack: Vec<ProfilerScope>,
-    pub laser_state: LaserState,
+    pub input_state: InputState,
     pub audio_samples: HashMap<String, rodio::source::Buffered<rodio::Decoder<std::fs::File>>>,
     pub audio_sample_play_status: HashMap<String, Arc<AtomicUsize>>,
 }
@@ -264,13 +264,18 @@ impl TealData for GameData {
 
         //GetButton
         tealr::mlu::create_named_parameters!(GetButtonParams with
-          button : i32,
+          button : u8,
 
         );
         add_lua_static_method(
             methods,
             "GetButton",
-            |_, _game_data, _p: GetButtonParams| Ok(false),
+            |_, game_data, GetButtonParams { button }: GetButtonParams| {
+                Ok(game_data
+                    .input_state
+                    .is_button_held(UscButton::from(button))
+                    .is_some())
+            },
         );
 
         //GetKnob
@@ -282,8 +287,8 @@ impl TealData for GameData {
             methods,
             "GetKnob",
             |_, game_data, p: GetKnobParams| match p.knob {
-                0 => Ok(game_data.laser_state.get_axis(kson::Side::Left).pos),
-                1 => Ok(game_data.laser_state.get_axis(kson::Side::Right).pos),
+                0 => Ok(game_data.input_state.get_axis(kson::Side::Left).pos),
+                1 => Ok(game_data.input_state.get_axis(kson::Side::Right).pos),
                 _ => Err(mlua::Error::RuntimeError(format!(
                     "Invalid laser index: {}",
                     p.knob
