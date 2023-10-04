@@ -29,7 +29,7 @@ once_cell = "1.10.0"
 eframe = { version = "0.22", features = ["persistence"] }
 egui_glow = "0.22.0"
 image = { version = "0.24", default_features = false, features = ["png"] }
-bytemuck = "1.9.1"
+bytemuck = "1.14.0"
 tracing = { version = "0.1.34", features = ["log-always"] }
 i18n-embed-fl = "0.6.4"
 i18n-embed = { version = "0.13.4", features = ["fluent-system"] }
