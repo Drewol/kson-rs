@@ -1,2 +1,13 @@
 [workspace]
-members = ["kson-audio", "kson-effect-param-macro", "kson", "kson-music-playback", "editor", "game", "game/rusc_database"]
+members = [
+    "kson-audio",
+    "kson-effect-param-macro",
+    "kson",
+    "kson-music-playback",
+    "editor",
+    "game",
+    "game/rusc_database",
+]
+
+[profile.dev.package."*"]
+opt-level = 3
