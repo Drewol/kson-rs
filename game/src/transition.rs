@@ -4,6 +4,8 @@ use std::{
     sync::{mpsc::Sender, Arc, Mutex},
 };
 
+use di::{RefMut, ServiceProvider};
+use egui::mutex::RwLock;
 use log::warn;
 use poll_promise::Promise;
 use rodio::Source;
@@ -39,10 +41,11 @@ pub struct Transition {
     pub state: TransitionState,
     transition_lua: Rc<Lua>,
     context: three_d::Context,
-    vgfx: Rc<Mutex<crate::Vgfx>>,
+    vgfx: RefMut<crate::Vgfx>,
     prev_screengrab: Option<Gm<Rectangle, ColorMaterial>>,
     input_state: InputState,
-    game_data: Rc<Mutex<GameData>>,
+    game_data: RefMut<GameData>,
+    service_provider: ServiceProvider,
 }
 
 fn load_songs(input_state: InputState) -> anyhow::Result<Box<dyn SceneData + Send>> {
@@ -77,10 +80,11 @@ impl Transition {
         target: ControlMessage,
         control_tx: Sender<ControlMessage>,
         context: three_d::Context,
-        vgfx: Rc<Mutex<crate::Vgfx>>,
+        vgfx: RefMut<crate::Vgfx>,
         viewport: three_d::Viewport,
         input_state: InputState,
-        game_data: Rc<Mutex<GameData>>,
+        game_data: RefMut<GameData>,
+        service_provider: ServiceProvider,
     ) -> Self {
         if let Ok(reset_fn) = transition_lua.globals().get::<_, Function>("reset") {
             if let Some(e) = reset_fn.call::<(), ()>(()).err() {
@@ -115,7 +119,7 @@ impl Transition {
             loader: _,
         } = &target
         {
-            let mut vgfx = vgfx.lock().unwrap();
+            let mut vgfx = vgfx.write().unwrap();
             let diff = &song.difficulties[*diff];
             let lua_idx = lua_address(&transition_lua);
             log_result!(transition_lua.globals().set(
@@ -145,6 +149,7 @@ impl Transition {
             prev_screengrab: prev_grab,
             input_state,
             game_data,
+            service_provider,
         }
     }
 }
@@ -192,7 +197,7 @@ impl Scene for Transition {
 
     fn render_ui(&mut self, dt: f64) -> anyhow::Result<()> {
         {
-            self.vgfx.lock().unwrap().canvas.lock().unwrap().reset();
+            self.vgfx.read().unwrap().canvas.lock().unwrap().reset();
         }
         //TODO: Render last frame before transition
         //TODO: Handle rendering of next scene during outro
@@ -214,7 +219,7 @@ impl Scene for Transition {
                         }
                         ControlMessage::Song { song, diff, loader } => {
                             let context = self.context.clone();
-                            let skin_folder = self.vgfx.lock().unwrap().skin_folder();
+                            let skin_folder = self.vgfx.read().unwrap().skin_folder();
                             Some(Promise::spawn_thread("Load song", move || {
                                 let (chart, audio) = loader();
                                 load_chart(context, chart, song, diff, skin_folder, audio)
@@ -249,11 +254,9 @@ impl Scene for Transition {
                     match target_state.try_take() {
                         Ok(Ok(finished)) => self
                             .control_tx
-                            .send(ControlMessage::TransitionComplete(finished.make_scene(
-                                self.input_state.clone(),
-                                self.vgfx.clone(),
-                                self.game_data.clone(),
-                            )?))
+                            .send(ControlMessage::TransitionComplete(
+                                finished.make_scene(self.service_provider.create_scope())?,
+                            ))
                             .unwrap(),
                         Ok(Err(loading_error)) => {
                             log::error!("{}", loading_error);

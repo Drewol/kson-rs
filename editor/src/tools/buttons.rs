@@ -198,7 +198,6 @@ impl CursorObject for ButtonInterval {
                     + state.screen.lane_width()
                     + state.screen.track_width / 2.0
             };
-            let y = y;
 
             let w = if self.fx {
                 state.screen.track_width / 3.0 - 1.0

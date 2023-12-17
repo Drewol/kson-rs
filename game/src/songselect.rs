@@ -1,4 +1,5 @@
 use anyhow::{ensure, Result};
+use di::ServiceProvider;
 use game_loop::winit::event::Event;
 use generational_arena::Index;
 use log::warn;
@@ -29,6 +30,7 @@ use crate::{
     config::GameConfig,
     game_data::GameData,
     input_state::{self, InputState},
+    lua_service::LuaProvider,
     results::Score,
     scene::{Scene, SceneData},
     settings_dialog::SettingsDialog,
@@ -184,11 +186,9 @@ impl SongSelect {
 impl SceneData for SongSelect {
     fn make_scene(
         self: Box<Self>,
-        input_state: InputState,
-        _: Rc<Mutex<Vgfx>>,
-        _: Rc<Mutex<GameData>>,
+        service_provider: ServiceProvider,
     ) -> anyhow::Result<Box<dyn Scene>> {
-        Ok(Box::new(SongSelectScene::new(self, input_state)))
+        Ok(Box::new(SongSelectScene::new(self, service_provider)))
     }
 }
 pub const KNOB_NAV_THRESHOLD: f32 = std::f32::consts::PI / 3.0;
@@ -202,16 +202,18 @@ pub struct SongSelectScene {
     diff_advance: f32,
     suspended: Arc<AtomicBool>,
     closed: bool,
-    mixer: Option<RuscMixer>,
+    mixer: RuscMixer,
     _sample_owner: Receiver<()>,
     sample_marker: Sender<()>,
     settings_dialog: SettingsDialog,
     input_state: InputState,
+    services: ServiceProvider,
 }
 
 impl SongSelectScene {
-    pub fn new(song_select: Box<SongSelect>, input_state: input_state::InputState) -> Self {
+    pub fn new(song_select: Box<SongSelect>, services: ServiceProvider) -> Self {
         let (sample_marker, sample_owner) = channel();
+        let input_state = InputState::clone(&services.get_required());
         Self {
             background_lua: Rc::new(Lua::new()),
             lua: Rc::new(Lua::new()),
@@ -221,11 +223,12 @@ impl SongSelectScene {
             song_advance: 0.0,
             suspended: Arc::new(AtomicBool::new(false)),
             closed: false,
-            mixer: None,
+            mixer: services.get_required(),
             sample_marker,
             _sample_owner: sample_owner,
             input_state: input_state.clone(),
             settings_dialog: SettingsDialog::general_settings(input_state),
+            services,
         }
     }
 }
@@ -306,24 +309,22 @@ impl Scene for SongSelectScene {
         Ok(())
     }
 
-    fn init(
-        &mut self,
-        load_lua: Rc<dyn Fn(Rc<Lua>, &'static str) -> anyhow::Result<Index>>,
-        app_control_tx: Sender<ControlMessage>,
-        mixer: Arc<DynamicMixerController<f32>>,
-    ) -> anyhow::Result<()> {
+    fn init(&mut self, app_control_tx: Sender<ControlMessage>) -> anyhow::Result<()> {
         self.lua
             .globals()
             .set("songwheel", self.lua.to_value(&self.state)?)?;
 
-        self.settings_dialog.init_lua(load_lua.clone())?;
+        let lua_provider = self.services.get_required::<LuaProvider>();
+
+        self.settings_dialog.init_lua(&lua_provider)?;
         self.program_control = Some(app_control_tx);
-        load_lua(self.lua.clone(), "songselect/songwheel.lua")?;
-        load_lua(self.background_lua.clone(), "songselect/background.lua")?;
+        lua_provider.register_libraries(self.lua.clone(), "songselect/songwheel.lua")?;
+        lua_provider
+            .register_libraries(self.background_lua.clone(), "songselect/background.lua")?;
         let mut bgm_amp = Arc::new(1_f32);
         let preview_playing = self.state.preview_finished.clone();
         let suspended = self.suspended.clone();
-        mixer.add(owned_source(
+        self.mixer.add(owned_source(
             rodio::source::Zero::new(2, 44100) //TODO: Load something from skin audio
                 .amplify(0.2)
                 .pausable(false)
@@ -345,7 +346,6 @@ impl Scene for SongSelectScene {
             self.sample_marker.clone(),
         ));
 
-        self.mixer = Some(mixer);
         Ok(())
     }
 
@@ -432,7 +432,7 @@ impl Scene for SongSelectScene {
                                         state.set_factor(amp.clamp(0.0, 1.0));
                                     });
 
-                                    mixer.as_ref().unwrap().add(owned_source(source, owner));
+                                    mixer.as_ref().add(owned_source(source, owner));
                                 });
                         }
                         Err(e) => warn!("Could not load preview: {e:?}"),

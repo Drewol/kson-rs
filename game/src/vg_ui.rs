@@ -1,7 +1,13 @@
-use std::{collections::HashMap, path::PathBuf, rc::Rc, sync::Mutex};
+use std::{
+    collections::HashMap,
+    path::PathBuf,
+    rc::Rc,
+    sync::{Arc, Mutex, RwLock},
+};
 
 const COMPAT_TEXT_SCALE: f32 = 21.5 / 30.0; // Needed because old usc has two different text rendering methods for text, and fasttext/labels
 
+use di::{Activator, InjectBuilder, Injectable};
 use femtovg::{renderer::OpenGl, Canvas, Color, FontId, ImageFlags, ImageId, Paint, Path};
 
 use log::warn;
@@ -16,8 +22,8 @@ use tealr::mlu::mlua;
 use three_d::FrameInput;
 
 use crate::{
-    animation::VgAnimation, config::GameConfig, help::add_lua_static_method, log_result,
-    shaded_mesh::ShadedMesh, util::lua_address,
+    animation::VgAnimation, config::GameConfig, default_game_dir, help::add_lua_static_method,
+    log_result, shaded_mesh::ShadedMesh, util::lua_address,
 };
 
 const FALLBACK_ID: u32 = u32::MAX;
@@ -49,11 +55,11 @@ struct ScopedAssets {
     labels: HashMap<u32, Label>,
     paint_imgs: HashMap<u32, ImageId>,
     job_imgs: HashMap<String, u32>,
-    canvas: Rc<Mutex<Canvas<OpenGl>>>,
+    canvas: Arc<Mutex<Canvas<OpenGl>>>,
 }
 
 impl ScopedAssets {
-    fn new(canvas: Rc<Mutex<Canvas<OpenGl>>>) -> Self {
+    fn new(canvas: Arc<Mutex<Canvas<OpenGl>>>) -> Self {
         Self {
             images: Default::default(),
             paints: Default::default(),
@@ -88,7 +94,7 @@ struct VgfxPoint {
 
 #[derive(UserData)]
 pub struct Vgfx {
-    pub canvas: Rc<Mutex<Canvas<OpenGl>>>,
+    pub canvas: Arc<Mutex<Canvas<OpenGl>>>,
     skin: String,
     restore_stack: Vec<VgfxPoint>,
     path: Option<Path>,
@@ -105,6 +111,18 @@ pub struct Vgfx {
     scoped_assets: HashMap<usize, ScopedAssets>,
     fonts: HashMap<String, FontId>,
     image_jobs: HashMap<String, Promise<image::DynamicImage>>,
+}
+
+impl Injectable for Vgfx {
+    fn inject(lifetime: di::ServiceLifetime) -> di::InjectBuilder {
+        InjectBuilder::new(
+            Activator::new::<Self, Self>(
+                |sp| Arc::new(Self::new(sp.get_required(), default_game_dir())),
+                |sp| Arc::new(Self::new(sp.get_required(), default_game_dir()).into()),
+            ),
+            lifetime,
+        )
+    }
 }
 
 impl TypeName for Vgfx {
@@ -128,7 +146,7 @@ struct Label {
 }
 
 impl Vgfx {
-    pub fn new(canvas: Rc<Mutex<Canvas<OpenGl>>>, game_folder: std::path::PathBuf) -> Self {
+    pub fn new(canvas: Arc<Mutex<Canvas<OpenGl>>>, game_folder: std::path::PathBuf) -> Self {
         let default_fonts = {
             let mut canvas = canvas.lock().unwrap();
 
@@ -2018,9 +2036,9 @@ impl TealData for Vgfx {
         );
 
         methods.add_function_mut("CreateShadedMesh", |lua, p: CreateShadedMeshParams| {
-            let context = &lua.app_data_ref::<FrameInput>().unwrap().context;
-            let vgfx = &lua.app_data_ref::<Rc<Mutex<Vgfx>>>().unwrap();
-            let vgfx = vgfx.lock().unwrap();
+            let context = &lua.app_data_ref::<Arc<three_d::Context>>().unwrap();
+            let vgfx = &lua.app_data_ref::<Arc<RwLock<Vgfx>>>().unwrap();
+            let vgfx = vgfx.write().unwrap();
 
             let mut shader_path = vgfx.game_folder.clone();
             shader_path.push("skins");

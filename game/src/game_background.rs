@@ -11,6 +11,7 @@ use crate::{
     vg_ui::{ExportVgfx, Vgfx},
 };
 
+use di::RefMut;
 use kson::MeasureBeatLines;
 use log::warn;
 use puffin::profile_function;
@@ -61,7 +62,7 @@ pub struct GameBackground {
     lua: Lua,
     beat_bounds: (f64, f64),
     beat_iter: MeasureBeatLines,
-    vgfx: Rc<Mutex<Vgfx>>,
+    vgfx: RefMut<Vgfx>,
     background: bool,
 }
 
@@ -199,7 +200,7 @@ impl TealData for GameBackgroundLua {
 
 impl Drop for GameBackground {
     fn drop(&mut self) {
-        if let Ok(mut vgfx) = self.vgfx.lock() {
+        if let Ok(mut vgfx) = self.vgfx.write() {
             vgfx.drop_assets(lua_address(&self.lua));
         }
     }
@@ -211,8 +212,8 @@ impl GameBackground {
         background: bool,
         path: impl AsRef<Path>,
         chart: &kson::Chart,
-        vgfx: Rc<Mutex<Vgfx>>,
-        game_data: Rc<Mutex<GameData>>,
+        vgfx: RefMut<Vgfx>,
+        game_data: RefMut<GameData>,
     ) -> anyhow::Result<Self> {
         use mlua::StdLib;
         let mut path = path.as_ref().to_path_buf();
@@ -233,7 +234,7 @@ impl GameBackground {
         lua.globals().set(full_name, GameBackgroundLua)?;
 
         {
-            vgfx.lock().unwrap().init_asset_scope(lua_address(&lua))
+            vgfx.write().unwrap().init_asset_scope(lua_address(&lua))
         }
 
         tealr::mlu::set_global_env(ExportVgfx, &lua)?;

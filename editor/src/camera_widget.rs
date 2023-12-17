@@ -116,7 +116,6 @@ impl CameraView {
                         let (x, y) = screen.tick_to_pos(n.y);
 
                         let x = x + i as f32 * lane_width + lane_width + screen.track_width / 2.0;
-                        let y = y;
                         let w = screen.track_width / 6.0;
                         let h = Self::TRACK_LENGH / 100.0;
 

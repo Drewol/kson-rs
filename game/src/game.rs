@@ -4,6 +4,7 @@ use crate::{
     game_camera::{CameraShake, ChartCamera},
     input_state::InputState,
     log_result,
+    lua_service::LuaProvider,
     scene::{Scene, SceneData},
     shaded_mesh::ShadedMesh,
     songselect::Song,
@@ -14,6 +15,7 @@ use crate::{
     vg_ui::Vgfx,
     ControlMessage,
 };
+use di::{RefMut, ServiceProvider};
 use egui::epaint::ahash::HashSet;
 use image::GenericImageView;
 use itertools::Itertools;
@@ -76,6 +78,7 @@ pub struct Game {
     slam_sample: Option<Buffered<Decoder<std::fs::File>>>,
     background: Option<GameBackground>,
     foreground: Option<GameBackground>,
+    service_provider: ServiceProvider,
 }
 
 #[derive(Debug, Default)]
@@ -327,9 +330,7 @@ impl GameData {
 impl SceneData for GameData {
     fn make_scene(
         self: Box<Self>,
-        input_state: InputState,
-        vgfx: Rc<Mutex<Vgfx>>,
-        game_data: Rc<Mutex<crate::game_data::GameData>>,
+        service_provider: ServiceProvider,
     ) -> anyhow::Result<Box<dyn Scene>> {
         let Self {
             context,
@@ -496,8 +497,8 @@ impl SceneData for GameData {
             true,
             &bg_folder,
             &chart,
-            vgfx.clone(),
-            game_data.clone(),
+            service_provider.get_required(),
+            service_provider.get_required(),
         )
         .or_else(|e| {
             log::warn!("Failed to load background: {e} \n {:?}", &bg_folder);
@@ -506,8 +507,8 @@ impl SceneData for GameData {
                 true,
                 bg_folder.with_file_name("fallback"),
                 &chart,
-                vgfx.clone(),
-                game_data.clone(),
+                service_provider.get_required(),
+                service_provider.get_required(),
             )
         }) {
             Ok(bg) => {
@@ -523,8 +524,15 @@ impl SceneData for GameData {
             }
         };
 
-        let foreground =
-            GameBackground::new(&context, false, bg_folder, &chart, vgfx, game_data).ok();
+        let foreground = GameBackground::new(
+            &context,
+            false,
+            bg_folder,
+            &chart,
+            service_provider.get_required(),
+            service_provider.get_required(),
+        )
+        .ok();
 
         Ok(Box::new(
             Game::new(
@@ -544,11 +552,12 @@ impl SceneData for GameData {
                 song,
                 diff_idx,
                 playback,
-                input_state,
+                InputState::clone(&service_provider.get_required()),
                 beam_colors,
                 biquad_control,
                 background,
                 foreground,
+                service_provider,
             )
             .unwrap(),
         ))
@@ -587,6 +596,7 @@ impl Game {
         biquad_control: BiquadController,
         background: Option<GameBackground>,
         foreground: Option<GameBackground>,
+        service_provider: ServiceProvider,
     ) -> Result<Self> {
         let mut view = ChartView::new(skin_root, td);
         view.build_laser_meshes(&chart);
@@ -652,7 +662,7 @@ impl Game {
             current_roll: 0.0,
             target_roll: None,
             hit_ratings: Vec::new(),
-            mixer: rodio::dynamic_mixer::mixer(2, 100).0,
+            mixer: service_provider.get_required(),
             biquad_control,
             background,
             foreground,
@@ -661,6 +671,7 @@ impl Game {
                 .ok()
                 .and_then(|x| Decoder::new(x).ok())
                 .map(|x| x.buffered()),
+            service_provider,
         };
         res.set_track_uniforms();
         Ok(res)
@@ -777,8 +788,8 @@ impl Game {
     }
 
     fn reset_canvas(&mut self) {
-        let vgfx = self.lua.app_data_mut::<Rc<Mutex<Vgfx>>>().unwrap();
-        let vgfx = vgfx.lock().unwrap();
+        let vgfx = self.lua.app_data_mut::<RefMut<Vgfx>>().unwrap();
+        let vgfx = vgfx.write().unwrap();
         let canvas = &mut vgfx.canvas.lock().unwrap();
         canvas.flush();
         canvas.reset();
@@ -1158,16 +1169,10 @@ impl Scene for Game {
         self.closed = true;
     }
 
-    fn init(
-        &mut self,
-        load_lua: Rc<dyn Fn(Rc<Lua>, &'static str) -> Result<generational_arena::Index>>,
-        app_control_tx: std::sync::mpsc::Sender<crate::ControlMessage>,
-        mixer: Arc<DynamicMixerController<f32>>,
-    ) -> Result<()> {
+    fn init(&mut self, app_control_tx: Sender<ControlMessage>) -> Result<()> {
         profile_function!();
-
+        let lua_provider: Arc<LuaProvider> = self.service_provider.get_required();
         ensure!(self.score_summary.total != 0, "Empty chart");
-        self.mixer = mixer;
         let long_count = self.score_summary.hold_count + self.score_summary.laser_count;
         let chip_count = self.score_summary.chip_count + self.score_summary.slam_count;
         let ftotal = 2.10 + f32::EPSILON;
@@ -1187,7 +1192,7 @@ impl Scene for Game {
         };
 
         self.control_tx = Some(app_control_tx);
-        load_lua(self.lua.clone(), "gameplay.lua")?;
+        lua_provider.register_libraries(self.lua.clone(), "gameplay.lua")?;
         Ok(())
     }
 

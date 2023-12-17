@@ -5,6 +5,7 @@ use std::{
 };
 
 use anyhow::Result;
+use di::ServiceProvider;
 use game_loop::winit::event::Event;
 use generational_arena::Index;
 use rodio::dynamic_mixer::DynamicMixerController;
@@ -21,12 +22,7 @@ use crate::{
 
 #[allow(unused_variables)]
 pub trait Scene {
-    fn init(
-        &mut self,
-        load_lua: Rc<dyn Fn(Rc<Lua>, &'static str) -> Result<Index>>,
-        app_control_tx: Sender<ControlMessage>,
-        mixer: Arc<DynamicMixerController<f32>>,
-    ) -> Result<()> {
+    fn init(&mut self, app_control_tx: Sender<ControlMessage>) -> Result<()> {
         Ok(())
     }
     fn tick(&mut self, dt: f64, knob_state: LaserState) -> Result<()> {
@@ -61,19 +57,12 @@ pub trait Scene {
 pub trait SceneData: Send {
     fn make_scene(
         self: Box<Self>,
-        input_state: InputState,
-        vgfx: Rc<Mutex<Vgfx>>,
-        game_data: Rc<Mutex<GameData>>,
+        service_provider: ServiceProvider,
     ) -> anyhow::Result<Box<dyn Scene>>;
 }
 
 impl SceneData for dyn Scene + Send {
-    fn make_scene(
-        self: Box<Self>,
-        _: InputState,
-        _: Rc<Mutex<Vgfx>>,
-        _: Rc<Mutex<GameData>>,
-    ) -> anyhow::Result<Box<dyn Scene>> {
+    fn make_scene(self: Box<Self>, _: ServiceProvider) -> anyhow::Result<Box<dyn Scene>> {
         Ok(self)
     }
 }

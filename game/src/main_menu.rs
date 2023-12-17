@@ -9,6 +9,7 @@ use std::{
 };
 
 use anyhow::{anyhow, Result};
+use di::ServiceProvider;
 use game_loop::winit::event::{ElementState, Event, WindowEvent};
 use generational_arena::Index;
 use rodio::dynamic_mixer::DynamicMixerController;
@@ -22,6 +23,7 @@ use tealr::{
 
 use crate::{
     button_codes::{LaserState, UscInputEvent},
+    lua_service::LuaProvider,
     scene::Scene,
     ControlMessage,
 };
@@ -103,10 +105,11 @@ pub struct MainMenu {
     control_tx: Option<Sender<ControlMessage>>,
     should_suspended: bool,
     suspended: bool,
+    service_provider: ServiceProvider,
 }
 
 impl MainMenu {
-    pub fn new() -> Self {
+    pub fn new(service_provider: ServiceProvider) -> Self {
         let lua = Rc::new(Lua::new());
         let (tx, button_rx) = std::sync::mpsc::channel();
         lua.set_app_data(tx);
@@ -117,6 +120,7 @@ impl MainMenu {
             control_tx: None,
             suspended: false,
             should_suspended: false,
+            service_provider,
         }
     }
 }
@@ -128,13 +132,10 @@ impl Scene for MainMenu {
         Ok(())
     }
 
-    fn init(
-        &mut self,
-        load_lua: Rc<dyn Fn(Rc<Lua>, &'static str) -> anyhow::Result<Index>>,
-        app_control_tx: Sender<ControlMessage>,
-        _mixer: Arc<DynamicMixerController<f32>>,
-    ) -> anyhow::Result<()> {
-        load_lua(self.lua.clone(), "titlescreen.lua")?;
+    fn init(&mut self, app_control_tx: Sender<ControlMessage>) -> anyhow::Result<()> {
+        self.service_provider
+            .get_required::<LuaProvider>()
+            .register_libraries(self.lua.clone(), "titlescreen.lua")?;
         self.control_tx = Some(app_control_tx);
         Ok(())
     }

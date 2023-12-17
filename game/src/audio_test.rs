@@ -7,6 +7,7 @@ use std::{
     time::Duration,
 };
 
+use di::ServiceProvider;
 use egui_inspect::*;
 
 use rodio::{
@@ -24,7 +25,7 @@ use crate::{
         owned_source::owned_source,
         takeable_source::TakeableSource,
     },
-    RuscMixer,
+    InnerRuscMixer, RuscMixer,
 };
 
 pub struct AudioTest {
@@ -37,7 +38,7 @@ pub struct AudioTest {
 }
 
 impl AudioTest {
-    pub fn new(mixer: RuscMixer) -> Self {
+    pub fn new(services: ServiceProvider) -> Self {
         let (inner_mixer, mixer_source) = dynamic_mixer::mixer(2, 44100);
         inner_mixer.add(rodio::source::Zero::new(2, 44100));
         let [a, b, c] = [channel(), channel(), channel()];
@@ -47,7 +48,10 @@ impl AudioTest {
         let mixer_source = biquad(mixer_source, Default::default(), Some(c.1));
         let (master_source, master_owner) = channel();
         let (_, source_owner) = channel();
-        mixer.add(owned_source(mixer_source, master_source));
+
+        services
+            .get_required::<InnerRuscMixer>()
+            .add(owned_source(mixer_source, master_source));
         let mixer = inner_mixer;
 
         let source = if let Ok(a) = std::fs::File::open("sound_test.wav") {

@@ -1,6 +1,12 @@
-use std::{collections::HashMap, path::Path, rc::Rc, sync::Mutex};
+use std::{
+    collections::HashMap,
+    path::Path,
+    rc::Rc,
+    sync::{Arc, Mutex, RwLock},
+};
 
 use anyhow::ensure;
+use di::RefMut;
 use itertools::Itertools;
 use puffin::profile_function;
 use tealr::{
@@ -17,7 +23,7 @@ use three_d::{
 };
 use three_d_asset::{Srgba, Vector2, Vector3, Vector4};
 
-use crate::{config::GameConfig, vg_ui::Vgfx};
+use crate::{config::GameConfig, game_data, vg_ui::Vgfx};
 
 pub enum ShaderParam {
     Int(i32),
@@ -465,11 +471,11 @@ void main() {
 
     pub fn draw_lua_skin(
         &mut self,
-        frame: &FrameInput,
-        vgfx: &Mutex<Vgfx>,
+        resolution: (u32, u32),
+        vgfx: &RwLock<Vgfx>,
     ) -> Result<(), tealr::mlu::mlua::Error> {
         let [c0r0, c0r1, c1r0, c1r1, c2r0, c2r1] = {
-            let vgfx = vgfx.lock().unwrap();
+            let vgfx = vgfx.write().unwrap();
             let canvas = vgfx.canvas.lock().unwrap();
             let transform = canvas.transform();
             //transform.scale(1.0, -1.0);
@@ -481,8 +487,8 @@ void main() {
             "proj",
             create_orthographic(
                 0.0,
-                frame.viewport.width as f32,
-                frame.viewport.height as f32,
+                resolution.0 as f32,
+                resolution.1 as f32,
                 0.0,
                 0.0,
                 100.0,
@@ -501,8 +507,16 @@ void main() {
             self.material
                 .use_vertex_attribute("inTex", &self.vertecies_uv); //UVs
         }
-        self.material
-            .draw_elements(self.state, frame.viewport, &self.indecies);
+        self.material.draw_elements(
+            self.state,
+            three_d_asset::Viewport {
+                x: 0,
+                y: 0,
+                width: resolution.0,
+                height: resolution.1,
+            },
+            &self.indecies,
+        );
         Ok(())
     }
 }
@@ -627,8 +641,13 @@ fn create_orthographic(
 impl TealData for ShadedMesh {
     fn add_methods<'lua, T: tealr::mlu::TealDataMethods<'lua, Self>>(methods: &mut T) {
         methods.add_method_mut("Draw", |lua, this, _: ()| {
-            let frame = &lua.app_data_ref::<FrameInput>().unwrap();
-            let vgfx = &lua.app_data_ref::<Rc<Mutex<Vgfx>>>().unwrap();
+            let frame = lua
+                .app_data_ref::<RefMut<game_data::GameData>>()
+                .unwrap()
+                .read()
+                .unwrap()
+                .resolution;
+            let vgfx = &lua.app_data_ref::<RefMut<Vgfx>>().unwrap();
             this.draw_lua_skin(frame, vgfx)
         });
         methods.add_method_mut("AddTexture", |_lua, this, params: (String, String)| {
@@ -687,7 +706,7 @@ impl TealData for ShadedMesh {
                 .map(|vert| (vec2(vert.0 .0, vert.0 .1), vec2(vert.1 .0, vert.1 .1)))
                 .unzip();
 
-            let context = &lua.app_data_ref::<FrameInput>().unwrap().context;
+            let context = &lua.app_data_ref::<Arc<three_d::Context>>().unwrap();
             this.vertecies_pos = VertexBuffer::new_with_data(context, &pos);
             this.vertecies_uv = VertexBuffer::new_with_data(context, &uv);
 

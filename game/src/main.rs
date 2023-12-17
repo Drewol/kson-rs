@@ -9,7 +9,6 @@ use crate::{
     button_codes::{LaserState, RuscFilter},
     config::Args,
     config::GameConfig,
-    game::GameData,
     game_main::GameMain,
     input_state::InputState,
     scene::SceneData,
@@ -30,14 +29,19 @@ use gilrs::ev::filter::Jitter;
 use kson::Ksh;
 use log::*;
 
+use lua_service::LuaProvider;
 use puffin::profile_function;
-use rodio::{dynamic_mixer::DynamicMixerController, Source};
+use rodio::{
+    dynamic_mixer::{DynamicMixer, DynamicMixerController},
+    Source,
+};
 use scene::Scene;
 
 use td::{FrameInput, Viewport};
 use tealr::mlu::mlua::Lua;
 use three_d as td;
 
+use di::*;
 use glutin::prelude::*;
 
 mod animation;
@@ -53,6 +57,7 @@ mod game_main;
 mod help;
 mod input_state;
 mod lua_http;
+mod lua_service;
 mod main_menu;
 mod results;
 mod scene;
@@ -80,7 +85,8 @@ macro_rules! block_on {
     };
 }
 
-pub type RuscMixer = Arc<DynamicMixerController<f32>>;
+pub type InnerRuscMixer = DynamicMixerController<f32>;
+pub type RuscMixer = Arc<InnerRuscMixer>;
 
 //TODO: Move to platform files
 #[cfg(target_os = "windows")]
@@ -191,7 +197,6 @@ impl Scenes {
         &mut self,
         dt: f64,
         knob_state: crate::button_codes::LaserState,
-        load_lua: Rc<dyn Fn(Rc<Lua>, &'static str) -> anyhow::Result<Index>>,
         app_control_tx: std::sync::mpsc::Sender<ControlMessage>,
     ) {
         let new_transition = self.transition.is_some();
@@ -227,7 +232,7 @@ impl Scenes {
         self.active.append(&mut self.initialized);
 
         self.loaded.retain_mut(|x| {
-            let result = x.init(load_lua.clone(), app_control_tx.clone(), self.mixer.clone());
+            let result = x.init(app_control_tx.clone());
             if let Err(e) = &result {
                 log::error!("{}", e);
             }
@@ -262,7 +267,7 @@ impl Scenes {
             && self.transition.is_none()
     }
 
-    pub fn render(&mut self, frame: FrameInput, _vgfx: &Rc<Mutex<Vgfx>>) {
+    pub fn render(&mut self, frame: FrameInput, _vgfx: &Arc<RwLock<Vgfx>>) {
         profile_function!();
         let dt = frame.elapsed_time;
         let td_context = &frame.context;
@@ -323,6 +328,9 @@ impl Scenes {
 }
 pub const FRAME_ACC_SIZE: usize = 16;
 
+#[injectable]
+struct LuaArena(Arena<Rc<Lua>>);
+
 fn main() -> anyhow::Result<()> {
     simple_logger::init_with_level(Level::Info)?;
 
@@ -363,7 +371,6 @@ fn main() -> anyhow::Result<()> {
     }
 
     let gl_context = Arc::new(gl_context);
-    let canvas = Rc::new(Mutex::new(canvas));
 
     let mut input = gilrs::GilrsBuilder::default()
         .add_included_mappings(false)
@@ -375,22 +382,30 @@ fn main() -> anyhow::Result<()> {
     while input.next_event().is_some() {} //empty events
 
     let context = td::Context::from_gl_context(gl_context.clone())?;
-    let vgfx = Rc::new(Mutex::new(vg_ui::Vgfx::new(
-        canvas.clone(),
-        default_game_dir(),
-    )));
-
     input
         .gamepads()
         .for_each(|(_, g)| info!("{} uuid: {}", g.name(), uuid::Uuid::from_bytes(g.uuid())));
-
     let input = Arc::new(Mutex::new(input));
     let gilrs_state = input.clone();
-    let input_state = InputState::new(gilrs_state);
+    let service_context = context.clone();
+
+    let services = ServiceCollection::new()
+        .add(existing_as_self(Mutex::new(canvas)))
+        .add(existing_as_self(service_context.clone()))
+        .add(singleton_factory(move |_| mixer_controls.clone()))
+        .add(Vgfx::singleton().as_mut())
+        .add(LuaArena::singleton().as_mut())
+        .add(singleton_factory(move |_| {
+            Arc::new(InputState::new(gilrs_state.clone()))
+        }))
+        .add(game_data::GameData::singleton().as_mut())
+        .add(LuaProvider::scoped())
+        .build_provider()?;
 
     let mousex = 0.0;
     let mousey = 0.0;
-
+    let lua_provider: Arc<LuaProvider> = services.get_required();
+    let vgfx = services.get_required_mut::<Vgfx>();
     let event_proxy = eventloop.create_proxy();
     let (mut rusc_filter, offset_tx) = RuscFilter::new(GameConfig::get().global_offset as _);
 
@@ -459,18 +474,9 @@ fn main() -> anyhow::Result<()> {
 
     let fps_paint = vg::Paint::color(vg::Color::white()).with_text_align(vg::Align::Right);
 
-    let game_data = Rc::new(Mutex::new(game_data::GameData {
-        mouse_pos: (mousex, mousey),
-        resolution: (800, 600),
-        profile_stack: vec![],
-        input_state: input_state.clone(),
-        audio_sample_play_status: Default::default(),
-        audio_samples: Default::default(),
-    }));
-
-    let mut scenes = Scenes::new(mixer_controls.clone());
+    let mut scenes = Scenes::new(services.get_required::<DynamicMixerController<f32>>());
     if GameConfig::get().args.chart.as_ref().is_none() {
-        let mut title = Box::new(main_menu::MainMenu::new());
+        let mut title = Box::new(main_menu::MainMenu::new(services.create_scope()));
         title.suspend();
         scenes.loaded.push(title);
     }
@@ -501,10 +507,10 @@ fn main() -> anyhow::Result<()> {
             chart_path.with_file_name(chart.audio.bgm.as_ref().unwrap().filename.clone().unwrap()),
         )?)?;
 
-        let skin_folder = { vgfx.lock().unwrap().skin_folder() };
+        let skin_folder = { vgfx.read().unwrap().skin_folder() };
 
         scenes.loaded.push(
-            Box::new(GameData::new(
+            Box::new(game::GameData::new(
                 context.clone(),
                 Arc::new(song),
                 0,
@@ -512,49 +518,17 @@ fn main() -> anyhow::Result<()> {
                 skin_folder,
                 Box::new(audio.convert_samples()),
             )?)
-            .make_scene(input_state.clone(), vgfx.clone(), game_data.clone())?,
+            .make_scene(services.create_scope())?,
         );
     }
 
     if GameConfig::get().args.sound_test {
-        scenes
-            .loaded
-            .push(Box::new(audio_test::AudioTest::new(mixer_controls.clone())));
+        scenes.loaded.push(Box::new(audio_test::AudioTest::new(
+            services.create_scope(),
+        )));
     }
 
-    let lua_arena: Rc<RwLock<Arena<Rc<Lua>>>> = Rc::new(RwLock::new(Arena::new()));
-
-    let transition_lua_idx = Index::from_raw_parts(0, 0);
-    let transition_song_lua_idx = Index::from_raw_parts(0, 0);
-
-    let _jitter_filter = Jitter { threshold: 0.005 };
-    let knob_state = LaserState::default();
-
-    let (control_tx, control_rx) = std::sync::mpsc::channel();
-    let _second_frame = false;
-
-    let game = GameMain::new(
-        lua_arena,
-        scenes,
-        control_tx,
-        control_rx,
-        knob_state,
-        frame_times,
-        frame_time_index,
-        fps_paint,
-        transition_lua_idx,
-        transition_song_lua_idx,
-        game_data,
-        vgfx,
-        canvas,
-        0,
-        gui,
-        show_debug_ui,
-        mousex,
-        mousey,
-        input_state,
-        mixer_controls,
-    );
+    let game = GameMain::new(scenes, fps_paint, gui, show_debug_ui, services);
 
     let mut last_offset = { GameConfig::get().global_offset };
 

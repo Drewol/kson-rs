@@ -5,6 +5,7 @@ use std::{
     time::SystemTime,
 };
 
+use di::ServiceProvider;
 use kson::score_ticks::ScoreTick;
 use rodio::dynamic_mixer::DynamicMixerController;
 use serde::Serialize;
@@ -14,6 +15,7 @@ use crate::{
     game::{HitRating, HitWindow},
     game_data::GameData,
     input_state::InputState,
+    lua_service::LuaProvider,
     scene::{Scene, SceneData},
     songselect::{Difficulty, Song},
     vg_ui::Vgfx,
@@ -235,13 +237,9 @@ impl SongResultData {
 }
 
 impl SceneData for SongResultData {
-    fn make_scene(
-        self: Box<Self>,
-        _input_state: InputState,
-        _: Rc<Mutex<Vgfx>>,
-        _: Rc<Mutex<GameData>>,
-    ) -> anyhow::Result<Box<dyn Scene>> {
+    fn make_scene(self: Box<Self>, services: ServiceProvider) -> anyhow::Result<Box<dyn Scene>> {
         Ok(Box::new(SongResult {
+            services,
             close: false,
             control_tx: None,
             data: *self,
@@ -335,20 +333,16 @@ impl TealData for Score {}
 pub struct SongResult {
     data: SongResultData,
     lua: Rc<Lua>,
+    services: ServiceProvider,
     control_tx: Option<Sender<ControlMessage>>,
     close: bool,
 }
 
 impl Scene for SongResult {
-    fn init(
-        &mut self,
-        load_lua: std::rc::Rc<
-            dyn Fn(std::rc::Rc<Lua>, &'static str) -> anyhow::Result<generational_arena::Index>,
-        >,
-        app_control_tx: Sender<ControlMessage>,
-        _mixer: Arc<DynamicMixerController<f32>>,
-    ) -> anyhow::Result<()> {
-        load_lua(self.lua.clone(), "result.lua")?;
+    fn init(&mut self, app_control_tx: Sender<ControlMessage>) -> anyhow::Result<()> {
+        self.services
+            .get_required::<LuaProvider>()
+            .register_libraries(self.lua.clone(), "result.lua")?;
 
         self.lua
             .globals()
