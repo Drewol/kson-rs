@@ -392,6 +392,28 @@ fn main() -> anyhow::Result<()> {
     let services = ServiceCollection::new()
         .add(existing_as_self(Mutex::new(canvas)))
         .add(existing_as_self(service_context.clone()))
+        .add(singleton_factory(|_| {
+            RefMut::new(block_on!(song_provider::FileSongProvider::new()).into())
+        }))
+        .add(singleton_factory(|_| {
+            RefMut::new(song_provider::NauticaSongProvider::new().into())
+        }))
+        .add(transient_factory::<
+            RwLock<dyn song_provider::SongProvider>,
+            _,
+        >(|sp| {
+            if GameConfig::get().songs_path.eq(&PathBuf::from("nautica")) {
+                sp.get_required_mut::<song_provider::NauticaSongProvider>()
+            } else {
+                sp.get_required_mut::<song_provider::FileSongProvider>()
+            }
+        }))
+        .add(transient_factory::<
+            RwLock<dyn song_provider::ScoreProvider>,
+            _,
+        >(|sp| {
+            sp.get_required_mut::<song_provider::FileSongProvider>()
+        }))
         .add(singleton_factory(move |_| mixer_controls.clone()))
         .add(Vgfx::singleton().as_mut())
         .add(LuaArena::singleton().as_mut())

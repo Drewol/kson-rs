@@ -48,8 +48,8 @@ pub struct Transition {
     service_provider: ServiceProvider,
 }
 
-fn load_songs(input_state: InputState) -> anyhow::Result<Box<dyn SceneData + Send>> {
-    Ok(Box::new(SongSelect::new(input_state)))
+fn load_songs() -> anyhow::Result<Box<dyn SceneData + Send>> {
+    Ok(Box::new(SongSelect::new()))
 }
 
 fn load_chart(
@@ -212,9 +212,8 @@ impl Scene for Transition {
 
                     self.target_state = match target {
                         ControlMessage::MainMenu(MainMenuButton::Start) => {
-                            let is = self.input_state.clone();
                             Some(Promise::spawn_thread("Load song select", move || {
-                                load_songs(is)
+                                load_songs()
                             }))
                         }
                         ControlMessage::Song { song, diff, loader } => {

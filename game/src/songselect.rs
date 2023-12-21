@@ -1,5 +1,5 @@
 use anyhow::{ensure, Result};
-use di::ServiceProvider;
+use di::{RefMut, ServiceProvider};
 use game_loop::winit::event::Event;
 use generational_arena::Index;
 use log::warn;
@@ -103,10 +103,6 @@ pub struct SongSelect {
     search_text: String,       //current string used by the song search
     selected_index: i32,
     selected_diff_index: i32,
-    #[serde(skip_serializing)]
-    song_provider: Arc<Mutex<dyn SongProvider + Send>>,
-    #[serde(skip_serializing)]
-    _score_provider: Arc<Mutex<dyn ScoreProvider + Send>>, //TODO
     preview_countdown: f64,
     preview_finished: Arc<AtomicUsize>,
     preview_playing: Arc<AtomicU64>,
@@ -140,42 +136,17 @@ impl TypeName for SongSelect {
     }
 }
 
-type SyncSongProvider = Arc<Mutex<dyn SongProvider + Send>>;
-type SyncScoreProvider = Arc<Mutex<dyn ScoreProvider + Send>>;
+type SyncSongProvider = Arc<Mutex<dyn SongProvider>>;
+type SyncScoreProvider = Arc<Mutex<dyn ScoreProvider>>;
 
 impl SongSelect {
-    pub fn new(_input_state: input_state::InputState) -> Self {
-        let song_path = { GameConfig::get().songs_path.clone() };
-
-        let (song_provider, score_provider): (SyncSongProvider, SyncScoreProvider) =
-            if song_path == PathBuf::from("nautica") {
-                (
-                    Arc::new(Mutex::new(NauticaSongProvider::new())),
-                    Arc::new(Mutex::new(crate::block_on!(FileSongProvider::new()))),
-                )
-            } else {
-                let val = Arc::new(Mutex::new(crate::block_on!(FileSongProvider::new())));
-                (val.clone(), val)
-            };
-
-        let mut songs = if let Some(SongProviderEvent::SongsAdded(songs)) =
-            song_provider.lock().unwrap().poll()
-        {
-            songs
-        } else {
-            vec![]
-        };
-
-        songs.sort_by_key(|s| s.title.to_lowercase());
-
+    pub fn new() -> Self {
         Self {
-            songs,
+            songs: vec![],
             search_input_active: false,
             search_text: String::new(),
             selected_index: 0,
             selected_diff_index: 0,
-            song_provider,
-            _score_provider: score_provider,
             preview_countdown: 1500.0,
             preview_finished: Arc::new(AtomicUsize::new(0)),
             preview_playing: Arc::new(AtomicU64::new(0)),
@@ -208,6 +179,8 @@ pub struct SongSelectScene {
     settings_dialog: SettingsDialog,
     input_state: InputState,
     services: ServiceProvider,
+    song_provider: RefMut<dyn SongProvider>,
+    _score_provider: RefMut<dyn ScoreProvider>, //TODO
 }
 
 impl SongSelectScene {
@@ -228,6 +201,8 @@ impl SongSelectScene {
             _sample_owner: sample_owner,
             input_state: input_state.clone(),
             settings_dialog: SettingsDialog::general_settings(input_state),
+            song_provider: services.get_required(),
+            _score_provider: services.get_required(),
             services,
         }
     }
@@ -285,9 +260,9 @@ impl Scene for SongSelectScene {
                             let state = &mut self.state;
                             let song = state.songs[state.selected_index as usize].clone();
                             let diff = state.selected_diff_index as usize;
-                            let loader = state
+                            let loader = self
                                 .song_provider
-                                .lock()
+                                .read()
                                 .unwrap()
                                 .load_song(song.id, song.difficulties[diff].id);
                             ensure!(self
@@ -373,13 +348,7 @@ impl Scene for SongSelectScene {
                     .load(std::sync::atomic::Ordering::SeqCst)
                     != song_id
                 {
-                    match self
-                        .state
-                        .song_provider
-                        .lock()
-                        .unwrap()
-                        .get_preview(song_id)
-                    {
+                    match self.song_provider.read().unwrap().get_preview(song_id) {
                         Ok((preview, skip, duration)) => {
                             profile_scope!("Start Preview");
                             self.state
@@ -446,7 +415,7 @@ impl Scene for SongSelectScene {
 
         let state = &mut self.state;
         let mut songs_dirty = false;
-        while let Some(provider_event) = state.song_provider.lock().unwrap().poll() {
+        while let Some(provider_event) = self.song_provider.write().unwrap().poll() {
             songs_dirty = true;
             match provider_event {
                 SongProviderEvent::SongsAdded(mut new_songs) => state.songs.append(&mut new_songs),
@@ -468,9 +437,8 @@ impl Scene for SongSelectScene {
                 (state.selected_index + song_advance_steps).rem_euclid(state.songs.len() as i32);
             let song_idx = state.selected_index as usize;
             let song_id = state.songs[song_idx].id;
-            state
-                .song_provider
-                .lock()
+            self.song_provider
+                .write()
                 .unwrap()
                 .set_current_index(song_id);
 
@@ -533,9 +501,9 @@ impl Scene for SongSelectScene {
 
                 if let (Some(pc), Some(song)) = (&self.program_control, song) {
                     let diff = state.selected_diff_index as usize;
-                    let loader = state
+                    let loader = self
                         .song_provider
-                        .lock()
+                        .read()
                         .unwrap()
                         .load_song(song.id, song.difficulties[diff].id);
                     _ = pc.send(ControlMessage::Song { diff, loader, song });
