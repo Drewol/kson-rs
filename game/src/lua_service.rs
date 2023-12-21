@@ -18,6 +18,7 @@ use tealr::mlu::mlua::Lua;
 use tealr::mlu::mlua::LuaSerdeExt;
 
 //TODO: Used expanded macro because of wrong dependencies, use macro when fixed
+#[injectable]
 pub struct LuaProvider {
     arena: RefMut<LuaArena>,
     vgfx: RefMut<Vgfx>,
@@ -25,58 +26,6 @@ pub struct LuaProvider {
     mixer: Ref<InnerRuscMixer>,
     game_data: RefMut<game_data::GameData>,
     registrerd: Vec<u32>,
-}
-impl di::Injectable for LuaProvider {
-    fn inject(lifetime: di::ServiceLifetime) -> di::InjectBuilder {
-        di::InjectBuilder::new(
-            di::Activator::new::<Self, Self>(
-                |sp: &di::ServiceProvider| {
-                    di::Ref::new(Self {
-                        arena: sp.get_required_mut::<LuaArena>(),
-                        vgfx: sp.get_required_mut::<Vgfx>(),
-                        context: sp.get_required::<three_d::core::Context>(),
-                        mixer: sp.get_required::<InnerRuscMixer>(),
-                        game_data: sp.get_required_mut::<game_data::GameData>(),
-                        registrerd: Default::default(),
-                    })
-                },
-                |sp: &di::ServiceProvider| {
-                    di::RefMut::new(
-                        Self {
-                            arena: sp.get_required_mut::<LuaArena>(),
-                            vgfx: sp.get_required_mut::<Vgfx>(),
-                            context: sp.get_required::<three_d::core::Context>(),
-                            mixer: sp.get_required::<InnerRuscMixer>(),
-                            game_data: sp.get_required_mut::<game_data::GameData>(),
-                            registrerd: Default::default(),
-                        }
-                        .into(),
-                    )
-                },
-            ),
-            lifetime,
-        )
-        .depends_on(di::ServiceDependency::new(
-            di::Type::of::<RwLock<LuaArena>>(),
-            di::ServiceCardinality::ExactlyOne,
-        ))
-        .depends_on(di::ServiceDependency::new(
-            di::Type::of::<RwLock<Vgfx>>(),
-            di::ServiceCardinality::ExactlyOne,
-        ))
-        .depends_on(di::ServiceDependency::new(
-            di::Type::of::<three_d::core::Context>(),
-            di::ServiceCardinality::ExactlyOne,
-        ))
-        .depends_on(di::ServiceDependency::new(
-            di::Type::of::<InnerRuscMixer>(),
-            di::ServiceCardinality::ExactlyOne,
-        ))
-        .depends_on(di::ServiceDependency::new(
-            di::Type::of::<RwLock<game_data::GameData>>(),
-            di::ServiceCardinality::ExactlyOne,
-        ))
-    }
 }
 
 impl LuaProvider {

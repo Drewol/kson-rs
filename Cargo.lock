@@ -3330,9 +3330,9 @@ dependencies = [
 
 [[package]]
 name = "more-di"
-version = "3.0.0"
+version = "3.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "fb6acfa66220af94690712652c6cb040cbbfb0e311088597a202dcdb27b03ae2"
+checksum = "f263611311a2012c4b8e7191e6906ed963e906d12a3b0dc679e4077c5f2dfb89"
 dependencies = [
  "more-di-macros",
  "spin 0.9.8",
@@ -3340,9 +3340,9 @@ dependencies = [
 
 [[package]]
 name = "more-di-macros"
-version = "3.0.0"
+version = "3.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d90f96e5e5a43662158a8dde656c13d24201f60f4898e6fc9512263ba5ae5aaa"
+checksum = "4b04d5dd4cddcb6fc4b763cedfab4bdb543011130d2cfcdf4e755a7976494ce3"
 dependencies = [
  "proc-macro2",
  "quote",
