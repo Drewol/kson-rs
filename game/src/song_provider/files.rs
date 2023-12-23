@@ -1,4 +1,5 @@
 use std::{
+    arch::x86_64::__m128,
     collections::HashMap,
     path::PathBuf,
     sync::{
@@ -11,12 +12,14 @@ use std::{
 use crate::{
     block_on,
     config::GameConfig,
+    game::HitWindow,
     results::Score,
     songselect::{Difficulty, Song},
+    worker_service::WorkerService,
 };
 
-use super::{LoadSongFn, ScoreProvider, SongProvider, SongProviderEvent};
-use anyhow::ensure;
+use super::{LoadSongFn, ScoreProvider, ScoreProviderEvent, SongProvider, SongProviderEvent};
+use anyhow::{bail, ensure};
 
 use futures::{AsyncReadExt, StreamExt};
 use itertools::Itertools;
@@ -38,6 +41,8 @@ pub struct FileSongProvider {
     worker: poll_promise::Promise<()>,
     worker_rx: Receiver<SongProviderEvent>,
     worker_tx: Sender<WorkerControlMessage>,
+    score_bus: bus::Bus<ScoreProviderEvent>,
+    song_bus: bus::Bus<SongProviderEvent>,
 }
 
 impl From<ScoreEntry> for Score {
@@ -57,6 +62,16 @@ impl From<ScoreEntry> for Score {
             timestamp: value.timestamp as i32,
             player_name: value.user_name,
             is_local: value.local_score,
+            hit_window: HitWindow::new(
+                0,
+                value.window_perfect as _,
+                value.window_good as _,
+                value.window_hold as _,
+                value.window_miss as _,
+            ),
+            earlies: value.early as _,
+            lates: value.late as _,
+            combo: value.combo as _,
         }
     }
 }
@@ -400,14 +415,16 @@ impl FileSongProvider {
             database,
             worker,
             worker_rx,
+            score_bus: bus::Bus::new(32),
+            song_bus: bus::Bus::new(32),
             worker_tx,
         }
     }
 }
 
-impl SongProvider for FileSongProvider {
-    fn poll(&mut self) -> Option<super::SongProviderEvent> {
-        if self.new_songs.is_empty() {
+impl WorkerService for FileSongProvider {
+    fn update(&mut self) {
+        let ev = if self.new_songs.is_empty() {
             self.worker
                 .ready()
                 .is_some()
@@ -416,9 +433,15 @@ impl SongProvider for FileSongProvider {
         } else {
             let new_songs = std::mem::take(&mut self.new_songs);
             Some(super::SongProviderEvent::SongsAdded(new_songs))
+        };
+
+        if let Some(ev) = ev {
+            self.song_bus.broadcast(ev);
         }
     }
+}
 
+impl SongProvider for FileSongProvider {
     fn set_search(&mut self, _query: &str) {
         todo!()
     }
@@ -500,18 +523,84 @@ impl SongProvider for FileSongProvider {
             Duration::from_millis(chart.preview_length as u64),
         ))
     }
+
+    fn subscribe(&mut self) -> bus::BusReader<SongProviderEvent> {
+        self.song_bus.add_rx()
+    }
+
+    fn get_all(&self) -> Vec<Arc<Song>> {
+        self.all_songs.clone()
+    }
 }
 
 impl ScoreProvider for FileSongProvider {
-    fn poll(&mut self) -> Option<super::ScoreProviderEvent> {
-        todo!()
-    }
-
     fn get_scores(&mut self, _id: u64) -> Vec<Score> {
         todo!()
     }
 
-    fn insert_score(&mut self, _id: u64, _score: Score) -> anyhow::Result<()> {
-        todo!()
+    fn insert_score(
+        &mut self,
+        _id: u64,
+        score: Score,
+        string_id: Option<&str>,
+    ) -> anyhow::Result<()> {
+        let Score {
+            gauge,
+            gauge_type,
+            gauge_option,
+            mirror,
+            random,
+            auto_flags,
+            score,
+            perfects,
+            goods,
+            misses,
+            badge,
+            timestamp,
+            player_name,
+            is_local,
+            hit_window,
+            earlies,
+            lates,
+            combo,
+        } = score;
+
+        let Some(hash) = string_id else {
+            bail!("Hash required")
+        };
+
+        self.database.add_score(ScoreEntry {
+            rowid: 0,
+            score: score as _,
+            crit: perfects as _,
+            near: goods as _,
+            early: earlies as _,
+            late: lates as _,
+            combo: combo as _,
+            miss: misses as _,
+            gauge: gauge as _,
+            auto_flags: auto_flags as _,
+            replay: None,
+            timestamp: timestamp as _,
+            chart_hash: hash.to_string(),
+            user_name: "".to_string(),
+            user_id: "".to_string(),
+            local_score: true,
+            window_perfect: hit_window.perfect.as_millis() as _,
+            window_good: hit_window.good.as_millis() as _,
+            window_hold: hit_window.hold.as_millis() as _,
+            window_miss: hit_window.miss.as_millis() as _,
+            window_slam: hit_window.good.as_millis() as _,
+            gauge_type: 0,
+            gauge_opt: 0,
+            mirror: mirror,
+            random: random,
+        });
+
+        Ok(())
+    }
+
+    fn subscribe(&mut self) -> bus::BusReader<ScoreProviderEvent> {
+        self.score_bus.add_rx()
     }
 }

@@ -26,6 +26,7 @@ use game_main::ControlMessage;
 use generational_arena::{Arena, Index};
 use gilrs::ev::filter::Jitter;
 
+use help::ServiceHelper;
 use kson::Ksh;
 use log::*;
 
@@ -37,6 +38,7 @@ use rodio::{
 };
 use scene::Scene;
 
+use song_provider::{FileSongProvider, NauticaSongProvider};
 use td::{FrameInput, Viewport};
 use tealr::mlu::mlua::Lua;
 use three_d as td;
@@ -73,6 +75,7 @@ mod transition;
 mod util;
 mod vg_ui;
 mod window;
+mod worker_service;
 
 #[macro_export]
 macro_rules! block_on {
@@ -414,6 +417,8 @@ fn main() -> anyhow::Result<()> {
         >(|sp| {
             sp.get_required_mut::<song_provider::FileSongProvider>()
         }))
+        .add_worker::<FileSongProvider>()
+        .add_worker::<NauticaSongProvider>()
         .add(singleton_factory(move |_| mixer_controls.clone()))
         .add(Vgfx::singleton().as_mut())
         .add(LuaArena::singleton().as_mut())

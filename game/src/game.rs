@@ -2354,19 +2354,31 @@ struct LuaGauge {
 }
 
 #[serde_as]
-#[derive(Debug, Serialize, Default, Deserialize, Clone, PartialEq)]
+#[derive(Debug, Serialize, Default, Deserialize, Clone, Copy, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub struct HitWindow {
     #[serde(rename = "type")]
-    variant: i32,
+    pub variant: i32,
     #[serde_as(as = "DurationMilliSecondsWithFrac<f64>")]
-    perfect: Duration,
+    pub perfect: Duration,
     #[serde_as(as = "DurationMilliSecondsWithFrac<f64>")]
-    good: Duration,
+    pub good: Duration,
     #[serde_as(as = "DurationMilliSecondsWithFrac<f64>")]
-    hold: Duration,
+    pub hold: Duration,
     #[serde_as(as = "DurationMilliSecondsWithFrac<f64>")]
-    miss: Duration,
+    pub miss: Duration,
+}
+
+impl HitWindow {
+    pub fn new(variant: i32, perfect_ms: u64, good_ms: u64, hold_ms: u64, miss_ms: u64) -> Self {
+        Self {
+            variant,
+            perfect: Duration::from_millis(perfect_ms),
+            good: Duration::from_millis(good_ms),
+            hold: Duration::from_millis(hold_ms),
+            miss: Duration::from_millis(miss_ms),
+        }
+    }
 }
 
 #[derive(Debug, Serialize, Default, Deserialize, Clone, PartialEq)]

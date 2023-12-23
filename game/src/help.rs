@@ -1,9 +1,9 @@
 use std::{
     rc::Rc,
-    sync::{Arc, Mutex},
+    sync::{Arc, Mutex, RwLock},
 };
 
-use di::RefMut;
+use di::{transient_factory, RefMut, ServiceCollection};
 use tealr::{
     mlu::{
         mlua::{self, FromLuaMulti, Lua, Result, ToLuaMulti},
@@ -11,6 +11,8 @@ use tealr::{
     },
     TealMultiValue, TypeName,
 };
+
+use crate::worker_service::WorkerService;
 
 pub(crate) fn add_lua_static_method<'lua, M, A, R, F, T: 'static + Sized + TypeName>(
     methods: &mut M,
@@ -56,4 +58,16 @@ pub(crate) fn add_lua_static_method<'lua, M, A, R, F, T: 'static + Sized + TypeN
             Err(mlua::Error::external("App data not set"))
         }
     })
+}
+
+pub trait ServiceHelper {
+    fn add_worker<T: WorkerService + 'static>(&mut self) -> &mut Self;
+}
+
+impl ServiceHelper for ServiceCollection {
+    fn add_worker<T: WorkerService + 'static>(&mut self) -> &mut Self {
+        self.add(transient_factory::<RwLock<dyn WorkerService>, _>(|sp| {
+            sp.get_required_mut::<T>()
+        }))
+    }
 }

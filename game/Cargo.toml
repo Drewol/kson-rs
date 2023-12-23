@@ -90,6 +90,7 @@ async-fs = "1.6.0"
 kson-editor = { path = "../editor" }
 serde_with = "3.3.0"
 more-di = { version = "3.1.0", features = ["async"] }
+bus = "2.4.1"
 
 [target.'cfg(unix)'.dependencies]
 openssl = { version = "^0.10", features = ["vendored"] }

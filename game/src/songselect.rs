@@ -35,7 +35,8 @@ use crate::{
     scene::{Scene, SceneData},
     settings_dialog::SettingsDialog,
     song_provider::{
-        FileSongProvider, NauticaSongProvider, ScoreProvider, SongProvider, SongProviderEvent,
+        FileSongProvider, NauticaSongProvider, ScoreProvider, ScoreProviderEvent, SongProvider,
+        SongProviderEvent,
     },
     sources::owned_source::owned_source,
     take_duration_fade::take_duration_fade,
@@ -180,13 +181,20 @@ pub struct SongSelectScene {
     input_state: InputState,
     services: ServiceProvider,
     song_provider: RefMut<dyn SongProvider>,
+    song_events: bus::BusReader<SongProviderEvent>,
+    _score_events: bus::BusReader<ScoreProviderEvent>,
     _score_provider: RefMut<dyn ScoreProvider>, //TODO
 }
 
 impl SongSelectScene {
-    pub fn new(song_select: Box<SongSelect>, services: ServiceProvider) -> Self {
+    pub fn new(mut song_select: Box<SongSelect>, services: ServiceProvider) -> Self {
         let (sample_marker, sample_owner) = channel();
         let input_state = InputState::clone(&services.get_required());
+        let song_provider: RefMut<dyn SongProvider> = services.get_required();
+        let _score_provider: RefMut<dyn ScoreProvider> = services.get_required();
+        let _score_events = _score_provider.write().unwrap().subscribe();
+        let song_events = song_provider.write().unwrap().subscribe();
+        song_select.songs = song_provider.write().unwrap().get_all();
         Self {
             background_lua: Rc::new(Lua::new()),
             lua: Rc::new(Lua::new()),
@@ -201,8 +209,10 @@ impl SongSelectScene {
             _sample_owner: sample_owner,
             input_state: input_state.clone(),
             settings_dialog: SettingsDialog::general_settings(input_state),
-            song_provider: services.get_required(),
-            _score_provider: services.get_required(),
+            song_events,
+            _score_events,
+            song_provider,
+            _score_provider,
             services,
         }
     }
@@ -415,7 +425,7 @@ impl Scene for SongSelectScene {
 
         let state = &mut self.state;
         let mut songs_dirty = false;
-        while let Some(provider_event) = self.song_provider.write().unwrap().poll() {
+        while let Ok(provider_event) = self.song_events.try_recv() {
             songs_dirty = true;
             match provider_event {
                 SongProviderEvent::SongsAdded(mut new_songs) => state.songs.append(&mut new_songs),

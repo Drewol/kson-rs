@@ -15,6 +15,7 @@ use rodio::Source;
 use crate::{
     project_dirs,
     songselect::{Difficulty, Song},
+    worker_service::WorkerService,
 };
 
 use super::{LoadSongFn, SongProvider, SongProviderEvent};
@@ -169,7 +170,7 @@ impl Datum {
 impl Chart {
     fn as_diff(&self, jacket_path: PathBuf) -> Difficulty {
         let Chart {
-            id,
+            id: uid,
             user_id: _,
             song_id: _,
             difficulty,
@@ -180,7 +181,7 @@ impl Chart {
             updated_at: _,
         } = self;
 
-        let (id_0, id_1) = id.as_u64_pair();
+        let (id_0, id_1) = uid.as_u64_pair();
         let id = id_0 ^ id_1;
 
         Difficulty {
@@ -191,7 +192,7 @@ impl Chart {
             effector: effector.clone(),
             top_badge: 0,
             scores: vec![],
-            hash: None,
+            hash: Some(uid.to_string()),
         }
     }
 }
@@ -202,6 +203,7 @@ pub struct NauticaSongProvider {
     all_songs: Vec<Arc<Song>>,
     id_map: HashMap<u64, Uuid>,
     next_url: String,
+    bus: bus::Bus<SongProviderEvent>,
 }
 
 impl Debug for NauticaSongProvider {
@@ -277,12 +279,13 @@ impl NauticaSongProvider {
             all_songs: new_songs,
             id_map: ids.iter().copied().collect(),
             next_url: first_songs.links.next.unwrap_or_default(),
+            bus: bus::Bus::new(32),
         }
     }
 }
 
-impl SongProvider for NauticaSongProvider {
-    fn poll(&mut self) -> Option<super::SongProviderEvent> {
+impl WorkerService for NauticaSongProvider {
+    fn update(&mut self) {
         if let Some(next) = self.next.take() {
             match next.try_take() {
                 Ok(Ok(songs)) => {
@@ -309,9 +312,13 @@ impl SongProvider for NauticaSongProvider {
             //TODO: Check scroll position and request more songs
         }
 
-        self.events.pop_front()
+        for ele in self.events.drain(..) {
+            self.bus.broadcast(ele);
+        }
     }
+}
 
+impl SongProvider for NauticaSongProvider {
     fn set_search(&mut self, _query: &str) {
         todo!()
     }
@@ -412,6 +419,14 @@ impl SongProvider for NauticaSongProvider {
             Box::new(rodio::Decoder::new(std::io::Cursor::new(bytes))?.convert_samples())
         };
         Ok((source, Duration::ZERO, Duration::MAX))
+    }
+
+    fn subscribe(&mut self) -> bus::BusReader<SongProviderEvent> {
+        self.bus.add_rx()
+    }
+
+    fn get_all(&self) -> Vec<Arc<Song>> {
+        self.all_songs.clone()
     }
 }
 

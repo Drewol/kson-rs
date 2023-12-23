@@ -44,6 +44,7 @@ use crate::{
     transition::Transition,
     util::lua_address,
     vg_ui::{ExportVgfx, Vgfx},
+    worker_service::WorkerService,
     LuaArena, RuscMixer, Scenes, FRAME_ACC_SIZE,
 };
 
@@ -138,6 +139,12 @@ impl GameMain {
         let should_profile = GameConfig::get().args.profiling;
         if puffin::are_scopes_on() != should_profile {
             puffin::set_scopes_on(should_profile);
+        }
+
+        {
+            for ele in self.service_provider.get_all_mut::<dyn WorkerService>() {
+                ele.write().unwrap().update()
+            }
         }
 
         if GameConfig::get().keyboard_knobs {
