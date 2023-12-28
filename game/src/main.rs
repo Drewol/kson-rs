@@ -38,7 +38,7 @@ use rodio::{
 };
 use scene::Scene;
 
-use song_provider::{FileSongProvider, NauticaSongProvider};
+use song_provider::{DiffId, FileSongProvider, NauticaSongProvider, SongId};
 use td::{FrameInput, Viewport};
 use tealr::mlu::mlua::Lua;
 use three_d as td;
@@ -517,17 +517,20 @@ fn main() -> anyhow::Result<()> {
             title: chart.meta.title.clone(),
             artist: chart.meta.artist.clone(),
             bpm: chart.meta.disp_bpm.clone(),
-            id: 0,
-            difficulties: vec![Difficulty {
-                jacket_path: chart_path.with_file_name(&chart.meta.jacket_filename),
-                level: chart.meta.level,
-                difficulty: chart.meta.difficulty,
-                id: 0,
-                effector: chart.meta.chart_author.clone(),
-                top_badge: 0,
-                hash: None,
-                scores: vec![],
-            }],
+            id: SongId::default(),
+            difficulties: Arc::new(
+                vec![Difficulty {
+                    jacket_path: chart_path.with_file_name(&chart.meta.jacket_filename),
+                    level: chart.meta.level,
+                    difficulty: chart.meta.difficulty,
+                    id: DiffId::default(),
+                    effector: chart.meta.chart_author.clone(),
+                    top_badge: 0,
+                    hash: None,
+                    scores: vec![],
+                }]
+                .into(),
+            ),
         };
 
         let audio = rodio::Decoder::new(std::fs::File::open(

@@ -13,7 +13,7 @@ use std::{
     sync::{
         atomic::{AtomicBool, AtomicU64, AtomicUsize},
         mpsc::{channel, Receiver, Sender},
-        Arc, Mutex,
+        Arc, Mutex, RwLock,
     },
     time::{Duration, SystemTime},
 };
@@ -35,8 +35,8 @@ use crate::{
     scene::{Scene, SceneData},
     settings_dialog::SettingsDialog,
     song_provider::{
-        FileSongProvider, NauticaSongProvider, ScoreProvider, ScoreProviderEvent, SongProvider,
-        SongProviderEvent,
+        DiffId, FileSongProvider, NauticaSongProvider, ScoreProvider, ScoreProviderEvent,
+        SongDiffId, SongId, SongProvider, SongProviderEvent,
     },
     sources::owned_source::owned_source,
     take_duration_fade::take_duration_fade,
@@ -50,7 +50,7 @@ pub struct Difficulty {
     pub jacket_path: PathBuf,
     pub level: u8,
     pub difficulty: u8, // 0 = nov, 1 = adv, etc.
-    pub id: u64,        //unique static identifier
+    pub id: DiffId,     //unique static identifier
     pub effector: String,
     pub top_badge: i32,     //top badge for this difficulty
     pub scores: Vec<Score>, //array of all scores on this diff
@@ -69,7 +69,7 @@ impl TealData for Difficulty {
         });
         fields.add_field_method_get("level", |_, diff| Ok(diff.level));
         fields.add_field_method_get("difficulty", |_, diff| Ok(diff.difficulty));
-        fields.add_field_method_get("id", |_, diff| Ok(diff.id));
+        fields.add_field_method_get("id", |_, diff| Ok(diff.id.clone()));
         fields.add_field_method_get("effector", |_, diff| Ok(diff.effector.clone()));
         fields.add_field_method_get("topBadge", |_, diff| Ok(diff.top_badge));
         fields.add_field_method_get("scores", |_, diff| Ok(diff.scores.clone()));
@@ -80,9 +80,9 @@ impl TealData for Difficulty {
 pub struct Song {
     pub title: String,
     pub artist: String,
-    pub bpm: String,                   //ex. "170-200"
-    pub id: u64,                       //unique static identifier
-    pub difficulties: Vec<Difficulty>, //array of all difficulties for this song
+    pub bpm: String,                                //ex. "170-200"
+    pub id: SongId,                                 //unique static identifier
+    pub difficulties: Arc<RwLock<Vec<Difficulty>>>, //array of all difficulties for this song
 }
 
 //Keep tealdata for generating type definitions
@@ -91,8 +91,10 @@ impl TealData for Song {
         fields.add_field_method_get("title", |_, song| Ok(song.title.clone()));
         fields.add_field_method_get("artist", |_, song| Ok(song.artist.clone()));
         fields.add_field_method_get("bpm", |_, song| Ok(song.bpm.clone()));
-        fields.add_field_method_get("id", |_, song| Ok(song.id));
-        fields.add_field_method_get("difficulties", |_, song| Ok(song.difficulties.clone()));
+        fields.add_field_method_get("id", |_, song| Ok(song.id.clone()));
+        fields.add_field_method_get("difficulties", |_, song| {
+            Ok(song.difficulties.read().unwrap().clone())
+        });
     }
 }
 
@@ -182,8 +184,8 @@ pub struct SongSelectScene {
     services: ServiceProvider,
     song_provider: RefMut<dyn SongProvider>,
     song_events: bus::BusReader<SongProviderEvent>,
-    _score_events: bus::BusReader<ScoreProviderEvent>,
-    _score_provider: RefMut<dyn ScoreProvider>, //TODO
+    score_events: bus::BusReader<ScoreProviderEvent>,
+    score_provider: RefMut<dyn ScoreProvider>, //TODO
 }
 
 impl SongSelectScene {
@@ -191,10 +193,14 @@ impl SongSelectScene {
         let (sample_marker, sample_owner) = channel();
         let input_state = InputState::clone(&services.get_required());
         let song_provider: RefMut<dyn SongProvider> = services.get_required();
-        let _score_provider: RefMut<dyn ScoreProvider> = services.get_required();
-        let _score_events = _score_provider.write().unwrap().subscribe();
+        let score_provider: RefMut<dyn ScoreProvider> = services.get_required();
+        let score_events = score_provider.write().unwrap().subscribe();
         let song_events = song_provider.write().unwrap().subscribe();
         song_select.songs = song_provider.write().unwrap().get_all();
+        _ = score_provider
+            .write()
+            .unwrap()
+            .init_scores(&song_select.songs);
         Self {
             background_lua: Rc::new(Lua::new()),
             lua: Rc::new(Lua::new()),
@@ -210,9 +216,9 @@ impl SongSelectScene {
             input_state: input_state.clone(),
             settings_dialog: SettingsDialog::general_settings(input_state),
             song_events,
-            _score_events,
+            score_events,
             song_provider,
-            _score_provider,
+            score_provider,
             services,
         }
     }
@@ -270,11 +276,12 @@ impl Scene for SongSelectScene {
                             let state = &mut self.state;
                             let song = state.songs[state.selected_index as usize].clone();
                             let diff = state.selected_diff_index as usize;
-                            let loader = self
-                                .song_provider
-                                .read()
-                                .unwrap()
-                                .load_song(song.id, song.difficulties[diff].id);
+                            let loader = self.song_provider.read().unwrap().load_song(
+                                &SongDiffId::SongDiff(
+                                    song.id.clone(),
+                                    song.difficulties.read().unwrap()[diff].id.clone(),
+                                ),
+                            );
                             ensure!(self
                                 .program_control
                                 .as_ref()
@@ -351,12 +358,13 @@ impl Scene for SongSelectScene {
             if self.state.preview_countdown < _dt {
                 //Start playing preview
                 //TODO: Reduce nesting
-                let song_id = self.state.songs[self.state.selected_index as usize].id;
+                let song_id = &self.state.songs[self.state.selected_index as usize].id;
+                let song_id_u64 = song_id.as_u64();
                 if self
                     .state
                     .preview_playing
                     .load(std::sync::atomic::Ordering::SeqCst)
-                    != song_id
+                    != song_id_u64
                 {
                     match self.song_provider.read().unwrap().get_preview(song_id) {
                         Ok((preview, skip, duration)) => {
@@ -367,7 +375,7 @@ impl Scene for SongSelectScene {
 
                             self.state
                                 .preview_playing
-                                .store(song_id, std::sync::atomic::Ordering::Relaxed);
+                                .store(song_id_u64, std::sync::atomic::Ordering::Relaxed);
                             let current_preview = self.state.preview_playing.clone();
                             let mut amp = Arc::new(1_f32);
                             let mixer = self.mixer.clone();
@@ -400,7 +408,7 @@ impl Scene for SongSelectScene {
                                         let amp = Arc::get_mut(&mut amp).unwrap();
                                         let current_preview = current_preview
                                             .load(std::sync::atomic::Ordering::Relaxed);
-                                        if current_preview != song_id {
+                                        if current_preview != song_id_u64 {
                                             *amp -= 1.0 / 50.0;
                                             if *amp < 0.0 {
                                                 state.inner_mut().inner_mut().inner_mut().stop();
@@ -428,11 +436,26 @@ impl Scene for SongSelectScene {
         while let Ok(provider_event) = self.song_events.try_recv() {
             songs_dirty = true;
             match provider_event {
-                SongProviderEvent::SongsAdded(mut new_songs) => state.songs.append(&mut new_songs),
+                SongProviderEvent::SongsAdded(mut new_songs) => {
+                    self.score_provider
+                        .read()
+                        .unwrap()
+                        .init_scores(&new_songs)?;
+                    state.songs.append(&mut new_songs)
+                }
                 SongProviderEvent::SongsRemoved(removed_ids) => {
                     state.songs.retain(|s| !removed_ids.contains(&s.id))
                 }
                 SongProviderEvent::OrderChanged(_) => todo!(),
+            }
+        }
+
+        while let Ok(score_event) = self.score_events.try_recv() {
+            songs_dirty = true;
+            match score_event {
+                ScoreProviderEvent::NewScore(id, score) => {
+                    self.song_provider.write().unwrap().add_score(id, score);
+                }
             }
         }
 
@@ -446,11 +469,11 @@ impl Scene for SongSelectScene {
             state.selected_index =
                 (state.selected_index + song_advance_steps).rem_euclid(state.songs.len() as i32);
             let song_idx = state.selected_index as usize;
-            let song_id = state.songs[song_idx].id;
+            let song_idx = state.songs[song_idx].id.as_u64();
             self.song_provider
                 .write()
                 .unwrap()
-                .set_current_index(song_id);
+                .set_current_index(song_idx as _);
 
             if song_advance_steps != 0 {
                 let set_song_idx: Function = self.lua.globals().get("set_index").unwrap();
@@ -465,7 +488,7 @@ impl Scene for SongSelectScene {
                     state
                         .songs
                         .get(state.selected_index as usize)
-                        .map(|x| x.difficulties.len().saturating_sub(1))
+                        .map(|x| x.difficulties.read().unwrap().len().saturating_sub(1))
                         .unwrap_or_default() as _,
                 );
 
@@ -511,11 +534,14 @@ impl Scene for SongSelectScene {
 
                 if let (Some(pc), Some(song)) = (&self.program_control, song) {
                     let diff = state.selected_diff_index as usize;
-                    let loader = self
-                        .song_provider
-                        .read()
-                        .unwrap()
-                        .load_song(song.id, song.difficulties[diff].id);
+                    let loader =
+                        self.song_provider
+                            .read()
+                            .unwrap()
+                            .load_song(&SongDiffId::SongDiff(
+                                song.id.clone(),
+                                song.difficulties.read().unwrap()[diff].id.clone(),
+                            ));
                     _ = pc.send(ControlMessage::Song { diff, loader, song });
                 }
             }

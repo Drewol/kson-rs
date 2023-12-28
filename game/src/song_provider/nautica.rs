@@ -9,16 +9,18 @@ use std::{
     time::Duration,
 };
 
+use itertools::Itertools;
 use rayon::prelude::*;
 use rodio::Source;
 
 use crate::{
     project_dirs,
+    results::Score,
     songselect::{Difficulty, Song},
     worker_service::WorkerService,
 };
 
-use super::{LoadSongFn, SongProvider, SongProviderEvent};
+use super::{DiffId, LoadSongFn, SongDiffId, SongId, SongProvider, SongProviderEvent};
 use anyhow::{bail, ensure, Result};
 use kson::Ksh;
 use poll_promise::Promise;
@@ -142,9 +144,7 @@ impl Datum {
         } = self;
 
         let mut song_path = project_dirs().cache_dir().to_path_buf();
-        song_path.push(id.hyphenated().to_string());
-        let (id_0, id_1) = id.as_u64_pair();
-        let song_id = id_0 ^ id_1;
+        song_path.push(id.as_hyphenated().to_string());
 
         std::fs::create_dir_all(&song_path);
         song_path.push("jacket.png");
@@ -158,11 +158,14 @@ impl Datum {
             title: title.clone(),
             artist: artist.clone(),
             bpm: "unk".to_string(),
-            id: song_id,
-            difficulties: charts
-                .iter()
-                .map(|x| x.as_diff(jacket_path.clone()))
-                .collect(),
+            id: SongId::StringId(id.as_hyphenated().to_string()),
+            difficulties: Arc::new(
+                charts
+                    .iter()
+                    .map(|x| x.as_diff(jacket_path.clone()))
+                    .collect_vec()
+                    .into(),
+            ),
         }
     }
 }
@@ -181,18 +184,15 @@ impl Chart {
             updated_at: _,
         } = self;
 
-        let (id_0, id_1) = uid.as_u64_pair();
-        let id = id_0 ^ id_1;
-
         Difficulty {
             jacket_path,
             level: *level as u8,
             difficulty: *difficulty as u8 - 1,
-            id,
+            id: DiffId(SongId::StringId(uid.as_hyphenated().to_string())),
             effector: effector.clone(),
             top_badge: 0,
             scores: vec![],
-            hash: Some(uid.to_string()),
+            hash: None,
         }
     }
 }
@@ -201,7 +201,6 @@ pub struct NauticaSongProvider {
     next: Option<Promise<Result<NauticaSongs>>>,
     events: VecDeque<SongProviderEvent>,
     all_songs: Vec<Arc<Song>>,
-    id_map: HashMap<u64, Uuid>,
     next_url: String,
     bus: bus::Bus<SongProviderEvent>,
 }
@@ -261,15 +260,14 @@ impl NauticaSongProvider {
             .unwrap();
 
         let mut events = VecDeque::new();
-        let (new_songs, ids): (Vec<Arc<Song>>, Vec<(u64, Uuid)>) = first_songs
+        let new_songs = first_songs
             .data
             .iter()
             .map(|d| {
                 let song = d.as_song();
-                let song_id = song.id;
-                (Arc::new(song), (song_id, d.id))
+                Arc::new(song)
             })
-            .unzip();
+            .collect_vec();
 
         events.push_back(SongProviderEvent::SongsAdded(new_songs.clone()));
 
@@ -277,7 +275,6 @@ impl NauticaSongProvider {
             next: None,
             events,
             all_songs: new_songs,
-            id_map: ids.iter().copied().collect(),
             next_url: first_songs.links.next.unwrap_or_default(),
             bus: bus::Bus::new(32),
         }
@@ -289,17 +286,12 @@ impl WorkerService for NauticaSongProvider {
         if let Some(next) = self.next.take() {
             match next.try_take() {
                 Ok(Ok(songs)) => {
-                    let (new_songs, new_ids): (Vec<Arc<Song>>, Vec<(u64, Uuid)>) = songs
+                    let new_songs = songs
                         .data
                         .iter()
-                        .map(|d| {
-                            let data = d.as_song();
-                            let song_id = data.id;
-                            (Arc::new(data), (song_id, d.id))
-                        })
-                        .unzip();
+                        .map(|d| Arc::new(d.as_song()))
+                        .collect_vec();
 
-                    self.id_map.extend(new_ids.iter().copied());
                     self.all_songs.append(&mut new_songs.clone());
                     self.next_url = songs.links.next.unwrap_or_default();
                     self.events
@@ -331,12 +323,38 @@ impl SongProvider for NauticaSongProvider {
         todo!()
     }
 
+    fn add_score(&self, id: SongDiffId, score: Score) {
+        let song = match &id {
+            SongDiffId::Missing => None,
+            SongDiffId::DiffOnly(diff) => self
+                .all_songs
+                .iter()
+                .find(|x| x.difficulties.read().unwrap().iter().any(|d| d.id == *diff)),
+            SongDiffId::SongDiff(song, diff) => self.all_songs.iter().find(|x| x.id == *song),
+        };
+
+        if let (Some(song), Some(diff)) = (song, id.get_diff()) {
+            let diffs = &mut song.difficulties.write().unwrap();
+            let diff = diffs.iter_mut().find(|x| x.id == *diff);
+            if let Some(diff) = diff {
+                diff.top_badge = diff.top_badge.max(score.badge);
+                diff.scores.push(score);
+                diff.scores.sort_by_key(|x| -x.score);
+            }
+        }
+    }
+
     fn set_current_index(&mut self, index: u64) {
         if self.next.is_some() {
             return;
         }
 
-        if let Some((i, _)) = self.all_songs.iter().enumerate().find(|x| x.1.id == index) {
+        if let Some((i, _)) = self
+            .all_songs
+            .iter()
+            .enumerate()
+            .find(|x| x.1.id.as_u64() == index)
+        {
             if i > self.all_songs.len().saturating_sub(10) {
                 self.next = Some(next_songs(&self.next_url));
             }
@@ -345,46 +363,50 @@ impl SongProvider for NauticaSongProvider {
 
     fn load_song(
         &self,
-        index: u64,
-        diff_id: u64,
+        id: &SongDiffId,
     ) -> Box<dyn FnOnce() -> (kson::Chart, Box<dyn rodio::Source<Item = f32> + Send>) + Send> {
-        if let Some(song_uuid) = self.id_map.get(&index) {
-            let mut song_path = project_dirs().cache_dir().to_path_buf();
+        let SongDiffId::SongDiff(SongId::StringId(song_id), diff_id) = id else {
+            todo!() //return Err
+        };
 
-            song_path.push(song_uuid.hyphenated().to_string());
-            log::info!("Writing song cache {:?}", &song_path);
-            std::fs::create_dir_all(&song_path);
-            song_path.push("jacket.png");
+        let song_uuid = Uuid::parse_str(&song_id).unwrap();
 
-            let song = self
-                .all_songs
-                .iter()
-                .find(|x| x.id == index)
-                .expect("song id not in song list");
+        let mut song_path = project_dirs().cache_dir().to_path_buf();
 
-            let diff = song
-                .difficulties
-                .iter()
-                .find(|x| x.id == diff_id)
-                .expect("diff id not in songs difficulties");
+        song_path.push(song_uuid.hyphenated().to_string());
+        log::info!("Writing song cache {:?}", &song_path);
+        std::fs::create_dir_all(&song_path);
+        song_path.push("jacket.png");
 
-            download_song(*song_uuid, diff.difficulty)
-        } else {
-            todo!()
-        }
+        let song = self
+            .all_songs
+            .iter()
+            .find(|x| x.id == SongId::StringId(song_id.clone()))
+            .expect("song id not in song list");
+
+        let read = &song.difficulties.read().unwrap();
+        let diff = read
+            .iter()
+            .find(|x| x.id == *diff_id)
+            .expect("diff id not in songs difficulties");
+
+        download_song(song_uuid, diff.difficulty)
     }
 
     fn get_preview(
         &self,
-        id: u64,
+        id: &SongId,
     ) -> anyhow::Result<(
         Box<dyn Source<Item = f32> + Send>,
         std::time::Duration,
         std::time::Duration,
     )> {
-        let song_uuid = self.id_map.get(&id);
-        ensure!(song_uuid.is_some());
-        let song_uuid = song_uuid.unwrap();
+        let SongId::StringId(song_id) = id else {
+            bail!("Unsupported id type")
+        };
+
+        let song_uuid = Uuid::parse_str(&song_id)?;
+
         let mut song_path = project_dirs().cache_dir().to_path_buf();
 
         song_path.push(song_uuid.hyphenated().to_string());

@@ -722,7 +722,7 @@ impl Game {
         LuaGameState {
             title: self.chart.meta.title.clone(),
             artist: self.chart.meta.artist.clone(),
-            jacket_path: self.song.as_ref().difficulties[self.diff_idx]
+            jacket_path: self.song.as_ref().difficulties.read().unwrap()[self.diff_idx]
                 .jacket_path
                 .clone(),
             demo_mode: false,
@@ -802,38 +802,17 @@ impl Game {
 
         let last_score = self.real_score;
         self.real_score += match hit_rating {
-            HitRating::Crit {
-                tick: _,
-                delta: _,
-                time: _,
-            } => 2,
-            HitRating::Good {
-                tick: _,
-                delta: _,
-                time: _,
-            } => 1,
+            HitRating::Crit { .. } => 2,
+            HitRating::Good { .. } => 1,
             _ => 0,
         };
 
         let combo_updated = match hit_rating {
-            HitRating::Crit {
-                tick: _,
-                delta: _,
-                time: _,
-            }
-            | HitRating::Good {
-                tick: _,
-                delta: _,
-                time: _,
-            } => {
+            HitRating::Crit { .. } | HitRating::Good { .. } => {
                 self.combo += 1;
                 true
             }
-            HitRating::Miss {
-                tick: _,
-                delta: _,
-                time: _,
-            } => {
+            HitRating::Miss { .. } => {
                 if self.combo == 0 {
                     false
                 } else {
@@ -1004,6 +983,7 @@ impl Game {
                         * 1000.0;
                 let contains_cursor = true; //TODO: (start.min(end)..=start.max(end)).contains(&self.laser_cursors[lane]);
                 if tick.y < slam_miss_tick {
+                    self.laser_assist_ticks[lane] = 0;
                     HitRating::Miss { tick, delta, time }
                 } else if delta.abs() < (self.lua_game_state.hit_window.good.as_secs_f64() * 1000.0)
                     && contains_cursor
@@ -1139,7 +1119,17 @@ impl Scene for Game {
 
         for (side, assist_ticks) in self.laser_assist_ticks.iter_mut().enumerate() {
             //TODO: If on straight laser, keep assist high
-            if *assist_ticks > 0 {
+            let next_laser_is_slam = || {
+                self.score_ticks
+                    .iter()
+                    .find(|t| match t.tick {
+                        ScoreTick::Laser { lane, .. } => lane == side,
+                        ScoreTick::Slam { lane, .. } => lane == side,
+                        _ => false,
+                    })
+                    .map(|x| matches!(x.tick, ScoreTick::Slam { .. }))
+            };
+            if *assist_ticks > 0 && !next_laser_is_slam().unwrap_or_default() {
                 self.laser_cursors[side] = self.chart.note.laser[side]
                     .value_at(self.current_tick as f64)
                     .unwrap_or(self.laser_cursors[side]);

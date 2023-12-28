@@ -14,7 +14,7 @@ use crate::{
     game::{HitRating, HitWindow},
     lua_service::LuaProvider,
     scene::{Scene, SceneData},
-    song_provider::ScoreProvider,
+    song_provider::{DiffId, ScoreProvider, SongDiffId, SongId},
     songselect::{Difficulty, Song},
     ControlMessage,
 };
@@ -82,7 +82,7 @@ pub struct SongResultData {
     hold_hit_stats: Vec<HitStat>, // Only when isSelf is true; contains HitStat for holds
     laser_hit_stats: Vec<HitStat>, // Only when isSelf is true; contains HitStat for lasers
     is_local: bool,               // Whether this score was set locally
-    song_id: u64,
+    song_id: SongDiffId,
 }
 
 impl SongResultData {
@@ -102,7 +102,7 @@ impl SongResultData {
             top_badge: _,
             scores,
             hash: _,
-        } = song.difficulties[diff_idx].clone();
+        } = song.difficulties.read().unwrap()[diff_idx].clone();
 
         let Song {
             title,
@@ -228,7 +228,14 @@ impl SongResultData {
             laser_hit_stats,
             note_hit_stats,
             hold_hit_stats,
-            song_id: song.id,
+            song_id: SongDiffId::SongDiff(
+                song.id.clone(),
+                song.difficulties.read().unwrap()[diff_idx]
+                    .hash
+                    .as_ref()
+                    .map(|h| DiffId(SongId::StringId(h.clone())))
+                    .unwrap_or_else(|| song.difficulties.read().unwrap()[diff_idx].id.clone()),
+            ),
             ..Default::default()
         }
     }
@@ -398,11 +405,10 @@ pub struct SongResult {
 
 impl Scene for SongResult {
     fn init(&mut self, app_control_tx: Sender<ControlMessage>) -> anyhow::Result<()> {
-        self.score_service.write().unwrap().insert_score(
-            self.data.song_id,
-            Score::from(&self.data),
-            self.data.uid.as_ref().map(|x| x.as_str()),
-        )?;
+        self.score_service
+            .write()
+            .unwrap()
+            .insert_score(&self.data.song_id, Score::from(&self.data))?;
 
         self.services
             .get_required::<LuaProvider>()

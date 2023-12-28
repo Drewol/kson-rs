@@ -94,3 +94,4 @@ bus = "2.4.1"
 
 [target.'cfg(unix)'.dependencies]
 openssl = { version = "^0.10", features = ["vendored"] }
+

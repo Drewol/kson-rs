@@ -493,6 +493,43 @@ impl LocalSongsDb {
         .await
     }
 
+    pub async fn get_all_scores(
+        &self,
+    ) -> std::result::Result<std::vec::Vec<ScoreEntry>, sqlx::Error> {
+        query_as!(
+            ScoreEntry,
+            "SELECT 
+        rowid,
+        score,
+        crit,
+        near,
+        early,
+        late,
+        combo,
+        miss,
+        gauge,
+        auto_flags,
+        replay,
+        timestamp,
+        chart_hash,
+        user_name,
+        user_id,
+        local_score,
+        window_perfect,
+        window_good,
+        window_hold,
+        window_miss,
+        window_slam,
+        gauge_type,
+        gauge_opt,
+        mirror,
+        random
+        FROM Scores",
+        )
+        .fetch_all(&self.sqlite_pool)
+        .await
+    }
+
     pub async fn move_scores(
         &self,
         from: &str,

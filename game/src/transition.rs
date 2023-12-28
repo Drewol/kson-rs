@@ -120,7 +120,7 @@ impl Transition {
         } = &target
         {
             let mut vgfx = vgfx.write().unwrap();
-            let diff = &song.difficulties[*diff];
+            let diff = &song.difficulties.read().unwrap()[*diff];
             let lua_idx = lua_address(&transition_lua);
             log_result!(transition_lua.globals().set(
                 "song",
