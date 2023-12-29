@@ -9,7 +9,9 @@ use std::{
     time::Duration,
 };
 
+use futures::AsyncWriteExt;
 use itertools::Itertools;
+use log::warn;
 use rayon::prelude::*;
 use rodio::Source;
 
@@ -211,53 +213,59 @@ impl Debug for NauticaSongProvider {
     }
 }
 
-fn next_songs(path: &str) -> Promise<Result<NauticaSongs>> {
+async fn next_songs(path: String) -> Result<NauticaSongs> {
     log::info!("Getting more nautica songs: {}", path);
-    let path = String::from_str(path).unwrap();
-    Promise::spawn_thread("get nautica", move || {
-        let nautica_songs = ureq::get(&path).call()?.into_json::<NauticaSongs>()?;
-        nautica_songs
-            .data
-            .par_iter()
-            .try_for_each(|x| -> Result<()> {
-                let mut song_path = project_dirs().cache_dir().to_path_buf();
-                song_path.push(x.id.hyphenated().to_string());
-                std::fs::create_dir_all(&song_path)?;
-                if x.jacket_url.ends_with("png") {
-                    song_path.push("jacket.png");
-                } else {
-                    song_path.push("jacket.jpg");
-                }
+    //TODO: Async requests
+    let nautica_songs = reqwest::get(&path).await?.json::<NauticaSongs>().await?;
+    for x in &nautica_songs.data {
+        let mut song_path = project_dirs().cache_dir().to_path_buf();
+        song_path.push(x.id.hyphenated().to_string());
+        std::fs::create_dir_all(&song_path)?;
+        if x.jacket_url.ends_with("png") {
+            song_path.push("jacket.png");
+        } else {
+            song_path.push("jacket.jpg");
+        }
 
-                if song_path.exists() {
-                    return Ok(());
-                }
+        if song_path.exists() {
+            continue;
+        }
 
-                let jacket_response = ureq::get(&x.jacket_url).call().expect("No jacket");
-                let jacket_path = match jacket_response.content_type() {
-                    "image/jpeg" => song_path.with_extension("jpg"),
-                    "image/png" => song_path.with_extension("png"),
-                    "image/webp" => song_path.with_extension("webp"),
-                    content_type => {
-                        bail!("Can't load jackets of type: {content_type}");
-                    }
-                };
+        let Ok(jacket_response) = reqwest::get(&x.jacket_url).await else {
+            continue;
+        };
 
-                let file = File::create(jacket_path)?;
-                let mut file = std::io::BufWriter::new(file);
-                std::io::copy(&mut jacket_response.into_reader(), &mut file)?;
+        let jacket_path = match jacket_response
+            .headers()
+            .get(reqwest::header::CONTENT_TYPE)
+            .unwrap()
+            .to_str()
+            .unwrap_or_default()
+        {
+            "image/jpeg" => song_path.with_extension("jpg"),
+            "image/png" => song_path.with_extension("png"),
+            "image/webp" => song_path.with_extension("webp"),
+            content_type => {
+                warn!("Can't load jackets of type: {content_type}");
+                continue;
+            }
+        };
 
-                Ok(())
-            })?;
-        Ok(nautica_songs)
-    })
+        let Ok(bytes) = jacket_response.bytes().await else {
+            continue;
+        };
+
+        tokio::fs::write(jacket_path, bytes).await;
+    }
+    Ok(nautica_songs)
 }
 
 impl NauticaSongProvider {
     pub fn new() -> Self {
-        let first_songs = next_songs("https://ksm.dev/app/songs")
-            .block_and_take()
-            .unwrap();
+        let first_songs =
+            poll_promise::Promise::spawn_async(next_songs("https://ksm.dev/app/songs".to_string()))
+                .block_and_take()
+                .unwrap();
 
         let mut events = VecDeque::new();
         let new_songs = first_songs
@@ -356,7 +364,7 @@ impl SongProvider for NauticaSongProvider {
             .find(|x| x.1.id.as_u64() == index)
         {
             if i > self.all_songs.len().saturating_sub(10) {
-                self.next = Some(next_songs(&self.next_url));
+                self.next = Some(Promise::spawn_async(next_songs(self.next_url.clone())));
             }
         }
     }
@@ -417,24 +425,18 @@ impl SongProvider for NauticaSongProvider {
         let source: Box<dyn Source<Item = f32> + Send> = if song_path.exists() {
             Box::new(rodio::Decoder::new(std::fs::File::open(song_path)?)?.convert_samples())
         } else {
-            let NauticaSong { data: nautica } = ureq::get(&format!(
+            let NauticaSong { data: nautica } = reqwest::blocking::get(&format!(
                 "https://ksm.dev/app/songs/{}",
                 song_uuid.as_hyphenated()
             ))
-            .call()
             .expect("Failed to get song")
-            .into_json()
+            .json()
             .expect("Failed to parse nautica song");
 
             ensure!(nautica.preview_url.is_some());
             let preview_url = nautica.preview_url.unwrap();
 
-            let mut bytes = vec![];
-
-            ureq::get(&preview_url)
-                .call()?
-                .into_reader()
-                .read_to_end(&mut bytes)?;
+            let mut bytes = reqwest::blocking::get(&preview_url)?.bytes()?;
 
             std::fs::write(song_path, &bytes)?;
 
@@ -466,22 +468,18 @@ fn download_song(id: Uuid, diff: u8) -> LoadSongFn {
         }
 
         let NauticaSong { data: nautica } =
-            ureq::get(&format!("https://ksm.dev/app/songs/{}", id.as_hyphenated()))
-                .call()
+            reqwest::blocking::get(&format!("https://ksm.dev/app/songs/{}", id.as_hyphenated()))
                 .expect("Failed to get song")
-                .into_json()
+                .json()
                 .expect("Failed to parse nautica song");
 
-        let mut data = ureq::get(&nautica.cdn_download_url)
-            .call()
+        let mut data = reqwest::blocking::get(&nautica.cdn_download_url)
             .expect("Failed to download song zip")
-            .into_reader();
+            .bytes()
+            .unwrap();
 
-        let file = File::create(&song_path).expect("Failed to create song zip for downloading");
-        {
-            let mut file_writer = BufWriter::new(&file);
-            std::io::copy(&mut data, &mut file_writer);
-        }
+        let file =
+            std::fs::write(&song_path, data).expect("Failed to create song zip for downloading");
         drop(file);
         let file = File::open(song_path).expect("Ug");
         return song_from_zip(BufReader::new(file), diff).expect("Failed to load song from zip");

@@ -9,9 +9,9 @@ use egui::mutex::RwLock;
 use log::warn;
 use poll_promise::Promise;
 use rodio::Source;
+use serde_json::json;
 use tealr::mlu::mlua::{Function, Lua, LuaSerdeExt};
 use three_d::{ColorMaterial, Gm, Mat3, Rad, Rectangle, Texture2DRef, Vec2, Zero};
-use ureq::json;
 
 use crate::{
     game_data::GameData,

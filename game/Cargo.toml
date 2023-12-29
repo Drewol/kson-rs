@@ -51,11 +51,12 @@ puffin = "0.16.0"
 puffin_http = "0.13.0"
 uuid = { version = "1.2.2", features = ["serde"] }
 poll-promise = { git = "https://github.com/EmbarkStudios/poll-promise", features = [
-    "smol",
+    "tokio",
 ] }
+tokio = {version = "1", features = ["rt-multi-thread", "fs"]}
 serde = { version = "1.0.152", features = ["derive"] }
 toml = "0.7.2"
-ureq = { version = "2.6.2", features = ["json", "native-tls"] }
+reqwest = { version = "0.11", features = ["json", "native-tls", "blocking"] }
 three-d-asset = { version = "0.6.0", features = [
     "image",
     "png",
@@ -86,7 +87,6 @@ sha1_smol = "1.0.0"
 futures = "0.3.28"
 num_cpus = "1.16.0"
 encoding = "0.2.33"
-async-fs = "1.6.0"
 kson-editor = { path = "../editor" }
 serde_with = "3.3.0"
 more-di = { version = "3.1.0", features = ["async"] }

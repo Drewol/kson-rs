@@ -352,18 +352,11 @@ fn main() -> anyhow::Result<()> {
     mixer_controls.add(rodio::source::Zero::new(2, 44100));
     sink.append(mixer);
     sink.play();
-    let (killed, _killer) = channel();
+    let rt = tokio::runtime::Builder::new_multi_thread()
+        .enable_all()
+        .build()?;
 
-    for _ in 0..(num_cpus::get() / 2).max(1) {
-        let killed = killed.clone();
-        let _async = std::thread::spawn(move || loop {
-            poll_promise::tick();
-            std::thread::sleep(Duration::from_millis(1));
-            if killed.send(()).is_err() {
-                return;
-            }
-        });
-    }
+    let _tokio = rt.enter();
 
     let (window, surface, canvas, gl_context, eventloop, window_gl) = window::create_window();
 

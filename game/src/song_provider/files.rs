@@ -31,6 +31,7 @@ use log::info;
 use puffin::profile_function;
 use rodio::Source;
 use rusc_database::{ChartEntry, LocalSongsDb, ScoreEntry};
+use tokio::io::AsyncRead;
 
 enum WorkerControlMessage {
     Stop,
@@ -183,15 +184,9 @@ impl FileSongProvider {
                                     match worker_db.get_or_insert_folder(&folder).await {
                                         Ok(folder_id) => {
                                             let mut charts = vec![];
-                                            match async_fs::read_dir(&folder).await {
+                                            match tokio::fs::read_dir(&folder).await {
                                                 Ok(mut dir) => {
-                                                    while let Some(f) = dir.next().await {
-                                                        if let Some(err) = f.as_ref().err() {
-                                                            log::warn!("{}", err);
-                                                            continue;
-                                                        }
-
-                                                        let f = f.unwrap();
+                                                    while let Ok(Some(f)) = dir.next_entry().await {
                                                         if !f.path().is_file() {
                                                             continue;
                                                         }
@@ -214,11 +209,6 @@ impl FileSongProvider {
 
                                                         let mut data = vec![];
 
-                                                        if let Ok(mut p) =
-                                                            async_fs::File::open(&f.path()).await
-                                                        {
-                                                            _ = p.read_to_end(&mut data).await;
-                                                        }
                                                         hasher.update(&data);
                                                         let hash = hasher.digest().to_string();
 
