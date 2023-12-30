@@ -24,7 +24,7 @@ use tealr::{
         mlua::{Function, Lua, LuaSerdeExt},
         TealData, UserData,
     },
-    ToTypename, TypeName,
+    ToTypename,
 };
 
 #[derive(Debug, ToTypename, Clone, Serialize, Default)]

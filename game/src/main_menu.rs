@@ -1,9 +1,7 @@
 use std::{
-    cell::Ref,
     rc::Rc,
     sync::{
         mpsc::{Receiver, Sender},
-        Arc,
     },
     time::SystemTime,
 };
@@ -11,14 +9,14 @@ use std::{
 use anyhow::{anyhow, Result};
 use di::ServiceProvider;
 use game_loop::winit::event::{ElementState, Event, WindowEvent};
-use generational_arena::Index;
-use rodio::dynamic_mixer::DynamicMixerController;
+
+
 use tealr::{
     mlu::{
         mlua::{AppDataRef, Function, Lua},
         ExportInstances, TealData, UserData, UserDataProxy,
     },
-    ToTypename, TypeName,
+    ToTypename,
 };
 
 use crate::{

@@ -1,5 +1,4 @@
 use std::{
-    cell::Ref,
     collections::HashMap,
     path::PathBuf,
     sync::{atomic::AtomicUsize, Arc},
@@ -17,7 +16,7 @@ use tealr::{
         mlua::{self},
         UserData,
     },
-    SingleType, ToTypename, TypeName,
+    SingleType, ToTypename,
 };
 
 use crate::{

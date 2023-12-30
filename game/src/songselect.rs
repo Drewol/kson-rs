@@ -1,10 +1,10 @@
 use anyhow::{ensure, Result};
 use di::{RefMut, ServiceProvider};
 use game_loop::winit::event::Event;
-use generational_arena::Index;
+
 use log::warn;
 use puffin::{profile_function, profile_scope};
-use rodio::{dynamic_mixer::DynamicMixerController, Source};
+use rodio::{Source};
 use serde::Serialize;
 use std::{
     fmt::Debug,
@@ -22,25 +22,22 @@ use tealr::{
         mlua::{Function, Lua, LuaSerdeExt},
         TealData, UserData,
     },
-    SingleType, ToTypename, TypeName,
+    SingleType, ToTypename,
 };
 
 use crate::{
     button_codes::{LaserAxis, LaserState, UscButton, UscInputEvent},
-    config::GameConfig,
-    game_data::GameData,
-    input_state::{self, InputState},
+    input_state::{InputState},
     lua_service::LuaProvider,
     results::Score,
     scene::{Scene, SceneData},
     settings_dialog::SettingsDialog,
     song_provider::{
-        DiffId, FileSongProvider, NauticaSongProvider, ScoreProvider, ScoreProviderEvent,
+        DiffId, ScoreProvider, ScoreProviderEvent,
         SongDiffId, SongId, SongProvider, SongProviderEvent,
     },
     sources::owned_source::owned_source,
     take_duration_fade::take_duration_fade,
-    vg_ui::Vgfx,
     ControlMessage, RuscMixer,
 };
 

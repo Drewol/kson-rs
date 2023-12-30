@@ -37,7 +37,7 @@ mod tests {
         let lua = &Lua::new();
 
         let a = lua_address(lua);
-        let b = lua_address(lua.clone());
+        let b = lua_address(lua);
         println!("{a}");
         assert!(a == b);
     }

@@ -3,7 +3,7 @@ use std::{
     rc::Rc,
     sync::{
         mpsc::{channel, Receiver, Sender},
-        Arc, Mutex, RwLock,
+        Arc, RwLock,
     },
     time::{Duration, SystemTime},
 };
@@ -12,30 +12,30 @@ use di::{RefMut, ServiceProvider};
 use egui_glow::EguiGlow;
 use femtovg::Paint;
 use game_loop::winit::{dpi::PhysicalPosition, event, window::Window};
-use generational_arena::{Arena, Index};
+use generational_arena::{Index};
 
 use kson::Chart;
 use log::*;
 use puffin::{profile_function, profile_scope};
 
-use serde_json::json;
+
 use td::{FrameOutput, Modifiers};
 use tealr::mlu::mlua::Lua;
 use three_d::FrameInput;
 
 use femtovg as vg;
 use three_d as td;
-use vg::{renderer::OpenGl, Canvas};
 
-use tealr::mlu::mlua::LuaSerdeExt;
+
+
 
 use crate::{
     button_codes::{LaserState, UscInputEvent},
     config::GameConfig,
     game::HitRating,
-    game_data::{ExportGame, GameData, LuaPath},
+    game_data::{GameData},
     input_state::InputState,
-    lua_http::{ExportLuaHttp, LuaHttp},
+    lua_http::{LuaHttp},
     lua_service::LuaProvider,
     main_menu::MainMenuButton,
     scene,
@@ -43,7 +43,7 @@ use crate::{
     songselect,
     transition::Transition,
     util::lua_address,
-    vg_ui::{ExportVgfx, Vgfx},
+    vg_ui::{Vgfx},
     worker_service::WorkerService,
     LuaArena, RuscMixer, Scenes, FRAME_ACC_SIZE,
 };
@@ -212,8 +212,8 @@ impl GameMain {
         for (_idx, lua) in lua_arena.read().unwrap().0.iter() {
             lua.set_app_data(frame_input.clone());
         }
-        let lua_frame_input = frame_input.clone();
-        let lua_mixer = mixer.clone();
+        let _lua_frame_input = frame_input.clone();
+        let _lua_mixer = mixer.clone();
 
         if frame_input.first_frame {
             frame_input

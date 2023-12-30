@@ -129,7 +129,7 @@ impl FileSongProvider {
         for song in &mut all_songs {
             let song = Arc::make_mut(song);
             let mut difficulties =
-                std::mem::replace(&mut *song.difficulties.write().unwrap(), vec![]);
+                std::mem::take(&mut *song.difficulties.write().unwrap());
             for diff in difficulties.iter_mut() {
                 if let Ok(mut score_entires) = database
                     .get_scores_for_chart(diff.hash.as_ref().unwrap())
@@ -621,8 +621,8 @@ impl ScoreProvider for FileSongProvider {
                 window_slam: hit_window.good.as_millis() as _,
                 gauge_type: 0,
                 gauge_opt: 0,
-                mirror: mirror,
-                random: random,
+                mirror,
+                random,
             }))?;
         }
 

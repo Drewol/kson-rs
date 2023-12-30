@@ -1,11 +1,11 @@
 use std::{
     path::PathBuf,
     rc::Rc,
-    sync::{mpsc::Sender, Arc, Mutex},
+    sync::{mpsc::Sender, Arc},
 };
 
 use di::{RefMut, ServiceProvider};
-use egui::mutex::RwLock;
+
 use log::warn;
 use poll_promise::Promise;
 use rodio::Source;

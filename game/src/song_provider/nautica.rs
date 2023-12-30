@@ -376,7 +376,7 @@ impl SongProvider for NauticaSongProvider {
             todo!() //return Err
         };
 
-        let song_uuid = Uuid::parse_str(&song_id).unwrap();
+        let song_uuid = Uuid::parse_str(song_id).unwrap();
 
         let mut song_path = project_dirs().cache_dir().to_path_buf();
 
@@ -412,7 +412,7 @@ impl SongProvider for NauticaSongProvider {
             bail!("Unsupported id type")
         };
 
-        let song_uuid = Uuid::parse_str(&song_id)?;
+        let song_uuid = Uuid::parse_str(song_id)?;
 
         let mut song_path = project_dirs().cache_dir().to_path_buf();
 
@@ -424,7 +424,7 @@ impl SongProvider for NauticaSongProvider {
         let source: Box<dyn Source<Item = f32> + Send> = if song_path.exists() {
             Box::new(rodio::Decoder::new(std::fs::File::open(song_path)?)?.convert_samples())
         } else {
-            let NauticaSong { data: nautica } = reqwest::blocking::get(&format!(
+            let NauticaSong { data: nautica } = reqwest::blocking::get(format!(
                 "https://ksm.dev/app/songs/{}",
                 song_uuid.as_hyphenated()
             ))
@@ -435,7 +435,7 @@ impl SongProvider for NauticaSongProvider {
             ensure!(nautica.preview_url.is_some());
             let preview_url = nautica.preview_url.unwrap();
 
-            let mut bytes = reqwest::blocking::get(&preview_url)?.bytes()?;
+            let mut bytes = reqwest::blocking::get(preview_url)?.bytes()?;
 
             std::fs::write(song_path, &bytes)?;
 
@@ -467,21 +467,20 @@ fn download_song(id: Uuid, diff: u8) -> LoadSongFn {
         }
 
         let NauticaSong { data: nautica } =
-            reqwest::blocking::get(&format!("https://ksm.dev/app/songs/{}", id.as_hyphenated()))
+            reqwest::blocking::get(format!("https://ksm.dev/app/songs/{}", id.as_hyphenated()))
                 .expect("Failed to get song")
                 .json()
                 .expect("Failed to parse nautica song");
 
-        let mut data = reqwest::blocking::get(&nautica.cdn_download_url)
+        let mut data = reqwest::blocking::get(nautica.cdn_download_url)
             .expect("Failed to download song zip")
             .bytes()
             .unwrap();
 
-        let file =
-            std::fs::write(&song_path, data).expect("Failed to create song zip for downloading");
+        std::fs::write(&song_path, data).expect("Failed to create song zip for downloading");
 
         let file = File::open(song_path).expect("Ug");
-        return song_from_zip(BufReader::new(file), diff).expect("Failed to load song from zip");
+        song_from_zip(BufReader::new(file), diff).expect("Failed to load song from zip")
     })
 }
 

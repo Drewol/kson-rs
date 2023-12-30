@@ -1,7 +1,7 @@
 use std::{
     path::{Path, PathBuf},
     rc::Rc,
-    sync::{mpsc::channel, Arc, Mutex, RwLock},
+    sync::{Arc, Mutex, RwLock},
     time::Duration,
 };
 
@@ -23,8 +23,8 @@ use directories::ProjectDirs;
 use femtovg as vg;
 
 use game_main::ControlMessage;
-use generational_arena::{Arena, Index};
-use gilrs::ev::filter::Jitter;
+use generational_arena::{Arena};
+
 
 use help::ServiceHelper;
 use kson::Ksh;
@@ -33,7 +33,7 @@ use log::*;
 use lua_service::LuaProvider;
 use puffin::profile_function;
 use rodio::{
-    dynamic_mixer::{DynamicMixer, DynamicMixerController},
+    dynamic_mixer::{DynamicMixerController},
     Source,
 };
 use scene::Scene;
@@ -422,9 +422,9 @@ fn main() -> anyhow::Result<()> {
         .add(LuaProvider::scoped())
         .build_provider()?;
 
-    let mousex = 0.0;
-    let mousey = 0.0;
-    let lua_provider: Arc<LuaProvider> = services.get_required();
+    let _mousex = 0.0;
+    let _mousey = 0.0;
+    let _lua_provider: Arc<LuaProvider> = services.get_required();
     let vgfx = services.get_required_mut::<Vgfx>();
     let event_proxy = eventloop.create_proxy();
     let (mut rusc_filter, offset_tx) = RuscFilter::new(GameConfig::get().global_offset as _);
@@ -489,8 +489,8 @@ fn main() -> anyhow::Result<()> {
 
     let gui = egui_glow::EguiGlow::new(&eventloop, gl_context, None);
 
-    let frame_times = [16.0; FRAME_ACC_SIZE];
-    let frame_time_index = 0;
+    let _frame_times = [16.0; FRAME_ACC_SIZE];
+    let _frame_time_index = 0;
 
     let fps_paint = vg::Paint::color(vg::Color::white()).with_text_align(vg::Align::Right);
 

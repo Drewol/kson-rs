@@ -1,6 +1,5 @@
 use std::{
-    rc::Rc,
-    sync::{Arc, Mutex, RwLock},
+    sync::{RwLock},
 };
 
 use di::{transient_factory, RefMut, ServiceCollection};

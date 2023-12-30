@@ -1712,7 +1712,7 @@ use std::{
     rc::Rc,
     sync::{
         mpsc::{Receiver, Sender},
-        Arc, Mutex,
+        Arc,
     },
     time::{Duration, SystemTime},
 };

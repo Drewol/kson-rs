@@ -1,8 +1,7 @@
 use std::{
     collections::HashMap,
     path::Path,
-    rc::Rc,
-    sync::{Arc, Mutex, RwLock},
+    sync::{Arc, RwLock},
 };
 
 use anyhow::ensure;
@@ -14,7 +13,7 @@ use tealr::{
         mlua::{FromLua, Lua},
         TealData, UserData,
     },
-    ToTypename, TypeName,
+    ToTypename,
 };
 use three_d::{
     vec2, vec3, vec4, AxisAlignedBoundingBox, Blend, BufferDataType, Context, CpuTexture,

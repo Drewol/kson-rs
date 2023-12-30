@@ -8,7 +8,7 @@ use std::{
 };
 
 use di::ServiceProvider;
-use egui_inspect::*;
+
 
 use rodio::{
     decoder::LoopedDecoder,
@@ -180,7 +180,7 @@ impl Scene for AudioTest {
         false
     }
 
-    fn debug_ui(&mut self, ctx: &egui::Context) -> anyhow::Result<()> {
+    fn debug_ui(&mut self, _ctx: &egui::Context) -> anyhow::Result<()> {
         let old_effects = self.effects;
 
         // TODO: egui::Window::new("Audio Test").show(ctx, |ui|  self.effects.inspect_mut("Effects", ui));

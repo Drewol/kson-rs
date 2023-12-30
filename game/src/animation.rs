@@ -1,7 +1,6 @@
 use std::{
     collections::VecDeque,
     path::{Path, PathBuf},
-    rc::Rc,
     sync::{
         mpsc::{channel, Receiver, Sender},
         Arc, Mutex,

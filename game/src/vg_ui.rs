@@ -1,7 +1,6 @@
 use std::{
     collections::HashMap,
     path::PathBuf,
-    rc::Rc,
     sync::{Arc, Mutex, RwLock},
 };
 
@@ -15,11 +14,11 @@ use poll_promise::Promise;
 use puffin::profile_scope;
 use tealr::{
     mlu::{TealData, UserData, UserDataProxy},
-    SingleType, ToTypename, TypeName,
+    SingleType, ToTypename,
 };
 
 use tealr::mlu::mlua;
-use three_d::FrameInput;
+
 
 use crate::{
     animation::VgAnimation, config::GameConfig, default_game_dir, help::add_lua_static_method,

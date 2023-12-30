@@ -1,5 +1,4 @@
 use reqwest::{
-    blocking::Body,
     header::{HeaderMap, HeaderName, HeaderValue},
     Method,
 };
@@ -11,7 +10,7 @@ use tealr::{
         mlua::{Function, Lua, RegistryKey},
         ExportInstances, FromToLua, TealData, UserData, UserDataProxy,
     },
-    ToTypename, TypeName,
+    ToTypename,
 };
 
 #[derive(Default)]
@@ -152,8 +151,8 @@ impl TealData for ExportLuaHttp {
 
             for (header, value) in headers.iter() {
                 req.headers_mut().append(
-                    HeaderName::from_str(&header).map_err(tealr::mlu::mlua::Error::external)?,
-                    HeaderValue::from_str(&value).map_err(tealr::mlu::mlua::Error::external)?,
+                    HeaderName::from_str(header).map_err(tealr::mlu::mlua::Error::external)?,
+                    HeaderValue::from_str(value).map_err(tealr::mlu::mlua::Error::external)?,
                 );
             }
 
@@ -207,7 +206,7 @@ impl TealData for ExportLuaHttp {
                             let req = client.get(url).build().unwrap();
 
                             match client.execute(req).await.map(Response::from_response) {
-                                Ok(mut r) => {
+                                Ok(r) => {
                                     let mut r = r.await;
                                     r.id = id;
                                     r
@@ -248,7 +247,7 @@ impl TealData for ExportLuaHttp {
                             let request = client.post(url).body(content).build().unwrap();
 
                             match client.execute(request).await.map(Response::from_response) {
-                                Ok(mut r) => {
+                                Ok(r) => {
                                     let mut r = r.await;
                                     r.id = id;
                                     r

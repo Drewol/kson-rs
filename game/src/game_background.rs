@@ -1,7 +1,5 @@
 use std::{
     path::{Path, PathBuf},
-    rc::Rc,
-    sync::Mutex,
 };
 
 use crate::{
@@ -24,7 +22,7 @@ use tealr::{
         mlua::{Function, Lua, LuaOptions},
         TealData,
     },
-    mlua_create_named_parameters, ToTypename, TypeName,
+    mlua_create_named_parameters, ToTypename,
 };
 use three_d_asset::{vec2, vec3, Vector2, Vector3, Viewport};
 

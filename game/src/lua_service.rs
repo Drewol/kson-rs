@@ -1,4 +1,4 @@
-use std::{rc::Rc, sync::RwLock};
+use std::{rc::Rc};
 
 use crate::{
     config::GameConfig,
