@@ -1,5 +1,9 @@
-use std::{rc::Rc, sync::Mutex};
+use std::{
+    rc::Rc,
+    sync::{Arc, Mutex, RwLock},
+};
 
+use di::{transient_factory, RefMut, ServiceCollection};
 use tealr::{
     mlu::{
         mlua::{self, FromLuaMulti, Lua, Result, ToLuaMulti},
@@ -7,6 +11,8 @@ use tealr::{
     },
     TealMultiValue, TypeName,
 };
+
+use crate::worker_service::WorkerService;
 
 pub(crate) fn add_lua_static_method<'lua, M, A, R, F, T: 'static + Sized + TypeName>(
     methods: &mut M,
@@ -38,19 +44,30 @@ pub(crate) fn add_lua_static_method<'lua, M, A, R, F, T: 'static + Sized + TypeN
             None
         };
 
-        let mut maybe_data = { lua.app_data_ref::<Rc<Mutex<T>>>().map(|x| x.clone()) };
+        let mut maybe_data = { lua.app_data_ref::<RefMut<T>>().map(|x| x.clone()) };
         if let Some(data_rc) = maybe_data.take() {
             let data = data_rc.clone();
             drop(data_rc);
             drop(maybe_data);
-            let data_lock = data.try_lock();
-            if let Ok(mut data) = data_lock {
-                function(lua, &mut data, p)
-            } else {
-                Err(mlua::Error::external("App data not set"))
+            let data_lock = data.try_write();
+            match data_lock {
+                Ok(mut data) => function(lua, &mut data, p),
+                Err(e) => Err(mlua::Error::external(format!("{e}"))),
             }
         } else {
             Err(mlua::Error::external("App data not set"))
         }
     })
+}
+
+pub trait ServiceHelper {
+    fn add_worker<T: WorkerService + 'static>(&mut self) -> &mut Self;
+}
+
+impl ServiceHelper for ServiceCollection {
+    fn add_worker<T: WorkerService + 'static>(&mut self) -> &mut Self {
+        self.add(transient_factory::<RwLock<dyn WorkerService>, _>(|sp| {
+            sp.get_required_mut::<T>()
+        }))
+    }
 }

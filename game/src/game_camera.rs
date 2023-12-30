@@ -59,7 +59,7 @@ impl ChartCamera {
             .num_columns(2)
             .show(ui, |ui| {
                 ui.label("FOV");
-                ui.add(egui::Slider::new(&mut self.fov, 0.0..=180.0));
+                ui.add(egui::Slider::new(&mut self.fov, 0.1..=180.0));
                 ui.end_row();
 
                 ui.label("Angle");

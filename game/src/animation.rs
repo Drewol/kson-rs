@@ -4,7 +4,7 @@ use std::{
     rc::Rc,
     sync::{
         mpsc::{channel, Receiver, Sender},
-        Mutex,
+        Arc, Mutex,
     },
     thread::JoinHandle,
 };
@@ -30,7 +30,7 @@ pub struct VgAnimation {
     frame_time: f64,
     frame_timer: f64,
     compressed: bool,
-    canvas: Rc<Mutex<Canvas<OpenGl>>>,
+    canvas: Arc<Mutex<Canvas<OpenGl>>>,
     loader_tx: Sender<LoaderRequest>,
     loader_rx: Receiver<LoaderResponse>,
     _loader_thread: JoinHandle<()>,
@@ -63,7 +63,7 @@ impl VgAnimation {
     pub fn new(
         image_root: impl AsRef<Path>,
         frame_time: f64,
-        canvas: Rc<Mutex<Canvas<OpenGl>>>,
+        canvas: Arc<Mutex<Canvas<OpenGl>>>,
         loop_count: usize,
         compressed: bool,
     ) -> anyhow::Result<Self> {

@@ -6,6 +6,7 @@ use std::{
     time::Duration,
 };
 
+use di::{Activator, InjectBuilder, Injectable};
 use egui::epaint::Hsva;
 use log::warn;
 use puffin::ProfilerScope;
@@ -32,6 +33,39 @@ pub struct GameData {
     pub input_state: InputState,
     pub audio_samples: HashMap<String, rodio::source::Buffered<rodio::Decoder<std::fs::File>>>,
     pub audio_sample_play_status: HashMap<String, Arc<AtomicUsize>>,
+}
+
+impl Injectable for GameData {
+    fn inject(lifetime: di::ServiceLifetime) -> di::InjectBuilder {
+        InjectBuilder::new(
+            Activator::new::<Self, Self>(
+                |sp| {
+                    Arc::new(GameData {
+                        resolution: (800, 600),
+                        mouse_pos: (0.0, 0.0),
+                        profile_stack: vec![],
+                        input_state: InputState::clone(&sp.get_required()),
+                        audio_samples: Default::default(),
+                        audio_sample_play_status: Default::default(),
+                    })
+                },
+                |sp| {
+                    Arc::new(
+                        GameData {
+                            resolution: (800, 600),
+                            mouse_pos: (0.0, 0.0),
+                            profile_stack: vec![],
+                            input_state: InputState::clone(&sp.get_required()),
+                            audio_samples: Default::default(),
+                            audio_sample_play_status: Default::default(),
+                        }
+                        .into(),
+                    )
+                },
+            ),
+            lifetime,
+        )
+    }
 }
 
 impl TypeName for GameData {

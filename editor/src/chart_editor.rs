@@ -1047,7 +1047,6 @@ impl MainState {
                                 + 1.0 * i as f32
                                 + self.screen.lane_width()
                                 + self.screen.track_width / 2.0;
-                            let y = y;
                             let w = self.screen.track_width / 6.0 - 2.0;
                             let h = -2.0 * self.screen.note_height_mult();
 

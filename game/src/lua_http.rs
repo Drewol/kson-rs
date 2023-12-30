@@ -1,7 +1,10 @@
-use serde::{Deserialize, Serialize};
-use std::{
-    collections::HashMap,
+use reqwest::{
+    blocking::Body,
+    header::{HeaderMap, HeaderName, HeaderValue},
+    Method,
 };
+use serde::{Deserialize, Serialize};
+use std::{collections::HashMap, str::FromStr};
 
 use tealr::{
     mlu::{
@@ -45,20 +48,47 @@ impl Response {
         }
     }
 
-    pub fn from_response(response: ureq::Response) -> Self {
+    pub async fn from_response(response: reqwest::Response) -> Self {
         Self {
             id: -1,
-            url: response.get_url().to_string(),
-            status: response.status() as _,
+            url: response.url().to_string(),
+            status: response.status().as_u16() as _,
             elapsed: 1.0,
             error: String::new(),
             cookies: String::new(),
             header: response
-                .headers_names()
+                .headers()
                 .iter()
-                .filter_map(|x| response.header(x).map(|v| (x.clone(), v.to_string())))
+                .map(|(name, value)| {
+                    (
+                        name.as_str().to_string(),
+                        value.to_str().unwrap_or_default().to_string(),
+                    )
+                })
                 .collect(),
-            text: response.into_string().unwrap_or_default(),
+            text: response.text().await.unwrap_or_default(),
+        }
+    }
+
+    pub fn from_response_blocking(response: reqwest::blocking::Response) -> Self {
+        Self {
+            id: -1,
+            url: response.url().to_string(),
+            status: response.status().as_u16() as _,
+            elapsed: 1.0,
+            error: String::new(),
+            cookies: String::new(),
+            header: response
+                .headers()
+                .iter()
+                .map(|(name, value)| {
+                    (
+                        name.as_str().to_string(),
+                        value.to_str().unwrap_or_default().to_string(),
+                    )
+                })
+                .collect(),
+            text: response.text().unwrap_or_default(),
         }
     }
 }
@@ -115,14 +145,21 @@ impl TealData for ExportLuaHttp {
         );
 
         methods.add_function("Get", |_, GetParams { url, headers }: GetParams| {
-            let mut req = ureq::get(&url);
+            let mut req = reqwest::blocking::Request::new(
+                Method::GET,
+                reqwest::Url::parse(&url).map_err(tealr::mlu::mlua::Error::external)?,
+            );
 
             for (header, value) in headers.iter() {
-                req = req.set(header, value);
+                req.headers_mut().append(
+                    HeaderName::from_str(&header).map_err(tealr::mlu::mlua::Error::external)?,
+                    HeaderValue::from_str(&value).map_err(tealr::mlu::mlua::Error::external)?,
+                );
             }
 
-            req.call()
-                .map(Response::from_response)
+            reqwest::blocking::Client::new()
+                .execute(req)
+                .map(Response::from_response_blocking)
                 .map_err(tealr::mlu::mlua::Error::external)
         });
 
@@ -134,14 +171,18 @@ impl TealData for ExportLuaHttp {
                  content,
                  headers,
              }| {
-                let mut req = ureq::post(&url);
+                let client = reqwest::blocking::Client::builder().build().unwrap();
 
+                let mut req = client.post(url).body(content);
                 for (header, value) in headers.iter() {
-                    req = req.set(header, value);
+                    req = req.header(header, value);
                 }
 
-                req.send_string(&content)
-                    .map(Response::from_response)
+                let req = req.build().unwrap();
+
+                client
+                    .execute(req)
+                    .map(Response::from_response_blocking)
                     .map_err(tealr::mlu::mlua::Error::external)
             },
         );
@@ -155,14 +196,19 @@ impl TealData for ExportLuaHttp {
                         .insert(id, lua.create_registry_value(callback)?);
 
                     http.calls
-                        .push(poll_promise::Promise::spawn_thread("HTTP GET", move || {
-                            let mut request = ureq::request("GET", &url);
-                            for (header, value) in headers.iter() {
-                                request = request.set(header, value);
-                            }
+                        .push(poll_promise::Promise::spawn_async(async move {
+                            let client = reqwest::Client::builder()
+                                .default_headers(HeaderMap::from_iter(headers.iter().map(
+                                    |(name, value)| (name.parse().unwrap(), value.parse().unwrap()),
+                                )))
+                                .build()
+                                .unwrap();
 
-                            match request.call().map(Response::from_response) {
+                            let req = client.get(url).build().unwrap();
+
+                            match client.execute(req).await.map(Response::from_response) {
                                 Ok(mut r) => {
+                                    let mut r = r.await;
                                     r.id = id;
                                     r
                                 }
@@ -190,23 +236,26 @@ impl TealData for ExportLuaHttp {
                     http.callbacks
                         .insert(id, lua.create_registry_value(callback)?);
 
-                    http.calls.push(poll_promise::Promise::spawn_thread(
-                        "HTTP POST",
-                        move || {
-                            let mut request = ureq::request("POST", &url);
-                            for (header, value) in headers.iter() {
-                                request = request.set(header, value);
-                            }
+                    http.calls
+                        .push(poll_promise::Promise::spawn_async(async move {
+                            let client = reqwest::Client::builder()
+                                .default_headers(HeaderMap::from_iter(headers.iter().map(
+                                    |(name, value)| (name.parse().unwrap(), value.parse().unwrap()),
+                                )))
+                                .build()
+                                .unwrap();
 
-                            match request.send_string(&content).map(Response::from_response) {
+                            let request = client.post(url).body(content).build().unwrap();
+
+                            match client.execute(request).await.map(Response::from_response) {
                                 Ok(mut r) => {
+                                    let mut r = r.await;
                                     r.id = id;
                                     r
                                 }
                                 Err(e) => Response::error(format!("{:?}", e)),
                             }
-                        },
-                    ));
+                        }));
 
                     http.next_id += 1;
                 }

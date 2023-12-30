@@ -1,22 +1,21 @@
 use std::{
     path::PathBuf,
     rc::Rc,
-    sync::{mpsc::Sender, Arc, Mutex},
+    sync::{mpsc::Sender, Arc},
     time::SystemTime,
 };
 
+use di::{RefMut, ServiceProvider};
 use kson::score_ticks::ScoreTick;
-use rodio::dynamic_mixer::DynamicMixerController;
 use serde::Serialize;
 
 use crate::{
     button_codes::UscButton,
     game::{HitRating, HitWindow},
-    game_data::GameData,
-    input_state::InputState,
+    lua_service::LuaProvider,
     scene::{Scene, SceneData},
+    song_provider::{DiffId, ScoreProvider, SongDiffId, SongId},
     songselect::{Difficulty, Song},
-    vg_ui::Vgfx,
     ControlMessage,
 };
 use serde_with::*;
@@ -83,6 +82,7 @@ pub struct SongResultData {
     hold_hit_stats: Vec<HitStat>, // Only when isSelf is true; contains HitStat for holds
     laser_hit_stats: Vec<HitStat>, // Only when isSelf is true; contains HitStat for lasers
     is_local: bool,               // Whether this score was set locally
+    song_id: SongDiffId,
 }
 
 impl SongResultData {
@@ -102,7 +102,7 @@ impl SongResultData {
             top_badge: _,
             scores,
             hash: _,
-        } = song.difficulties[diff_idx].clone();
+        } = song.difficulties.read().unwrap()[diff_idx].clone();
 
         let Song {
             title,
@@ -228,24 +228,28 @@ impl SongResultData {
             laser_hit_stats,
             note_hit_stats,
             hold_hit_stats,
-
+            song_id: SongDiffId::SongDiff(
+                song.id.clone(),
+                song.difficulties.read().unwrap()[diff_idx]
+                    .hash
+                    .as_ref()
+                    .map(|h| DiffId(SongId::StringId(h.clone())))
+                    .unwrap_or_else(|| song.difficulties.read().unwrap()[diff_idx].id.clone()),
+            ),
             ..Default::default()
         }
     }
 }
 
 impl SceneData for SongResultData {
-    fn make_scene(
-        self: Box<Self>,
-        _input_state: InputState,
-        _: Rc<Mutex<Vgfx>>,
-        _: Rc<Mutex<GameData>>,
-    ) -> anyhow::Result<Box<dyn Scene>> {
+    fn make_scene(self: Box<Self>, services: ServiceProvider) -> anyhow::Result<Box<dyn Scene>> {
         Ok(Box::new(SongResult {
+            score_service: services.get_required(),
             close: false,
             control_tx: None,
             data: *self,
             lua: Rc::new(Lua::new()),
+            services,
         }))
     }
 }
@@ -314,20 +318,78 @@ impl TryFrom<HitRating> for HitStat {
 #[derive(Debug, TypeName, Clone, Serialize, UserData, Default)]
 #[serde(rename_all = "camelCase")]
 pub struct Score {
-    pub gauge: f32,        //range 0.0 -> 1.0
-    pub gauge_type: i32,   // 0 = normal, 1 = hard. Should be defined in constants sometime
-    pub gauge_option: i32, // type specific, such as difficulty level for the same gauge type if available
+    ///range 0.0 -> 1.0
+    pub gauge: f32,
+    /// 0 = normal, 1 = hard. Should be defined in constants sometime
+    pub gauge_type: i32,
+    /// type specific, such as difficulty level for the same gauge type if available
+    pub gauge_option: i32,
     pub mirror: bool,
     pub random: bool,
-    pub auto_flags: i32, //bits for autoplay settings, 0 = no autoplay
+    /// bits for autoplay settings, 0 = no autoplay
+    pub auto_flags: i32,
     pub score: i32,
     pub perfects: i32,
     pub goods: i32,
     pub misses: i32,
     pub badge: i32,
-    pub timestamp: i32, //timestamp in POSIX time (seconds since Jan 1 1970 00:00:00 UTC)
+    ///timestamp in POSIX time (seconds since Jan 1 1970 00:00:00 UTC)
+    pub timestamp: i32,
     pub player_name: String,
-    pub is_local: bool, // Whether this score was set locally
+    /// Whether this score was set locally
+    pub is_local: bool,
+    pub hit_window: HitWindow,
+    pub earlies: i32,
+    pub lates: i32,
+    pub combo: u32,
+}
+
+impl From<&SongResultData> for Score {
+    fn from(val: &SongResultData) -> Self {
+        let SongResultData {
+            score,
+            gauge_type,
+            gauge_option,
+            mirror,
+            random,
+            auto_flags,
+            gauge,
+            misses,
+            goods,
+            perfects,
+            earlies,
+            lates,
+            badge,
+            player_name,
+            hit_window,
+            is_local,
+            max_combo,
+            ..
+        } = val;
+        Score {
+            gauge: *gauge,
+            gauge_type: *gauge_type,
+            gauge_option: *gauge_option,
+            mirror: *mirror,
+            random: *random,
+            auto_flags: *auto_flags,
+            score: *score as _,
+            perfects: *perfects,
+            goods: *goods,
+            misses: *misses,
+            badge: *badge,
+            timestamp: std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_secs() as _,
+            player_name: player_name.clone(),
+            is_local: *is_local,
+            hit_window: *hit_window,
+            earlies: *earlies,
+            lates: *lates,
+            combo: *max_combo as _,
+        }
+    }
 }
 
 impl TealData for Score {}
@@ -335,20 +397,22 @@ impl TealData for Score {}
 pub struct SongResult {
     data: SongResultData,
     lua: Rc<Lua>,
+    services: ServiceProvider,
     control_tx: Option<Sender<ControlMessage>>,
     close: bool,
+    score_service: RefMut<dyn ScoreProvider>,
 }
 
 impl Scene for SongResult {
-    fn init(
-        &mut self,
-        load_lua: std::rc::Rc<
-            dyn Fn(std::rc::Rc<Lua>, &'static str) -> anyhow::Result<generational_arena::Index>,
-        >,
-        app_control_tx: Sender<ControlMessage>,
-        _mixer: Arc<DynamicMixerController<f32>>,
-    ) -> anyhow::Result<()> {
-        load_lua(self.lua.clone(), "result.lua")?;
+    fn init(&mut self, app_control_tx: Sender<ControlMessage>) -> anyhow::Result<()> {
+        self.score_service
+            .write()
+            .unwrap()
+            .insert_score(&self.data.song_id, Score::from(&self.data))?;
+
+        self.services
+            .get_required::<LuaProvider>()
+            .register_libraries(self.lua.clone(), "result.lua")?;
 
         self.lua
             .globals()

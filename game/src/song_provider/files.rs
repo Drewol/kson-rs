@@ -1,4 +1,5 @@
 use std::{
+    arch::x86_64::__m128,
     collections::HashMap,
     path::PathBuf,
     sync::{
@@ -11,20 +12,26 @@ use std::{
 use crate::{
     block_on,
     config::GameConfig,
+    game::HitWindow,
     results::Score,
     songselect::{Difficulty, Song},
+    worker_service::WorkerService,
 };
 
-use super::{LoadSongFn, ScoreProvider, SongProvider, SongProviderEvent};
-use anyhow::ensure;
+use super::{
+    DiffId, LoadSongFn, ScoreProvider, ScoreProviderEvent, SongDiffId, SongId, SongProvider,
+    SongProviderEvent,
+};
+use anyhow::{bail, ensure};
 
-use futures::{AsyncReadExt, StreamExt};
+use futures::{executor::block_on, AsyncReadExt, StreamExt};
 use itertools::Itertools;
 use kson::Ksh;
 use log::info;
 use puffin::profile_function;
 use rodio::Source;
 use rusc_database::{ChartEntry, LocalSongsDb, ScoreEntry};
+use tokio::io::AsyncRead;
 
 enum WorkerControlMessage {
     Stop,
@@ -33,11 +40,13 @@ enum WorkerControlMessage {
 
 pub struct FileSongProvider {
     all_songs: Vec<Arc<Song>>,
-    new_songs: Vec<Arc<Song>>,
+
     database: rusc_database::LocalSongsDb,
     worker: poll_promise::Promise<()>,
     worker_rx: Receiver<SongProviderEvent>,
     worker_tx: Sender<WorkerControlMessage>,
+    score_bus: bus::Bus<ScoreProviderEvent>,
+    song_bus: bus::Bus<SongProviderEvent>,
 }
 
 impl From<ScoreEntry> for Score {
@@ -57,6 +66,16 @@ impl From<ScoreEntry> for Score {
             timestamp: value.timestamp as i32,
             player_name: value.user_name,
             is_local: value.local_score,
+            hit_window: HitWindow::new(
+                0,
+                value.window_perfect as _,
+                value.window_good as _,
+                value.window_hold as _,
+                value.window_miss as _,
+            ),
+            earlies: value.early as _,
+            lates: value.late as _,
+            combo: value.combo as _,
         }
     }
 }
@@ -81,8 +100,9 @@ impl FileSongProvider {
             .drain(0..)
             .into_grouping_map_by(|x| x.folderid)
             .fold(Song::default(), |mut song, id, diff| {
-                if song.difficulties.is_empty() {
-                    song.id = *id as u64;
+                let mut difficulties = song.difficulties.write().unwrap();
+                if difficulties.is_empty() {
+                    song.id = SongId::IntId(*id);
                     song.artist = diff.artist;
                     song.bpm = diff.bpm;
                     song.title = diff.title;
@@ -90,17 +110,17 @@ impl FileSongProvider {
 
                 difficulty_id_path_map.insert(diff.rowid as u64, PathBuf::from(&diff.path));
                 let diff_path = PathBuf::from(diff.path);
-                song.difficulties.push(Difficulty {
+                difficulties.push(Difficulty {
                     jacket_path: diff_path.with_file_name(diff.jacket_path),
                     level: diff.level as u8,
                     difficulty: diff.diff_index as u8,
-                    id: diff.rowid as u64,
+                    id: DiffId(SongId::IntId(diff.rowid)),
                     effector: diff.effector,
                     top_badge: 0,           //TODO
                     scores: Vec::default(), //TODO
                     hash: Some(diff.hash),
                 });
-
+                drop(difficulties);
                 song
             })
             .drain()
@@ -109,7 +129,9 @@ impl FileSongProvider {
 
         for song in &mut all_songs {
             let song = Arc::make_mut(song);
-            for diff in &mut song.difficulties {
+            let mut difficulties =
+                std::mem::replace(&mut *song.difficulties.write().unwrap(), vec![]);
+            for diff in difficulties.iter_mut() {
                 if let Ok(mut score_entires) = database
                     .get_scores_for_chart(diff.hash.as_ref().unwrap())
                     .await
@@ -117,6 +139,8 @@ impl FileSongProvider {
                     diff.scores = score_entires.drain(0..).map_into().collect();
                 }
             }
+
+            *song.difficulties.write().unwrap() = difficulties;
         }
 
         let worker_db = database.clone();
@@ -160,15 +184,9 @@ impl FileSongProvider {
                                     match worker_db.get_or_insert_folder(&folder).await {
                                         Ok(folder_id) => {
                                             let mut charts = vec![];
-                                            match async_fs::read_dir(&folder).await {
+                                            match tokio::fs::read_dir(&folder).await {
                                                 Ok(mut dir) => {
-                                                    while let Some(f) = dir.next().await {
-                                                        if let Some(err) = f.as_ref().err() {
-                                                            log::warn!("{}", err);
-                                                            continue;
-                                                        }
-
-                                                        let f = f.unwrap();
+                                                    while let Ok(Some(f)) = dir.next_entry().await {
                                                         if !f.path().is_file() {
                                                             continue;
                                                         }
@@ -191,11 +209,6 @@ impl FileSongProvider {
 
                                                         let mut data = vec![];
 
-                                                        if let Ok(mut p) =
-                                                            async_fs::File::open(&f.path()).await
-                                                        {
-                                                            _ = p.read_to_end(&mut data).await;
-                                                        }
                                                         hasher.update(&data);
                                                         let hash = hasher.digest().to_string();
 
@@ -237,8 +250,8 @@ impl FileSongProvider {
                                                 title: String::new(),
                                                 artist: String::new(),
                                                 bpm: String::new(),
-                                                id: folder_id as _,
-                                                difficulties: vec![],
+                                                id: SongId::IntId(folder_id),
+                                                difficulties: Arc::new(vec![].into()),
                                             };
                                             for (path, c, hash) in charts {
                                                 let scores = worker_db
@@ -253,7 +266,7 @@ impl FileSongProvider {
                                                 let id = if let Ok(Some(id)) =
                                                     worker_db.get_hash_id(&hash).await
                                                 {
-                                                    id as u64
+                                                    id
                                                 } else {
                                                     worker_db
                                                         .add_chart(ChartEntry {
@@ -321,30 +334,31 @@ impl FileSongProvider {
                                                         })
                                                         .await
                                                         .expect("Failed to insert chart")
-                                                        as u64
                                                 };
 
                                                 song.bpm = c.meta.disp_bpm.clone();
                                                 song.title = c.meta.title.clone();
                                                 song.artist = c.meta.artist.clone();
 
-                                                song.difficulties.push(Difficulty {
-                                                    jacket_path,
-                                                    level: c.meta.level,
-                                                    difficulty: c.meta.difficulty,
-                                                    id,
-                                                    effector: c.meta.chart_author.clone(),
-                                                    top_badge: scores
-                                                        .iter()
-                                                        .map(|x| x.badge)
-                                                        .max()
-                                                        .unwrap_or_default(),
-                                                    scores,
-                                                    hash: Some(hash),
-                                                });
+                                                song.difficulties.write().unwrap().push(
+                                                    Difficulty {
+                                                        jacket_path,
+                                                        level: c.meta.level,
+                                                        difficulty: c.meta.difficulty,
+                                                        id: DiffId(SongId::StringId(hash.clone())),
+                                                        effector: c.meta.chart_author.clone(),
+                                                        top_badge: scores
+                                                            .iter()
+                                                            .map(|x| x.badge)
+                                                            .max()
+                                                            .unwrap_or_default(),
+                                                        scores,
+                                                        hash: Some(hash),
+                                                    },
+                                                );
                                             }
 
-                                            if song.difficulties.is_empty() {
+                                            if song.difficulties.read().unwrap().is_empty() {
                                                 return;
                                             }
 
@@ -362,7 +376,7 @@ impl FileSongProvider {
 
                                 if sender_tx
                                     .send(SongProviderEvent::SongsRemoved(
-                                        songs.iter().map(|x| x.id).collect(),
+                                        songs.iter().map(|x| x.id.clone()).collect(),
                                     ))
                                     .is_err()
                                 {
@@ -395,30 +409,38 @@ impl FileSongProvider {
         });
 
         FileSongProvider {
-            new_songs: all_songs.clone(),
             all_songs,
             database,
             worker,
             worker_rx,
+            score_bus: bus::Bus::new(32),
+            song_bus: bus::Bus::new(32),
             worker_tx,
         }
     }
 }
 
-impl SongProvider for FileSongProvider {
-    fn poll(&mut self) -> Option<super::SongProviderEvent> {
-        if self.new_songs.is_empty() {
-            self.worker
-                .ready()
-                .is_some()
-                .then(|| panic!("Song file provider worker returned")); //panics if worker paniced
-            self.worker_rx.try_recv().ok()
-        } else {
-            let new_songs = std::mem::take(&mut self.new_songs);
-            Some(super::SongProviderEvent::SongsAdded(new_songs))
+impl WorkerService for FileSongProvider {
+    fn update(&mut self) {
+        self.worker
+            .ready()
+            .is_some()
+            .then(|| panic!("Song file provider worker returned")); //panics if worker paniced
+        let ev = self.worker_rx.try_recv().ok();
+
+        if let Some(ev) = ev {
+            match &ev {
+                SongProviderEvent::SongsAdded(s) => self.all_songs.append(&mut s.clone()),
+                SongProviderEvent::SongsRemoved(r) => self.all_songs.retain(|s| !r.contains(&s.id)),
+                SongProviderEvent::OrderChanged(_) => {}
+            }
+
+            self.song_bus.broadcast(ev);
         }
     }
+}
 
+impl SongProvider for FileSongProvider {
     fn set_search(&mut self, _query: &str) {
         todo!()
     }
@@ -433,7 +455,18 @@ impl SongProvider for FileSongProvider {
 
     fn set_current_index(&mut self, _index: u64) {}
 
-    fn load_song(&self, _index: u64, _diff_index: u64) -> LoadSongFn {
+    fn load_song(&self, id: &SongDiffId) -> LoadSongFn {
+        let _diff_index = match id {
+            SongDiffId::DiffOnly(diff_id) | SongDiffId::SongDiff(_, diff_id) => match &diff_id.0 {
+                SongId::IntId(id) => *id,
+                SongId::StringId(hash) => {
+                    block_on(self.database.get_hash_id(hash)).unwrap().unwrap()
+                }
+                SongId::Missing => todo!(),
+            },
+            _ => todo!(),
+        };
+
         let db = self.database.clone();
         let path = PathBuf::from(
             block_on!(db.get_song(_diff_index as _))
@@ -470,15 +503,17 @@ impl SongProvider for FileSongProvider {
 
     fn get_preview(
         &self,
-        id: u64,
+        id: &SongId,
     ) -> anyhow::Result<(
         Box<dyn Source<Item = f32> + Send>,
         std::time::Duration,
         std::time::Duration,
     )> {
         profile_function!();
-        let id = id as i64;
-
+        let SongId::IntId(id) = id else {
+            bail!("Unsupported id type")
+        };
+        let id = *id;
         let db = self.database.clone();
         let mut charts = block_on!(db.get_charts_for_folder(id))?;
         let chart = charts.pop();
@@ -500,18 +535,132 @@ impl SongProvider for FileSongProvider {
             Duration::from_millis(chart.preview_length as u64),
         ))
     }
+
+    fn subscribe(&mut self) -> bus::BusReader<SongProviderEvent> {
+        self.song_bus.add_rx()
+    }
+
+    fn get_all(&self) -> Vec<Arc<Song>> {
+        self.all_songs.clone()
+    }
+
+    fn add_score(&self, id: SongDiffId, score: Score) {
+        let song = match &id {
+            SongDiffId::Missing => None,
+            SongDiffId::DiffOnly(diff) => self
+                .all_songs
+                .iter()
+                .find(|x| x.difficulties.read().unwrap().iter().any(|d| d.id == *diff)),
+            SongDiffId::SongDiff(song, diff) => self.all_songs.iter().find(|x| x.id == *song),
+        };
+
+        if let (Some(song), Some(diff)) = (song, id.get_diff()) {
+            let diffs = &mut song.difficulties.write().unwrap();
+            let diff = diffs.iter_mut().find(|x| x.id == *diff);
+            if let Some(diff) = diff {
+                diff.top_badge = diff.top_badge.max(score.badge);
+                diff.scores.push(score);
+                diff.scores.sort_by_key(|x| -x.score);
+            }
+        }
+    }
 }
 
 impl ScoreProvider for FileSongProvider {
-    fn poll(&mut self) -> Option<super::ScoreProviderEvent> {
+    fn get_scores(&mut self, _id: &SongDiffId) -> Vec<Score> {
         todo!()
     }
 
-    fn get_scores(&mut self, _id: u64) -> Vec<Score> {
-        todo!()
+    fn insert_score(&mut self, id: &SongDiffId, score: Score) -> anyhow::Result<()> {
+        {
+            let Score {
+                gauge,
+                gauge_type,
+                gauge_option,
+                mirror,
+                random,
+                auto_flags,
+                score,
+                perfects,
+                goods,
+                misses,
+                badge,
+                timestamp,
+                is_local,
+                hit_window,
+                earlies,
+                lates,
+                combo,
+                ..
+            } = score;
+
+            let Some(DiffId(SongId::StringId(hash))) = id.get_diff() else {
+                bail!("Hash required")
+            };
+
+            block_on(self.database.add_score(ScoreEntry {
+                rowid: 0,
+                score: score as _,
+                crit: perfects as _,
+                near: goods as _,
+                early: earlies as _,
+                late: lates as _,
+                combo: combo as _,
+                miss: misses as _,
+                gauge: gauge as _,
+                auto_flags: auto_flags as _,
+                replay: None,
+                timestamp: timestamp as _,
+                chart_hash: hash.to_string(),
+                user_name: "".to_string(),
+                user_id: "".to_string(),
+                local_score: true,
+                window_perfect: hit_window.perfect.as_millis() as _,
+                window_good: hit_window.good.as_millis() as _,
+                window_hold: hit_window.hold.as_millis() as _,
+                window_miss: hit_window.miss.as_millis() as _,
+                window_slam: hit_window.good.as_millis() as _,
+                gauge_type: 0,
+                gauge_opt: 0,
+                mirror: mirror,
+                random: random,
+            }))?;
+        }
+
+        self.score_bus
+            .broadcast(ScoreProviderEvent::NewScore(id.clone(), score));
+
+        Ok(())
     }
 
-    fn insert_score(&mut self, _id: u64, _score: Score) -> anyhow::Result<()> {
-        todo!()
+    fn subscribe(&mut self) -> bus::BusReader<ScoreProviderEvent> {
+        self.score_bus.add_rx()
+    }
+
+    fn init_scores(&self, songs: &Vec<Arc<Song>>) -> anyhow::Result<()> {
+        let mut scores = block_on(self.database.get_all_scores())?;
+
+        let mut scores = scores
+            .drain(..)
+            .group_by(|x| DiffId(SongId::StringId(x.chart_hash.clone()))) //TODO: Excessive cloning
+            .into_iter()
+            .map(|(key, scores)| (key, scores.map(Score::from).collect_vec()))
+            .collect::<HashMap<_, _>>();
+
+        for song in songs {
+            let mut diffs = song.difficulties.write().unwrap();
+            for diff in diffs.iter_mut() {
+                diff.scores = scores.remove(&diff.id).unwrap_or_default();
+                diff.scores.sort_by_key(|x| -x.score);
+                diff.top_badge = diff
+                    .scores
+                    .iter()
+                    .map(|x| x.badge)
+                    .max()
+                    .unwrap_or_default();
+            }
+        }
+
+        Ok(())
     }
 }

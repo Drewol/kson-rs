@@ -10,6 +10,7 @@ use crate::{
     button_codes::{UscButton, UscInputEvent},
     config::GameConfig,
     input_state::InputState,
+    lua_service::LuaProvider,
     songselect::KNOB_NAV_THRESHOLD,
 };
 
@@ -306,12 +307,9 @@ impl SettingsDialog {
         set(val + value_advance);
         _ = self.lua.globals().set("SettingsDiag", &*self);
     }
-    pub fn init_lua(
-        &self,
-        load_lua: Rc<dyn Fn(Rc<Lua>, &'static str) -> anyhow::Result<generational_arena::Index>>,
-    ) -> anyhow::Result<()> {
+    pub fn init_lua(&self, load_lua: &LuaProvider) -> anyhow::Result<()> {
         self.lua.globals().set("SettingsDiag", self)?;
-        load_lua(self.lua.clone(), "gamesettingsdialog.lua")?;
+        load_lua.register_libraries(self.lua.clone(), "gamesettingsdialog.lua")?;
         Ok(())
     }
 
