@@ -15,10 +15,10 @@ use generational_arena::Index;
 use rodio::dynamic_mixer::DynamicMixerController;
 use tealr::{
     mlu::{
-        mlua::{Function, Lua},
+        mlua::{AppDataRef, Function, Lua},
         ExportInstances, TealData, UserData, UserDataProxy,
     },
-    TypeName,
+    ToTypename, TypeName,
 };
 
 use crate::{
@@ -38,7 +38,7 @@ pub enum MainMenuButton {
     Challenges,
 }
 
-#[derive(Debug, UserData, TypeName)]
+#[derive(Debug, UserData, ToTypename)]
 struct Bindings(Sender<MainMenuButton>);
 
 impl TealData for Bindings {
@@ -57,31 +57,31 @@ impl TealData for Bindings {
          */
 
         methods.add_function("Start", |lua, ()| {
-            let s: Ref<Sender<MainMenuButton>> = lua.app_data_ref().unwrap();
+            let s: AppDataRef<Sender<MainMenuButton>> = lua.app_data_ref().unwrap();
             s.send(MainMenuButton::Start).map_err(Error::external)
         });
         methods.add_function("DLScreen", |lua, ()| {
-            let s: Ref<Sender<MainMenuButton>> = lua.app_data_ref().unwrap();
+            let s: AppDataRef<Sender<MainMenuButton>> = lua.app_data_ref().unwrap();
             s.send(MainMenuButton::Downloads).map_err(Error::external)
         });
         methods.add_function("Multiplayer", |lua, ()| {
-            let s: Ref<Sender<MainMenuButton>> = lua.app_data_ref().unwrap();
+            let s: AppDataRef<Sender<MainMenuButton>> = lua.app_data_ref().unwrap();
             s.send(MainMenuButton::Multiplayer).map_err(Error::external)
         });
         methods.add_function("Exit", |lua, ()| {
-            let s: Ref<Sender<MainMenuButton>> = lua.app_data_ref().unwrap();
+            let s: AppDataRef<Sender<MainMenuButton>> = lua.app_data_ref().unwrap();
             s.send(MainMenuButton::Exit).map_err(Error::external)
         });
         methods.add_function("Settings", |lua, ()| {
-            let s: Ref<Sender<MainMenuButton>> = lua.app_data_ref().unwrap();
+            let s: AppDataRef<Sender<MainMenuButton>> = lua.app_data_ref().unwrap();
             s.send(MainMenuButton::Options).map_err(Error::external)
         });
         methods.add_function("Update", |lua, ()| {
-            let s: Ref<Sender<MainMenuButton>> = lua.app_data_ref().unwrap();
+            let s: AppDataRef<Sender<MainMenuButton>> = lua.app_data_ref().unwrap();
             s.send(MainMenuButton::Update).map_err(Error::external)
         });
         methods.add_function("Challenges", |lua, ()| {
-            let s: Ref<Sender<MainMenuButton>> = lua.app_data_ref().unwrap();
+            let s: AppDataRef<Sender<MainMenuButton>> = lua.app_data_ref().unwrap();
             s.send(MainMenuButton::Challenges).map_err(Error::external)
         });
     }

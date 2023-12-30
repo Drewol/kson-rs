@@ -24,10 +24,10 @@ use tealr::{
         mlua::{Function, Lua, LuaSerdeExt},
         TealData, UserData,
     },
-    TypeName,
+    ToTypename, TypeName,
 };
 
-#[derive(Debug, TypeName, Clone, Serialize, Default)]
+#[derive(Debug, ToTypename, Clone, Serialize, Default)]
 #[serde(rename_all = "camelCase")]
 struct HidSud {}
 
@@ -254,7 +254,7 @@ impl SceneData for SongResultData {
     }
 }
 
-#[derive(Debug, TypeName, Clone, Serialize, Default)]
+#[derive(Debug, ToTypename, Clone, Serialize, Default)]
 #[serde(rename_all = "camelCase")]
 struct HitStat {
     rating: i32,    // 0 for miss, 1 for near, 2 for crit
@@ -315,7 +315,7 @@ impl TryFrom<HitRating> for HitStat {
     }
 }
 
-#[derive(Debug, TypeName, Clone, Serialize, UserData, Default)]
+#[derive(Debug, ToTypename, Clone, Serialize, UserData, Default)]
 #[serde(rename_all = "camelCase")]
 pub struct Score {
     ///range 0.0 -> 1.0

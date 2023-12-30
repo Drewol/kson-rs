@@ -2861,9 +2861,9 @@ dependencies = [
 
 [[package]]
 name = "i18n-embed"
-version = "0.13.9"
+version = "0.14.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "92a86226a7a16632de6723449ee5fe70bac5af718bc642ee9ca2f0f6e14fa1fa"
+checksum = "94205d95764f5bb9db9ea98fa77f89653365ca748e27161f5bbea2ffd50e459c"
 dependencies = [
  "arc-swap",
  "fluent",
@@ -2882,9 +2882,9 @@ dependencies = [
 
 [[package]]
 name = "i18n-embed-fl"
-version = "0.6.7"
+version = "0.7.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d26a3d3569737dfaac7fc1c4078e6af07471c3060b8e570bcd83cdd5f4685395"
+checksum = "9fc1f8715195dffc4caddcf1cf3128da15fe5d8a137606ea8856c9300047d5a2"
 dependencies = [
  "dashmap",
  "find-crate",
@@ -3262,6 +3262,7 @@ dependencies = [
  "serde_cbor",
  "serde_json",
  "tracing",
+ "unic-langid",
 ]
 
 [[package]]
@@ -4832,9 +4833,9 @@ dependencies = [
 
 [[package]]
 name = "rust-embed"
-version = "6.8.1"
+version = "8.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a36224c3276f8c4ebc8c20f158eca7ca4359c8db89991c4925132aaaf6702661"
+checksum = "a82c0bbc10308ed323529fd3c1dce8badda635aa319a5ff0e6466f33b8101e3f"
 dependencies = [
  "rust-embed-impl",
  "rust-embed-utils",
@@ -4843,9 +4844,9 @@ dependencies = [
 
 [[package]]
 name = "rust-embed-impl"
-version = "6.8.1"
+version = "8.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "49b94b81e5b2c284684141a2fb9e2a31be90638caf040bf9afbc5a0416afe1ac"
+checksum = "6227c01b1783cdfee1bcf844eb44594cd16ec71c35305bf1c9fb5aade2735e16"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -4856,9 +4857,9 @@ dependencies = [
 
 [[package]]
 name = "rust-embed-utils"
-version = "7.8.1"
+version = "8.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "9d38ff6bf570dc3bb7100fce9f7b60c33fa71d80e88da3f2580df4ff2bdded74"
+checksum = "8cb0a25bfbb2d4b4402179c2cf030387d9990857ce08a32592c6238db9fa8665"
 dependencies = [
  "sha2",
  "walkdir",
@@ -5774,7 +5775,8 @@ checksum = "14c39fd04924ca3a864207c66fc2cd7d22d7c016007f9ce846cbb9326331930a"
 [[package]]
 name = "tealr"
 version = "0.9.1"
-source = "git+https://github.com/lenscas/tealr.git#3d889ab4c7747aec7136b017204e6c57027ef842"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "04a79794fae9f370d087d12037d58a4c86ec8c116a6bb4ccaa1ff63f9a4fe3ce"
 dependencies = [
  "bstr 0.2.17",
  "itertools 0.10.5",
@@ -5787,7 +5789,8 @@ dependencies = [
 [[package]]
 name = "tealr_derive"
 version = "0.9.1"
-source = "git+https://github.com/lenscas/tealr.git#3d889ab4c7747aec7136b017204e6c57027ef842"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "335377874a830e8ba5edb767577367e3f9ebc30f09c67c715492372ad3364620"
 dependencies = [
  "proc-macro2",
  "quote",

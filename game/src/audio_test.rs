@@ -157,7 +157,7 @@ impl AudioTest {
     }
 }
 
-#[derive(Debug, PartialEq, Clone, Copy, Default, EguiInspect)]
+#[derive(Debug, PartialEq, Clone, Copy, Default, serde::Serialize, serde::Deserialize)]
 struct EnabledEffects {
     volume: f32,
     flanger: bool,
@@ -167,7 +167,6 @@ struct EnabledEffects {
     peaking: bool,
     freq: f32,
     bitcrush: u8,
-    #[inspect(min = -48.0, max = 48.0)]
     pitch_shift: i32,
     tape_stop: bool,
 }
@@ -184,7 +183,7 @@ impl Scene for AudioTest {
     fn debug_ui(&mut self, ctx: &egui::Context) -> anyhow::Result<()> {
         let old_effects = self.effects;
 
-        egui::Window::new("Audio Test").show(ctx, |ui| self.effects.inspect_mut("Effects", ui));
+        // TODO: egui::Window::new("Audio Test").show(ctx, |ui|  self.effects.inspect_mut("Effects", ui));
 
         if old_effects != self.effects {
             let (marker, owner) = channel();

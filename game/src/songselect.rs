@@ -22,7 +22,7 @@ use tealr::{
         mlua::{Function, Lua, LuaSerdeExt},
         TealData, UserData,
     },
-    TypeName,
+    SingleType, ToTypename, TypeName,
 };
 
 use crate::{
@@ -44,7 +44,7 @@ use crate::{
     ControlMessage, RuscMixer,
 };
 
-#[derive(Debug, TypeName, Clone, Serialize, UserData)]
+#[derive(Debug, ToTypename, Clone, Serialize, UserData)]
 #[serde(rename_all = "camelCase")]
 pub struct Difficulty {
     pub jacket_path: PathBuf,
@@ -76,7 +76,7 @@ impl TealData for Difficulty {
     }
 }
 
-#[derive(Debug, TypeName, UserData, Clone, Serialize, Default)]
+#[derive(Debug, ToTypename, UserData, Clone, Serialize, Default)]
 pub struct Song {
     pub title: String,
     pub artist: String,
@@ -127,15 +127,12 @@ impl TealData for SongSelect {
     }
 }
 
-impl TypeName for SongSelect {
-    fn get_type_parts() -> std::borrow::Cow<'static, [tealr::NamePart]> {
-        use std::borrow::Cow;
-
-        Cow::Borrowed(&[tealr::NamePart::Type(tealr::TealType {
-            name: Cow::Borrowed("songwheel"),
-            type_kind: tealr::KindOfType::External,
-            generics: None,
-        })])
+impl ToTypename for SongSelect {
+    fn to_typename() -> tealr::Type {
+        tealr::Type::Single(SingleType {
+            name: tealr::Name(std::borrow::Cow::Borrowed("songwheel")),
+            kind: tealr::KindOfType::External,
+        })
     }
 }
 

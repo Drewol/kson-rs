@@ -14,7 +14,7 @@ use tealr::{
         mlua::{FromLua, Lua},
         TealData, UserData,
     },
-    TypeName,
+    ToTypename, TypeName,
 };
 use three_d::{
     vec2, vec3, vec4, AxisAlignedBoundingBox, Blend, BufferDataType, Context, CpuTexture,
@@ -102,7 +102,7 @@ enum DrawingMode {
 }
 
 //TODO: Cloneable with Arc for gpu resources for better shader reuse
-#[derive(UserData, TypeName)]
+#[derive(UserData, ToTypename)]
 pub struct ShadedMesh {
     params: HashMap<String, ShaderParam>,
     material: three_d::Program,
@@ -575,7 +575,7 @@ impl Object for ShadedMesh {
     }
 }
 
-#[derive(Debug, TypeName, Clone, Copy)]
+#[derive(Debug, ToTypename, Clone, Copy)]
 struct LuaVec2(f32, f32);
 
 impl<'lua> FromLua<'lua> for LuaVec2 {
@@ -596,7 +596,7 @@ impl<'lua> FromLua<'lua> for LuaVec2 {
     }
 }
 
-#[derive(Debug, TypeName, Clone, Copy)]
+#[derive(Debug, ToTypename, Clone, Copy)]
 struct LuaVert2(LuaVec2, LuaVec2);
 
 impl<'lua> FromLua<'lua> for LuaVert2 {

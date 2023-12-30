@@ -15,7 +15,7 @@ use poll_promise::Promise;
 use puffin::profile_scope;
 use tealr::{
     mlu::{TealData, UserData, UserDataProxy},
-    TypeName,
+    SingleType, ToTypename, TypeName,
 };
 
 use tealr::mlu::mlua;
@@ -125,15 +125,12 @@ impl Injectable for Vgfx {
     }
 }
 
-impl TypeName for Vgfx {
-    fn get_type_parts() -> std::borrow::Cow<'static, [tealr::NamePart]> {
-        use std::borrow::Cow;
-
-        Cow::Borrowed(&[tealr::NamePart::Type(tealr::TealType {
-            name: Cow::Borrowed("gfx"),
-            type_kind: tealr::KindOfType::External,
-            generics: None,
-        })])
+impl ToTypename for Vgfx {
+    fn to_typename() -> tealr::Type {
+        tealr::Type::Single(SingleType {
+            name: tealr::Name(std::borrow::Cow::Borrowed("gfx")),
+            kind: tealr::KindOfType::External,
+        })
     }
 }
 

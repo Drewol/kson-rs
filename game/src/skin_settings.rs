@@ -1,8 +1,8 @@
 use puffin_egui::egui::Color32;
 use serde::{de::Visitor, Deserialize, Serialize};
 use tealr::{
-    mlu::mlua::{FromLua, MultiValue, ToLuaMulti, Value},
-    TypeName,
+    mlu::mlua::{FromLua, IntoLuaMulti, MultiValue, Value},
+    ToTypename, TypeName,
 };
 
 #[derive(Debug, Clone, Copy)]
@@ -109,7 +109,7 @@ pub enum SkinSettingEntry {
     },
 }
 
-#[derive(Debug, Serialize, Deserialize, Clone, TypeName)]
+#[derive(Debug, Serialize, Deserialize, Clone, ToTypename)]
 #[serde(untagged)]
 pub enum SkinSettingValue {
     None,
@@ -160,8 +160,8 @@ impl<'lua> FromLua<'lua> for SkinSettingValue {
     }
 }
 
-impl<'lua> ToLuaMulti<'lua> for SkinSettingValue {
-    fn to_lua_multi(
+impl<'lua> IntoLuaMulti<'lua> for SkinSettingValue {
+    fn into_lua_multi(
         self,
         lua: &'lua tealr::mlu::mlua::Lua,
     ) -> tealr::mlu::mlua::Result<tealr::mlu::mlua::MultiValue<'lua>> {

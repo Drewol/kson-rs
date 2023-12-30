@@ -11,7 +11,7 @@ use tealr::{
         mlua::{Function, Lua, RegistryKey},
         ExportInstances, FromToLua, TealData, UserData, UserDataProxy,
     },
-    TypeName,
+    ToTypename, TypeName,
 };
 
 #[derive(Default)]
@@ -21,7 +21,7 @@ pub struct LuaHttp {
     next_id: i64,
 }
 
-#[derive(Debug, Serialize, Deserialize, FromToLua, TypeName, Clone)]
+#[derive(Debug, Serialize, Deserialize, FromToLua, ToTypename, Clone)]
 struct Response {
     #[serde(skip)]
     id: i64,
@@ -128,7 +128,7 @@ impl LuaHttp {
     }
 }
 
-#[derive(Default, TypeName, UserData)]
+#[derive(Default, ToTypename, UserData)]
 pub struct ExportLuaHttp;
 
 impl TealData for ExportLuaHttp {

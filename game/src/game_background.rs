@@ -24,7 +24,7 @@ use tealr::{
         mlua::{Function, Lua, LuaOptions},
         TealData,
     },
-    mlua_create_named_parameters, TypeName,
+    mlua_create_named_parameters, ToTypename, TypeName,
 };
 use three_d_asset::{vec2, vec3, Vector2, Vector3, Viewport};
 
@@ -66,7 +66,7 @@ pub struct GameBackground {
     background: bool,
 }
 
-#[derive(UserData, TypeName)]
+#[derive(UserData, ToTypename)]
 struct GameBackgroundLua;
 
 impl TealData for GameBackgroundLua {

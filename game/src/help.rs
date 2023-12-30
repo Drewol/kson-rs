@@ -6,22 +6,22 @@ use std::{
 use di::{transient_factory, RefMut, ServiceCollection};
 use tealr::{
     mlu::{
-        mlua::{self, FromLuaMulti, Lua, Result, ToLuaMulti},
+        mlua::{self, FromLuaMulti, IntoLuaMulti, Lua, Result},
         MaybeSend,
     },
-    TealMultiValue, TypeName,
+    TealMultiValue, ToTypename,
 };
 
 use crate::worker_service::WorkerService;
 
-pub(crate) fn add_lua_static_method<'lua, M, A, R, F, T: 'static + Sized + TypeName>(
+pub(crate) fn add_lua_static_method<'lua, M, A, R, F, T: 'static + Sized + ToTypename>(
     methods: &mut M,
     name: &'static str,
     mut function: F,
 ) where
     M: Sized + tealr::mlu::TealDataMethods<'lua, T>,
     A: FromLuaMulti<'lua> + TealMultiValue,
-    R: ToLuaMulti<'lua> + TealMultiValue,
+    R: IntoLuaMulti<'lua> + TealMultiValue,
     F: 'static + MaybeSend + FnMut(&'lua Lua, &mut T, A) -> Result<R>,
 {
     methods.add_function_mut(name, move |lua, p: A| {
@@ -31,10 +31,7 @@ pub(crate) fn add_lua_static_method<'lua, M, A, R, F, T: 'static + Sized + TypeN
                 &format!(
                     "{}:{}",
                     lua.inspect_stack(1)
-                        .and_then(|s| s
-                            .source()
-                            .source
-                            .map(|s| String::from_utf8_lossy(s).to_string()))
+                        .and_then(|s| s.source().source.map(|s| s.to_string()))
                         .unwrap_or_default(),
                     lua.inspect_stack(1).map(|s| s.curr_line()).unwrap_or(-1)
                 ),

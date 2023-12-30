@@ -12,12 +12,12 @@ use log::warn;
 use puffin::ProfilerScope;
 use rodio::Source;
 use tealr::{
+    mlu::{mlua::AppDataRef, TealData, UserDataProxy},
     mlu::{
         mlua::{self},
         UserData,
     },
-    mlu::{TealData, UserDataProxy},
-    TypeName,
+    SingleType, ToTypename, TypeName,
 };
 
 use crate::{
@@ -68,15 +68,12 @@ impl Injectable for GameData {
     }
 }
 
-impl TypeName for GameData {
-    fn get_type_parts() -> std::borrow::Cow<'static, [tealr::NamePart]> {
-        use std::borrow::Cow;
-
-        Cow::Borrowed(&[tealr::NamePart::Type(tealr::TealType {
-            name: Cow::Borrowed("game"),
-            type_kind: tealr::KindOfType::External,
-            generics: None,
-        })])
+impl ToTypename for GameData {
+    fn to_typename() -> tealr::Type {
+        tealr::Type::Single(SingleType {
+            name: tealr::Name(std::borrow::Cow::Borrowed("name")),
+            kind: tealr::KindOfType::External,
+        })
     }
 }
 
@@ -114,7 +111,6 @@ impl TealData for GameData {
                 .and_then(|x| {
                     x.source()
                         .short_src
-                        .map(String::from_utf8_lossy)
                         .map(|s| s.to_string())
                         .map(PathBuf::from)
                         .and_then(|p| p.file_name().map(|f| f.to_string_lossy().to_string()))
@@ -194,7 +190,7 @@ impl TealData for GameData {
                     return Ok(());
                 }
 
-                let mixer: Ref<RuscMixer> = lua.app_data_ref().unwrap();
+                let mixer: AppDataRef<RuscMixer> = lua.app_data_ref().unwrap();
 
                 let play_control = Arc::new(AtomicUsize::new(1));
                 let prev = game_data
@@ -371,7 +367,7 @@ impl TealData for GameData {
                             let names = a.names();
                             names
                                 .name
-                                .map(|a| String::from_utf8_lossy(a).to_string())
+                                .map(|a| a.to_string())
                                 .unwrap_or_else(|| "unknown".to_string())
                         } else {
                             "unknown".to_string()
@@ -425,7 +421,7 @@ impl tealr::mlu::ExportInstances for ExportGame {
     }
 }
 
-#[derive(UserData, TypeName, Default)]
+#[derive(UserData, ToTypename, Default)]
 pub struct LuaPath;
 
 impl TealData for LuaPath {

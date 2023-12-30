@@ -31,9 +31,9 @@ rodio = { version = "0.17.1", default-features = false, features = [
     "vorbis",
     "mp3",
 ] }
-tealr = { git = "https://github.com/lenscas/tealr.git", features = [
+tealr = { version = "0.9.1", features = [
     "mlua",
-    "tealr_derive",
+    "derive",
     "mlua_lua54",
     "mlua_vendored",
     "mlua_serialize",

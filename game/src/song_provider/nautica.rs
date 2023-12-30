@@ -479,7 +479,7 @@ fn download_song(id: Uuid, diff: u8) -> LoadSongFn {
 
         let file =
             std::fs::write(&song_path, data).expect("Failed to create song zip for downloading");
-        drop(file);
+
         let file = File::open(song_path).expect("Ug");
         return song_from_zip(BufReader::new(file), diff).expect("Failed to load song from zip");
     })

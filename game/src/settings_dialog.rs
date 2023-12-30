@@ -4,7 +4,7 @@ use std::{
 };
 
 use kson::Side;
-use tealr::mlu::mlua::{Function, Lua, LuaSerdeExt, ToLua};
+use tealr::mlu::mlua::{Function, IntoLua, Lua, LuaSerdeExt};
 
 use crate::{
     button_codes::{UscButton, UscInputEvent},
@@ -55,8 +55,8 @@ pub struct SettingsDialogTab {
     current_setting: usize,
 }
 
-impl<'lua> ToLua<'lua> for &SettingsDialogTab {
-    fn to_lua(self, lua: &'lua Lua) -> tealr::mlu::mlua::Result<tealr::mlu::mlua::Value<'lua>> {
+impl<'lua> IntoLua<'lua> for &SettingsDialogTab {
+    fn into_lua(self, lua: &'lua Lua) -> tealr::mlu::mlua::Result<tealr::mlu::mlua::Value<'lua>> {
         let table = lua.create_table()?;
 
         table.set("name", lua.create_string(&self.name)?)?;
@@ -159,8 +159,8 @@ pub struct SettingsDialog {
     setting_advance: f32,
 }
 
-impl<'lua> ToLua<'lua> for &SettingsDialog {
-    fn to_lua(self, lua: &'lua Lua) -> tealr::mlu::mlua::Result<tealr::mlu::mlua::Value<'lua>> {
+impl<'lua> IntoLua<'lua> for &SettingsDialog {
+    fn into_lua(self, lua: &'lua Lua) -> tealr::mlu::mlua::Result<tealr::mlu::mlua::Value<'lua>> {
         let table = lua.create_table()?;
 
         table.set("currentTab", self.current_tab + 1)?;

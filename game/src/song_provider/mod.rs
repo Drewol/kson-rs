@@ -8,7 +8,7 @@ use rodio::Source;
 use serde::Serialize;
 use tealr::{
     mlu::{mlua::UserData, TealData, UserData},
-    TypeName,
+    ToTypename, TypeName,
 };
 
 use crate::{results::Score, songselect::Song};
@@ -48,7 +48,7 @@ pub enum SongFilter {
     Collection(String),
 }
 
-#[derive(Debug, TypeName, UserData, Clone, Serialize, Hash, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Debug, ToTypename, UserData, Clone, Serialize, Hash, PartialEq, Eq, PartialOrd, Ord)]
 pub enum SongId {
     Missing,
     IntId(i64),
@@ -74,13 +74,13 @@ impl Default for SongId {
 }
 
 #[derive(
-    Debug, TypeName, UserData, Clone, Serialize, Default, Hash, PartialEq, Eq, PartialOrd, Ord,
+    Debug, ToTypename, UserData, Clone, Serialize, Default, Hash, PartialEq, Eq, PartialOrd, Ord,
 )]
 pub struct DiffId(pub SongId);
 
 impl TealData for DiffId {}
 
-#[derive(Debug, TypeName, UserData, Clone, Serialize)]
+#[derive(Debug, ToTypename, UserData, Clone, Serialize)]
 pub enum SongDiffId {
     Missing,
     DiffOnly(DiffId),

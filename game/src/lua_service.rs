@@ -85,7 +85,7 @@ impl LuaProvider {
         if real_script_path.exists() {
             info!("Loading: {:?}", &real_script_path);
             let test_code = std::fs::read_to_string(&real_script_path)?;
-            lua.load(&test_code).set_name("common.lua")?.eval::<()>()?;
+            lua.load(&test_code).set_name("common.lua").eval::<()>()?;
         }
 
         real_script_path.pop();
@@ -95,7 +95,9 @@ impl LuaProvider {
         let test_code = std::fs::read_to_string(real_script_path)?;
         {
             profile_scope!("evaluate lua file");
-            lua.load(&test_code).set_name(script_path)?.eval::<()>()?;
+            lua.load(&test_code)
+                .set_name(script_path.as_ref())
+                .eval::<()>()?;
         }
         Ok(idx)
     }
