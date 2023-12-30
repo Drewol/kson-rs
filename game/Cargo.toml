@@ -53,7 +53,7 @@ uuid = { version = "1.2.2", features = ["serde"] }
 poll-promise = { git = "https://github.com/EmbarkStudios/poll-promise", features = [
     "tokio",
 ] }
-tokio = {version = "1", features = ["rt-multi-thread", "fs"]}
+tokio = { version = "1", features = ["rt-multi-thread", "fs"] }
 serde = { version = "1.0.152", features = ["derive"] }
 toml = "0.7.2"
 reqwest = { version = "0.11", features = ["json", "native-tls", "blocking"] }
@@ -66,7 +66,6 @@ three-d-asset = { version = "0.6.0", features = [
 ] }
 directories = "5.0.1"
 zip = "0.6.4"
-rayon = "1.7.0"
 puffin_egui = "0.22.0"
 serde_json = "1.0.96"
 game-loop = { version = "*", features = ["winit"] }
@@ -94,4 +93,3 @@ bus = "2.4.1"
 
 [target.'cfg(unix)'.dependencies]
 openssl = { version = "^0.10", features = ["vendored"] }
-

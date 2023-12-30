@@ -12,7 +12,6 @@ use std::{
 use futures::AsyncWriteExt;
 use itertools::Itertools;
 use log::warn;
-use rayon::prelude::*;
 use rodio::Source;
 
 use crate::{
