@@ -33,11 +33,11 @@ enum VgImage {
     Animation(VgAnimation),
 }
 
-impl From<&VgImage> for ImageId {
-    fn from(val: &VgImage) -> Self {
-        match val {
-            VgImage::Static(id) => *id,
-            VgImage::Animation(anim) => anim.current_img_id(),
+impl VgImage {
+    fn current_id(&self) -> Option<ImageId> {
+        match self {
+            VgImage::Static(id) => Some(*id),
+            VgImage::Animation(id) => id.current_img_id(),
         }
     }
 }
@@ -452,8 +452,11 @@ impl TealData for Vgfx {
                 return Ok(());
             }
 
-            if let Some(img_id) = _vgfx.scoped_assets[&lua_address(lua)].images.get(&image) {
-                let img_id = img_id.into();
+            if let Some(img_id) = _vgfx.scoped_assets[&lua_address(lua)]
+                .images
+                .get(&image)
+                .and_then(|x| x.current_id())
+            {
                 let tint = _vgfx.image_tint;
                 _vgfx.with_canvas(|canvas| {
                     canvas.save_with(|canvas| {
@@ -1340,8 +1343,11 @@ impl TealData for Vgfx {
                     return Ok(FALLBACK_ID);
                 }
 
-                if let Some(id) = _vgfx.scoped_assets[&lua_address(lua)].images.get(&image) {
-                    let id: ImageId = id.into();
+                if let Some(id) = _vgfx.scoped_assets[&lua_address(lua)]
+                    .images
+                    .get(&image)
+                    .and_then(|x| x.current_id())
+                {
                     let paint = Paint::image(id, ox, oy, ex, ey, angle, alpha);
                     _vgfx
                         .scoped_assets
@@ -1739,8 +1745,11 @@ impl TealData for Vgfx {
                 return Ok((1, 1));
             }
 
-            if let Some(id) = _vgfx.scoped_assets[&lua_address(lua)].images.get(&p.image) {
-                let id: ImageId = id.into();
+            if let Some(id) = _vgfx.scoped_assets[&lua_address(lua)]
+                .images
+                .get(&p.image)
+                .and_then(|x| x.current_id())
+            {
                 _vgfx
                     .with_canvas(|canvas| canvas.image_size(id))?
                     .map_err(mlua::Error::external)

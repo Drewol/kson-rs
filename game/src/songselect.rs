@@ -1,10 +1,9 @@
 use anyhow::{ensure, Result};
 use di::{RefMut, ServiceProvider};
 use game_loop::winit::event::Event;
-
 use log::warn;
 use puffin::{profile_function, profile_scope};
-use rodio::{Source};
+use rodio::Source;
 use serde::Serialize;
 use std::{
     fmt::Debug,
@@ -27,14 +26,14 @@ use tealr::{
 
 use crate::{
     button_codes::{LaserAxis, LaserState, UscButton, UscInputEvent},
-    input_state::{InputState},
+    input_state::InputState,
     lua_service::LuaProvider,
     results::Score,
     scene::{Scene, SceneData},
     settings_dialog::SettingsDialog,
     song_provider::{
-        DiffId, ScoreProvider, ScoreProviderEvent,
-        SongDiffId, SongId, SongProvider, SongProviderEvent,
+        DiffId, ScoreProvider, ScoreProviderEvent, SongDiffId, SongId, SongProvider,
+        SongProviderEvent,
     },
     sources::owned_source::owned_source,
     take_duration_fade::take_duration_fade,

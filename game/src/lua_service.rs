@@ -10,7 +10,6 @@ use crate::{
 };
 use anyhow::Result;
 use di::{injectable, Ref, RefMut};
-use generational_arena::Index;
 use log::info;
 use puffin::profile_scope;
 use serde_json::json;
@@ -29,7 +28,7 @@ pub struct LuaProvider {
 }
 
 impl LuaProvider {
-    pub fn register_libraries(&self, lua: Rc<Lua>, script_path: impl AsRef<str>) -> Result<Index> {
+    pub fn register_libraries(&self, lua: Rc<Lua>, script_path: impl AsRef<str>) -> Result<()> {
         //Set path for 'require' (https://stackoverflow.com/questions/4125971/setting-the-global-lua-path-variable-from-c-c?lq=1)
         let mut real_script_path = GameConfig::get().skin_path();
         let arena = self.arena.clone();
@@ -49,11 +48,11 @@ impl LuaProvider {
                 .unwrap(),
             )
             .unwrap();
-        let idx = arena
+        arena
             .write()
             .expect("Could not get lock to lua arena")
             .0
-            .insert(lua.clone());
+            .push(lua.clone());
 
         {
             vgfx.write().unwrap().init_asset_scope(lua_address(&lua))
@@ -99,6 +98,6 @@ impl LuaProvider {
                 .set_name(script_path.as_ref())
                 .eval::<()>()?;
         }
-        Ok(idx)
+        Ok(())
     }
 }

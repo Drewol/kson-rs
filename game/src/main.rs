@@ -23,8 +23,7 @@ use directories::ProjectDirs;
 use femtovg as vg;
 
 use game_main::ControlMessage;
-use generational_arena::{Arena};
-
+use gilrs::ev::filter::Jitter;
 
 use help::ServiceHelper;
 use kson::Ksh;
@@ -32,10 +31,7 @@ use log::*;
 
 use lua_service::LuaProvider;
 use puffin::profile_function;
-use rodio::{
-    dynamic_mixer::{DynamicMixerController},
-    Source,
-};
+use rodio::{dynamic_mixer::DynamicMixerController, Source};
 use scene::Scene;
 
 use song_provider::{DiffId, FileSongProvider, NauticaSongProvider, SongId};
@@ -331,8 +327,7 @@ impl Scenes {
 }
 pub const FRAME_ACC_SIZE: usize = 16;
 
-#[injectable]
-struct LuaArena(Arena<Rc<Lua>>);
+struct LuaArena(Vec<Rc<Lua>>);
 
 fn main() -> anyhow::Result<()> {
     simple_logger::init_with_level(Level::Info)?;
@@ -414,7 +409,9 @@ fn main() -> anyhow::Result<()> {
         .add_worker::<NauticaSongProvider>()
         .add(singleton_factory(move |_| mixer_controls.clone()))
         .add(Vgfx::singleton().as_mut())
-        .add(LuaArena::singleton().as_mut())
+        .add(singleton_factory(|_| {
+            RefMut::new(LuaArena(Vec::new()).into())
+        }))
         .add(singleton_factory(move |_| {
             Arc::new(InputState::new(gilrs_state.clone()))
         }))

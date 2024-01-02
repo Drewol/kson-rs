@@ -1,16 +1,13 @@
 use std::{
     rc::Rc,
-    sync::{
-        mpsc::{Receiver, Sender},
-    },
+    sync::mpsc::{Receiver, Sender},
     time::SystemTime,
 };
 
 use anyhow::{anyhow, Result};
 use di::ServiceProvider;
 use game_loop::winit::event::{ElementState, Event, WindowEvent};
-
-
+use rodio::dynamic_mixer::DynamicMixerController;
 use tealr::{
     mlu::{
         mlua::{AppDataRef, Function, Lua},

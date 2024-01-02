@@ -190,14 +190,11 @@ impl VgAnimation {
         }
     }
 
-    pub fn current_img_id(&self) -> femtovg::ImageId {
+    pub fn current_img_id(&self) -> Option<femtovg::ImageId> {
         if self.compressed {
-            self.image_buffer
-                .front()
-                .copied()
-                .unwrap_or_else(|| ImageId(generational_arena::Index::from_raw_parts(0, 0)))
+            self.image_buffer.front().copied()
         } else {
-            self.image_buffer[self.current_image.min(self.image_buffer.len() - 1)]
+            Some(self.image_buffer[self.current_image.min(self.image_buffer.len() - 1)])
         }
     }
 

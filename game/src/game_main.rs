@@ -12,12 +12,10 @@ use di::{RefMut, ServiceProvider};
 use egui_glow::EguiGlow;
 use femtovg::Paint;
 use game_loop::winit::{dpi::PhysicalPosition, event, window::Window};
-use generational_arena::{Index};
 
 use kson::Chart;
 use log::*;
 use puffin::{profile_function, profile_scope};
-
 
 use td::{FrameOutput, Modifiers};
 use tealr::mlu::mlua::Lua;
@@ -26,16 +24,13 @@ use three_d::FrameInput;
 use femtovg as vg;
 use three_d as td;
 
-
-
-
 use crate::{
     button_codes::{LaserState, UscInputEvent},
     config::GameConfig,
     game::HitRating,
-    game_data::{GameData},
+    game_data::GameData,
     input_state::InputState,
-    lua_http::{LuaHttp},
+    lua_http::LuaHttp,
     lua_service::LuaProvider,
     main_menu::MainMenuButton,
     scene,
@@ -43,7 +38,7 @@ use crate::{
     songselect,
     transition::Transition,
     util::lua_address,
-    vg_ui::{Vgfx},
+    vg_ui::Vgfx,
     worker_service::WorkerService,
     LuaArena, RuscMixer, Scenes, FRAME_ACC_SIZE,
 };
@@ -84,8 +79,8 @@ pub struct GameMain {
     frame_times: [f64; 16],
     frame_time_index: usize,
     fps_paint: Paint,
-    transition_lua_idx: Index,
-    transition_song_lua_idx: Index,
+    transition_lua: Rc<Lua>,
+    transition_song_lua: Rc<Lua>,
     game_data: Arc<RwLock<GameData>>,
     vgfx: Arc<RwLock<Vgfx>>,
     frame_count: u32,
@@ -118,8 +113,8 @@ impl GameMain {
             frame_times: [0.01; 16],
             frame_time_index: 0,
             fps_paint,
-            transition_lua_idx: Index::from_raw_parts(0, 0),
-            transition_song_lua_idx: Index::from_raw_parts(0, 0),
+            transition_lua: Rc::new(Lua::new()),
+            transition_song_lua: Rc::new(Lua::new()),
             game_data: service_provider.get_required_mut(),
             vgfx: service_provider.get_required_mut(),
             frame_count: 0,
@@ -188,8 +183,8 @@ impl GameMain {
             knob_state,
             frame_times,
             fps_paint,
-            transition_lua_idx,
-            transition_song_lua_idx,
+            transition_lua,
+            transition_song_lua,
             frame_count,
             game_data,
             vgfx,
@@ -209,7 +204,7 @@ impl GameMain {
         puffin::profile_scope!("Frame");
         puffin::GlobalProfiler::lock().new_frame();
 
-        for (_idx, lua) in lua_arena.read().unwrap().0.iter() {
+        for lua in lua_arena.read().unwrap().0.iter() {
             lua.set_app_data(frame_input.clone());
         }
         let _lua_frame_input = frame_input.clone();
@@ -241,15 +236,12 @@ impl GameMain {
             };
         }
         if *frame_count == 1 {
-            let transition_lua = Rc::new(Lua::new());
-
-            *transition_lua_idx = lua_provider
-                .register_libraries(transition_lua, "transition.lua")
+            lua_provider
+                .register_libraries(transition_lua.clone(), "transition.lua")
                 .unwrap();
 
-            let transition_song_lua = Rc::new(Lua::new());
-            *transition_song_lua_idx = lua_provider
-                .register_libraries(transition_song_lua, "songtransition.lua")
+            lua_provider
+                .register_libraries(transition_song_lua.clone(), "songtransition.lua")
                 .unwrap();
             *frame_count += 1;
         }
@@ -265,7 +257,7 @@ impl GameMain {
                         scenes.suspend_top();
 
                         if let Ok(arena) = lua_arena.read() {
-                            let transition_lua = arena.0.get(*transition_lua_idx).unwrap().clone();
+                            let transition_lua = transition_lua.clone();
                             scenes.transition = Some(Transition::new(
                                 transition_lua,
                                 ControlMessage::MainMenu(MainMenuButton::Start),
@@ -288,7 +280,7 @@ impl GameMain {
                 },
                 ControlMessage::Song { diff, loader, song } => {
                     if let Ok(arena) = lua_arena.read() {
-                        let transition_lua = arena.0.get(*transition_song_lua_idx).unwrap().clone();
+                        let transition_lua = transition_song_lua.clone();
                         scenes.transition = Some(Transition::new(
                             transition_lua,
                             ControlMessage::Song { diff, loader, song },
@@ -311,7 +303,7 @@ impl GameMain {
                     hit_ratings,
                 } => {
                     if let Ok(arena) = lua_arena.read() {
-                        let transition_lua = arena.0.get(*transition_lua_idx).unwrap().clone();
+                        let transition_lua = transition_lua.clone();
                         scenes.transition = Some(Transition::new(
                             transition_lua,
                             ControlMessage::Result {
@@ -360,12 +352,7 @@ impl GameMain {
         });
         gui.paint(window);
 
-        Self::run_lua_gc(
-            lua_arena,
-            &mut vgfx.write().unwrap(),
-            *transition_lua_idx,
-            *transition_song_lua_idx,
-        );
+        Self::run_lua_gc(lua_arena, &mut vgfx.write().unwrap());
 
         if let Ok(mut a) = game_data.write() {
             a.profile_stack.clear()
@@ -542,20 +529,11 @@ impl GameMain {
             .for_each(|x| x.on_event(transformed_event.as_ref().unwrap_or(event)));
     }
 
-    fn run_lua_gc(
-        lua_arena: &mut RefMut<LuaArena>,
-        vgfx: &mut Vgfx,
-        transition_lua_idx: Index,
-        transition_song_lua_idx: Index,
-    ) {
+    fn run_lua_gc(lua_arena: &mut RefMut<LuaArena>, vgfx: &mut Vgfx) {
         profile_scope!("Garbage collect");
-        lua_arena.write().unwrap().0.retain(|idx, lua| {
-            //TODO: if reference count = 1, remove loaded gfx assets for state
+        lua_arena.write().unwrap().0.retain(|lua| {
             //lua.gc_collect();
-            if Rc::strong_count(lua) > 1
-                || idx == transition_lua_idx
-                || idx == transition_song_lua_idx
-            {
+            if Rc::strong_count(lua) > 1 {
                 LuaHttp::poll(lua);
                 true
             } else {

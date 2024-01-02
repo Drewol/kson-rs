@@ -22,7 +22,6 @@ image = { version = "0.24.0", default-features = false, features = [
     "png",
 ] }
 gilrs = { version = "0.10.0", features = ["serde-serialize"] }
-hecs = { version = "0.9.0", features = ["macros", "lazy_static"] }
 kson = { path = "../kson" }
 kson-audio = { path = "../kson-audio" }
 rodio = { version = "0.17.1", default-features = false, features = [
@@ -41,7 +40,6 @@ tealr = { version = "0.9.1", features = [
 three-d = { version = "0.16.0" }
 anyhow = { version = "1", features = ["backtrace"] }
 bitflags = "1"
-generational-arena = "*"
 once_cell = "1"
 walkdir = "*"
 rfd = "*"
@@ -56,7 +54,7 @@ poll-promise = { git = "https://github.com/EmbarkStudios/poll-promise", features
 tokio = { version = "1", features = ["rt-multi-thread", "fs"] }
 serde = { version = "1.0.152", features = ["derive"] }
 toml = "0.7.2"
-reqwest = { version = "0.11", features = ["json", "native-tls", "blocking"] }
+reqwest = { version = "0.11", features = ["json", "rustls-tls", "blocking"] }
 three-d-asset = { version = "0.6.0", features = [
     "image",
     "png",
