@@ -11,6 +11,7 @@ use std::fs::File;
 use std::io::BufReader;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
+use std::time::Duration;
 
 #[derive(Clone)]
 pub struct AudioFile {
@@ -19,6 +20,7 @@ pub struct AudioFile {
     channels: u16,
     size: usize,
     pos: Arc<AtomicUsize>,
+    leadin: Arc<AtomicUsize>,
     stopped: Arc<AtomicBool>,
     laser_dsp: Arc<Mutex<Box<dyn Dsp>>>,
     fx_dsp: [Option<Arc<Mutex<dyn Dsp>>>; 2],
@@ -62,6 +64,18 @@ impl Iterator for AudioFile {
         {
             if self.stopped.load(Ordering::SeqCst) {
                 return None;
+            }
+        }
+        {
+            if let Ok(leadin) =
+                self.leadin
+                    .fetch_update(Ordering::Relaxed, Ordering::Relaxed, |v| {
+                        Some(v.saturating_sub(1))
+                    })
+            {
+                if leadin > 0 {
+                    return Some(0.0);
+                }
             }
         }
         {
@@ -134,11 +148,18 @@ impl Source for AudioFile {
 
 impl AudioFile {
     fn get_ms(&self) -> f64 {
-        (self.pos.load(Ordering::SeqCst) / self.channels as usize) as f64
-            / (self.sample_rate as f64 / 1000.0)
+        let leadin = self.leadin.load(Ordering::Relaxed);
+
+        if leadin > 0 {
+            -((leadin / self.channels as usize) as f64 / (self.sample_rate as f64 / 1000.0))
+        } else {
+            (self.pos.load(Ordering::SeqCst) / self.channels as usize) as f64
+                / (self.sample_rate as f64 / 1000.0)
+        }
     }
 
     fn set_ms(&mut self, ms: f64) {
+        self.leadin.store(0, Ordering::Relaxed);
         let mut pos = ((ms / 1000.0) * (self.sample_rate * self.channels as u32) as f64) as usize;
         pos -= pos % self.channels as usize;
         self.pos.store(pos, Ordering::SeqCst);
@@ -146,6 +167,14 @@ impl AudioFile {
 
     fn set_stopped(&mut self, val: bool) {
         self.stopped.store(val, Ordering::SeqCst);
+    }
+
+    fn set_leadin(&self, duration: Duration) {
+        self.leadin.store(
+            ((duration.as_millis() * self.sample_rate as u128) / 1000) as usize
+                * self.channels as usize,
+            Ordering::Relaxed,
+        )
     }
 }
 type LaserFn = Box<dyn Fn(f32) -> f32>;
@@ -164,6 +193,12 @@ impl AudioPlayback {
             last_file: String::new(),
             laser_funcs: [Vec::new(), Vec::new()],
             laser_values: (None, None),
+        }
+    }
+
+    pub fn set_leadin(&mut self, duration: Duration) {
+        if let Some(file) = &self.file {
+            file.set_leadin(duration)
         }
     }
 
@@ -359,6 +394,7 @@ impl AudioPlayback {
             ],
             fx_dsp: [None, None],
             laser_dsp: Arc::new(Mutex::new(laser_dsp)),
+            leadin: Arc::new(AtomicUsize::new(0)),
         });
         self.last_file = filename.to_string();
         Ok(())

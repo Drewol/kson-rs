@@ -31,6 +31,7 @@ use tealr::mlu::mlua::{Function, Lua, LuaSerdeExt};
 use three_d_asset::{vec4, Srgba};
 
 const LASER_THRESHOLD: f64 = 1.0 / 12.0;
+const LEADIN: Duration = Duration::from_secs(3);
 
 pub struct Game {
     view: ChartView,
@@ -480,6 +481,9 @@ impl SceneData for GameData {
         playback.build_effects(&chart);
         playback.stop();
 
+        //TODO: No need to set leadin if first tick is beyond the leadin time.
+        playback.set_leadin(LEADIN);
+
         let bg = chart
             .bg
             .legacy
@@ -600,7 +604,7 @@ impl Game {
     ) -> Result<Self> {
         let mut view = ChartView::new(skin_root, td);
         view.build_laser_meshes(&chart);
-        let duration = chart.get_last_tick();
+        let duration = chart.ms_to_tick(3000.0 + chart.tick_to_ms(chart.get_last_tick()));
         let mut slam_path = skin_root.clone();
         slam_path.push("audio");
         slam_path.push("laser_slam.wav");
@@ -1009,9 +1013,13 @@ impl Game {
         }
     }
     fn current_time(&self) -> std::time::Duration {
-        SystemTime::now()
-            .duration_since(self.zero_time)
-            .unwrap_or(Duration::ZERO)
+        if !self.intro_done {
+            Duration::ZERO
+        } else {
+            SystemTime::now()
+                .duration_since(self.zero_time)
+                .unwrap_or(Duration::ZERO)
+        }
     }
 
     fn with_offset(&self, time: Duration) -> Duration {
@@ -1046,7 +1054,7 @@ impl Scene for Game {
 
         let playback_ms = self.playback.get_ms();
         let timing_delta = playback_ms.sub(time.as_secs_f64() * 1000.0);
-        if timing_delta.abs() > 20.0 {
+        if timing_delta.abs() > 20.0 && playback_ms > 0.0 && !self.score_ticks.is_empty() {
             log::info!("Resetting timing, delta: {timing_delta}ms");
             self.zero_time = SystemTime::now().sub(Duration::from_secs_f64(playback_ms / 1000.0));
             time = self.current_time();
@@ -1314,7 +1322,7 @@ impl Scene for Game {
 
         self.camera.view_size = vec2(viewport.width as f32, viewport.height as f32);
         if self.intro_done && !self.playback.is_playing() {
-            self.zero_time = SystemTime::now();
+            self.zero_time = SystemTime::now() + LEADIN;
             if !self.playback.play() {
                 panic!("Could not play")
             };
@@ -1332,8 +1340,11 @@ impl Scene for Game {
                 self.source_owner.0.clone(),
             ));
         }
+
+        let leadin_ms = self.playback.get_ms().min(0.0);
+
         let time = self.current_time();
-        let time_ms = time.as_secs_f64() * 1000.0;
+        let time_ms = time.as_secs_f64() * 1000.0 + leadin_ms;
 
         //Update roll
         {
@@ -1353,7 +1364,7 @@ impl Scene for Game {
 
             self.camera.tilt = self.current_roll as f32 * 12.5;
 
-            self.view.cursor = self.with_offset(time).as_secs_f64() * 1000.0;
+            self.view.cursor = self.with_offset(time).as_secs_f64() * 1000.0 + leadin_ms;
 
             self.current_tick = self.chart.ms_to_tick(self.view.cursor);
             self.camera.radius = 1.1
@@ -1639,7 +1650,7 @@ impl Scene for Game {
 
         let last_tick = self
             .chart
-            .ms_to_tick((self.current_time() + miss).as_secs_f64() * 1000.0)
+            .ms_to_tick((self.with_offset(self.current_time()) + miss).as_secs_f64() * 1000.0)
             + 1;
         let mut hittable_ticks = self.score_ticks.iter().take_while(|x| x.y < last_tick);
         let mut hit_rating = HitRating::None;
