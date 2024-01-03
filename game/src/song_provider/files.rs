@@ -3,7 +3,7 @@ use std::{
     path::PathBuf,
     sync::{
         mpsc::{channel, Receiver, Sender, TryRecvError},
-        Arc,
+        Arc, RwLock,
     },
     time::Duration,
 };
@@ -26,7 +26,7 @@ use anyhow::{bail, ensure};
 use futures::{executor::block_on, AsyncReadExt, StreamExt};
 use itertools::Itertools;
 use kson::Ksh;
-use log::info;
+use log::{info, warn};
 use puffin::profile_function;
 use rodio::Source;
 use rusc_database::{ChartEntry, LocalSongsDb, ScoreEntry};
@@ -99,13 +99,15 @@ impl FileSongProvider {
             .drain(0..)
             .into_grouping_map_by(|x| x.folderid)
             .fold(Song::default(), |mut song, id, diff| {
-                let mut difficulties = song.difficulties.write().unwrap();
-                if difficulties.is_empty() {
+                //This fold clones the initial state, and with our difficulties being RCd, we need to reinit the diffs
+                if song.id == SongId::Missing {
                     song.id = SongId::IntId(*id);
                     song.artist = diff.artist;
                     song.bpm = diff.bpm;
                     song.title = diff.title;
+                    song.difficulties = Arc::new(RwLock::new(vec![]));
                 }
+                let mut difficulties = song.difficulties.write().unwrap();
 
                 difficulty_id_path_map.insert(diff.rowid as u64, PathBuf::from(&diff.path));
                 let diff_path = PathBuf::from(diff.path);
@@ -113,7 +115,7 @@ impl FileSongProvider {
                     jacket_path: diff_path.with_file_name(diff.jacket_path),
                     level: diff.level as u8,
                     difficulty: diff.diff_index as u8,
-                    id: DiffId(SongId::IntId(diff.rowid)),
+                    id: DiffId(SongId::StringId(diff.hash.clone())),
                     effector: diff.effector,
                     top_badge: 0,           //TODO
                     scores: Vec::default(), //TODO
@@ -126,25 +128,9 @@ impl FileSongProvider {
             .map(|(_, song)| Arc::new(song))
             .collect();
 
-        for song in &mut all_songs {
-            let song = Arc::make_mut(song);
-            let mut difficulties =
-                std::mem::take(&mut *song.difficulties.write().unwrap());
-            for diff in difficulties.iter_mut() {
-                if let Ok(mut score_entires) = database
-                    .get_scores_for_chart(diff.hash.as_ref().unwrap())
-                    .await
-                {
-                    diff.scores = score_entires.drain(0..).map_into().collect();
-                }
-            }
-
-            *song.difficulties.write().unwrap() = difficulties;
-        }
-
         let worker_db = database.clone();
         let (sender_tx, worker_rx) = channel();
-        let (worker_tx, sender_rx) = channel();
+        let (worker_tx, sender_rx) = channel(); //TODO: Async channels?
         let worker = poll_promise::Promise::spawn_async(async move {
             loop {
                 let songs = {
@@ -206,7 +192,11 @@ impl FileSongProvider {
                                                         let mut hasher: sha1_smol::Sha1 =
                                                             sha1_smol::Sha1::new();
 
-                                                        let mut data = vec![];
+                                                        let Ok(data) =
+                                                            tokio::fs::read(f.path()).await
+                                                        else {
+                                                            continue;
+                                                        };
 
                                                         hasher.update(&data);
                                                         let hash = hasher.digest().to_string();
@@ -358,6 +348,7 @@ impl FileSongProvider {
                                             }
 
                                             if song.difficulties.read().unwrap().is_empty() {
+                                                warn!("No difficulties for song: {}", song.title);
                                                 return;
                                             }
 
@@ -402,7 +393,7 @@ impl FileSongProvider {
                         Err(TryRecvError::Empty) => {}
                     }
 
-                    futures::pending!() //yield async task
+                    tokio::time::sleep(Duration::from_millis(100)).await
                 }
             }
         });
