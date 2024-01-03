@@ -7,7 +7,10 @@ use std::{
 };
 
 use game_loop::winit::event::ElementState;
-use gilrs::{ev::filter::FilterFn, Axis, Button, Event};
+use gilrs::{
+    ev::{filter::FilterFn, Code},
+    Axis, Button, Event,
+};
 use kson::{BtLane, Side};
 
 pub struct RuscFilter {
@@ -17,6 +20,8 @@ pub struct RuscFilter {
     offset_neg: bool,
     offset_rx: Receiver<i32>,
 }
+
+pub struct CustomBindingFilter;
 
 impl RuscFilter {
     pub fn new(offset: i32) -> (Self, Sender<i32>) {
@@ -98,29 +103,19 @@ impl FilterFn for RuscFilter {
                                     time: ev.time,
                                 })
                             }
-                            gilrs::EventType::AxisChanged(_, v, code) => {
-                                log::info!("Code: {code}");
-                                self.axis_map
-                                    .get(&code.into_u32())
-                                    .map(|(axis, sens)| Event {
-                                        id: ev.id,
-                                        event: gilrs::EventType::AxisChanged(
-                                            *axis,
-                                            *sens * v,
-                                            code,
-                                        ),
-                                        time: ev.time,
-                                    })
-                            }
+                            gilrs::EventType::AxisChanged(_, v, code) => self
+                                .axis_map
+                                .get(&code.into_u32())
+                                .map(|(axis, sens)| Event {
+                                    id: ev.id,
+                                    event: gilrs::EventType::AxisChanged(*axis, *sens * v, code),
+                                    time: ev.time,
+                                }),
                             gilrs::EventType::Connected => Some(ev),
                             gilrs::EventType::Disconnected => Some(ev),
                             gilrs::EventType::Dropped => Some(ev),
                         }
-                        .or(Some(Event {
-                            id: ev.id,
-                            event: gilrs::EventType::Dropped,
-                            time: ev.time,
-                        }))
+                        .or(Some(ev))
                     }
                 }
             }
@@ -130,6 +125,44 @@ impl FilterFn for RuscFilter {
 }
 
 use serde::{Deserialize, Serialize};
+
+impl FilterFn for CustomBindingFilter {
+    fn filter(&self, ev: Option<Event>, gilrs: &mut gilrs::Gilrs) -> Option<Event> {
+        match ev {
+            Some(mut ev) => {
+                let uuid = uuid::Uuid::from_bytes(gilrs.gamepad(ev.id).uuid());
+                if let Some(bindings) = GameConfig::get().controller_binds.get(&uuid) {
+                    match &mut ev.event {
+                        gilrs::EventType::ButtonPressed(button, code)
+                        | gilrs::EventType::ButtonRepeated(button, code)
+                        | gilrs::EventType::ButtonReleased(button, code)
+                        | gilrs::EventType::ButtonChanged(button, _, code) => {
+                            *button = bindings
+                                .buttons
+                                .iter()
+                                .find(|x| *x.1 == *code)
+                                .map(|x| *x.0)
+                                .unwrap_or(*button);
+                        }
+                        gilrs::EventType::AxisChanged(axis, _, code) => {
+                            *axis = bindings
+                                .axis
+                                .iter()
+                                .find(|x| *x.1 == *code)
+                                .map(|x| *x.0)
+                                .unwrap_or(*axis)
+                        }
+                        gilrs::EventType::Connected => {}
+                        gilrs::EventType::Disconnected => {}
+                        gilrs::EventType::Dropped => {}
+                    }
+                }
+                Some(ev)
+            }
+            None => None,
+        }
+    }
+}
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, Hash, PartialEq, Eq)]
 pub enum UscButton {
@@ -159,6 +192,30 @@ impl UscButton {
             UscButton::Back => 255,
             UscButton::Laser(_, _) => 255,
             UscButton::Other(_) => 255,
+        }
+    }
+
+    pub fn as_str(&self) -> &str {
+        match self {
+            UscButton::BT(bt) => match bt {
+                BtLane::A => "BT A",
+                BtLane::B => "BT B",
+                BtLane::C => "BT C",
+                BtLane::D => "BT D",
+            },
+            UscButton::FX(side) => match side {
+                Side::Left => "FX L",
+                Side::Right => "FX R",
+            },
+            UscButton::Start => "Start",
+            UscButton::Back => "Back",
+            UscButton::Laser(side, dir) => match (side, dir) {
+                (Side::Left, Side::Left) => "<--Left Laser",
+                (Side::Left, Side::Right) => "Left Laser-->",
+                (Side::Right, Side::Left) => "<--Right Laser",
+                (Side::Right, Side::Right) => "Right Laser-->",
+            },
+            UscButton::Other(_) => "Unknown",
         }
     }
 }
@@ -295,8 +352,6 @@ impl LaserState {
             state.delta += std::f32::consts::TAU * (state.delta.signum() * -1.0);
         }
         state.pos = new_pos_pi;
-
-        log::info!("{:?}", self);
     }
 
     pub fn zero_deltas(&mut self) {
@@ -304,3 +359,12 @@ impl LaserState {
         self.1.delta = 0.0;
     }
 }
+
+use crate::config::GameConfig;
+#[derive(Debug, Serialize, Deserialize, Default, Clone)]
+pub struct CustomControlleMap {
+    pub buttons: HashMap<Button, Code>,
+    pub axis: HashMap<Axis, Code>, //TODO: Direction?
+}
+
+pub type CustomBindings = HashMap<uuid::Uuid, CustomControlleMap>;

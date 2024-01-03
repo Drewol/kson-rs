@@ -5,6 +5,7 @@ use std::{
 };
 
 use game_loop::winit::event::ElementState;
+use gilrs::GamepadId;
 use kson::Side;
 
 use crate::button_codes::{LaserAxis, LaserState, UscButton, UscInputEvent};
@@ -12,15 +13,15 @@ use crate::button_codes::{LaserAxis, LaserState, UscButton, UscInputEvent};
 #[derive(Debug, Clone)]
 pub struct InputState {
     laser_state: Arc<RwLock<LaserState>>,
-    _gilrs: Arc<Mutex<gilrs::Gilrs>>,
+    gilrs: Arc<Mutex<gilrs::Gilrs>>,
     buttons_held: Arc<RwLock<HashMap<UscButton, SystemTime>>>,
 }
 
 impl InputState {
-    pub fn new(_gilrs: Arc<Mutex<gilrs::Gilrs>>) -> Self {
+    pub fn new(gilrs: Arc<Mutex<gilrs::Gilrs>>) -> Self {
         Self {
             laser_state: Arc::new(RwLock::new(LaserState::default())),
-            _gilrs,
+            gilrs,
             buttons_held: Arc::new(RwLock::new(HashMap::default())),
         }
     }
@@ -57,5 +58,9 @@ impl InputState {
 
     pub fn get_axis(&self, side: Side) -> LaserAxis {
         self.laser_state.read().unwrap().get_axis(side)
+    }
+
+    pub fn lock_gilrs(&self) -> std::sync::MutexGuard<'_, gilrs::Gilrs> {
+        self.gilrs.lock().unwrap()
     }
 }

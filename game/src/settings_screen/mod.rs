@@ -1,17 +1,43 @@
-use egui::{CollapsingResponse, InnerResponse, RichText, Separator, Slider, TextEdit, Ui};
+mod controller_binding;
 
-use crate::{config::GameConfig, scene::Scene, skin_settings::SkinSettingValue};
+use std::collections::HashMap;
+
+use egui::{CollapsingResponse, InnerResponse, RichText, Separator, Slider, TextEdit, Ui};
+use gilrs::GamepadId;
+use itertools::Itertools;
+
+use crate::{
+    config::GameConfig, input_state::InputState, scene::Scene, skin_settings::SkinSettingValue,
+};
+
+use self::controller_binding::BindingUi;
 
 pub struct SettingsScreen {
     altered_settings: GameConfig,
     close: bool,
+    input_state: InputState,
+    selected_controller: Option<GamepadId>,
+    binding_ui: Option<BindingUi>,
+    controllers: HashMap<GamepadId, String>,
 }
 
 impl SettingsScreen {
-    pub fn new() -> Self {
+    pub fn new(input_state: InputState) -> Self {
+        let controllers = {
+            let lock_gilrs = input_state.lock_gilrs();
+            lock_gilrs
+                .gamepads()
+                .map(|(id, pad)| (id, pad.name().to_string()))
+                .collect()
+        };
+
         Self {
             altered_settings: GameConfig::get().clone(),
             close: false,
+            input_state,
+            selected_controller: None,
+            binding_ui: None,
+            controllers,
         }
     }
 
@@ -40,6 +66,14 @@ impl Scene for SettingsScreen {
 
     fn name(&self) -> &str {
         "Settings"
+    }
+
+    fn tick(&mut self, dt: f64, knob_state: crate::button_codes::LaserState) -> anyhow::Result<()> {
+        if let Some(binding_ui) = self.binding_ui.as_mut() {
+            binding_ui.run_checks(&mut self.altered_settings)
+        }
+
+        Ok(())
     }
 
     fn has_egui(&self) -> bool {
@@ -76,6 +110,39 @@ impl Scene for SettingsScreen {
                     ui.end_row();
                     ui.checkbox(&mut self.altered_settings.mouse_knobs, "Mouse knobs");
                     ui.end_row();
+
+                    egui::ComboBox::from_label("Controller")
+                        .selected_text(
+                            self.selected_controller
+                                .and_then(|id| self.controllers.get(&id))
+                                .unwrap_or(&"None".to_string()),
+                        )
+                        .show_ui(ui, |ui| {
+                            if ui
+                                .selectable_value(&mut self.selected_controller, None, "None")
+                                .clicked()
+                            {
+                                self.binding_ui = None;
+                            }
+
+                            for (id, name) in self.controllers.iter() {
+                                if ui
+                                    .selectable_value(
+                                        &mut self.selected_controller,
+                                        Some(*id),
+                                        name,
+                                    )
+                                    .clicked()
+                                {
+                                    self.binding_ui =
+                                        Some(BindingUi::new(*id, self.input_state.clone()));
+                                }
+                            }
+                        });
+                    ui.end_row();
+                    if let Some(binding_ui) = self.binding_ui.as_mut() {
+                        binding_ui.ui(ui, &mut self.altered_settings);
+                    }
                 });
 
                 settings_section("Skin", ui, |ui| {
@@ -93,7 +160,11 @@ impl Scene for SettingsScreen {
                                 name,
                                 values,
                             } => {
-                                let SkinSettingValue::Text(t) = self.altered_settings.skin_settings.get_mut(name).unwrap() else {continue;};
+                                let SkinSettingValue::Text(t) =
+                                    self.altered_settings.skin_settings.get_mut(name).unwrap()
+                                else {
+                                    continue;
+                                };
                                 egui::containers::ComboBox::from_label(label)
                                     .selected_text(t.clone())
                                     .show_ui(ui, |ui| {
@@ -108,7 +179,11 @@ impl Scene for SettingsScreen {
                                 name,
                                 secret,
                             } => {
-                                let SkinSettingValue::Text(t) = self.altered_settings.skin_settings.get_mut(name).unwrap() else {continue;};
+                                let SkinSettingValue::Text(t) =
+                                    self.altered_settings.skin_settings.get_mut(name).unwrap()
+                                else {
+                                    continue;
+                                };
                                 ui.label(label);
                                 ui.add(TextEdit::singleline(t).password(*secret));
                             }
@@ -117,7 +192,11 @@ impl Scene for SettingsScreen {
                                 label,
                                 name,
                             } => {
-                                let  SkinSettingValue::Color(col) =  self.altered_settings.skin_settings.get_mut(name).unwrap() else {continue;};
+                                let SkinSettingValue::Color(col) =
+                                    self.altered_settings.skin_settings.get_mut(name).unwrap()
+                                else {
+                                    continue;
+                                };
                                 ui.label(label);
                                 ui.color_edit_button_srgba(&mut col.0);
                             }
@@ -126,7 +205,11 @@ impl Scene for SettingsScreen {
                                 label,
                                 name,
                             } => {
-                                let  SkinSettingValue::Bool(v) =  self.altered_settings.skin_settings.get_mut(name).unwrap() else {continue;};
+                                let SkinSettingValue::Bool(v) =
+                                    self.altered_settings.skin_settings.get_mut(name).unwrap()
+                                else {
+                                    continue;
+                                };
                                 ui.checkbox(v, label);
                             }
                             crate::skin_settings::SkinSettingEntry::Float {
@@ -136,7 +219,11 @@ impl Scene for SettingsScreen {
                                 min,
                                 max,
                             } => {
-                                let  SkinSettingValue::Float(v) =  self.altered_settings.skin_settings.get_mut(name).unwrap() else {continue;};
+                                let SkinSettingValue::Float(v) =
+                                    self.altered_settings.skin_settings.get_mut(name).unwrap()
+                                else {
+                                    continue;
+                                };
                                 ui.label(label);
                                 ui.add(egui::Slider::new(v, *min..=*max));
                             }
@@ -147,7 +234,11 @@ impl Scene for SettingsScreen {
                                 min,
                                 max,
                             } => {
-                                let  SkinSettingValue::Integer(v) =  self.altered_settings.skin_settings.get_mut(name).unwrap() else {continue;};
+                                let SkinSettingValue::Integer(v) =
+                                    self.altered_settings.skin_settings.get_mut(name).unwrap()
+                                else {
+                                    continue;
+                                };
                                 ui.label(label);
                                 ui.add(egui::Slider::new(v, *min..=*max));
                             }

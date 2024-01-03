@@ -275,7 +275,9 @@ impl GameMain {
                     MainMenuButton::Exit => {
                         scenes.clear();
                     }
-                    MainMenuButton::Options => scenes.loaded.push(Box::new(SettingsScreen::new())),
+                    MainMenuButton::Options => scenes
+                        .loaded
+                        .push(Box::new(SettingsScreen::new(self.input_state.clone()))),
                     _ => {}
                 },
                 ControlMessage::Song { diff, loader, song } => {
@@ -400,7 +402,6 @@ impl GameMain {
 
         match event {
             Event::UserEvent(e) => {
-                info!("{:?}", e);
                 self.input_state.update(e);
                 match e {
                     UscInputEvent::Laser(ls, _time) => self.knob_state = *ls,

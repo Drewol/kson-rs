@@ -17,13 +17,13 @@ use crate::{
     vg_ui::Vgfx,
 };
 use anyhow::bail;
+use button_codes::CustomBindingFilter;
 use clap::Parser;
 use directories::ProjectDirs;
 
 use femtovg as vg;
 
 use game_main::ControlMessage;
-use gilrs::ev::filter::Jitter;
 
 use help::ServiceHelper;
 use kson::Ksh;
@@ -176,18 +176,16 @@ pub struct Scenes {
     pub transition: Option<Transition>,
     pub prev_transition: bool,
     should_outro: bool,
-    mixer: RuscMixer,
 }
 
 impl Scenes {
-    pub fn new(mixer: Arc<DynamicMixerController<f32>>) -> Self {
+    pub fn new() -> Self {
         Self {
             active: Default::default(),
             loaded: Default::default(),
             initialized: Default::default(),
             transition: Default::default(),
             should_outro: Default::default(),
-            mixer,
             prev_transition: false,
         }
     }
@@ -325,6 +323,12 @@ impl Scenes {
         self.transition = None;
     }
 }
+
+impl Default for Scenes {
+    fn default() -> Self {
+        Self::new()
+    }
+}
 pub const FRAME_ACC_SIZE: usize = 16;
 
 struct LuaArena(Vec<Rc<Lua>>);
@@ -428,6 +432,7 @@ fn main() -> anyhow::Result<()> {
 
     let _input_thread = poll_promise::Promise::spawn_thread("gilrs", move || {
         let mut knob_state = LaserState::default();
+        let binding_filter = CustomBindingFilter;
         loop {
             rusc_filter.update();
             use button_codes::*;
@@ -435,7 +440,10 @@ fn main() -> anyhow::Result<()> {
             use gilrs::*;
             let e = {
                 if let Ok(mut input) = input.lock() {
-                    input.next_event().filter_ev(&rusc_filter, &mut input)
+                    input
+                        .next_event()
+                        .filter_ev(&rusc_filter, &mut input)
+                        .filter_ev(&binding_filter, &mut input)
                 } else {
                     None
                 }
@@ -445,13 +453,13 @@ fn main() -> anyhow::Result<()> {
                 let sent = match e.event {
                     EventType::ButtonPressed(button, _) => {
                         let button = UscButton::from(button);
-                        info!("{:?}", button);
+                        info!("Pressed {:?}", button);
                         Some(event_proxy.send_event(UscInputEvent::Button(button, Pressed, e.time)))
                     }
                     EventType::ButtonRepeated(_, _) => None,
                     EventType::ButtonReleased(button, _) => {
                         let button = UscButton::from(button);
-                        info!("{:?}", button);
+                        info!("Released {:?}", button);
                         Some(
                             event_proxy.send_event(UscInputEvent::Button(button, Released, e.time)),
                         )
@@ -461,9 +469,7 @@ fn main() -> anyhow::Result<()> {
                         match axis {
                             Axis::LeftStickX => knob_state.update(kson::Side::Left, value),
                             Axis::RightStickX => knob_state.update(kson::Side::Right, value),
-                            e => {
-                                info!("{:?}", e)
-                            }
+                            _ => {}
                         }
                         Some(event_proxy.send_event(UscInputEvent::Laser(knob_state, e.time)))
                     }
@@ -491,7 +497,7 @@ fn main() -> anyhow::Result<()> {
 
     let fps_paint = vg::Paint::color(vg::Color::white()).with_text_align(vg::Align::Right);
 
-    let mut scenes = Scenes::new(services.get_required::<DynamicMixerController<f32>>());
+    let mut scenes = Scenes::new();
     if GameConfig::get().args.chart.as_ref().is_none() {
         let mut title = Box::new(main_menu::MainMenu::new(services.create_scope()));
         title.suspend();

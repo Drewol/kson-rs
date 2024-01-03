@@ -6,7 +6,7 @@ use once_cell::sync::OnceCell;
 use serde::{Deserialize, Serialize};
 
 use crate::{
-    button_codes::UscButton,
+    button_codes::{CustomBindings, UscButton},
     skin_settings::{SkinSettingEntry, SkinSettingValue},
 };
 
@@ -43,6 +43,7 @@ pub struct GameConfig {
     #[serde(skip_serializing, skip_deserializing)]
     pub args: Args,
     pub keybinds: Vec<Keybinds>,
+    pub controller_binds: CustomBindings,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone, Copy)]
@@ -131,7 +132,8 @@ impl Default for GameConfig {
             keyboard_buttons: false,
             keybinds: vec![Keybinds::default()],
             keyboard_knobs: false,
-            global_offset: 0
+            global_offset: 0,
+            controller_binds: HashMap::new(),
 
         }
     }
