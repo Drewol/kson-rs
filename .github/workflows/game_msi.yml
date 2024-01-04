@@ -15,7 +15,8 @@ jobs:
         env:
           AWS_ACCESS_KEY_ID: ${{ secrets.CLOUDFLARE_API_ID }}
           AWS_SECRET_ACCESS_KEY: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-        run: aws s3 sync ./target/release/ s3://${{ secrets.R2_BUCKET }}/${{ github.ref_name }} --endpoint-url ${{ secrets.S3_ENDPOINT }} --exclude "*" --include "*.msi"
+        run: aws s3 sync ${{ github.workspace }}/target/wix s3://${{ secrets.R2_BUCKET }}/${{ github.ref_name }} --endpoint-url ${{ secrets.S3_ENDPOINT }} --exclude "*" --include "*.msi"
+        continue-on-error: true
       - uses: actions/upload-artifact@v3
         with:
           name: Windows installer
