@@ -348,7 +348,6 @@ impl FileSongProvider {
                                             }
 
                                             if song.difficulties.read().unwrap().is_empty() {
-                                                warn!("No difficulties for song: {}", song.title);
                                                 return;
                                             }
 

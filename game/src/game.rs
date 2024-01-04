@@ -977,14 +977,13 @@ impl Game {
                     Ordering::Equal => unreachable!(),
                 };
                 let delta = ms
-                    - self
-                        .with_offset(
-                            self.laser_latest_dir_inputs[lane][dir]
-                                .duration_since(self.zero_time)
-                                .unwrap_or(Duration::ZERO),
-                        )
-                        .as_secs_f64()
-                        * 1000.0;
+                    - self.with_offset(
+                        self.laser_latest_dir_inputs[lane][dir]
+                            .duration_since(self.zero_time)
+                            .unwrap_or(Duration::ZERO)
+                            .as_secs_f64()
+                            * 1000.0,
+                    );
                 let contains_cursor = true; //TODO: (start.min(end)..=start.max(end)).contains(&self.laser_cursors[lane]);
                 if tick.y < slam_miss_tick {
                     self.laser_assist_ticks[lane] = 0;
@@ -1022,17 +1021,13 @@ impl Game {
         }
     }
 
-    fn with_offset(&self, time: Duration) -> Duration {
-        let offset = if let Some(bgm) = &self.chart.audio.bgm {
-            bgm.offset
-        } else {
-            0
-        };
-        if offset > 0 {
-            time.saturating_sub(Duration::from_millis(offset.unsigned_abs() as _))
-        } else {
-            time.add(Duration::from_millis(offset.unsigned_abs() as _))
-        }
+    fn with_offset(&self, time_ms: f64) -> f64 {
+        time_ms
+            - if let Some(bgm) = &self.chart.audio.bgm {
+                bgm.offset as f64
+            } else {
+                0.0
+            }
     }
 }
 
@@ -1076,9 +1071,11 @@ impl Scene for Game {
             self.results_requested = true;
         }
         let missed_chip_tick = self.chart.ms_to_tick(
-            self.with_offset(time.saturating_sub(self.lua_game_state.hit_window.good))
-                .as_secs_f64()
-                * 1000.0,
+            self.with_offset(
+                time.saturating_sub(self.lua_game_state.hit_window.good)
+                    .as_secs_f64()
+                    * 1000.0,
+            ),
         );
 
         for (side, (laser_active, laser_target)) in self
@@ -1364,7 +1361,7 @@ impl Scene for Game {
 
             self.camera.tilt = self.current_roll as f32 * 12.5;
 
-            self.view.cursor = self.with_offset(time).as_secs_f64() * 1000.0 + leadin_ms;
+            self.view.cursor = self.with_offset(time.as_secs_f64() * 1000.0) + leadin_ms;
 
             self.current_tick = self.chart.ms_to_tick(self.view.cursor);
             self.camera.radius = 1.1
@@ -1648,10 +1645,10 @@ impl Scene for Game {
             miss,
         } = self.lua_game_state.hit_window;
 
-        let last_tick = self
-            .chart
-            .ms_to_tick((self.with_offset(self.current_time()) + miss).as_secs_f64() * 1000.0)
-            + 1;
+        let last_tick = self.chart.ms_to_tick(
+            self.with_offset(self.current_time().as_secs_f64() * 1000.0)
+                + miss.as_secs_f64() * 1000.0,
+        ) + 1;
         let mut hittable_ticks = self.score_ticks.iter().take_while(|x| x.y < last_tick);
         let mut hit_rating = HitRating::None;
         let button_num = Into::<u8>::into(button);
@@ -1667,14 +1664,13 @@ impl Scene for Game {
                 }) {
                     let tick = *score_tick;
                     let ms = self.chart.tick_to_ms(score_tick.y);
-                    let time = self
-                        .with_offset(
-                            timestamp
-                                .duration_since(self.zero_time)
-                                .unwrap_or(Duration::ZERO),
-                        )
-                        .as_secs_f64()
-                        * 1000.0;
+                    let time = self.with_offset(
+                        timestamp
+                            .duration_since(self.zero_time)
+                            .unwrap_or(Duration::ZERO)
+                            .as_secs_f64()
+                            * 1000.0,
+                    );
 
                     let delta = ms - time;
                     let abs_delta = Duration::from_secs_f64(delta.abs() / 1000.0);
