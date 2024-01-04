@@ -6,11 +6,11 @@ jobs:
   windows_installer:
     runs-on: windows-latest
     steps:
+      - uses: actions/checkout@v1
       - uses: actions/cache@v2
         with:
           path: target
           key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
-      - uses: actions/checkout@v1
       - name: "Upgrade LLVM"
         run: choco upgrade llvm --version=16.0.6
       - run: cargo install cargo-wix
