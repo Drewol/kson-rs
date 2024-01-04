@@ -1,18 +1,29 @@
 name: Game Installer
 on:
-    push:
-        branches: [master]
-jobs: 
-    windows_installer:
-        runs-on: windows-latest
-        steps:
-            - uses: actions/checkout@v1
-            - name: 'Upgrade LLVM'
-              run: choco upgrade llvm --version=16.0.6                  
-            - run: cargo install cargo-wix
-            - run: cargo wix -p rusc --nocapture
-            - uses: actions/upload-artifact@v3
-              with:
-                  name: Windows installer
-                  path: target/**/*.msi
-            
+  push:
+    branches: [master, r2upload]
+jobs:
+  windows_installer:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v1
+      - uses: actions/cache@v2
+        with:
+          path: target
+          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+      - name: "Upgrade LLVM"
+        run: choco upgrade llvm --version=16.0.6
+      - run: cargo install cargo-wix
+      - run: cargo wix -p rusc --nocapture
+      - name: Upload to R2
+        working-directory: ${{ github.workspace }}/target/wix
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.CLOUDFLARE_API_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          AWS_DEFAULT_REGION: weur
+        run: aws s3 sync . s3://${{ secrets.R2_BUCKET }}/${{ github.ref_name }} --endpoint-url ${{ secrets.S3_ENDPOINT }} --exclude "*" --include "*.msi"
+        continue-on-error: true
+      - uses: actions/upload-artifact@v3
+        with:
+          name: Windows installer
+          path: target/**/*.msi
