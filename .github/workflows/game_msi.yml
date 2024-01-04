@@ -16,6 +16,7 @@ jobs:
         env:
           AWS_ACCESS_KEY_ID: ${{ secrets.CLOUDFLARE_API_ID }}
           AWS_SECRET_ACCESS_KEY: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          AWS_DEFAULT_REGION: eu-north-1
         run: aws s3 sync . s3://${{ secrets.R2_BUCKET }}/${{ github.ref_name }} --endpoint-url ${{ secrets.S3_ENDPOINT }} --exclude "*" --include "*.msi"
         continue-on-error: true
       - uses: actions/upload-artifact@v3
