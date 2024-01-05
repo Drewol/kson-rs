@@ -95,12 +95,12 @@ enum Gauge {
 
 fn tick_is_short(score_tick: PlacedScoreTick) -> bool {
     match score_tick.tick {
-        ScoreTick::Laser { lane: _, pos: _ } => true,
+        ScoreTick::Laser { lane: _, pos: _ } => false,
         ScoreTick::Slam {
             lane: _,
             start: _,
             end: _,
-        } => false,
+        } => true,
         ScoreTick::Chip { lane: _ } => true,
         ScoreTick::Hold { lane: _ } => false,
     }
