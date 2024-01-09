@@ -4,11 +4,14 @@ use game_loop::winit::event::Event;
 use log::warn;
 use puffin::{profile_function, profile_scope};
 use rodio::Source;
-use serde::Serialize;
+use serde::{ser::SerializeSeq, Serialize};
 use std::{
+    collections::{HashMap, HashSet},
     fmt::Debug,
+    ops::Index,
     path::PathBuf,
     rc::Rc,
+    slice::Iter,
     sync::{
         atomic::{AtomicBool, AtomicU64, AtomicUsize},
         mpsc::{channel, Receiver, Sender},
@@ -39,6 +42,8 @@ use crate::{
     take_duration_fade::take_duration_fade,
     ControlMessage, RuscMixer,
 };
+
+mod song_collection;
 
 #[derive(Debug, ToTypename, Clone, Serialize, UserData)]
 #[serde(rename_all = "camelCase")]
@@ -97,7 +102,7 @@ impl TealData for Song {
 #[derive(Serialize, UserData)]
 #[serde(rename_all = "camelCase")]
 pub struct SongSelect {
-    songs: Vec<Arc<Song>>,
+    songs: song_collection::SongCollection,
     search_input_active: bool, //true when the user is currently inputting search text
     search_text: String,       //current string used by the song search
     selected_index: i32,
@@ -138,7 +143,7 @@ type SyncScoreProvider = Arc<Mutex<dyn ScoreProvider>>;
 impl SongSelect {
     pub fn new() -> Self {
         Self {
-            songs: vec![],
+            songs: Default::default(),
             search_input_active: false,
             search_text: String::new(),
             selected_index: 0,
@@ -189,11 +194,9 @@ impl SongSelectScene {
         let score_provider: RefMut<dyn ScoreProvider> = services.get_required();
         let score_events = score_provider.write().unwrap().subscribe();
         let song_events = song_provider.write().unwrap().subscribe();
-        song_select.songs = song_provider.write().unwrap().get_all();
-        _ = score_provider
-            .write()
-            .unwrap()
-            .init_scores(&song_select.songs);
+        let initial_songs = song_provider.write().unwrap().get_all();
+        _ = score_provider.write().unwrap().init_scores(&initial_songs);
+        song_select.songs.append(initial_songs);
         Self {
             background_lua: Rc::new(Lua::new()),
             lua: Rc::new(Lua::new()),
@@ -434,11 +437,9 @@ impl Scene for SongSelectScene {
                         .read()
                         .unwrap()
                         .init_scores(&new_songs)?;
-                    state.songs.append(&mut new_songs)
+                    state.songs.append(new_songs)
                 }
-                SongProviderEvent::SongsRemoved(removed_ids) => {
-                    state.songs.retain(|s| !removed_ids.contains(&s.id))
-                }
+                SongProviderEvent::SongsRemoved(removed_ids) => state.songs.remove(removed_ids),
                 SongProviderEvent::OrderChanged(_) => todo!(),
             }
         }

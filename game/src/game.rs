@@ -1,7 +1,5 @@
 use crate::{
     button_codes::{UscButton, UscInputEvent},
-    game_background::GameBackground,
-    game_camera::{CameraShake, ChartCamera},
     input_state::InputState,
     log_result,
     lua_service::LuaProvider,
@@ -15,8 +13,8 @@ use crate::{
     vg_ui::Vgfx,
     ControlMessage,
 };
+use anyhow::{ensure, Result};
 use di::{RefMut, ServiceProvider};
-use egui::epaint::ahash::HashSet;
 use image::GenericImageView;
 use itertools::Itertools;
 use kson::{
@@ -25,10 +23,30 @@ use kson::{
 };
 use puffin::{profile_function, profile_scope};
 use rodio::{dynamic_mixer::DynamicMixerController, source::Buffered, Decoder, Source};
-use serde::{Deserialize, Serialize};
-use serde_with::*;
+use std::{
+    cmp::Ordering,
+    f32::consts::SQRT_2,
+    ops::Sub,
+    path::PathBuf,
+    rc::Rc,
+    sync::{
+        mpsc::{Receiver, Sender},
+        Arc,
+    },
+    time::{Duration, SystemTime},
+};
 use tealr::mlu::mlua::{Function, Lua, LuaSerdeExt};
+use three_d::{vec2, vec3, Blend, Camera, Mat4, Matrix4, Vec3, Vec4, Viewport, Zero};
 use three_d_asset::{vec4, Srgba};
+
+mod chart_view;
+use chart_view::*;
+mod camera;
+use camera::*;
+mod background;
+use background::GameBackground;
+mod lua_data;
+pub use lua_data::HitWindow;
 
 const LASER_THRESHOLD: f64 = 1.0 / 12.0;
 const LEADIN: Duration = Duration::from_secs(3);
@@ -46,7 +64,7 @@ pub struct Game {
     bt_chip_shader: ShadedMesh,
     lane_beam_shader: ShadedMesh,
     camera: ChartCamera,
-    lua_game_state: LuaGameState,
+    lua_game_state: lua_data::LuaGameState,
     lua: Rc<Lua>,
     intro_done: bool,
     song: Arc<Song>,
@@ -198,20 +216,20 @@ pub enum HitRating {
     },
 }
 
-impl From<&Gauge> for LuaGauge {
+impl From<&Gauge> for lua_data::LuaGauge {
     fn from(value: &Gauge) -> Self {
         match value {
             Gauge::Normal {
                 chip_gain: _,
                 tick_gain: _,
                 value,
-            } => LuaGauge {
+            } => lua_data::LuaGauge {
                 gauge_type: 0,
                 options: 0,
                 value: *value,
                 name: "Normal".into(),
             },
-            Gauge::None => LuaGauge {
+            Gauge::None => lua_data::LuaGauge {
                 gauge_type: 0,
                 options: 0,
                 value: 0.0,
@@ -227,14 +245,9 @@ enum HoldState {
     Miss,
 }
 
-struct TrackRenderMeshes {
-    fx_hold: Vec<(Mat4, HoldState)>,
-    bt_hold: Vec<(Mat4, HoldState)>,
-    fx_chip: Vec<(Mat4, bool)>,
-    bt_chip: Vec<Mat4>,
-    lasers: [CpuMesh; 4],
-    lane_beams: [(Mat4, Srgba); 6],
-}
+mod graphics;
+use graphics::*;
+
 pub struct GameData {
     song: Arc<Song>,
     diff_idx: usize,
@@ -242,70 +255,6 @@ pub struct GameData {
     chart: kson::Chart,
     skin_folder: PathBuf,
     audio: std::boxed::Box<(dyn rodio::source::Source<Item = f32> + std::marker::Send + 'static)>,
-}
-
-pub fn extend_mesh(a: CpuMesh, b: CpuMesh) -> CpuMesh {
-    let CpuMesh {
-        mut positions,
-        indices,
-        normals,
-        tangents,
-        uvs,
-        mut colors,
-    } = a;
-
-    let index_offset = positions.len();
-
-    let CpuMesh {
-        positions: b_positions,
-        indices: b_indices,
-        normals: _b_normals,
-        tangents: _b_tangents,
-        uvs: b_uvs,
-        colors: mut b_colors,
-    } = b;
-
-    let indices = match (indices.into_u32(), b_indices.into_u32()) {
-        (None, None) => Indices::None,
-        (None, Some(mut b)) => {
-            b.iter_mut().for_each(|idx| *idx += index_offset as u32);
-            Indices::U32(b)
-        }
-        (Some(a), None) => Indices::U32(a),
-        (Some(mut a), Some(mut b)) => {
-            b.iter_mut().for_each(|idx| *idx += index_offset as u32);
-            a.append(&mut b);
-            Indices::U32(a)
-        }
-    };
-    {
-        match &mut positions {
-            Positions::F32(a) => a.append(&mut b_positions.into_f32()),
-            Positions::F64(a) => a.append(&mut b_positions.into_f64()),
-        }
-    }
-
-    if let (Some(a), Some(b)) = (colors.as_mut(), b_colors.as_mut()) {
-        a.append(b)
-    } else {
-        colors = None;
-    }
-
-    let uvs: Option<Vec<_>> = Some(uvs.iter().chain(b_uvs.iter()).flatten().copied().collect());
-
-    let mut res = CpuMesh {
-        positions,
-        indices,
-        normals,
-        tangents,
-        uvs,
-        colors,
-    };
-
-    res.compute_normals();
-    res.compute_tangents();
-
-    res
 }
 
 impl GameData {
@@ -365,7 +314,7 @@ impl SceneData for GameData {
             (false, false),
         )?;
 
-        beam_shader.set_data_mesh(&xy_rect(Vec3::zero(), vec2(1.0, 1.0)));
+        beam_shader.set_data_mesh(&graphics::xy_rect(Vec3::zero(), vec2(1.0, 1.0)));
 
         fx_long_shader.use_texture(
             "mainTex",
@@ -373,7 +322,10 @@ impl SceneData for GameData {
             (false, false),
         )?;
 
-        fx_long_shader.set_data_mesh(&xy_rect(vec3(0.0, 0.5, 0.0), vec2(2.0 / 6.0, 1.0)));
+        fx_long_shader.set_data_mesh(&graphics::xy_rect(
+            vec3(0.0, 0.5, 0.0),
+            vec2(2.0 / 6.0, 1.0),
+        ));
 
         let mut bt_long_shader = ShadedMesh::new(&context, "holdbutton", &shader_folder)
             .expect("Failed to load shader:")
@@ -385,7 +337,10 @@ impl SceneData for GameData {
             (false, false),
         )?;
 
-        bt_long_shader.set_data_mesh(&xy_rect(vec3(0.0, 0.5, 0.0), vec2(1.0 / 6.0, 1.0)));
+        bt_long_shader.set_data_mesh(&graphics::xy_rect(
+            vec3(0.0, 0.5, 0.0),
+            vec2(1.0 / 6.0, 1.0),
+        ));
 
         let mut fx_chip_shader = ShadedMesh::new(&context, "button", &shader_folder)
             .expect("Failed to load shader:")
@@ -397,7 +352,7 @@ impl SceneData for GameData {
         )?;
         let fx_height = 1.0 / 12.0;
 
-        fx_chip_shader.set_data_mesh(&xy_rect(
+        fx_chip_shader.set_data_mesh(&graphics::xy_rect(
             vec3(0.0, fx_height / 2.0, 0.0),
             vec2(2.0 / 6.0, fx_height),
         ));
@@ -406,7 +361,7 @@ impl SceneData for GameData {
             .expect("Failed to load shader:")
             .with_transform(Matrix4::from_translation(vec3(-0.5, 0.0, 0.0)));
         let bt_height = 1.0 / 12.0;
-        bt_chip_shader.set_data_mesh(&xy_rect(
+        bt_chip_shader.set_data_mesh(&graphics::xy_rect(
             vec3(0.0, bt_height / 2.0, 0.0),
             vec2(1.0 / 6.0, bt_height),
         ));
@@ -419,7 +374,7 @@ impl SceneData for GameData {
 
         let mut track_shader =
             ShadedMesh::new(&context, "track", &shader_folder).expect("Failed to load shader:");
-        track_shader.set_data_mesh(&xy_rect(
+        track_shader.set_data_mesh(&graphics::xy_rect(
             Vec3::zero(),
             vec2(1.0, ChartView::TRACK_LENGTH * 2.0),
         ));
@@ -568,16 +523,6 @@ impl SceneData for GameData {
     }
 }
 
-fn camera_to_screen(camera: &Camera, point: Vec3, screen: Vec2) -> Vec2 {
-    let Vector3 { x, y, z } = point;
-    let camera_space = camera.view().transform_point(three_d::Point3 { x, y, z });
-    let mut screen_space = camera.projection().transform_point(camera_space);
-    screen_space.y = -screen_space.y;
-    screen_space *= 0.5f32;
-    screen_space += vec3(0.5, 0.5, 0.5);
-    vec2(screen_space.x * screen.x, screen_space.y * screen.y)
-}
-
 impl Game {
     pub fn new(
         chart: Chart,
@@ -637,7 +582,7 @@ impl Game {
                 view_size: vec2(0.0, 0.0),
                 shakes: vec![],
             },
-            lua_game_state: LuaGameState::default(),
+            lua_game_state: lua_data::LuaGameState::default(),
             control_tx: None,
             results_requested: false,
             closed: false,
@@ -714,16 +659,16 @@ impl Game {
             .for_each(|rl| rl.set_param("color", Srgba::RED));
     }
 
-    fn lua_game_state(&self, viewport: Viewport, camera: &Camera) -> LuaGameState {
+    fn lua_game_state(&self, viewport: Viewport, camera: &Camera) -> lua_data::LuaGameState {
         let screen = vec2(viewport.width as f32, viewport.height as f32);
-        let track_center = camera_to_screen(camera, Vec3::zero(), screen);
+        let track_center = graphics::camera_to_screen(camera, Vec3::zero(), screen);
 
-        let track_left = camera_to_screen(camera, Vec3::unit_x() * -0.5, screen);
-        let track_right = camera_to_screen(camera, Vec3::unit_x() * 0.5, screen);
+        let track_left = graphics::camera_to_screen(camera, Vec3::unit_x() * -0.5, screen);
+        let track_right = graphics::camera_to_screen(camera, Vec3::unit_x() * 0.5, screen);
         let crit_line = track_right - track_left;
         let rotation = -crit_line.y.atan2(crit_line.x);
 
-        LuaGameState {
+        lua_data::LuaGameState {
             title: self.chart.meta.title.clone(),
             artist: self.chart.meta.artist.clone(),
             jacket_path: self.song.as_ref().difficulties.read().unwrap()[self.diff_idx]
@@ -736,7 +681,7 @@ impl Game {
             hispeed: self.view.hispeed,
             hispeed_adjust: 0,
             bpm: self.chart.bpm_at_tick(self.current_tick) as f32,
-            gauge: LuaGauge::from(&self.gauge),
+            gauge: lua_data::LuaGauge::from(&self.gauge),
             hidden_cutoff: 0.0,
             sudden_cutoff: 0.0,
             hidden_fade: 0.0,
@@ -746,13 +691,13 @@ impl Game {
             note_held: [false; 6],
             laser_active: [false; 2],
             score_replays: Vec::new(),
-            crit_line: CritLine {
+            crit_line: lua_data::CritLine {
                 x: track_center.x as i32,
                 y: track_center.y as i32,
                 x_offset: 0.0,
                 rotation,
                 cursors: [
-                    Cursor::new(
+                    lua_data::Cursor::new(
                         self.laser_cursors[0] as f32,
                         camera,
                         if self.laser_target[0].is_some() {
@@ -761,7 +706,7 @@ impl Game {
                             0.0
                         },
                     ),
-                    Cursor::new(
+                    lua_data::Cursor::new(
                         self.laser_cursors[1] as f32,
                         camera,
                         if self.laser_target[1].is_some() {
@@ -771,7 +716,7 @@ impl Game {
                         },
                     ),
                 ],
-                line: Line {
+                line: lua_data::Line {
                     x1: track_left.x,
                     y1: track_left.y,
                     x2: track_right.x,
@@ -1439,7 +1384,7 @@ impl Scene for Game {
 
         //TODO: Set hold glow state
 
-        let buttons_held: HashSet<_> = (0..6usize)
+        let buttons_held: std::collections::HashSet<_> = (0..6usize)
             .filter(|x| {
                 self.input_state
                     .is_button_held(UscButton::from(*x as u8))
@@ -1709,727 +1654,4 @@ impl Scene for Game {
     fn name(&self) -> &str {
         "Game"
     }
-}
-
-use std::{
-    cmp::Ordering,
-    f32::consts::SQRT_2,
-    ops::{Add, Sub},
-    path::{Path, PathBuf},
-    rc::Rc,
-    sync::{
-        mpsc::{Receiver, Sender},
-        Arc,
-    },
-    time::{Duration, SystemTime},
-};
-
-pub struct ChartView {
-    pub hispeed: f32,
-    pub cursor: f64,
-    laser_meshes: [Vec<Vec<GlVertex>>; 2],
-    track: CpuMesh,
-    pub state: i32,
-}
-
-use anyhow::{ensure, Result};
-use three_d::{
-    vec2, vec3, Blend, Camera, ColorMaterial, CpuMesh, DepthTest, Indices, InnerSpace, Mat3, Mat4,
-    Matrix4, Positions, RenderStates, Texture2D, Transform, Vec2, Vec3, Vec4, Vector3, Viewport,
-    Zero,
-};
-
-#[derive(Debug)]
-#[repr(C)]
-struct GlVec3 {
-    x: f32,
-    y: f32,
-    z: f32,
-}
-
-#[derive(Debug)]
-#[repr(C)]
-struct GlVec2 {
-    x: f32,
-    y: f32,
-}
-#[derive(Debug)]
-#[repr(C)]
-struct GlVertex {
-    pos: GlVec3,
-    uv: GlVec2,
-}
-
-impl GlVertex {
-    pub fn new(pos: [f32; 3], uv: [f32; 2]) -> Self {
-        GlVertex {
-            pos: GlVec3 {
-                x: pos[0],
-                y: pos[1],
-                z: pos[2],
-            },
-            uv: GlVec2 { x: uv[0], y: uv[1] },
-        }
-    }
-}
-
-fn generate_slam_verts(
-    vertices: &mut Vec<GlVertex>,
-    start: f32,
-    end: f32,
-    height: f32,
-    xoff: f32,
-    y: f32,
-    w: f32,
-    entry: bool,
-    exit: bool,
-) {
-    let x0 = start.min(end) - xoff;
-    let x1 = start.max(end) - xoff - w;
-    let y0 = y + height;
-    let y1 = y;
-
-    vertices.append(&mut vec![
-        GlVertex::new([y0, 0.0, x0], [0.0, 0.0]),
-        GlVertex::new([y0, 0.0, x1], [0.0, 1.0]),
-        GlVertex::new([y1, 0.0, x1], [1.0, 1.0]),
-        GlVertex::new([y0, 0.0, x0], [0.0, 0.0]),
-        GlVertex::new([y1, 0.0, x1], [1.0, 1.0]),
-        GlVertex::new([y1, 0.0, x0], [1.0, 0.0]),
-    ]);
-
-    //corners
-    {
-        /*
-        a:
-        _____
-        |\  |
-        | \ |
-        |__\|
-
-        b:
-        _____
-        |  /|
-        | / |
-        |/__|
-        */
-        //left
-        {
-            let x1 = x0;
-            let x0 = x0 - w;
-            if start > end {
-                //b <<<<<
-                vertices.append(&mut vec![
-                    GlVertex::new([y0, 0.0, x0], [0.0, 0.0]),
-                    GlVertex::new([y0, 0.0, x1], [1.0, 1.0]),
-                    GlVertex::new([y1, 0.0, x0], [0.0, 1.0]),
-                    GlVertex::new([y0, 0.0, x1], [0.0, 0.0]),
-                    GlVertex::new([y1, 0.0, x1], [1.0, 1.0]),
-                    GlVertex::new([y1, 0.0, x0], [1.0, 0.0]),
-                ]);
-            } else {
-                //a >>>>>
-                vertices.append(&mut vec![
-                    GlVertex::new([y0, 0.0, x0], [0.0, 0.0]),
-                    GlVertex::new([y0, 0.0, x1], [0.0, 1.0]),
-                    GlVertex::new([y1, 0.0, x1], [1.0, 1.0]),
-                    GlVertex::new([y0, 0.0, x0], [0.0, 0.0]),
-                    GlVertex::new([y1, 0.0, x1], [1.0, 1.0]),
-                    GlVertex::new([y1, 0.0, x0], [0.0, 0.0]),
-                ]);
-            }
-        }
-        //right
-        {
-            let x0 = x1;
-            let x1 = x1 + w;
-            if start > end {
-                //b <<<<<
-                vertices.append(&mut vec![
-                    GlVertex::new([y0, 0.0, x0], [0.0, 0.0]),
-                    GlVertex::new([y0, 0.0, x1], [0.0, 1.0]),
-                    GlVertex::new([y1, 0.0, x0], [1.0, 1.0]),
-                    GlVertex::new([y0, 0.0, x1], [1.0, 0.0]),
-                    GlVertex::new([y1, 0.0, x1], [1.0, 1.0]),
-                    GlVertex::new([y1, 0.0, x0], [0.0, 0.0]),
-                ]);
-            } else {
-                //a >>>>>
-                vertices.append(&mut vec![
-                    GlVertex::new([y0, 0.0, x0], [0.0, 0.0]),
-                    GlVertex::new([y0, 0.0, x1], [1.0, 1.0]),
-                    GlVertex::new([y1, 0.0, x1], [1.0, 1.0]),
-                    GlVertex::new([y0, 0.0, x0], [0.0, 0.0]),
-                    GlVertex::new([y1, 0.0, x1], [1.0, 1.0]),
-                    GlVertex::new([y1, 0.0, x0], [1.0, 0.0]),
-                ]);
-            }
-        }
-    }
-
-    if entry {
-        //entry square
-        let x0 = start - w - xoff;
-        let x1 = start - xoff;
-        let y0 = y;
-        let y1 = y - height;
-
-        vertices.append(&mut vec![
-            GlVertex::new([y0, 0.0, x0], [0.0, 0.0]),
-            GlVertex::new([y0, 0.0, x1], [1.0, 0.0]),
-            GlVertex::new([y1, 0.0, x1], [1.0, 1.0]),
-            GlVertex::new([y0, 0.0, x0], [0.0, 0.0]),
-            GlVertex::new([y1, 0.0, x1], [1.0, 1.0]),
-            GlVertex::new([y1, 0.0, x0], [0.0, 1.0]),
-        ]);
-    }
-    if exit {
-        //exit square
-        let x0 = end - w - xoff;
-        let x1 = end - xoff;
-        let y0 = y + height * 2.0;
-        let y1 = y + height;
-        vertices.append(&mut vec![
-            GlVertex::new([y0, 0.0, x0], [0.0, 0.0]),
-            GlVertex::new([y0, 0.0, x1], [1.0, 0.0]),
-            GlVertex::new([y1, 0.0, x1], [1.0, 1.0]),
-            GlVertex::new([y0, 0.0, x0], [0.0, 0.0]),
-            GlVertex::new([y1, 0.0, x1], [1.0, 1.0]),
-            GlVertex::new([y1, 0.0, x0], [0.0, 1.0]),
-        ]);
-    }
-}
-
-pub fn xy_rect(center: Vec3, size: Vec2) -> CpuMesh {
-    let indices = vec![0u8, 1, 2, 2, 3, 0];
-    let halfsize_x = size.x / 2.0;
-    let halfsize_z = size.y / 2.0;
-    let positions = vec![
-        center + Vec3::new(-halfsize_x, -halfsize_z, 0.0),
-        center + Vec3::new(halfsize_x, -halfsize_z, 0.0),
-        center + Vec3::new(halfsize_x, halfsize_z, 0.0),
-        center + Vec3::new(-halfsize_x, halfsize_z, 0.0),
-    ];
-
-    let uvs = vec![
-        Vec2::new(0.0, 0.0),
-        Vec2::new(1.0, 0.0),
-        Vec2::new(1.0, 1.0),
-        Vec2::new(0.0, 1.0),
-    ];
-    CpuMesh {
-        indices: Indices::U8(indices),
-        positions: Positions::F32(positions),
-        uvs: Some(uvs),
-        ..Default::default()
-    }
-}
-
-impl ChartView {
-    pub const TRACK_LENGTH: f32 = 12.0;
-    pub const UP: Vec3 = vec3(0.0, 0.0, -1.0);
-    pub const TRACK_DIRECTION: Vec3 = vec3(0.0, 1.0, 0.0);
-    pub const Z_NEAR: f32 = 0.01;
-
-    pub fn new(skin_root: impl AsRef<Path>, td: &three_d::Context) -> Self {
-        let _indices: [u16; 6] = [0, 1, 2, 0, 2, 3];
-        let mut texure_path = skin_root.as_ref().to_path_buf();
-        texure_path.push("textures");
-        texure_path.push("file.png");
-        td.set_depth_test(three_d::DepthTest::Never);
-
-        let mut textures = three_d_asset::io::load(&[
-            texure_path.with_file_name("laser_l.png"),
-            texure_path.with_file_name("laser_r.png"),
-            texure_path.with_file_name("track.png"),
-            texure_path.with_file_name("fxbutton.png"),
-            texure_path.with_file_name("button.png"),
-        ])
-        .unwrap();
-
-        let _laser_texture = Some(Arc::new(Texture2D::new(
-            td,
-            &textures.deserialize("laser_l").unwrap(),
-        )));
-        let _laser_render_states = RenderStates {
-            blend: Blend::ADD,
-            depth_test: DepthTest::Always,
-            ..Default::default()
-        };
-
-        let track_texture = Arc::new(Texture2D::new(td, &textures.deserialize("track").unwrap()));
-
-        let _track_mat = Rc::new(ColorMaterial {
-            color: Srgba::WHITE,
-            texture: Some(three_d::Texture2DRef {
-                texture: track_texture,
-                transformation: Mat3::from_scale(1.0),
-            }),
-            render_states: RenderStates {
-                depth_test: three_d::DepthTest::Always,
-                ..Default::default()
-            },
-            ..Default::default()
-        });
-
-        let track = xy_rect(vec3(0.0, 0.0, 0.0), vec2(1.0, Self::TRACK_LENGTH * 2.0));
-        let _button_render_states = RenderStates {
-            depth_test: DepthTest::Always,
-            ..Default::default()
-        };
-
-        ChartView {
-            cursor: 0.0,
-            hispeed: 1.0,
-            laser_meshes: [Vec::new(), Vec::new()],
-            track,
-            state: 0,
-        }
-    }
-
-    pub fn build_laser_meshes(&mut self, chart: &kson::Chart) {
-        for i in 0..2 {
-            self.laser_meshes[i].clear();
-            for section in &chart.note.laser[i] {
-                let mut section_verts = Vec::new();
-                let w = 1.0 / 6.0;
-                let (xoff, track_w) = if section.wide() < 2 {
-                    (2.0 / 6.0, 5.0 / 6.0)
-                } else {
-                    (2.0 / 6.0, 11.0 / 12.0)
-                };
-                let mut is_first = true;
-                for se in section.segments() {
-                    let s = se[0];
-                    let e = se[1];
-                    let mut syoff = 0.0_f32;
-                    let mut start_value = s.v as f32 * track_w;
-
-                    if let Some(value) = s.vf {
-                        let value = value as f32 * track_w;
-                        syoff = chart.beat.resolution as f32 / 8.0;
-                        generate_slam_verts(
-                            &mut section_verts,
-                            start_value,
-                            value,
-                            syoff,
-                            xoff,
-                            s.ry as f32,
-                            w,
-                            is_first,
-                            false,
-                        );
-                        start_value = value;
-                    }
-                    let end_value = e.v as f32 * track_w;
-                    let x00 = end_value - w - xoff;
-                    let x01 = end_value - xoff;
-                    let x10 = start_value - w - xoff;
-                    let x11 = start_value - xoff;
-                    let y0 = e.ry as f32;
-                    let y1 = s.ry as f32 + syoff;
-
-                    section_verts.append(&mut vec![
-                        GlVertex::new([y0, 0.0, x00], [0.0, 0.0]),
-                        GlVertex::new([y0, 0.0, x01], [1.0, 0.0]),
-                        GlVertex::new([y1, 0.0, x11], [1.0, 1.0]),
-                        GlVertex::new([y0, 0.0, x00], [0.0, 0.0]),
-                        GlVertex::new([y1, 0.0, x10], [0.0, 1.0]),
-                        GlVertex::new([y1, 0.0, x11], [1.0, 1.0]),
-                    ]);
-                    is_first = false;
-                }
-                if let Some(e) = section.last() {
-                    if let Some(value) = e.vf {
-                        let start_value = e.v as f32 * track_w;
-                        let value = value as f32 * track_w;
-                        let syoff = chart.beat.resolution as f32 / 8.0;
-                        generate_slam_verts(
-                            &mut section_verts,
-                            start_value,
-                            value,
-                            syoff,
-                            xoff,
-                            e.ry as f32,
-                            w,
-                            is_first,
-                            true,
-                        );
-                    }
-                }
-                self.laser_meshes[i].push(section_verts);
-            }
-        }
-    }
-
-    fn render(
-        &mut self,
-        chart: &kson::Chart,
-        td: &three_d::Context,
-        buttons_held: HashSet<usize>,
-        mut beam_colors: [[f32; 4]; 6],
-    ) -> TrackRenderMeshes {
-        use three_d::prelude::*;
-        profile_function!();
-        let view_time = self.cursor;
-        let view_offset = if view_time < 0.0 {
-            chart.ms_to_tick(view_time.abs()) as i64 //will be weird with early bpm changes
-        } else {
-            0
-        };
-
-        td.set_depth_test(three_d::DepthTest::Never);
-
-        let _glow_state = if (0.0_f32 * 8.0).fract() > 0.5 { 2 } else { 3 };
-        let view_tick = chart.ms_to_tick(view_time) as i64 - view_offset;
-        let view_distance = (chart.beat.resolution as f32 * 4.0) / self.hispeed;
-        let last_view_tick = view_distance.ceil() as i64 + view_tick;
-        let first_view_tick = view_tick - view_distance as i64;
-        let y_view_div = ((chart.beat.resolution as f32 * 4.0) / self.hispeed) / Self::TRACK_LENGTH;
-        let _white_mat = Rc::new(ColorMaterial {
-            color: Srgba::WHITE,
-            ..Default::default()
-        });
-
-        #[derive(Debug, PartialEq, Eq, Clone, Copy)]
-        #[allow(unused)]
-        enum NoteType {
-            BtChip,
-            BtHold,
-            BtHoldActive(usize),
-            FxChip,
-            FxChipSample,
-            FxHold,
-            FxHoldActive(usize),
-        }
-        let mut notes = Vec::new();
-        let chip_h = 1.0;
-
-        let _track = self.track.clone();
-
-        {
-            profile_scope!("Build notes");
-            for i in 0..4 {
-                for n in &chart.note.bt[i] {
-                    if (n.y as i64) > last_view_tick {
-                        break;
-                    } else if ((n.y + n.l) as i64) < first_view_tick {
-                        continue;
-                    }
-
-                    let w = 0.9 / 6.0;
-                    let x = 1.5 / 6.0 + (i as f32 / 6.0);
-                    let h = if n.l == 0 {
-                        chip_h
-                    } else {
-                        (n.l as f32) / y_view_div
-                    };
-                    let yoff = (view_tick - n.y as i64) as f32;
-                    let y = yoff / y_view_div;
-                    let _p = if n.l == 0 { 2 } else { 1 }; //sorting priority
-                    notes.push((
-                        vec3(x, y, 0.0),
-                        vec2(w, h),
-                        if n.l > 0 {
-                            if (n.y as i64) < view_tick && ((n.y + n.l) as i64) > view_tick {
-                                NoteType::BtHoldActive(i)
-                            } else {
-                                NoteType::BtHold
-                            }
-                        } else {
-                            NoteType::BtChip
-                        },
-                    ));
-                }
-            }
-            for i in 0..2 {
-                for n in &chart.note.fx[i] {
-                    if (n.y as i64) > last_view_tick {
-                        break;
-                    } else if ((n.y + n.l) as i64) < first_view_tick {
-                        continue;
-                    }
-                    let w = 1.0 / 3.0;
-                    let x = 1.0 / 3.0 + (1.0 / 3.0) * i as f32;
-                    let h = if n.l == 0 {
-                        chip_h
-                    } else {
-                        (n.l as f32) / y_view_div
-                    };
-                    let yoff = (view_tick - n.y as i64) as f32;
-                    let y = yoff / y_view_div;
-                    let _p = if n.l == 0 { 3 } else { 0 }; //sorting priority
-                    notes.push((
-                        vec3(x, y, 0.0),
-                        vec2(w, h),
-                        if n.l > 0 {
-                            if (n.y as i64) < view_tick && ((n.y + n.l) as i64) > view_tick {
-                                NoteType::FxHoldActive(i)
-                            } else {
-                                NoteType::FxHold
-                            }
-                        } else {
-                            NoteType::FxChip
-                        },
-                    ));
-                }
-            }
-        }
-
-        let notes = {
-            profile_scope!("Transform notes");
-            notes.iter().map(|n| {
-                (
-                    Mat4::from_translation(n.0) * Mat4::from_nonuniform_scale(1.0, -n.1.y, 1.0),
-                    n.2,
-                )
-            })
-        };
-
-        let mut fx_hold = vec![];
-        let mut bt_hold = vec![];
-        let mut fx_chip = vec![];
-        let mut bt_chip = vec![];
-        let mut lasers = [
-            xy_rect(Vec3::zero(), Vec2::zero()),
-            xy_rect(Vec3::zero(), Vec2::zero()),
-            xy_rect(Vec3::zero(), Vec2::zero()),
-            xy_rect(Vec3::zero(), Vec2::zero()),
-        ];
-
-        //Dim FX beams
-        beam_colors[4][3] *= 0.5;
-        beam_colors[5][3] *= 0.5;
-
-        let lane_beams = [
-            (
-                Mat4::from_translation(vec3(-1.5 / 6.0, 0.0, 0.0))
-                    * Mat4::from_nonuniform_scale(1.0 / 6.0, -ChartView::TRACK_LENGTH, 1.0),
-                Srgba::from(beam_colors[0]),
-            ),
-            (
-                Mat4::from_translation(-vec3(0.5 / 6.0, 0.0, 0.0))
-                    * Mat4::from_nonuniform_scale(1.0 / 6.0, -ChartView::TRACK_LENGTH, 1.0),
-                Srgba::from(beam_colors[1]),
-            ),
-            (
-                Mat4::from_translation(vec3(0.5 / 6.0, 0.0, 0.0))
-                    * Mat4::from_nonuniform_scale(1.0 / 6.0, -ChartView::TRACK_LENGTH, 1.0),
-                Srgba::from(beam_colors[2]),
-            ),
-            (
-                Mat4::from_translation(vec3(1.5 / 6.0, 0.0, 0.0))
-                    * Mat4::from_nonuniform_scale(1.0 / 6.0, -ChartView::TRACK_LENGTH, 1.0),
-                Srgba::from(beam_colors[3]),
-            ),
-            (
-                Mat4::from_translation(-vec3(1.0 / 6.0, 0.0, 0.0))
-                    * Mat4::from_nonuniform_scale(2.0 / 6.0, -ChartView::TRACK_LENGTH, 1.0),
-                Srgba::from(beam_colors[4]),
-            ),
-            (
-                Mat4::from_translation(vec3(1.0 / 6.0, 0.0, 0.0))
-                    * Mat4::from_nonuniform_scale(2.0 / 6.0, -ChartView::TRACK_LENGTH, 1.0),
-                Srgba::from(beam_colors[5]),
-            ),
-        ];
-
-        {
-            profile_scope!("Sort notes");
-            for n in notes {
-                match n.1 {
-                    NoteType::BtChip => bt_chip.push(n.0),
-                    NoteType::BtHold => bt_hold.push((n.0, HoldState::Idle)),
-                    NoteType::BtHoldActive(lane) => bt_hold.push((
-                        n.0,
-                        if buttons_held.contains(&lane) {
-                            HoldState::Hit
-                        } else {
-                            HoldState::Miss
-                        },
-                    )),
-                    NoteType::FxChip => fx_chip.push((n.0, false)),
-                    NoteType::FxChipSample => fx_chip.push((n.0, true)),
-                    NoteType::FxHold => fx_hold.push((n.0, HoldState::Idle)),
-                    NoteType::FxHoldActive(side) => fx_hold.push((
-                        n.0,
-                        if buttons_held.contains(&(side + 4)) {
-                            HoldState::Hit
-                        } else {
-                            HoldState::Miss
-                        },
-                    )),
-                }
-            }
-        }
-
-        //lasers
-        {
-            profile_scope!("Lasers");
-            for i in 0..2 {
-                for (sidx, s) in chart.note.laser[i].iter().enumerate() {
-                    let end_y = s.tick() + s.last().unwrap().ry;
-                    if (s.tick() as i64) > last_view_tick {
-                        break;
-                    } else if (end_y as i64) < first_view_tick {
-                        continue;
-                    }
-                    let vertices = self.laser_meshes[i].get(sidx).unwrap();
-                    let yoff = (view_tick - s.tick() as i64) as f32;
-                    let laser_mesh = CpuMesh {
-                        indices: Indices::U32((0u32..(vertices.len() as u32)).collect()),
-                        positions: three_d::Positions::F32(
-                            vertices
-                                .iter()
-                                .map(|v| vec3(v.pos.z, (yoff - v.pos.x) / y_view_div, v.pos.y))
-                                .collect(),
-                        ),
-                        uvs: Some(vertices.iter().map(|v| vec2(v.uv.x, v.uv.y)).collect()),
-                        ..Default::default()
-                    };
-
-                    let active = if view_tick > s.tick() as i64 && view_tick < end_y as i64 {
-                        1
-                    } else {
-                        0
-                    };
-                    let extending = std::mem::take(&mut lasers[i * 2 + active]);
-                    let extended = extend_mesh(extending, laser_mesh);
-                    lasers[i * 2 + active] = extended;
-                }
-            }
-        }
-        TrackRenderMeshes {
-            fx_hold,
-            bt_hold,
-            fx_chip,
-            bt_chip,
-            lasers,
-            lane_beams,
-        }
-    }
-}
-
-#[derive(Debug, Serialize, Default, Deserialize, Clone, PartialEq)]
-#[serde(rename_all = "camelCase")]
-struct LuaGameState {
-    title: String,
-    artist: String,
-    jacket_path: PathBuf,
-    demo_mode: bool,
-    difficulty: u8,
-    level: u8,
-    progress: f32, // 0.0 at the start of a song, 1.0 at the end
-    hispeed: f32,
-    hispeed_adjust: u32, // 0 = not adjusting, 1 = coarse (xmod) adjustment, 2 = fine (mmod) adjustment
-    bpm: f32,
-    gauge: LuaGauge,
-    hidden_cutoff: f32,
-    sudden_cutoff: f32,
-    hidden_fade: f32,
-    sudden_fade: f32,
-    autoplay: bool,
-    combo_state: u32,                // 2 = puc, 1 = uc, 0 = normal
-    note_held: [bool; 6], // Array indicating wether a hold note is being held, in order: ABCDLR
-    laser_active: [bool; 2], // Array indicating if the laser cursor is on a laser, in order: LR
-    score_replays: Vec<ScoreReplay>, //Array of previous scores for the current song
-    crit_line: CritLine,  // info about crit line and everything attached to it
-    hit_window: HitWindow, // This may be absent (== nil) for the default timing window (46 / 92 / 138 / 250ms)
-    multiplayer: bool,
-    user_id: String,
-    practice_setup: bool, // true: it's the setup, false: practicing n
-}
-
-#[derive(Debug, Serialize, Default, Deserialize, Clone, PartialEq)]
-#[serde(rename_all = "camelCase")]
-struct LuaGauge {
-    #[serde(rename = "type")]
-    gauge_type: i32,
-    options: i32,
-    value: f32,
-    name: String,
-}
-
-#[serde_as]
-#[derive(Debug, Serialize, Default, Deserialize, Clone, Copy, PartialEq)]
-#[serde(rename_all = "camelCase")]
-pub struct HitWindow {
-    #[serde(rename = "type")]
-    pub variant: i32,
-    #[serde_as(as = "DurationMilliSecondsWithFrac<f64>")]
-    pub perfect: Duration,
-    #[serde_as(as = "DurationMilliSecondsWithFrac<f64>")]
-    pub good: Duration,
-    #[serde_as(as = "DurationMilliSecondsWithFrac<f64>")]
-    pub hold: Duration,
-    #[serde_as(as = "DurationMilliSecondsWithFrac<f64>")]
-    pub miss: Duration,
-}
-
-impl HitWindow {
-    pub fn new(variant: i32, perfect_ms: u64, good_ms: u64, hold_ms: u64, miss_ms: u64) -> Self {
-        Self {
-            variant,
-            perfect: Duration::from_millis(perfect_ms),
-            good: Duration::from_millis(good_ms),
-            hold: Duration::from_millis(hold_ms),
-            miss: Duration::from_millis(miss_ms),
-        }
-    }
-}
-
-#[derive(Debug, Serialize, Default, Deserialize, Clone, PartialEq)]
-#[serde(rename_all = "camelCase")]
-struct CritLine {
-    x: i32,
-    y: i32,
-    rotation: f32,
-    cursors: [Cursor; 2],
-    line: Line,
-    x_offset: f32,
-}
-
-#[derive(Debug, Default, Serialize, Deserialize, Clone, PartialEq)]
-struct Cursor {
-    pos: f32,
-    alpha: f32,
-    skew: f32,
-}
-
-impl Cursor {
-    pub fn new(pos: f32, camera: &Camera, alpha: f32) -> Self {
-        let pos = (pos - 0.5) * (5.0 / 6.0);
-
-        let crit_pos = Vec2::from(camera.pixel_at_position(vec3(0.0, 0.0, 0.0)));
-        let c_pos = Vec2::from(camera.pixel_at_position(vec3(pos, 0.0, 0.0)));
-        let c_pos_up = Vec2::from(camera.pixel_at_position(vec3(pos, 0.2, 0.0)));
-        let c_pos_down = Vec2::from(camera.pixel_at_position(vec3(pos, -0.2, 0.0)));
-        let dist_from_crit_center =
-            (crit_pos - c_pos).magnitude() * if pos < 0.0 { -1.0 } else { 1.0 };
-        let cursor_angle_vector = c_pos_up - c_pos_down;
-
-        let skew = cursor_angle_vector.y.atan2(cursor_angle_vector.x) + std::f32::consts::FRAC_PI_2;
-
-        Self {
-            pos: dist_from_crit_center,
-            alpha,
-            skew,
-        }
-    }
-}
-
-#[derive(Debug, Serialize, Default, Deserialize, Clone, PartialEq)]
-#[serde(rename_all = "camelCase")]
-struct Line {
-    x1: f32,
-    y1: f32,
-    x2: f32,
-    y2: f32,
-}
-
-#[derive(Debug, Serialize, Default, Deserialize, Clone, PartialEq)]
-#[serde(rename_all = "camelCase")]
-struct ScoreReplay {
-    max_score: i32,
-    current_score: i32,
 }

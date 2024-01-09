@@ -2,7 +2,8 @@ use three_d::Camera;
 use three_d::{Vec2, Vec3};
 use three_d_asset::{Deg, InnerSpace, Rad, Viewport};
 
-use crate::game::ChartView;
+use super::chart_view;
+use chart_view::ChartView;
 
 #[derive(Debug, Clone)]
 pub struct ChartCamera {
