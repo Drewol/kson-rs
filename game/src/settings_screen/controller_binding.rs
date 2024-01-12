@@ -57,19 +57,19 @@ impl BindingUi {
                     ActiveBinding::Button(button)
                 }
             }
-            ActiveBinding::Axis(axis, states) => {
-                if let Some((code, _)) = states.iter().find(|(code, value)| {
-                    state
-                        .axis_data(**code)
-                        .map(|new_data| (new_data.value() - *value).abs() > 0.1)
-                        .unwrap_or_default()
-                }) {
-                    bindings.axis.insert(axis, *code);
-                    ActiveBinding::None
-                } else {
-                    ActiveBinding::Axis(axis, states)
-                }
-            }
+            ActiveBinding::Axis(axis, mut states) => state
+                .axes()
+                .find_map(|(code, axis_data)| {
+                    let value = *states.entry(code).or_insert_with(|| axis_data.value());
+                    let new_value = axis_data.value();
+                    if (value - new_value).abs() > 0.1 {
+                        bindings.axis.insert(axis, code);
+                        Some(ActiveBinding::None)
+                    } else {
+                        None
+                    }
+                })
+                .unwrap_or_else(|| ActiveBinding::Axis(axis, states)),
         }
     }
 
