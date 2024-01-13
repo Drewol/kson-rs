@@ -1,6 +1,6 @@
 use std::{
     collections::HashMap,
-    sync::{Arc, Mutex, RwLock},
+    sync::{atomic::AtomicBool, Arc, Mutex, RwLock},
     time::SystemTime,
 };
 
@@ -12,6 +12,7 @@ use crate::button_codes::{LaserAxis, LaserState, UscButton, UscInputEvent};
 
 #[derive(Debug, Clone)]
 pub struct InputState {
+    text_input_active: Arc<AtomicBool>,
     laser_state: Arc<RwLock<LaserState>>,
     gilrs: Arc<Mutex<gilrs::Gilrs>>,
     buttons_held: Arc<RwLock<HashMap<UscButton, SystemTime>>>,
@@ -20,6 +21,7 @@ pub struct InputState {
 impl InputState {
     pub fn new(gilrs: Arc<Mutex<gilrs::Gilrs>>) -> Self {
         Self {
+            text_input_active: Arc::new(AtomicBool::new(false)),
             laser_state: Arc::new(RwLock::new(LaserState::default())),
             gilrs,
             buttons_held: Arc::new(RwLock::new(HashMap::default())),
@@ -62,5 +64,15 @@ impl InputState {
 
     pub fn lock_gilrs(&self) -> std::sync::MutexGuard<'_, gilrs::Gilrs> {
         self.gilrs.lock().unwrap()
+    }
+
+    pub fn text_input_active(&self) -> bool {
+        self.text_input_active
+            .load(std::sync::atomic::Ordering::Relaxed)
+    }
+
+    pub fn set_text_input_active(&mut self, text_input_active: bool) {
+        self.text_input_active
+            .store(text_input_active, std::sync::atomic::Ordering::Relaxed);
     }
 }

@@ -1,5 +1,5 @@
 use std::{
-    collections::HashMap,
+    collections::{HashMap, HashSet},
     path::PathBuf,
     sync::{
         mpsc::{channel, Receiver, Sender, TryRecvError},
@@ -35,6 +35,7 @@ use tokio::io::AsyncRead;
 enum WorkerControlMessage {
     Stop,
     Refresh,
+    Query(String),
 }
 
 pub struct FileSongProvider {
@@ -387,6 +388,17 @@ impl FileSongProvider {
                 loop {
                     match sender_rx.try_recv() {
                         Ok(WorkerControlMessage::Refresh) => break,
+                        Ok(WorkerControlMessage::Query(q)) => {
+                            let Ok(charts) = worker_db.get_folder_ids_query(&q).await else {
+                                continue;
+                            };
+
+                            sender_tx.send(SongProviderEvent::OrderChanged(
+                                charts.iter().map(|x| SongId::IntId(*x)).collect(),
+                            ));
+
+                            //TODO
+                        }
                         Ok(WorkerControlMessage::Stop) => return,
                         Err(TryRecvError::Disconnected) => return,
                         Err(TryRecvError::Empty) => {}
@@ -430,8 +442,9 @@ impl WorkerService for FileSongProvider {
 }
 
 impl SongProvider for FileSongProvider {
-    fn set_search(&mut self, _query: &str) {
-        todo!()
+    fn set_search(&mut self, q: &str) {
+        self.worker_tx
+            .send(WorkerControlMessage::Query(q.to_string()));
     }
 
     fn set_sort(&mut self, _sort: super::SongSort) {
@@ -626,7 +639,7 @@ impl ScoreProvider for FileSongProvider {
         self.score_bus.add_rx()
     }
 
-    fn init_scores(&self, songs: &Vec<Arc<Song>>) -> anyhow::Result<()> {
+    fn init_scores(&self, songs: &mut dyn Iterator<Item = &Arc<Song>>) -> anyhow::Result<()> {
         let mut scores = block_on(self.database.get_all_scores())?;
 
         let mut scores = scores
@@ -636,7 +649,7 @@ impl ScoreProvider for FileSongProvider {
             .map(|(key, scores)| (key, scores.map(Score::from).collect_vec()))
             .collect::<HashMap<_, _>>();
 
-        for song in songs {
+        songs.for_each(|song| {
             let mut diffs = song.difficulties.write().unwrap();
             for diff in diffs.iter_mut() {
                 diff.scores = scores.remove(&diff.id).unwrap_or_default();
@@ -648,7 +661,7 @@ impl ScoreProvider for FileSongProvider {
                     .max()
                     .unwrap_or_default();
             }
-        }
+        });
 
         Ok(())
     }

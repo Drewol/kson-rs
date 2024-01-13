@@ -2,7 +2,7 @@ use std::path::Path;
 use std::time::Duration;
 
 use sqlx::migrate::Migrator;
-use sqlx::{query, query_as, query_scalar, ConnectOptions, Pool, Row, SqlitePool};
+use sqlx::{query, query_as, query_scalar, ConnectOptions, Execute, Pool, Row, SqlitePool};
 
 static MIGRATOR: Migrator = sqlx::migrate!("./migrations"); // defaults to "./migrations"
 
@@ -158,6 +158,42 @@ impl LocalSongsDb {
         )
         .fetch_one(&self.sqlite_pool)
         .await
+    }
+
+    pub async fn get_folder_ids_query(
+        &self,
+        query: &str,
+    ) -> std::result::Result<Vec<i64>, sqlx::Error> {
+        let base_query = "SELECT DISTINCT folderId FROM Charts";
+        let mut query_builder = sqlx::query_builder::QueryBuilder::new(base_query);
+        let mut binds = vec![];
+        if !query.is_empty() {
+            for (i, term) in query.split(' ').enumerate() {
+                if i == 0 {
+                    query_builder.push(" WHERE")
+                } else {
+                    query_builder.push(" AND")
+                };
+
+                query_builder.push(
+                    " (artist LIKE ?
+					 OR title LIKE ?
+					 OR path LIKE ?
+					 OR effector LIKE ?
+					 OR artist_translit LIKE ?
+					 OR title_translit LIKE ?)",
+                );
+
+                for _ in 0..6 {
+                    binds.push(format!("%{term}%"));
+                }
+            }
+        }
+        let mut q = query_builder.build_query_scalar();
+        for ele in binds {
+            q = q.bind(ele);
+        }
+        q.fetch_all(&self.sqlite_pool).await
     }
 
     pub async fn add_score(

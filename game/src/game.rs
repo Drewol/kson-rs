@@ -15,6 +15,7 @@ use crate::{
 };
 use anyhow::{ensure, Result};
 use di::{RefMut, ServiceProvider};
+use egui::plot::{Line, PlotPoint, PlotPoints};
 use image::GenericImageView;
 use itertools::Itertools;
 use kson::{
@@ -25,6 +26,7 @@ use puffin::{profile_function, profile_scope};
 use rodio::{dynamic_mixer::DynamicMixerController, source::Buffered, Decoder, Source};
 use std::{
     cmp::Ordering,
+    collections::VecDeque,
     f32::consts::SQRT_2,
     ops::Sub,
     path::PathBuf,
@@ -98,6 +100,7 @@ pub struct Game {
     background: Option<GameBackground>,
     foreground: Option<GameBackground>,
     service_provider: ServiceProvider,
+    sync_delta: VecDeque<f64>,
 }
 
 #[derive(Debug, Default)]
@@ -621,6 +624,7 @@ impl Game {
                 .and_then(|x| Decoder::new(x).ok())
                 .map(|x| x.buffered()),
             service_provider,
+            sync_delta: Default::default(),
         };
         res.set_track_uniforms();
         Ok(res)
@@ -994,9 +998,19 @@ impl Scene for Game {
 
         let playback_ms = self.playback.get_ms();
         let timing_delta = playback_ms.sub(time.as_secs_f64() * 1000.0);
+        self.sync_delta.push_front(timing_delta);
+        if self.sync_delta.len() > 256 {
+            self.sync_delta.pop_back();
+        }
         if timing_delta.abs() > 20.0 && playback_ms > 0.0 && !self.score_ticks.is_empty() {
-            log::info!("Resetting timing, delta: {timing_delta}ms");
-            self.zero_time = SystemTime::now().sub(Duration::from_secs_f64(playback_ms / 1000.0));
+            if timing_delta < 0.0 {
+                self.zero_time =
+                    self.zero_time + Duration::from_nanos((timing_delta * -50000.0) as _);
+            } else {
+                self.zero_time =
+                    self.zero_time - Duration::from_nanos((timing_delta * 50000.0) as _);
+            }
+
             time = self.current_time();
         }
 
@@ -1164,9 +1178,23 @@ impl Scene for Game {
 
                         ui.end_row();
 
+                        ui.label("Sync delta (ms)");
+                        let line: PlotPoints = self
+                            .sync_delta
+                            .iter()
+                            .enumerate()
+                            .map(|(x, y)| [x as f64, *y])
+                            .collect();
+                        let line = Line::new(line);
+                        egui::plot::Plot::new("sync_delta").show(ui, |plot| {
+                            plot.line(line);
+                        });
+                        ui.end_row();
+
                         ui.label("HiSpeed");
                         ui.add(Slider::new(&mut self.view.hispeed, 0.001..=2.0));
 
+                        ui.end_row();
                         ui.separator();
                         ui.end_row();
 

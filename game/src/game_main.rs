@@ -11,7 +11,11 @@ use std::{
 use di::{RefMut, ServiceProvider};
 use egui_glow::EguiGlow;
 use femtovg::Paint;
-use game_loop::winit::{dpi::PhysicalPosition, event, window::Window};
+use game_loop::winit::{
+    dpi::{PhysicalPosition, PhysicalSize},
+    event,
+    window::Window,
+};
 
 use kson::Chart;
 use log::*;
@@ -340,8 +344,6 @@ impl GameMain {
             self.input_state.clone(),
         );
 
-        Self::reset_viewport_size(vgfx.clone(), &frame_input);
-
         scenes.render(frame_input.clone(), vgfx);
         Self::render_overlays(vgfx, &frame_input, fps, fps_paint);
 
@@ -385,6 +387,7 @@ impl GameMain {
             if self.show_debug_ui || self.scenes.should_render_egui() {
                 let event_response = self.gui.on_event(event);
                 if event_response.consumed {
+                    info!("egui consumed event");
                     return;
                 }
             }
@@ -399,6 +402,7 @@ impl GameMain {
                 global_offset < 0,
             )
         };
+        let text_input_active = self.input_state.text_input_active();
 
         match event {
             Event::UserEvent(e) => {
@@ -415,6 +419,10 @@ impl GameMain {
                     },
                 }
             }
+            Event::WindowEvent {
+                window_id,
+                event: WindowEvent::Resized(physical_size),
+            } => self.reset_viewport_size(physical_size),
             Event::WindowEvent {
                 event: WindowEvent::CursorMoved { position, .. },
                 ..
@@ -438,32 +446,46 @@ impl GameMain {
                 event: WindowEvent::CloseRequested,
                 ..
             } => self.scenes.clear(),
-            Event::DeviceEvent {
+            Event::WindowEvent {
                 event:
-                    DeviceEvent::Key(KeyboardInput {
-                        virtual_keycode: Some(VirtualKeyCode::D),
-                        state: ElementState::Pressed,
+                    WindowEvent::KeyboardInput {
+                        input:
+                            KeyboardInput {
+                                virtual_keycode: Some(VirtualKeyCode::D),
+                                state: ElementState::Pressed,
+                                ..
+                            },
                         ..
-                    }),
+                    },
                 ..
-            } if self.modifiers.alt => self.show_debug_ui = !self.show_debug_ui,
-            Event::DeviceEvent {
+            } if self.modifiers.alt && !text_input_active => {
+                self.show_debug_ui = !self.show_debug_ui
+            }
+            Event::WindowEvent {
                 event:
-                    DeviceEvent::Key(KeyboardInput {
-                        virtual_keycode: Some(VirtualKeyCode::Return),
-                        state: ElementState::Pressed,
+                    WindowEvent::KeyboardInput {
+                        input:
+                            KeyboardInput {
+                                virtual_keycode: Some(VirtualKeyCode::Return),
+                                state: ElementState::Pressed,
+                                ..
+                            },
                         ..
-                    }),
+                    },
                 ..
-            } if self.modifiers.alt => self.toggle_fullscreen(window),
-            Event::DeviceEvent {
+            } if self.modifiers.alt && !text_input_active => self.toggle_fullscreen(window),
+            Event::WindowEvent {
                 event:
-                    DeviceEvent::Key(KeyboardInput {
-                        scancode, state, ..
-                    }),
+                    WindowEvent::KeyboardInput {
+                        input:
+                            KeyboardInput {
+                                scancode, state, ..
+                            },
+                        ..
+                    },
                 ..
             } => {
-                if GameConfig::get().keyboard_buttons {
+                if !text_input_active && GameConfig::get().keyboard_buttons {
                     for button in GameConfig::get()
                         .keybinds
                         .iter()
@@ -489,7 +511,7 @@ impl GameMain {
             Event::DeviceEvent {
                 event: game_loop::winit::event::DeviceEvent::MouseMotion { delta },
                 ..
-            } if GameConfig::get().mouse_knobs => {
+            } if !text_input_active && GameConfig::get().mouse_knobs => {
                 {
                     //TODO: Move somewhere else?
                     let s = window.inner_size();
@@ -643,13 +665,13 @@ impl GameMain {
         }
     }
 
-    fn reset_viewport_size(vgfx: Arc<RwLock<Vgfx>>, frame_input: &td::FrameInput) {
-        let vgfx_lock = vgfx.write();
+    fn reset_viewport_size(&self, size: &PhysicalSize<u32>) {
+        let vgfx_lock = self.vgfx.write();
         if let Ok(vgfx) = vgfx_lock {
             let mut canvas_lock = vgfx.canvas.try_lock();
             if let Ok(ref mut canvas) = canvas_lock {
                 canvas.reset();
-                canvas.set_size(frame_input.viewport.width, frame_input.viewport.height, 1.0);
+                canvas.set_size(size.width, size.height, 1.0);
                 canvas.flush();
             }
         }

@@ -1,3 +1,4 @@
+use itertools::Itertools;
 use serde::{ser::SerializeSeq, Serialize};
 use std::{
     collections::{HashMap, HashSet},
@@ -36,6 +37,10 @@ impl SongCollection {
             self.songs.insert(song.id.clone(), song);
         }
     }
+    pub fn find_index(&self, id: SongId) -> Option<usize> {
+        self.order.iter().find_position(|x| **x == id).map(|x| x.0)
+    }
+
     pub fn add(&mut self, songs: Vec<Arc<Song>>, order: Vec<SongId>) {
         self.order = order;
         for song in songs.iter() {

@@ -1,6 +1,4 @@
-use std::{
-    path::{Path, PathBuf},
-};
+use std::path::{Path, PathBuf};
 
 use crate::{
     game_data::{ExportGame, GameData, LuaPath},
@@ -249,7 +247,10 @@ impl GameBackground {
         let game_background = Self {
             name: format!("render_{name}"),
             lua,
-            beat_bounds: (0.0, chart.tick_to_ms(beat_iter.next().unwrap().0)),
+            beat_bounds: (
+                0.0,
+                chart.tick_to_ms(beat_iter.next().map(|x| x.0).unwrap_or(u32::MAX)),
+            ),
             beat_iter,
             vgfx,
             background,
@@ -287,7 +288,8 @@ impl GameBackground {
 
             while chart_time > self.beat_bounds.1 {
                 self.beat_bounds.0 = self.beat_bounds.1;
-                self.beat_bounds.1 = chart.tick_to_ms(self.beat_iter.next().unwrap().0);
+                self.beat_bounds.1 =
+                    chart.tick_to_ms(self.beat_iter.next().map(|x| x.0).unwrap_or(u32::MAX));
             }
 
             data.timing.0 = ((chart_time - self.beat_bounds.0)

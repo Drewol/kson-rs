@@ -124,7 +124,7 @@ impl Source for AudioFile {
         if pos == self.size {
             Some(0)
         } else {
-            Some(32.min(self.size - pos))
+            Some(32.min(self.size.saturating_sub(pos)))
         }
     }
 

@@ -23,8 +23,11 @@ use directories::ProjectDirs;
 
 use femtovg as vg;
 
+use game_loop::winit::event::{Event, WindowEvent};
 use game_main::ControlMessage;
 
+use glow::HasContext;
+use glutin_winit::GlWindow;
 use help::ServiceHelper;
 use kson::Ksh;
 use log::*;
@@ -375,6 +378,7 @@ fn main() -> anyhow::Result<()> {
     while input.next_event().is_some() {} //empty events
 
     let context = td::Context::from_gl_context(gl_context.clone())?;
+
     input
         .gamepads()
         .for_each(|(_, g)| info!("{} uuid: {}", g.name(), uuid::Uuid::from_bytes(g.uuid())));
@@ -595,6 +599,9 @@ fn main() -> anyhow::Result<()> {
             surface
                 .swap_buffers(&window_gl)
                 .expect("Failed to swap buffer");
+
+            //TODO: Only do on resize
+            g.window.resize_surface(&surface, &window_gl);
 
             if frame_out.exit {
                 g.exit()

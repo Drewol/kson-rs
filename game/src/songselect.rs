@@ -1,17 +1,19 @@
 use anyhow::{ensure, Result};
 use di::{RefMut, ServiceProvider};
-use game_loop::winit::event::Event;
+use game_loop::winit::event::{
+    ElementState, Event, Ime, KeyboardInput, VirtualKeyCode, WindowEvent,
+};
+use itertools::Itertools;
 use log::warn;
 use puffin::{profile_function, profile_scope};
 use rodio::Source;
-use serde::{ser::SerializeSeq, Serialize};
+use serde::Serialize;
+use serde_json::json;
 use std::{
     collections::{HashMap, HashSet},
     fmt::Debug,
-    ops::Index,
     path::PathBuf,
     rc::Rc,
-    slice::Iter,
     sync::{
         atomic::{AtomicBool, AtomicU64, AtomicUsize},
         mpsc::{channel, Receiver, Sender},
@@ -44,6 +46,7 @@ use crate::{
 };
 
 mod song_collection;
+use song_collection::*;
 
 #[derive(Debug, ToTypename, Clone, Serialize, UserData)]
 #[serde(rename_all = "camelCase")]
@@ -102,7 +105,7 @@ impl TealData for Song {
 #[derive(Serialize, UserData)]
 #[serde(rename_all = "camelCase")]
 pub struct SongSelect {
-    songs: song_collection::SongCollection,
+    songs: SongCollection,
     search_input_active: bool, //true when the user is currently inputting search text
     search_text: String,       //current string used by the song search
     selected_index: i32,
@@ -195,7 +198,10 @@ impl SongSelectScene {
         let score_events = score_provider.write().unwrap().subscribe();
         let song_events = song_provider.write().unwrap().subscribe();
         let initial_songs = song_provider.write().unwrap().get_all();
-        _ = score_provider.write().unwrap().init_scores(&initial_songs);
+        _ = score_provider
+            .write()
+            .unwrap()
+            .init_scores(&mut initial_songs.iter());
         song_select.songs.append(initial_songs);
         Self {
             background_lua: Rc::new(Lua::new()),
@@ -217,6 +223,13 @@ impl SongSelectScene {
             score_provider,
             services,
         }
+    }
+
+    fn update_lua(&self) -> anyhow::Result<()> {
+        Ok(self
+            .lua
+            .globals()
+            .set("songwheel", self.lua.to_value(&self.state)?)?)
     }
 }
 
@@ -270,7 +283,12 @@ impl Scene for SongSelectScene {
                         if ui.button("Start").clicked() {
                             self.suspend();
                             let state = &mut self.state;
-                            let song = state.songs[state.selected_index as usize].clone();
+
+                            let song = state
+                                .songs
+                                .get(state.selected_index as usize)
+                                .cloned()
+                                .unwrap();
                             let diff = state.selected_diff_index as usize;
                             let loader = self.song_provider.read().unwrap().load_song(
                                 &SongDiffId::SongDiff(
@@ -298,9 +316,7 @@ impl Scene for SongSelectScene {
     }
 
     fn init(&mut self, app_control_tx: Sender<ControlMessage>) -> anyhow::Result<()> {
-        self.lua
-            .globals()
-            .set("songwheel", self.lua.to_value(&self.state)?)?;
+        self.update_lua()?;
 
         let lua_provider = self.services.get_required::<LuaProvider>();
 
@@ -427,20 +443,38 @@ impl Scene for SongSelectScene {
             self.state.preview_countdown = 1500.0;
         }
 
-        let state = &mut self.state;
         let mut songs_dirty = false;
+        let mut index_dirty = false;
+
         while let Ok(provider_event) = self.song_events.try_recv() {
             songs_dirty = true;
             match provider_event {
-                SongProviderEvent::SongsAdded(mut new_songs) => {
+                SongProviderEvent::SongsAdded(new_songs) => {
                     self.score_provider
                         .read()
                         .unwrap()
-                        .init_scores(&new_songs)?;
-                    state.songs.append(new_songs)
+                        .init_scores(&mut new_songs.iter())?;
+                    self.state.songs.append(new_songs)
                 }
-                SongProviderEvent::SongsRemoved(removed_ids) => state.songs.remove(removed_ids),
-                SongProviderEvent::OrderChanged(_) => todo!(),
+                SongProviderEvent::SongsRemoved(removed_ids) => {
+                    self.state.songs.remove(removed_ids)
+                }
+                SongProviderEvent::OrderChanged(order) => {
+                    let current_index = self.state.selected_index;
+
+                    let id = self
+                        .state
+                        .songs
+                        .get(self.state.selected_index as usize)
+                        .map(|x| x.id.clone())
+                        .unwrap_or_default();
+
+                    self.state.songs.set_order(order);
+                    self.state.selected_index =
+                        self.state.songs.find_index(id).unwrap_or_default() as _;
+
+                    index_dirty = self.state.selected_index != current_index;
+                }
             }
         }
 
@@ -454,16 +488,33 @@ impl Scene for SongSelectScene {
         }
 
         if songs_dirty {
-            self.lua
-                .globals()
-                .set("songwheel", self.lua.to_value(state.as_ref())?)?;
+            self.update_lua()?;
+
+            if index_dirty {
+                let set_song_idx: Function = self.lua.globals().get("set_index").unwrap();
+                set_song_idx.call::<_, i32>(self.state.selected_index + 1)?;
+            }
+
+            let diff = self.state.selected_diff_index;
+            self.state.selected_diff_index =
+                self.state
+                    .songs
+                    .get(self.state.selected_index as usize)
+                    .map(|s| s.difficulties.read().unwrap().len().saturating_sub(1))
+                    .unwrap_or_default()
+                    .min(self.state.selected_diff_index as usize) as _;
+
+            if diff != self.state.selected_diff_index {
+                let set_diff_idx: Function = self.lua.globals().get("set_diff").unwrap();
+                set_diff_idx.call::<_, ()>(self.state.selected_diff_index + 1)?;
+            }
         }
 
-        if !state.songs.is_empty() {
-            state.selected_index =
-                (state.selected_index + song_advance_steps).rem_euclid(state.songs.len() as i32);
-            let song_idx = state.selected_index as usize;
-            let song_idx = state.songs[song_idx].id.as_u64();
+        if !self.state.songs.is_empty() {
+            self.state.selected_index = (self.state.selected_index + song_advance_steps)
+                .rem_euclid(self.state.songs.len() as i32);
+            let song_idx = self.state.selected_index as usize;
+            let song_idx = self.state.songs[song_idx].id.as_u64();
             self.song_provider
                 .write()
                 .unwrap()
@@ -472,23 +523,21 @@ impl Scene for SongSelectScene {
             if song_advance_steps != 0 {
                 let set_song_idx: Function = self.lua.globals().get("set_index").unwrap();
 
-                set_song_idx.call::<_, ()>(state.selected_index + 1)?;
+                set_song_idx.call::<_, ()>(self.state.selected_index + 1)?;
             }
 
             if diff_advance_steps != 0 || song_advance_steps != 0 {
-                let prev_diff = state.selected_diff_index;
-                state.selected_diff_index = (state.selected_diff_index + diff_advance_steps).clamp(
-                    0,
-                    state
-                        .songs
-                        .get(state.selected_index as usize)
-                        .map(|x| x.difficulties.read().unwrap().len().saturating_sub(1))
-                        .unwrap_or_default() as _,
-                );
+                let prev_diff = self.state.selected_diff_index;
+                let song = &self.state.songs[self.state.selected_index as usize];
+                self.state.selected_diff_index =
+                    (self.state.selected_diff_index + diff_advance_steps).clamp(
+                        0,
+                        song.difficulties.read().unwrap().len().saturating_sub(1) as _,
+                    );
 
-                if prev_diff != state.selected_diff_index {
+                if prev_diff != self.state.selected_diff_index {
                     let set_diff_idx: Function = self.lua.globals().get("set_diff").unwrap();
-                    set_diff_idx.call::<_, ()>(state.selected_diff_index + 1)?;
+                    set_diff_idx.call::<_, ()>(self.state.selected_diff_index + 1)?;
                 }
             }
         }
@@ -503,6 +552,70 @@ impl Scene for SongSelectScene {
             }
 
             return;
+        }
+
+        if let Event::WindowEvent {
+            event:
+                WindowEvent::KeyboardInput {
+                    input:
+                        KeyboardInput {
+                            state: ElementState::Pressed,
+                            virtual_keycode: Some(VirtualKeyCode::Tab),
+                            ..
+                        },
+                    ..
+                },
+            ..
+        } = event
+        {
+            self.state.search_input_active = !self.state.search_input_active;
+            self.input_state
+                .set_text_input_active(self.state.search_input_active);
+            _ = self.update_lua();
+            return;
+        }
+
+        if self.state.search_input_active {
+            //Text input handling
+            let mut updated = true;
+            match event {
+                Event::WindowEvent {
+                    window_id: _,
+                    event: WindowEvent::ReceivedCharacter(char),
+                } if !char.is_control() => {
+                    self.state.search_text.push(*char);
+                }
+                Event::WindowEvent {
+                    window_id: _,
+                    event: WindowEvent::Ime(Ime::Commit(s)),
+                } => self.state.search_text.push_str(s.as_str()),
+                Event::WindowEvent {
+                    event:
+                        WindowEvent::KeyboardInput {
+                            input:
+                                KeyboardInput {
+                                    state: ElementState::Pressed,
+                                    virtual_keycode: Some(VirtualKeyCode::Back),
+                                    ..
+                                },
+                            ..
+                        },
+                    ..
+                } => {
+                    self.state.search_text.pop();
+                }
+                _ => {
+                    updated = false;
+                }
+            }
+
+            if updated {
+                _ = self.update_lua();
+                self.song_provider
+                    .write()
+                    .unwrap()
+                    .set_search(&self.state.search_text);
+            }
         }
 
         if let Event::UserEvent(UscInputEvent::Laser(ls, _time)) = event {
@@ -524,7 +637,7 @@ impl Scene for SongSelectScene {
         match button {
             UscButton::Start => {
                 let state = &self.state;
-                let song = state.songs.get(state.selected_index as usize).cloned();
+                let song = self.state.songs.get(state.selected_index as usize).cloned();
 
                 if let (Some(pc), Some(song)) = (&self.program_control, song) {
                     let diff = state.selected_diff_index as usize;

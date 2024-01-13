@@ -19,7 +19,7 @@ mod nautica;
 pub enum SongProviderEvent {
     SongsAdded(Vec<Arc<Song>>),
     SongsRemoved(HashSet<SongId>),
-    OrderChanged(Vec<u64>),
+    OrderChanged(Vec<SongId>),
 }
 
 #[derive(Debug, Clone)]
@@ -135,7 +135,7 @@ pub trait ScoreProvider {
     fn subscribe(&mut self) -> bus::BusReader<ScoreProviderEvent>;
     fn get_scores(&mut self, id: &SongDiffId) -> Vec<Score>;
     fn insert_score(&mut self, id: &SongDiffId, score: Score) -> anyhow::Result<()>;
-    fn init_scores(&self, songs: &Vec<Arc<Song>>) -> anyhow::Result<()>;
+    fn init_scores(&self, songs: &mut dyn Iterator<Item = &Arc<Song>>) -> anyhow::Result<()>;
 }
 
 pub use files::FileSongProvider;
