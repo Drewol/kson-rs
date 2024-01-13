@@ -84,6 +84,7 @@ pub struct Game {
     input_state: InputState,
     laser_cursors: [f64; 2],
     laser_active: [bool; 2],
+    laser_wide: [u32; 2],
     laser_target: [Option<f64>; 2],
     laser_assist_ticks: [u8; 2],
     laser_latest_dir_inputs: [[SystemTime; 2]; 2], //last left/right turn timestamps for both knobs, for checking slam hits
@@ -625,6 +626,7 @@ impl Game {
                 .map(|x| x.buffered()),
             service_provider,
             sync_delta: Default::default(),
+            laser_wide: [1, 1],
         };
         res.set_track_uniforms();
         Ok(res)
@@ -702,7 +704,8 @@ impl Game {
                 rotation,
                 cursors: [
                     lua_data::Cursor::new(
-                        self.laser_cursors[0] as f32,
+                        self.laser_cursors[0] as f32 * self.laser_wide[0] as f32
+                            - (0.5 * (self.laser_wide[0] - 1) as f32),
                         camera,
                         if self.laser_target[0].is_some() {
                             1.0
@@ -711,7 +714,8 @@ impl Game {
                         },
                     ),
                     lua_data::Cursor::new(
-                        self.laser_cursors[1] as f32,
+                        self.laser_cursors[1] as f32 * self.laser_wide[1] as f32
+                            - (0.5 * (self.laser_wide[1] - 1) as f32),
                         camera,
                         if self.laser_target[1].is_some() {
                             1.0
@@ -1037,14 +1041,16 @@ impl Scene for Game {
             ),
         );
 
-        for (side, (laser_active, laser_target)) in self
+        for (side, ((laser_active, laser_target), wide)) in self
             .laser_active
             .iter_mut()
             .zip(self.laser_target.iter_mut())
+            .zip(self.laser_wide.iter_mut())
             .enumerate()
         {
             let was_none = laser_target.is_none();
             *laser_target = self.chart.note.laser[side].value_at(self.current_tick as f64);
+            *wide = self.chart.note.laser[side].wide_at(self.current_tick as f64);
             *laser_active = if let Some(val) = laser_target {
                 (*val - self.laser_cursors[side]).abs() < LASER_THRESHOLD
             } else {

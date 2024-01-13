@@ -3,6 +3,7 @@ use crate::*;
 pub trait Graph<T> {
     fn value_at(&self, tick: f64) -> T;
     fn direction_at(&self, tick: f64) -> T;
+    fn wide_at(&self, tick: f64) -> u32;
 }
 
 impl Graph<f64> for Vec<GraphPoint> {
@@ -78,6 +79,10 @@ impl Graph<f64> for Vec<GraphPoint> {
             }
         }
     }
+
+    fn wide_at(&self, tick: f64) -> u32 {
+        1
+    }
 }
 
 impl Graph<Option<f64>> for Vec<GraphSectionPoint> {
@@ -145,6 +150,10 @@ impl Graph<Option<f64>> for Vec<GraphSectionPoint> {
             }
         }
     }
+
+    fn wide_at(&self, tick: f64) -> u32 {
+        1
+    }
 }
 
 impl Graph<Option<f64>> for LaserSection {
@@ -156,6 +165,10 @@ impl Graph<Option<f64>> for LaserSection {
     fn direction_at(&self, tick: f64) -> Option<f64> {
         let r_tick = tick - self.0 as f64;
         self.1.direction_at(r_tick)
+    }
+
+    fn wide_at(&self, tick: f64) -> u32 {
+        self.2 as _
     }
 }
 
@@ -181,6 +194,19 @@ impl Graph<Option<f64>> for Vec<LaserSection> {
                     self.get(i - 1).unwrap().direction_at(tick)
                 } else {
                     None
+                }
+            }
+        }
+    }
+
+    fn wide_at(&self, tick: f64) -> u32 {
+        match self.binary_search_by(|s| s.0.cmp(&(tick as u32))) {
+            Ok(i) => self.get(i).unwrap().2 as u32,
+            Err(i) => {
+                if i > 0 {
+                    self.get(i - 1).unwrap().2 as u32
+                } else {
+                    1
                 }
             }
         }

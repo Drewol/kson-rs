@@ -90,7 +90,7 @@ impl ChartView {
                 let (xoff, track_w) = if section.wide() < 2 {
                     (2.0 / 6.0, 5.0 / 6.0)
                 } else {
-                    (2.0 / 6.0, 11.0 / 12.0)
+                    (9.0 / 12.0, 10.0 / 6.0)
                 };
                 let mut is_first = true;
                 for se in section.segments() {
