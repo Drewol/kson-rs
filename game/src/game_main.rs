@@ -9,11 +9,13 @@ use std::{
 };
 
 use di::{RefMut, ServiceProvider};
-use egui_glow::EguiGlow;
+use egui_glow::{winit, EguiGlow};
 use femtovg::Paint;
 use game_loop::winit::{
     dpi::{PhysicalPosition, PhysicalSize},
     event,
+    keyboard::{Key, NamedKey, SmolStr},
+    platform::modifier_supplement::KeyEventExtModifierSupplement,
     window::Window,
 };
 
@@ -266,7 +268,6 @@ impl GameMain {
                                 transition_lua,
                                 ControlMessage::MainMenu(MainMenuButton::Start),
                                 control_tx.clone(),
-                                frame_input.context.clone(),
                                 vgfx.clone(),
                                 frame_input.viewport,
                                 self.input_state.clone(),
@@ -291,7 +292,6 @@ impl GameMain {
                             transition_lua,
                             ControlMessage::Song { diff, loader, song },
                             control_tx.clone(),
-                            frame_input.context.clone(),
                             vgfx.clone(),
                             frame_input.viewport,
                             self.input_state.clone(),
@@ -320,7 +320,6 @@ impl GameMain {
                                 hit_ratings,
                             },
                             control_tx.clone(),
-                            frame_input.context.clone(),
                             vgfx.clone(),
                             frame_input.viewport,
                             self.input_state.clone(),
@@ -385,9 +384,8 @@ impl GameMain {
         } = event
         {
             if self.show_debug_ui || self.scenes.should_render_egui() {
-                let event_response = self.gui.on_event(event);
+                let event_response = self.gui.on_window_event(window, event);
                 if event_response.consumed {
-                    info!("egui consumed event");
                     return;
                 }
             }
@@ -404,6 +402,7 @@ impl GameMain {
         };
         let text_input_active = self.input_state.text_input_active();
 
+        //TODO: Refactor keyboard handling
         match event {
             Event::UserEvent(e) => {
                 self.input_state.update(e);
@@ -435,11 +434,11 @@ impl GameMain {
                 event: WindowEvent::ModifiersChanged(mods),
                 ..
             } => {
-                self.modifiers = Modifiers {
-                    alt: mods.alt(),
-                    ctrl: mods.ctrl(),
-                    shift: mods.shift(),
-                    command: mods.ctrl(),
+                self.modifiers = three_d::renderer::control::Modifiers {
+                    alt: mods.state().alt_key(),
+                    ctrl: mods.state().control_key(),
+                    shift: mods.state().shift_key(),
+                    command: mods.state().super_key(),
                 }
             }
             Event::WindowEvent {
@@ -447,26 +446,21 @@ impl GameMain {
                 ..
             } => self.scenes.clear(),
             Event::WindowEvent {
-                event:
-                    WindowEvent::KeyboardInput {
-                        input:
-                            KeyboardInput {
-                                virtual_keycode: Some(VirtualKeyCode::D),
-                                state: ElementState::Pressed,
-                                ..
-                            },
-                        ..
-                    },
+                event: WindowEvent::KeyboardInput { event: key, .. },
                 ..
-            } if self.modifiers.alt && !text_input_active => {
+            } if key.state == ElementState::Pressed
+                && key.key_without_modifiers() == Key::Character("d".into())
+                && self.modifiers.alt
+                && !text_input_active =>
+            {
                 self.show_debug_ui = !self.show_debug_ui
             }
             Event::WindowEvent {
                 event:
                     WindowEvent::KeyboardInput {
-                        input:
-                            KeyboardInput {
-                                virtual_keycode: Some(VirtualKeyCode::Return),
+                        event:
+                            KeyEvent {
+                                logical_key: Key::Named(NamedKey::Enter),
                                 state: ElementState::Pressed,
                                 ..
                             },
@@ -477,9 +471,11 @@ impl GameMain {
             Event::WindowEvent {
                 event:
                     WindowEvent::KeyboardInput {
-                        input:
-                            KeyboardInput {
-                                scancode, state, ..
+                        event:
+                            KeyEvent {
+                                physical_key,
+                                state,
+                                ..
                             },
                         ..
                     },
@@ -489,7 +485,7 @@ impl GameMain {
                     for button in GameConfig::get()
                         .keybinds
                         .iter()
-                        .filter_map(|x| x.match_button(*scancode))
+                        .filter_map(|x| x.match_button(*physical_key))
                     {
                         if self.input_state.is_button_held(button).is_none()
                             || *state == ElementState::Released

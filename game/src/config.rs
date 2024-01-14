@@ -1,6 +1,7 @@
 use std::{collections::HashMap, fs::File, io::Read, path::PathBuf, sync::RwLock};
 
 use clap::Parser;
+use game_loop::winit::keyboard::PhysicalKey;
 use log::{error, info};
 use once_cell::sync::OnceCell;
 use serde::{Deserialize, Serialize};
@@ -48,20 +49,20 @@ pub struct GameConfig {
 
 #[derive(Debug, Serialize, Deserialize, Clone, Copy)]
 pub struct Keybinds {
-    bt_a: u32,
-    bt_b: u32,
-    bt_c: u32,
-    bt_d: u32,
-    fx_l: u32,
-    fx_r: u32,
-    start: u32,
-    back: u32,
-    laser_l: (u32, u32),
-    laser_r: (u32, u32),
+    bt_a: PhysicalKey,
+    bt_b: PhysicalKey,
+    bt_c: PhysicalKey,
+    bt_d: PhysicalKey,
+    fx_l: PhysicalKey,
+    fx_r: PhysicalKey,
+    start: PhysicalKey,
+    back: PhysicalKey,
+    laser_l: (PhysicalKey, PhysicalKey),
+    laser_r: (PhysicalKey, PhysicalKey),
 }
 
 impl Keybinds {
-    pub fn match_button(&self, key: u32) -> Option<UscButton> {
+    pub fn match_button(&self, key: PhysicalKey) -> Option<UscButton> {
         let Keybinds {
             bt_a,
             bt_b,
@@ -96,17 +97,24 @@ impl Keybinds {
 
 impl Default for Keybinds {
     fn default() -> Self {
+        use winit::keyboard::KeyCode;
         Self {
-            bt_a: 32,          // D
-            bt_b: 33,          // F
-            bt_c: 36,          // J
-            bt_d: 37,          // K
-            fx_l: 46,          // C
-            fx_r: 50,          // M
-            start: 2,          // 1
-            back: 1,           // Esc
-            laser_l: (17, 18), // (W,E)
-            laser_r: (24, 25), // (O,P)
+            bt_a: PhysicalKey::Code(KeyCode::KeyD),
+            bt_b: PhysicalKey::Code(KeyCode::KeyF),    // F
+            bt_c: PhysicalKey::Code(KeyCode::KeyJ),    // J
+            bt_d: PhysicalKey::Code(KeyCode::KeyK),    // K
+            fx_l: PhysicalKey::Code(KeyCode::KeyC),    // C
+            fx_r: PhysicalKey::Code(KeyCode::KeyM),    // M
+            start: PhysicalKey::Code(KeyCode::Digit1), // 1
+            back: PhysicalKey::Code(KeyCode::Escape),  // Esc
+            laser_l: (
+                PhysicalKey::Code(KeyCode::KeyW),
+                PhysicalKey::Code(KeyCode::KeyE),
+            ), // (W,E)
+            laser_r: (
+                PhysicalKey::Code(KeyCode::KeyO),
+                PhysicalKey::Code(KeyCode::KeyP),
+            ), // (O,P)
         }
     }
 }

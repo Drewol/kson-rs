@@ -15,7 +15,7 @@ use crate::{
 };
 use anyhow::{ensure, Result};
 use di::{RefMut, ServiceProvider};
-use egui::plot::{Line, PlotPoint, PlotPoints};
+use egui_plot::{Line, PlotPoint, PlotPoints};
 use image::GenericImageView;
 use itertools::Itertools;
 use kson::{
@@ -255,7 +255,6 @@ use graphics::*;
 pub struct GameData {
     song: Arc<Song>,
     diff_idx: usize,
-    context: three_d::Context,
     chart: kson::Chart,
     skin_folder: PathBuf,
     audio: std::boxed::Box<(dyn rodio::source::Source<Item = f32> + std::marker::Send + 'static)>,
@@ -263,7 +262,6 @@ pub struct GameData {
 
 impl GameData {
     pub fn new(
-        context: three_d::Context,
         song: Arc<Song>,
         diff_idx: usize,
         chart: kson::Chart,
@@ -271,7 +269,6 @@ impl GameData {
         audio: Box<dyn Source<Item = f32> + Send>,
     ) -> anyhow::Result<Self> {
         Ok(Self {
-            context,
             chart,
             skin_folder,
             diff_idx,
@@ -287,7 +284,6 @@ impl SceneData for GameData {
         service_provider: ServiceProvider,
     ) -> anyhow::Result<Box<dyn Scene>> {
         let Self {
-            context,
             chart,
             skin_folder,
             diff_idx,
@@ -295,6 +291,11 @@ impl SceneData for GameData {
             audio,
         } = *self;
         profile_function!();
+
+        let context = service_provider
+            .get_required::<three_d::Context>()
+            .as_ref()
+            .clone();
 
         let mesh_transform = Mat4::from_scale(1.0);
 
@@ -1192,7 +1193,7 @@ impl Scene for Game {
                             .map(|(x, y)| [x as f64, *y])
                             .collect();
                         let line = Line::new(line);
-                        egui::plot::Plot::new("sync_delta").show(ui, |plot| {
+                        egui_plot::Plot::new("sync_delta").show(ui, |plot| {
                             plot.line(line);
                         });
                         ui.end_row();

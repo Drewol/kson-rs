@@ -8,7 +8,7 @@ use chart_editor::MainState;
 
 use eframe::egui::{
     self, menu, warn_if_debug_build, Button, Color32, ComboBox, DragValue, Frame, Grid, Key, Label,
-    Layout, Pos2, Rect, Response, RichText, Sense, Slider, Ui, Vec2, Visuals,
+    Layout, Pos2, Rect, Response, RichText, Sense, Slider, Ui, Vec2, ViewportCommand, Visuals,
 };
 use eframe::App;
 use i18n_embed::unic_langid::LanguageIdentifier;
@@ -460,6 +460,15 @@ const TOOLS: [(&str, ChartTool); 6] = [
 ];
 
 impl AppState {
+    fn saved_changes(&mut self) -> bool {
+        let at_save = self.editor.actions.saved();
+        if !at_save {
+            self.exiting = true;
+        }
+
+        at_save
+    }
+
     fn preferences(&mut self, ui: &mut Ui) {
         warn_if_debug_build(ui);
 
@@ -528,19 +537,6 @@ fn menu_ui(ui: &mut Ui, title: impl ToString, min_width: f32, add_contents: impl
 }
 
 impl App for AppState {
-    fn on_close_event(&mut self) -> bool {
-        let at_save = self.editor.actions.saved();
-        if !at_save {
-            self.exiting = true;
-        }
-
-        at_save
-    }
-
-    fn warm_up_enabled(&self) -> bool {
-        false
-    }
-
     fn save(&mut self, storage: &mut dyn eframe::Storage) {
         let new_config = Config {
             key_bindings: self.key_bindings.clone(),
@@ -568,7 +564,7 @@ impl App for AppState {
                     key,
                     pressed,
                     modifiers,
-                    repeat: _,
+                    ..
                 } => {
                     if pressed && !ctx.wants_keyboard_input() {
                         let key_combo = KeyCombo {
@@ -633,7 +629,7 @@ impl App for AppState {
                         }
                         ui.separator();
                         if ui.button(i18n::fl!("exit")).clicked() {
-                            frame.close();
+                            ctx.send_viewport_cmd(ViewportCommand::Close);
                         }
                     });
                     menu_ui(ui, i18n::fl!("edit"), 70.0, |ui| {
@@ -855,13 +851,13 @@ impl App for AppState {
                             if ui.button(i18n::fl!("yes")).clicked() {
                                 self.exiting = false;
                                 if matches!(self.editor.save(), Ok(true)) {
-                                    frame.close();
+                                    ctx.send_viewport_cmd(ViewportCommand::Close)
                                 }
                             }
                             if ui.button(i18n::fl!("no")).clicked() {
                                 self.exiting = false;
                                 self.editor.actions.save(); //marks as saved but doesn't actually save
-                                frame.close();
+                                ctx.send_viewport_cmd(ViewportCommand::Close)
                             }
                             if ui.button(i18n::fl!("cancel")).clicked() {
                                 self.exiting = false;
@@ -869,6 +865,15 @@ impl App for AppState {
                         });
                     });
             }
+        }
+
+        //check if exiting
+        {
+            ctx.input(|i| {
+                if i.viewport().close_requested() && !self.saved_changes() {
+                    ctx.send_viewport_cmd(ViewportCommand::CancelClose)
+                }
+            })
         }
     }
 }
@@ -881,7 +886,7 @@ pub fn main() -> eframe::Result<()> {
     }
 
     let options = eframe::NativeOptions {
-        drag_and_drop_support: false,
+        viewport: egui::ViewportBuilder::default().with_drag_and_drop(false),
         multisampling: 4,
         vsync: true,
         ..Default::default()

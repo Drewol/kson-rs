@@ -1,8 +1,6 @@
 use anyhow::{ensure, Result};
 use di::{RefMut, ServiceProvider};
-use game_loop::winit::event::{
-    ElementState, Event, Ime, KeyboardInput, VirtualKeyCode, WindowEvent,
-};
+use game_loop::winit::event::{ElementState, Event, Ime, WindowEvent};
 use itertools::Itertools;
 use log::warn;
 use puffin::{profile_function, profile_scope};
@@ -27,6 +25,10 @@ use tealr::{
         TealData, UserData,
     },
     SingleType, ToTypename,
+};
+use winit::{
+    event::KeyEvent,
+    keyboard::{Key, NamedKey},
 };
 
 use crate::{
@@ -557,10 +559,10 @@ impl Scene for SongSelectScene {
         if let Event::WindowEvent {
             event:
                 WindowEvent::KeyboardInput {
-                    input:
-                        KeyboardInput {
+                    event:
+                        KeyEvent {
                             state: ElementState::Pressed,
-                            virtual_keycode: Some(VirtualKeyCode::Tab),
+                            logical_key: Key::Named(NamedKey::Tab),
                             ..
                         },
                     ..
@@ -581,9 +583,16 @@ impl Scene for SongSelectScene {
             match event {
                 Event::WindowEvent {
                     window_id: _,
-                    event: WindowEvent::ReceivedCharacter(char),
-                } if !char.is_control() => {
-                    self.state.search_text.push(*char);
+                    event:
+                        WindowEvent::KeyboardInput {
+                            event:
+                                KeyEvent {
+                                    text: Some(text), ..
+                                },
+                            ..
+                        },
+                } if !text.chars().any(char::is_control) => {
+                    self.state.search_text += text.as_str();
                 }
                 Event::WindowEvent {
                     window_id: _,
@@ -592,10 +601,10 @@ impl Scene for SongSelectScene {
                 Event::WindowEvent {
                     event:
                         WindowEvent::KeyboardInput {
-                            input:
-                                KeyboardInput {
+                            event:
+                                KeyEvent {
                                     state: ElementState::Pressed,
-                                    virtual_keycode: Some(VirtualKeyCode::Back),
+                                    logical_key: Key::Named(NamedKey::Backspace),
                                     ..
                                 },
                             ..

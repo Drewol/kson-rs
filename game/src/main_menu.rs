@@ -166,10 +166,12 @@ impl Scene for MainMenu {
         {
             if let Ok(mouse_pressed) = self.lua.globals().get::<_, Function>("mouse_pressed") {
                 if let Err(e) = mouse_pressed.call::<_, ()>(match button {
-                    game_loop::winit::event::MouseButton::Left => 0,
-                    game_loop::winit::event::MouseButton::Right => 2,
-                    game_loop::winit::event::MouseButton::Middle => 1,
-                    game_loop::winit::event::MouseButton::Other(b) => *b,
+                    winit::event::MouseButton::Left => 0,
+                    winit::event::MouseButton::Right => 2,
+                    winit::event::MouseButton::Middle => 1,
+                    winit::event::MouseButton::Forward => 3,
+                    winit::event::MouseButton::Back => 4,
+                    winit::event::MouseButton::Other(b) => *b,
                 }) {
                     log::error!("{}", e);
                 };

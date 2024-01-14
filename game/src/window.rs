@@ -28,7 +28,9 @@ pub fn create_window() -> (
     EventLoop<UscInputEvent>,
     PossiblyCurrentContext,
 ) {
-    let event_loop = EventLoopBuilder::<UscInputEvent>::with_user_event().build();
+    let event_loop = EventLoopBuilder::<UscInputEvent>::with_user_event()
+        .build()
+        .unwrap();
 
     let window_builder = WindowBuilder::new()
         .with_inner_size(winit::dpi::PhysicalSize::new(1280, 720))

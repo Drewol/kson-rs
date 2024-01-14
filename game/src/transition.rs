@@ -53,7 +53,6 @@ fn load_songs() -> anyhow::Result<Box<dyn SceneData + Send>> {
 }
 
 fn load_chart(
-    context: three_d::Context,
     chart: kson::Chart,
     song: Arc<Song>,
     diff_idx: usize,
@@ -61,7 +60,6 @@ fn load_chart(
     audio: Box<dyn Source<Item = f32> + Send>,
 ) -> anyhow::Result<Box<dyn SceneData + Send>> {
     Ok(Box::new(crate::game::GameData::new(
-        context,
         song,
         diff_idx,
         chart,
@@ -79,7 +77,6 @@ impl Transition {
         transition_lua: Rc<Lua>,
         target: ControlMessage,
         control_tx: Sender<ControlMessage>,
-        context: three_d::Context,
         vgfx: RefMut<crate::Vgfx>,
         viewport: three_d::Viewport,
         input_state: InputState,
@@ -91,6 +88,11 @@ impl Transition {
                 warn!("Error resetting transition: {}", e);
             };
         }
+
+        let context = service_provider
+            .get_required::<three_d::Context>()
+            .as_ref()
+            .clone();
 
         let prev_grab = {
             let screen_tex = three_d::texture::CpuTexture {
@@ -221,7 +223,7 @@ impl Scene for Transition {
                             let skin_folder = self.vgfx.read().unwrap().skin_folder();
                             Some(Promise::spawn_thread("Load song", move || {
                                 let (chart, audio) = loader();
-                                load_chart(context, chart, song, diff, skin_folder, audio)
+                                load_chart(chart, song, diff, skin_folder, audio)
                             }))
                         }
                         ControlMessage::Result {

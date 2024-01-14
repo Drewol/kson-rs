@@ -15,3 +15,23 @@ opt-level = 3
 
 [profile.release]
 debug = true
+
+[workspace.dependencies]
+serde = { version = "1", features = ["derive"] }
+puffin = "0.18"
+puffin_egui = { git = "https://github.com/EmbarkStudios/puffin.git" }
+egui = "0.25"
+emath = "0.25"
+egui_glow = "0.25.0"
+image = { version = "0.24", default_features = false, features = [
+    "png",
+    "jpeg",
+] }
+serde_json = "1"
+rodio = { version = "0", default-features = false, features = [
+    'symphonia-wav',
+    "flac",
+    "vorbis",
+    "mp3",
+] }
+anyhow = "1"

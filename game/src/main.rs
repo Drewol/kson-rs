@@ -492,7 +492,7 @@ fn main() -> anyhow::Result<()> {
 
     //TODO: Export tealr types, or move to some other typed lua
 
-    let gui = egui_glow::EguiGlow::new(&eventloop, gl_context, None);
+    let gui = egui_glow::EguiGlow::new(&eventloop, gl_context, None, None);
 
     let _frame_times = [16.0; FRAME_ACC_SIZE];
     let _frame_time_index = 0;
@@ -539,7 +539,6 @@ fn main() -> anyhow::Result<()> {
 
         scenes.loaded.push(
             Box::new(game::GameData::new(
-                context.clone(),
                 Arc::new(song),
                 0,
                 chart,
@@ -608,7 +607,8 @@ fn main() -> anyhow::Result<()> {
             }
         },
         move |g, e| g.game.handle(&g.window, e),
-    );
+    )?;
+    Ok(())
 }
 
 #[macro_export]
