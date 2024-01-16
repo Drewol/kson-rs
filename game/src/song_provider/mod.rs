@@ -1,9 +1,15 @@
 #![allow(unused)]
 
-use std::{collections::HashSet, fmt::Debug, sync::Arc, time::Duration};
+use std::{
+    collections::HashSet,
+    fmt::{format, Debug},
+    sync::Arc,
+    time::Duration,
+};
 
 use egui::util::hash;
 use kson::Chart;
+use log::LevelFilter;
 use rodio::Source;
 use serde::Serialize;
 use tealr::{
@@ -33,20 +39,48 @@ pub enum ScoreFilter {
     Mixed,
 }
 
+#[derive(Debug, Clone, Copy)]
 pub enum SortDir {
     Asc,
     Desc,
 }
 
-pub enum SongSort {
-    Title(SortDir),
+#[derive(Debug, Clone, Copy)]
+pub enum SongSortType {
+    Title,
 }
 
-pub enum SongFilter {
-    Level(u8),
+#[derive(Debug, Clone, Copy)]
+pub struct SongSort(pub SongSortType, pub SortDir);
+
+impl ToString for SongSort {
+    fn to_string(&self) -> String {
+        match (self.0, self.1) {
+            (SongSortType::Title, SortDir::Asc) => "Title ▲".to_owned(),
+            (SongSortType::Title, SortDir::Desc) => "Title ▼".to_owned(),
+        }
+    }
+}
+
+#[derive(Debug, Clone)]
+pub enum SongFilterType {
+    None,
     Folder(String),
     Collection(String),
 }
+
+impl ToString for SongFilterType {
+    fn to_string(&self) -> String {
+        match self {
+            SongFilterType::None => "None".to_owned(),
+            SongFilterType::Folder(f) => format!("Folder: {f}"),
+            SongFilterType::Collection(c) => format!("Collection: {c}"),
+        }
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct SongFilter(pub SongFilterType, pub u8);
 
 #[derive(Debug, ToTypename, UserData, Clone, Serialize, Hash, PartialEq, Eq, PartialOrd, Ord)]
 pub enum SongId {
@@ -118,6 +152,8 @@ type LoadSongFn = Box<dyn FnOnce() -> (Chart, Box<dyn rodio::Source<Item = f32> 
 pub trait SongProvider {
     fn subscribe(&mut self) -> bus::BusReader<SongProviderEvent>;
     fn set_search(&mut self, query: &str);
+    fn get_available_sorts(&self) -> Vec<SongSort>;
+    fn get_available_filters(&self) -> Vec<SongFilterType>;
     fn set_sort(&mut self, sort: SongSort);
     fn set_filter(&mut self, filter: SongFilter);
     fn set_current_index(&mut self, index: u64);

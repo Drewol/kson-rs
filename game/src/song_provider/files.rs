@@ -13,13 +13,14 @@ use crate::{
     config::GameConfig,
     game::HitWindow,
     results::Score,
+    song_provider::SongFilterType,
     songselect::{Difficulty, Song},
     worker_service::WorkerService,
 };
 
 use super::{
-    DiffId, LoadSongFn, ScoreProvider, ScoreProviderEvent, SongDiffId, SongId, SongProvider,
-    SongProviderEvent,
+    DiffId, LoadSongFn, ScoreProvider, ScoreProviderEvent, SongDiffId, SongFilter, SongId,
+    SongProvider, SongProviderEvent, SongSort,
 };
 use anyhow::{bail, ensure};
 
@@ -35,7 +36,7 @@ use tokio::io::AsyncRead;
 enum WorkerControlMessage {
     Stop,
     Refresh,
-    Query(String),
+    Query(String, SongFilter),
 }
 
 pub struct FileSongProvider {
@@ -47,6 +48,9 @@ pub struct FileSongProvider {
     worker_tx: Sender<WorkerControlMessage>,
     score_bus: bus::Bus<ScoreProviderEvent>,
     song_bus: bus::Bus<SongProviderEvent>,
+    sort: SongSort,
+    filter: SongFilter,
+    query: String,
 }
 
 impl From<ScoreEntry> for Score {
@@ -135,14 +139,7 @@ impl FileSongProvider {
         let worker = poll_promise::Promise::spawn_async(async move {
             loop {
                 let songs = {
-                    let song_path = crate::config::GameConfig::get().songs_path.clone();
-                    let song_path = if song_path.is_absolute() {
-                        song_path
-                    } else {
-                        let mut p = GameConfig::get().game_folder.clone();
-                        p.push(song_path);
-                        p
-                    };
+                    let song_path = songs_path();
                     info!("Loading songs from: {:?}", &song_path);
                     let song_walker = walkdir::WalkDir::new(song_path);
 
@@ -388,8 +385,17 @@ impl FileSongProvider {
                 loop {
                     match sender_rx.try_recv() {
                         Ok(WorkerControlMessage::Refresh) => break,
-                        Ok(WorkerControlMessage::Query(q)) => {
-                            let Ok(charts) = worker_db.get_folder_ids_query(&q).await else {
+                        Ok(WorkerControlMessage::Query(q, filter)) => {
+                            let folder = if let SongFilterType::Folder(folder) = filter.0 {
+                                let mut p = songs_path();
+                                p.push(folder);
+                                Some(p.to_string_lossy().to_string())
+                            } else {
+                                None
+                            };
+                            let Ok(charts) =
+                                worker_db.get_folder_ids_query(&q, filter.1, folder).await
+                            else {
                                 continue;
                             };
 
@@ -417,7 +423,22 @@ impl FileSongProvider {
             score_bus: bus::Bus::new(32),
             song_bus: bus::Bus::new(32),
             worker_tx,
+            sort: SongSort(super::SongSortType::Title, super::SortDir::Asc), //TODO: Load last used from config
+            filter: SongFilter(super::SongFilterType::None, 0), //TODO: Load last used from config
+            query: String::new(),
         }
+    }
+}
+
+fn songs_path() -> PathBuf {
+    let song_path = crate::config::GameConfig::get().songs_path.clone();
+
+    if song_path.is_absolute() {
+        song_path
+    } else {
+        let mut p = GameConfig::get().game_folder.clone();
+        p.push(song_path);
+        p
     }
 }
 
@@ -443,16 +464,21 @@ impl WorkerService for FileSongProvider {
 
 impl SongProvider for FileSongProvider {
     fn set_search(&mut self, q: &str) {
-        self.worker_tx
-            .send(WorkerControlMessage::Query(q.to_string()));
+        self.query = q.to_string();
+        self.worker_tx.send(WorkerControlMessage::Query(
+            q.to_string(),
+            self.filter.clone(),
+        ));
     }
 
-    fn set_sort(&mut self, _sort: super::SongSort) {
-        todo!()
-    }
+    fn set_sort(&mut self, sort: super::SongSort) {}
 
-    fn set_filter(&mut self, _filter: super::SongFilter) {
-        todo!()
+    fn set_filter(&mut self, filter: super::SongFilter) {
+        self.filter = filter;
+        self.worker_tx.send(WorkerControlMessage::Query(
+            self.query.clone(),
+            self.filter.clone(),
+        ));
     }
 
     fn set_current_index(&mut self, _index: u64) {}
@@ -565,6 +591,44 @@ impl SongProvider for FileSongProvider {
                 diff.scores.sort_by_key(|x| -x.score);
             }
         }
+    }
+
+    fn get_available_sorts(&self) -> Vec<super::SongSort> {
+        vec![super::SongSort(
+            crate::song_provider::SongSortType::Title,
+            crate::song_provider::SortDir::Desc,
+        )]
+    }
+
+    fn get_available_filters(&self) -> Vec<super::SongFilterType> {
+        let songs_path = songs_path();
+        let song_path_contents: Vec<_> =
+            songs_path.read_dir().and_then(|x| x.try_collect()).unwrap();
+
+        let mut res = vec![super::SongFilterType::None];
+
+        res.extend(
+            song_path_contents
+                .into_iter()
+                .filter(|x| x.path().is_dir())
+                .filter(|x| {
+                    //Read subdirs and check for .ksh files in the top folder
+                    x.path().read_dir().is_ok_and(|mut x| {
+                        !x.any(|x| {
+                            x.is_ok_and(|x| {
+                                x.path()
+                                    .extension()
+                                    .and_then(|f| f.to_str())
+                                    .is_some_and(|f| f.to_lowercase() == "ksh")
+                            })
+                        })
+                    })
+                })
+                .map(|x| {
+                    super::SongFilterType::Folder(x.file_name().to_string_lossy().to_string())
+                }),
+        );
+        res
     }
 }
 

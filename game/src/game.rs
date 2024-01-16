@@ -999,21 +999,30 @@ impl Scene for Game {
 
     fn tick(&mut self, _dt: f64, _knob_state: crate::button_codes::LaserState) -> Result<()> {
         profile_function!();
+        const AVG_DELTA_LEN: usize = 32;
         let mut time = self.current_time();
 
         let playback_ms = self.playback.get_ms();
         let timing_delta = playback_ms.sub(time.as_secs_f64() * 1000.0);
-        self.sync_delta.push_front(timing_delta);
-        if self.sync_delta.len() > 256 {
-            self.sync_delta.pop_back();
+        if playback_ms > 0.0 {
+            self.sync_delta.push_front(timing_delta);
+            if self.sync_delta.len() > AVG_DELTA_LEN {
+                self.sync_delta.pop_back();
+            }
         }
-        if timing_delta.abs() > 20.0 && playback_ms > 0.0 && !self.score_ticks.is_empty() {
-            if timing_delta < 0.0 {
-                self.zero_time =
-                    self.zero_time + Duration::from_nanos((timing_delta * -50000.0) as _);
-            } else {
-                self.zero_time =
-                    self.zero_time - Duration::from_nanos((timing_delta * 50000.0) as _);
+
+        let avg_delta: f64 = self.sync_delta.iter().fold(0.0, |a, c| a + c) / AVG_DELTA_LEN as f64;
+
+        if playback_ms > 0.0 && !self.score_ticks.is_empty() {
+            if avg_delta.abs() > 250.0 {
+                self.sync_delta.clear();
+                self.zero_time = SystemTime::now().sub(Duration::from_millis(playback_ms as _));
+            } else if avg_delta.abs() > 1.0 {
+                if avg_delta > 0.0 {
+                    self.zero_time -= Duration::from_nanos(50000);
+                } else {
+                    self.zero_time += Duration::from_nanos(50000);
+                }
             }
 
             time = self.current_time();

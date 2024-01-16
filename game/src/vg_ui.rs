@@ -19,7 +19,6 @@ use tealr::{
 
 use tealr::mlu::mlua;
 
-
 use crate::{
     animation::VgAnimation, config::GameConfig, default_game_dir, help::add_lua_static_method,
     log_result, shaded_mesh::ShadedMesh, util::lua_address,
@@ -282,13 +281,12 @@ impl TealData for Vgfx {
         );
         add_lua_static_method(methods, "FastRect", |_, _vgfx, p: FastRectParams| {
             let FastRectParams { x, y, w, h } = p;
-            match _vgfx.path.as_mut() {
-                Some(p) => {
-                    p.rect(x, y, w, h);
-                    Ok(())
-                }
-                None => Err(mlua::Error::external("No path begun".to_string())),
+            if let Some(paint) = _vgfx.fill_paint.as_ref() {
+                let mut p = Path::new();
+                p.rect(x, y, w, h);
+                _vgfx.canvas.lock().unwrap().fill_path(&p, paint);
             }
+            Ok(())
         });
 
         //Fill

@@ -318,6 +318,10 @@ impl WorkerService for NauticaSongProvider {
 }
 
 impl SongProvider for NauticaSongProvider {
+    fn get_available_filters(&self) -> Vec<super::SongFilterType> {
+        vec![]
+    }
+
     fn set_search(&mut self, _query: &str) {
         todo!()
     }
@@ -450,6 +454,10 @@ impl SongProvider for NauticaSongProvider {
 
     fn get_all(&self) -> Vec<Arc<Song>> {
         self.all_songs.clone()
+    }
+
+    fn get_available_sorts(&self) -> Vec<super::SongSort> {
+        vec![]
     }
 }
 

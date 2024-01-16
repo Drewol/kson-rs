@@ -163,6 +163,8 @@ impl LocalSongsDb {
     pub async fn get_folder_ids_query(
         &self,
         query: &str,
+        level: u8,
+        folder: Option<String>,
     ) -> std::result::Result<Vec<i64>, sqlx::Error> {
         let base_query = "SELECT DISTINCT folderId FROM Charts";
         let mut query_builder = sqlx::query_builder::QueryBuilder::new(base_query);
@@ -189,6 +191,29 @@ impl LocalSongsDb {
                 }
             }
         }
+
+        if level > 0 {
+            if query.is_empty() {
+                query_builder.push(" WHERE");
+            } else {
+                query_builder.push(" AND");
+            }
+
+            query_builder.push(" level = ");
+            query_builder.push_bind(level);
+        }
+
+        if let Some(folder) = folder {
+            if query.is_empty() && level == 0 {
+                query_builder.push(" WHERE");
+            } else {
+                query_builder.push(" AND");
+            }
+
+            query_builder.push(" path LIKE ");
+            query_builder.push_bind(format!("{folder}%"));
+        }
+
         let mut q = query_builder.build_query_scalar();
         for ele in binds {
             q = q.bind(ele);

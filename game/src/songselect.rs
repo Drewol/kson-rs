@@ -10,6 +10,7 @@ use serde_json::json;
 use std::{
     collections::{HashMap, HashSet},
     fmt::Debug,
+    ops::Add,
     path::PathBuf,
     rc::Rc,
     sync::{
@@ -39,8 +40,8 @@ use crate::{
     scene::{Scene, SceneData},
     settings_dialog::SettingsDialog,
     song_provider::{
-        DiffId, ScoreProvider, ScoreProviderEvent, SongDiffId, SongId, SongProvider,
-        SongProviderEvent,
+        self, DiffId, ScoreProvider, ScoreProviderEvent, SongDiffId, SongFilter, SongFilterType,
+        SongId, SongProvider, SongProviderEvent, SongSort,
     },
     sources::owned_source::owned_source,
     take_duration_fade::take_duration_fade,
@@ -170,8 +171,17 @@ impl SceneData for SongSelect {
 }
 pub const KNOB_NAV_THRESHOLD: f32 = std::f32::consts::PI / 3.0;
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum MenuState {
+    Songs,
+    Levels,
+    Folders,
+    Sorting,
+}
+
 pub struct SongSelectScene {
     state: Box<SongSelect>,
+    menu_state: MenuState,
     lua: Rc<Lua>,
     background_lua: Rc<Lua>,
     program_control: Option<Sender<ControlMessage>>,
@@ -188,7 +198,14 @@ pub struct SongSelectScene {
     song_provider: RefMut<dyn SongProvider>,
     song_events: bus::BusReader<SongProviderEvent>,
     score_events: bus::BusReader<ScoreProviderEvent>,
-    score_provider: RefMut<dyn ScoreProvider>, //TODO
+    score_provider: RefMut<dyn ScoreProvider>,
+    sort_lua: Rc<Lua>,
+    filter_lua: Rc<Lua>,
+    level_filter: u8,
+    folder_filter_index: usize,
+    sort_index: usize,
+    filters: Vec<song_provider::SongFilterType>,
+    sorts: Vec<song_provider::SongSort>,
 }
 
 impl SongSelectScene {
@@ -206,6 +223,8 @@ impl SongSelectScene {
             .init_scores(&mut initial_songs.iter());
         song_select.songs.append(initial_songs);
         Self {
+            filter_lua: Rc::new(Lua::new()),
+            sort_lua: Rc::new(Lua::new()),
             background_lua: Rc::new(Lua::new()),
             lua: Rc::new(Lua::new()),
             state: song_select,
@@ -224,6 +243,12 @@ impl SongSelectScene {
             song_provider,
             score_provider,
             services,
+            menu_state: MenuState::Songs,
+            level_filter: 0,
+            folder_filter_index: 0,
+            sort_index: 0,
+            filters: vec![],
+            sorts: vec![],
         }
     }
 
@@ -232,6 +257,26 @@ impl SongSelectScene {
             .lua
             .globals()
             .set("songwheel", self.lua.to_value(&self.state)?)?)
+    }
+
+    fn update_filter_sort_lua(&self) -> anyhow::Result<(Vec<SongFilterType>, Vec<SongSort>)> {
+        let (filters, sorts) = {
+            let sp = self.song_provider.read().unwrap();
+            (sp.get_available_filters(), sp.get_available_sorts())
+        };
+
+        self.sort_lua
+            .globals()
+            .set("sorts", sorts.iter().map(ToString::to_string).collect_vec())?;
+
+        self.filter_lua.globals().set(
+        "filters",
+        self.filter_lua.to_value(&json!({
+            "folder": filters.iter().map(|x| x.to_string()).collect_vec(),
+            "level": (0..=20).map(|x| if x == 0 {"None".to_owned()} else {format!("Level: {x}")}).collect_vec(),
+        }))?,
+    )?;
+        Ok((filters, sorts))
     }
 }
 
@@ -243,6 +288,15 @@ impl Scene for SongSelectScene {
 
         let render_wheel: Function = self.lua.globals().get("render")?;
         render_wheel.call(dt / 1000.0)?;
+
+        let render_filters: Function = self.filter_lua.globals().get("render")?;
+        render_filters.call((
+            dt / 1000.0,
+            matches!(self.menu_state, MenuState::Folders | MenuState::Levels),
+        ))?;
+
+        let render_sorting: Function = self.sort_lua.globals().get("render")?;
+        render_sorting.call((dt / 1000.0, self.menu_state == MenuState::Sorting))?;
 
         self.settings_dialog.render(dt)?;
 
@@ -261,6 +315,9 @@ impl Scene for SongSelectScene {
                 .num_columns(2)
                 .striped(true)
                 .show(ui, |ui| -> Result<()> {
+                    ui.label(format!("Menu state {:?}", self.menu_state));
+                    ui.end_row();
+
                     if song_count > 0 {
                         {
                             let state = &mut self.state;
@@ -327,6 +384,11 @@ impl Scene for SongSelectScene {
         lua_provider.register_libraries(self.lua.clone(), "songselect/songwheel.lua")?;
         lua_provider
             .register_libraries(self.background_lua.clone(), "songselect/background.lua")?;
+
+        lua_provider.register_libraries(self.filter_lua.clone(), "songselect/filterwheel.lua")?;
+        lua_provider.register_libraries(self.sort_lua.clone(), "songselect/sortwheel.lua")?;
+        (self.filters, self.sorts) = self.update_filter_sort_lua()?;
+
         let mut bgm_amp = Arc::new(1_f32);
         let preview_playing = self.state.preview_finished.clone();
         let suspended = self.suspended.clone();
@@ -365,6 +427,7 @@ impl Scene for SongSelectScene {
         let diff_advance_steps = (self.diff_advance / KNOB_NAV_THRESHOLD).trunc() as i32;
         self.diff_advance -= diff_advance_steps as f32 * KNOB_NAV_THRESHOLD;
 
+        // Tick song audio preview
         if song_advance_steps == 0
             && self.state.preview_countdown > 0.0
             && !self.state.songs.is_empty()
@@ -512,34 +575,88 @@ impl Scene for SongSelectScene {
             }
         }
 
-        if !self.state.songs.is_empty() {
-            self.state.selected_index = (self.state.selected_index + song_advance_steps)
-                .rem_euclid(self.state.songs.len() as i32);
-            let song_idx = self.state.selected_index as usize;
-            let song_idx = self.state.songs[song_idx].id.as_u64();
-            self.song_provider
-                .write()
-                .unwrap()
-                .set_current_index(song_idx as _);
+        match self.menu_state {
+            MenuState::Songs => {
+                if !self.state.songs.is_empty() {
+                    self.state.selected_index = (self.state.selected_index + song_advance_steps)
+                        .rem_euclid(self.state.songs.len() as i32);
+                    let song_idx = self.state.selected_index as usize;
+                    let song_idx = self.state.songs[song_idx].id.as_u64();
+                    self.song_provider
+                        .write()
+                        .unwrap()
+                        .set_current_index(song_idx as _);
 
-            if song_advance_steps != 0 {
-                let set_song_idx: Function = self.lua.globals().get("set_index").unwrap();
+                    if song_advance_steps != 0 {
+                        let set_song_idx: Function = self.lua.globals().get("set_index").unwrap();
 
-                set_song_idx.call::<_, ()>(self.state.selected_index + 1)?;
+                        set_song_idx.call::<_, ()>(self.state.selected_index + 1)?;
+                    }
+
+                    if diff_advance_steps != 0 || song_advance_steps != 0 {
+                        let prev_diff = self.state.selected_diff_index;
+                        let song = &self.state.songs[self.state.selected_index as usize];
+                        self.state.selected_diff_index =
+                            (self.state.selected_diff_index + diff_advance_steps).clamp(
+                                0,
+                                song.difficulties.read().unwrap().len().saturating_sub(1) as _,
+                            );
+
+                        if prev_diff != self.state.selected_diff_index {
+                            let set_diff_idx: Function =
+                                self.lua.globals().get("set_diff").unwrap();
+                            set_diff_idx.call::<_, ()>(self.state.selected_diff_index + 1)?;
+                        }
+                    }
+                }
             }
+            MenuState::Sorting => {
+                if !self.sorts.is_empty() {
+                    self.sort_index = diff_advance_steps
+                        .add(song_advance_steps)
+                        .add(self.sort_index as i32)
+                        .rem_euclid(self.sorts.len() as _)
+                        as _;
 
-            if diff_advance_steps != 0 || song_advance_steps != 0 {
-                let prev_diff = self.state.selected_diff_index;
-                let song = &self.state.songs[self.state.selected_index as usize];
-                self.state.selected_diff_index =
-                    (self.state.selected_diff_index + diff_advance_steps).clamp(
-                        0,
-                        song.difficulties.read().unwrap().len().saturating_sub(1) as _,
-                    );
-
-                if prev_diff != self.state.selected_diff_index {
-                    let set_diff_idx: Function = self.lua.globals().get("set_diff").unwrap();
-                    set_diff_idx.call::<_, ()>(self.state.selected_diff_index + 1)?;
+                    if (diff_advance_steps + song_advance_steps) != 0 {
+                        self.song_provider
+                            .write()
+                            .unwrap()
+                            .set_sort(self.sorts[self.sort_index]);
+                        let set_selection: Function =
+                            self.sort_lua.globals().get("set_selection")?;
+                        set_selection.call(self.sort_index + 1)?;
+                    }
+                }
+            }
+            MenuState::Levels => {
+                self.level_filter = (diff_advance_steps + song_advance_steps)
+                    .add(self.level_filter as i32)
+                    .rem_euclid(21) as _;
+                if (diff_advance_steps + song_advance_steps) != 0 {
+                    self.song_provider.write().unwrap().set_filter(SongFilter(
+                        self.filters[self.folder_filter_index].clone(),
+                        self.level_filter,
+                    ));
+                    let set_selection: Function = self.filter_lua.globals().get("set_selection")?;
+                    set_selection.call((self.level_filter + 1, false))?;
+                }
+            }
+            MenuState::Folders => {
+                if !self.filters.is_empty() {
+                    self.folder_filter_index = (diff_advance_steps + song_advance_steps)
+                        .add(self.folder_filter_index as i32)
+                        .rem_euclid(self.filters.len() as _)
+                        as _;
+                    if (diff_advance_steps + song_advance_steps) != 0 {
+                        self.song_provider.write().unwrap().set_filter(SongFilter(
+                            self.filters[self.folder_filter_index].clone(),
+                            self.level_filter,
+                        ));
+                        let set_selection: Function =
+                            self.filter_lua.globals().get("set_selection")?;
+                        set_selection.call((self.folder_filter_index + 1, true))?;
+                    }
                 }
             }
         }
@@ -633,11 +750,7 @@ impl Scene for SongSelectScene {
         }
     }
 
-    fn on_button_pressed(
-        &mut self,
-        button: crate::button_codes::UscButton,
-        _timestamp: SystemTime,
-    ) {
+    fn on_button_pressed(&mut self, button: crate::button_codes::UscButton, timestamp: SystemTime) {
         if self.settings_dialog.show {
             self.settings_dialog.on_button_press(button);
             return;
@@ -645,33 +758,46 @@ impl Scene for SongSelectScene {
 
         match button {
             UscButton::Start => {
-                let state = &self.state;
-                let song = self.state.songs.get(state.selected_index as usize).cloned();
+                match self.menu_state {
+                    MenuState::Songs => {
+                        let state = &self.state;
+                        let song = self.state.songs.get(state.selected_index as usize).cloned();
 
-                if let (Some(pc), Some(song)) = (&self.program_control, song) {
-                    let diff = state.selected_diff_index as usize;
-                    let loader =
-                        self.song_provider
-                            .read()
-                            .unwrap()
-                            .load_song(&SongDiffId::SongDiff(
-                                song.id.clone(),
-                                song.difficulties.read().unwrap()[diff].id.clone(),
-                            ));
-                    _ = pc.send(ControlMessage::Song { diff, loader, song });
+                        if let (Some(pc), Some(song)) = (&self.program_control, song) {
+                            let diff = state.selected_diff_index as usize;
+                            let loader = self.song_provider.read().unwrap().load_song(
+                                &SongDiffId::SongDiff(
+                                    song.id.clone(),
+                                    song.difficulties.read().unwrap()[diff].id.clone(),
+                                ),
+                            );
+                            _ = pc.send(ControlMessage::Song { diff, loader, song });
+                        }
+                    }
+                    MenuState::Levels => {
+                        self.menu_state = MenuState::Folders;
+                    }
+                    MenuState::Folders => {
+                        self.menu_state = MenuState::Levels;
+                    }
+                    MenuState::Sorting => {}
+                }
+
+                if let MenuState::Folders | MenuState::Levels = self.menu_state {
+                    if let Ok(set_mode) = self.filter_lua.globals().get::<_, Function>("set_mode") {
+                        set_mode.call::<_, ()>(self.menu_state == MenuState::Folders);
+                    }
                 }
             }
             UscButton::FX(s) => {
-                let press_time = std::time::SystemTime::now();
-
                 if let Some(other_press_time) =
                     self.input_state.is_button_held(UscButton::FX(s.opposite()))
                 {
-                    let detla_ms = press_time
+                    let detla_ms = timestamp
                         .duration_since(other_press_time)
                         .unwrap()
                         .as_millis();
-                    if detla_ms < 100 {
+                    if detla_ms < 100 && self.menu_state == MenuState::Songs {
                         self.settings_dialog.show = true;
                     }
                 }
@@ -679,7 +805,30 @@ impl Scene for SongSelectScene {
             _ => (),
         }
     }
+    fn on_button_released(&mut self, button: UscButton, _timestamp: SystemTime) {
+        if self.settings_dialog.show {
+            return;
+        }
 
+        if let UscButton::FX(side) = button {
+            self.menu_state = match (side, self.menu_state) {
+                (kson::Side::Left, MenuState::Songs) => MenuState::Folders,
+                (kson::Side::Left, MenuState::Levels) => MenuState::Songs,
+                (kson::Side::Left, MenuState::Folders) => MenuState::Songs,
+                (kson::Side::Left, MenuState::Sorting) => MenuState::Sorting,
+                (kson::Side::Right, MenuState::Songs) => MenuState::Sorting,
+                (kson::Side::Right, MenuState::Levels) => MenuState::Levels,
+                (kson::Side::Right, MenuState::Folders) => MenuState::Folders,
+                (kson::Side::Right, MenuState::Sorting) => MenuState::Songs,
+            };
+
+            if let MenuState::Folders | MenuState::Levels = self.menu_state {
+                if let Ok(set_mode) = self.filter_lua.globals().get::<_, Function>("set_mode") {
+                    set_mode.call::<_, ()>(self.menu_state == MenuState::Folders);
+                }
+            }
+        }
+    }
     fn suspend(&mut self) {
         self.suspended
             .store(true, std::sync::atomic::Ordering::Relaxed);
