@@ -1,3 +1,5 @@
+use std::sync::mpsc::{self, Receiver, Sender};
+
 use tealr::mlu::mlua::Lua;
 use three_d::{context::*, *};
 
@@ -41,4 +43,34 @@ mod tests {
         println!("{a}");
         assert!(a == b);
     }
+}
+
+pub struct Pipe<T, U> {
+    rx: Receiver<T>,
+    tx: Sender<U>,
+}
+
+impl<T, U> Pipe<T, U> {
+    pub fn recv(&self) -> Result<T, std::sync::mpsc::RecvError> {
+        self.rx.recv()
+    }
+
+    pub fn send(&self, message: U) -> Result<(), std::sync::mpsc::SendError<U>> {
+        self.tx.send(message)
+    }
+
+    pub fn recv_timeout(&self, timeout: std::time::Duration) -> Result<T, mpsc::RecvTimeoutError> {
+        self.rx.recv_timeout(timeout)
+    }
+
+    pub fn try_recv(&self) -> Result<T, mpsc::TryRecvError> {
+        self.rx.try_recv()
+    }
+}
+
+pub fn pipe<T, U>() -> (Pipe<U, T>, Pipe<T, U>) {
+    let (t_tx, t_rx) = mpsc::channel::<T>();
+    let (u_tx, u_rx) = mpsc::channel::<U>();
+
+    (Pipe { tx: t_tx, rx: u_rx }, Pipe { tx: u_tx, rx: t_rx })
 }

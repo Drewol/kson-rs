@@ -10,7 +10,7 @@ use std::{
 
 use crate::{
     block_on,
-    config::GameConfig,
+    config::{GameConfig, SongSelectSettings},
     game::HitWindow,
     results::Score,
     song_provider::SongFilterType,
@@ -36,7 +36,7 @@ use tokio::io::AsyncRead;
 enum WorkerControlMessage {
     Stop,
     Refresh,
-    Query(String, SongFilter),
+    Query(String, SongFilter, SongSort),
 }
 
 pub struct FileSongProvider {
@@ -385,16 +385,18 @@ impl FileSongProvider {
                 loop {
                     match sender_rx.try_recv() {
                         Ok(WorkerControlMessage::Refresh) => break,
-                        Ok(WorkerControlMessage::Query(q, filter)) => {
-                            let folder = if let SongFilterType::Folder(folder) = filter.0 {
+                        Ok(WorkerControlMessage::Query(q, filter, sort)) => {
+                            let folder = if let SongFilterType::Folder(folder) = filter.filter_type
+                            {
                                 let mut p = songs_path();
                                 p.push(folder);
                                 Some(p.to_string_lossy().to_string())
                             } else {
                                 None
                             };
-                            let Ok(charts) =
-                                worker_db.get_folder_ids_query(&q, filter.1, folder).await
+                            let Ok(charts) = worker_db
+                                .get_folder_ids_query(&q, filter.level, folder, sort.into())
+                                .await
                             else {
                                 continue;
                             };
@@ -415,6 +417,8 @@ impl FileSongProvider {
             }
         });
 
+        let SongSelectSettings { sorting, filter } = &GameConfig::get().song_select;
+
         FileSongProvider {
             all_songs,
             database,
@@ -423,8 +427,8 @@ impl FileSongProvider {
             score_bus: bus::Bus::new(32),
             song_bus: bus::Bus::new(32),
             worker_tx,
-            sort: SongSort(super::SongSortType::Title, super::SortDir::Asc), //TODO: Load last used from config
-            filter: SongFilter(super::SongFilterType::None, 0), //TODO: Load last used from config
+            sort: sorting.clone(),
+            filter: filter.clone(),
             query: String::new(),
         }
     }
@@ -468,17 +472,28 @@ impl SongProvider for FileSongProvider {
         self.worker_tx.send(WorkerControlMessage::Query(
             q.to_string(),
             self.filter.clone(),
+            self.sort,
         ));
     }
 
-    fn set_sort(&mut self, sort: super::SongSort) {}
+    fn set_sort(&mut self, sort: super::SongSort) {
+        self.sort = sort;
+        self.worker_tx.send(WorkerControlMessage::Query(
+            self.query.clone(),
+            self.filter.clone(),
+            self.sort,
+        ));
+        GameConfig::get_mut().song_select.sorting = self.sort.clone();
+    }
 
     fn set_filter(&mut self, filter: super::SongFilter) {
         self.filter = filter;
         self.worker_tx.send(WorkerControlMessage::Query(
             self.query.clone(),
             self.filter.clone(),
+            self.sort,
         ));
+        GameConfig::get_mut().song_select.filter = self.filter.clone();
     }
 
     fn set_current_index(&mut self, _index: u64) {}
@@ -569,6 +584,12 @@ impl SongProvider for FileSongProvider {
     }
 
     fn get_all(&self) -> Vec<Arc<Song>> {
+        //TODO: a bit ugly but trigger query here to initialize the sort array as well
+        self.worker_tx.send(WorkerControlMessage::Query(
+            self.query.clone(),
+            self.filter.clone(),
+            self.sort,
+        ));
         self.all_songs.clone()
     }
 
@@ -594,7 +615,7 @@ impl SongProvider for FileSongProvider {
     }
 
     fn get_available_sorts(&self) -> Vec<super::SongSort> {
-        vec![super::SongSort(
+        vec![super::SongSort::new(
             crate::song_provider::SongSortType::Title,
             crate::song_provider::SortDir::Desc,
         )]

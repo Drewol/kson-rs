@@ -634,10 +634,13 @@ impl Scene for SongSelectScene {
                     .add(self.level_filter as i32)
                     .rem_euclid(21) as _;
                 if (diff_advance_steps + song_advance_steps) != 0 {
-                    self.song_provider.write().unwrap().set_filter(SongFilter(
-                        self.filters[self.folder_filter_index].clone(),
-                        self.level_filter,
-                    ));
+                    self.song_provider
+                        .write()
+                        .unwrap()
+                        .set_filter(SongFilter::new(
+                            self.filters[self.folder_filter_index].clone(),
+                            self.level_filter,
+                        ));
                     let set_selection: Function = self.filter_lua.globals().get("set_selection")?;
                     set_selection.call((self.level_filter + 1, false))?;
                 }
@@ -649,10 +652,13 @@ impl Scene for SongSelectScene {
                         .rem_euclid(self.filters.len() as _)
                         as _;
                     if (diff_advance_steps + song_advance_steps) != 0 {
-                        self.song_provider.write().unwrap().set_filter(SongFilter(
-                            self.filters[self.folder_filter_index].clone(),
-                            self.level_filter,
-                        ));
+                        self.song_provider
+                            .write()
+                            .unwrap()
+                            .set_filter(SongFilter::new(
+                                self.filters[self.folder_filter_index].clone(),
+                                self.level_filter,
+                            ));
                         let set_selection: Function =
                             self.filter_lua.globals().get("set_selection")?;
                         set_selection.call((self.folder_filter_index + 1, true))?;

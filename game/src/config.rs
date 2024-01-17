@@ -9,6 +9,7 @@ use serde::{Deserialize, Serialize};
 use crate::{
     button_codes::{CustomBindings, UscButton},
     skin_settings::{SkinSettingEntry, SkinSettingValue},
+    song_provider,
 };
 
 #[derive(Debug, Default, Parser, Clone)]
@@ -45,6 +46,13 @@ pub struct GameConfig {
     pub args: Args,
     pub keybinds: Vec<Keybinds>,
     pub controller_binds: CustomBindings,
+    pub song_select: SongSelectSettings,
+}
+
+#[derive(Debug, Deserialize, Serialize, Clone, Default)]
+pub struct SongSelectSettings {
+    pub sorting: song_provider::SongSort,
+    pub filter: song_provider::SongFilter,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone, Copy)]
@@ -142,6 +150,7 @@ impl Default for GameConfig {
             keyboard_knobs: false,
             global_offset: 0,
             controller_binds: HashMap::new(),
+            song_select: SongSelectSettings::default(),
 
         }
     }

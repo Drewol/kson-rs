@@ -76,6 +76,18 @@ pub struct ScoreEntry {
     pub random: bool,
 }
 
+#[derive(Debug, Clone, Copy)]
+pub enum SortDir {
+    Asc,
+    Desc,
+}
+
+#[derive(Debug, Clone, Copy)]
+pub enum SortColumn {
+    Title,
+    Level,
+}
+
 impl LocalSongsDb {
     pub async fn new(db_path: impl AsRef<Path>) -> Result<Self, sqlx::Error> {
         let options = sqlx::sqlite::SqliteConnectOptions::new()
@@ -165,6 +177,7 @@ impl LocalSongsDb {
         query: &str,
         level: u8,
         folder: Option<String>,
+        order: (SortColumn, SortDir),
     ) -> std::result::Result<Vec<i64>, sqlx::Error> {
         let base_query = "SELECT DISTINCT folderId FROM Charts";
         let mut query_builder = sqlx::query_builder::QueryBuilder::new(base_query);
@@ -213,6 +226,17 @@ impl LocalSongsDb {
             query_builder.push(" path LIKE ");
             query_builder.push_bind(format!("{folder}%"));
         }
+
+        query_builder.push(" ORDER BY ");
+        query_builder.push_bind(match order.0 {
+            SortColumn::Title => "title",
+            SortColumn::Level => "level",
+        });
+
+        match order.1 {
+            SortDir::Asc => query_builder.push(" ASC"),
+            SortDir::Desc => query_builder.push(" DESC"),
+        };
 
         let mut q = query_builder.build_query_scalar();
         for ele in binds {

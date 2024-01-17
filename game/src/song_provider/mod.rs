@@ -2,6 +2,7 @@
 
 use std::{
     collections::HashSet,
+    default,
     fmt::{format, Debug},
     sync::Arc,
     time::Duration,
@@ -11,7 +12,7 @@ use egui::util::hash;
 use kson::Chart;
 use log::LevelFilter;
 use rodio::Source;
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use tealr::{
     mlu::{mlua::UserData, TealData, UserData},
     ToTypename, TypeName,
@@ -39,31 +40,60 @@ pub enum ScoreFilter {
     Mixed,
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, Default)]
 pub enum SortDir {
+    #[default]
     Asc,
     Desc,
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, Default)]
 pub enum SongSortType {
+    #[default]
     Title,
 }
 
-#[derive(Debug, Clone, Copy)]
-pub struct SongSort(pub SongSortType, pub SortDir);
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, Default)]
+pub struct SongSort {
+    pub sort_type: SongSortType,
+    pub direction: SortDir,
+}
+
+impl Into<(rusc_database::SortColumn, rusc_database::SortDir)> for SongSort {
+    fn into(self) -> (rusc_database::SortColumn, rusc_database::SortDir) {
+        (
+            match self.sort_type {
+                SongSortType::Title => rusc_database::SortColumn::Title,
+            },
+            match self.direction {
+                SortDir::Asc => rusc_database::SortDir::Asc,
+                SortDir::Desc => rusc_database::SortDir::Desc,
+            },
+        )
+    }
+}
+
+impl SongSort {
+    pub fn new(sort_type: SongSortType, direction: SortDir) -> Self {
+        Self {
+            sort_type,
+            direction,
+        }
+    }
+}
 
 impl ToString for SongSort {
     fn to_string(&self) -> String {
-        match (self.0, self.1) {
+        match (self.sort_type, self.direction) {
             (SongSortType::Title, SortDir::Asc) => "Title ▲".to_owned(),
             (SongSortType::Title, SortDir::Desc) => "Title ▼".to_owned(),
         }
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub enum SongFilterType {
+    #[default]
     None,
     Folder(String),
     Collection(String),
@@ -79,8 +109,17 @@ impl ToString for SongFilterType {
     }
 }
 
-#[derive(Debug, Clone)]
-pub struct SongFilter(pub SongFilterType, pub u8);
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct SongFilter {
+    pub filter_type: SongFilterType,
+    pub level: u8,
+}
+
+impl SongFilter {
+    pub fn new(filter_type: SongFilterType, level: u8) -> Self {
+        Self { filter_type, level }
+    }
+}
 
 #[derive(Debug, ToTypename, UserData, Clone, Serialize, Hash, PartialEq, Eq, PartialOrd, Ord)]
 pub enum SongId {
