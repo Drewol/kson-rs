@@ -85,8 +85,8 @@ impl SongSort {
 impl ToString for SongSort {
     fn to_string(&self) -> String {
         match (self.sort_type, self.direction) {
-            (SongSortType::Title, SortDir::Asc) => "Title ▲".to_owned(),
-            (SongSortType::Title, SortDir::Desc) => "Title ▼".to_owned(),
+            (SongSortType::Title, SortDir::Asc) => "Title ^".to_owned(),
+            (SongSortType::Title, SortDir::Desc) => "Title v".to_owned(),
         }
     }
 }

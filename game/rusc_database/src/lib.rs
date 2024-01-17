@@ -223,13 +223,13 @@ impl LocalSongsDb {
                 query_builder.push(" AND");
             }
 
-            query_builder.push(" path LIKE ");
-            query_builder.push_bind(format!("{folder}%"));
+            query_builder.push(" path LIKE ?");
+            binds.push(format!("{folder}%"));
         }
 
         query_builder.push(" ORDER BY ");
-        query_builder.push_bind(match order.0 {
-            SortColumn::Title => "title",
+        query_builder.push(match order.0 {
+            SortColumn::Title => "title COLLATE NOCASE",
             SortColumn::Level => "level",
         });
 
@@ -238,10 +238,12 @@ impl LocalSongsDb {
             SortDir::Desc => query_builder.push(" DESC"),
         };
 
+        println!("{}", query_builder.sql());
         let mut q = query_builder.build_query_scalar();
         for ele in binds {
             q = q.bind(ele);
         }
+
         q.fetch_all(&self.sqlite_pool).await
     }
 

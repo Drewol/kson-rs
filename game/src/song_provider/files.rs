@@ -394,11 +394,15 @@ impl FileSongProvider {
                             } else {
                                 None
                             };
-                            let Ok(charts) = worker_db
+                            let charts = match worker_db
                                 .get_folder_ids_query(&q, filter.level, folder, sort.into())
                                 .await
-                            else {
-                                continue;
+                            {
+                                Ok(charts) => charts,
+                                Err(e) => {
+                                    warn!("{e}");
+                                    continue;
+                                }
                             };
 
                             sender_tx.send(SongProviderEvent::OrderChanged(
@@ -615,10 +619,16 @@ impl SongProvider for FileSongProvider {
     }
 
     fn get_available_sorts(&self) -> Vec<super::SongSort> {
-        vec![super::SongSort::new(
-            crate::song_provider::SongSortType::Title,
-            crate::song_provider::SortDir::Desc,
-        )]
+        vec![
+            super::SongSort::new(
+                crate::song_provider::SongSortType::Title,
+                crate::song_provider::SortDir::Desc,
+            ),
+            super::SongSort::new(
+                crate::song_provider::SongSortType::Title,
+                crate::song_provider::SortDir::Asc,
+            ),
+        ]
     }
 
     fn get_available_filters(&self) -> Vec<super::SongFilterType> {
@@ -746,6 +756,8 @@ impl ScoreProvider for FileSongProvider {
                     .max()
                     .unwrap_or_default();
             }
+
+            diffs.sort_by_key(|x| (x.difficulty, x.level))
         });
 
         Ok(())

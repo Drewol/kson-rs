@@ -221,7 +221,7 @@ impl SongSelectScene {
             .write()
             .unwrap()
             .init_scores(&mut initial_songs.iter());
-        song_select.songs.append(initial_songs);
+        song_select.songs.add(initial_songs, vec![]);
         Self {
             filter_lua: Rc::new(Lua::new()),
             sort_lua: Rc::new(Lua::new()),
@@ -801,7 +801,7 @@ impl Scene for SongSelectScene {
                 {
                     let detla_ms = timestamp
                         .duration_since(other_press_time)
-                        .unwrap()
+                        .unwrap_or_default()
                         .as_millis();
                     if detla_ms < 100 && self.menu_state == MenuState::Songs {
                         self.settings_dialog.show = true;
