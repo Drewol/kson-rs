@@ -710,7 +710,9 @@ impl Scene for SongSelectScene {
                         WindowEvent::KeyboardInput {
                             event:
                                 KeyEvent {
-                                    text: Some(text), ..
+                                    text: Some(text),
+                                    state: ElementState::Pressed,
+                                    ..
                                 },
                             ..
                         },
