@@ -303,8 +303,10 @@ void main() {
         }
 
         let texture = three_d::Texture2D::new(&self.context, &texture);
-        self.material.use_texture(&name, &texture);
-        self.params.insert(name, ShaderParam::Texture(texture));
+        if self.material.requires_uniform(&name) {
+            self.material.use_texture(&name, &texture);
+            self.params.insert(name, ShaderParam::Texture(texture));
+        }
         Ok(())
     }
 

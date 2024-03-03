@@ -27,8 +27,9 @@ use egui_plot::{Line, PlotPoint, PlotPoints};
 use image::GenericImageView;
 use itertools::Itertools;
 use kson::{
+    effects::EffectInterval,
     score_ticks::{PlacedScoreTick, ScoreTick, ScoreTickSummary, ScoreTicker},
-    Chart, Graph,
+    Chart, Graph, Interval, Side, Track,
 };
 use log::info;
 use puffin::{profile_function, profile_scope};
@@ -37,11 +38,11 @@ use std::{
     cmp::Ordering,
     collections::VecDeque,
     f32::consts::SQRT_2,
-    ops::Sub,
+    ops::{Add, Sub},
     path::PathBuf,
     rc::Rc,
     sync::{
-        atomic::AtomicBool,
+        atomic::{AtomicBool, AtomicI32},
         mpsc::{Receiver, Sender},
         Arc,
     },
@@ -284,96 +285,160 @@ impl GameData {
         audio: Box<dyn Source<Item = f32> + Send>,
     ) -> anyhow::Result<Self> {
         let audio = audio.buffered();
-
+        let offset = Duration::from_millis(chart.audio.bgm.as_ref().unwrap().offset.max(0) as _);
+        let neg_offset =
+            Duration::from_millis(chart.audio.bgm.as_ref().unwrap().offset.min(0).abs() as _);
         //TODO: Does not belong in game crate
-        let effect_audio = chart.get_effect_tracks().iter().fold(
-            Box::new(audio.clone()) as Box<dyn Source<Item = f32> + Send>,
-            |current, effect| {
-                //TODO: Buffering for every effect is slow but otherwise overlapping FX don't work.
-                //      Check if there are overlaps and only buffer then? Not great but should be a bit better
-                // let current = current.buffered();
-                // let base = current.clone();
-                let base = audio.clone();
-                let start = chart.tick_to_ms(effect.interval.y);
-                let end = chart.tick_to_ms(effect.interval.y + effect.interval.l);
-                let end = Duration::from_nanos((end * 1000000.0) as _);
-                let start = Duration::from_nanos((start * 1000000.0) as _);
+        let (effect_audio, _): (Box<dyn Source<Item = f32> + Send>, (Interval, Interval)) =
+            chart.get_effect_tracks().iter().fold(
+                (
+                    Box::new(audio.clone()),
+                    (Interval { y: 0, l: 0 }, Interval { y: 0, l: 0 }),
+                ),
+                |(current, (prev_left, prev_right)), effect| {
+                    //TODO: Buffering for an effect is very slow but otherwise overlapping FX don't work.
 
-                info!(
-                    "Effecting part: {:?} - {:?} with {}",
-                    &start,
-                    &end,
-                    effect.effect.name()
-                );
+                    let prev = match effect.track {
+                        Some(Track::FX(Side::Left)) => prev_right,
+                        Some(Track::FX(Side::Right)) => prev_left,
+                        _ => Interval { y: 0, l: 0 },
+                    };
+                    let (base, current): (
+                        Box<dyn Source<Item = f32> + Send>,
+                        Box<dyn Source<Item = f32> + Send>,
+                    ) = if prev.y < effect.interval.y + effect.interval.l
+                        && effect.interval.y < prev.y + prev.l
+                    {
+                        let buffered = current.buffered();
+                        (Box::new(buffered.clone()), Box::new(buffered))
+                    } else {
+                        (Box::new(audio.clone()), current)
+                    };
 
-                let effected: Box<dyn Source<Item = f32> + Send> = match &effect.effect {
-                    kson::effects::AudioEffect::ReTrigger(r) => Box::new(
-                        base.skip_duration(start)
-                            .take_duration(Duration::from_secs_f64(
+                    let start = chart.tick_to_ms(effect.interval.y);
+                    let end = chart.tick_to_ms(effect.interval.y + effect.interval.l);
+                    let end = Duration::from_nanos((end * 1000000.0) as _);
+                    let start = Duration::from_nanos((start * 1000000.0) as _);
+
+                    let start = start.add(offset).saturating_sub(neg_offset);
+                    let end = end.add(offset).saturating_sub(neg_offset);
+
+                    info!(
+                        "Effecting part: {:?} - {:?} with {}",
+                        &start,
+                        &end,
+                        effect.effect.name()
+                    );
+
+                    let effected: Box<dyn Source<Item = f32> + Send> = match &effect.effect {
+                        kson::effects::AudioEffect::ReTrigger(r) => Box::new(
+                            base.skip_duration(start)
+                                .take_duration(Duration::from_secs_f64(
+                                    (240.0 * r.wave_length.interpolate(1.0, true) as f64)
+                                        / chart.bpm_at_tick(effect.interval.y),
+                                ))
+                                .repeat_infinite()
+                                .delay(start),
+                        ),
+                        kson::effects::AudioEffect::Gate(g) => {
+                            let toggled = Arc::new(AtomicBool::new(false));
+                            let period = Duration::from_secs_f64(
+                                (120.0 * g.wave_length.interpolate(1.0, true) as f64)
+                                    / chart.bpm_at_tick(effect.interval.y),
+                            );
+                            Box::new(
+                                base.skip_duration(start)
+                                    .amplify(1.0)
+                                    .periodic_access(period, move |s| {
+                                        if toggled.load(std::sync::atomic::Ordering::Relaxed) {
+                                            s.set_factor(0.25);
+                                            toggled
+                                                .store(false, std::sync::atomic::Ordering::Relaxed);
+                                        } else {
+                                            s.set_factor(1.0);
+                                            toggled
+                                                .store(true, std::sync::atomic::Ordering::Relaxed);
+                                        }
+                                    })
+                                    .delay(start),
+                            )
+                        }
+                        kson::effects::AudioEffect::Flanger(f) => Box::new(
+                            flanger(
+                                base.skip_duration(start),
+                                Duration::from_millis(4),
+                                Duration::from_millis(1),
+                                0.5,
+                                0.05,
+                            )
+                            .delay(start),
+                        ),
+                        kson::effects::AudioEffect::PitchShift(p) => {
+                            Box::new(pitch_shift(base, p.pitch.interpolate(1.0, true) as _))
+                        }
+                        kson::effects::AudioEffect::BitCrusher(b) => {
+                            Box::new(bit_crusher(base, b.reduction.interpolate(1.0, true) as _))
+                        }
+                        kson::effects::AudioEffect::Phaser(p) => Box::new(
+                            //TODO
+                            flanger(
+                                base.skip_duration(start),
+                                Duration::from_millis(4),
+                                Duration::from_millis(1),
+                                0.5,
+                                0.05,
+                            )
+                            .delay(start),
+                        ),
+                        kson::effects::AudioEffect::Wobble(w) => Box::new(
+                            wobble(
+                                base.skip_duration(start),
+                                1.0 / ((240.0 * w.wave_length.interpolate(1.0, true))
+                                    / chart.bpm_at_tick(effect.interval.y) as f32),
+                                w.lo_freq.interpolate(1.0, true) as _,
+                                w.hi_freq.interpolate(1.0, true) as _,
+                            )
+                            .delay(start),
+                        ),
+                        kson::effects::AudioEffect::TapeStop(t) => {
+                            Box::new(tape_stop(base.skip_duration(start), end - start).delay(start))
+                        }
+                        kson::effects::AudioEffect::Echo(r) => {
+                            let duration = Duration::from_secs_f64(
                                 (240.0 * r.wave_length.interpolate(1.0, true) as f64)
                                     / chart.bpm_at_tick(effect.interval.y),
-                            ))
-                            .repeat_infinite()
-                            .delay(start),
-                    ),
-                    kson::effects::AudioEffect::Gate(g) => {
-                        let toggled = Arc::new(AtomicBool::new(false));
-                        let period = Duration::from_secs_f64(
-                            (120.0 * g.wave_length.interpolate(1.0, true) as f64)
-                                / chart.bpm_at_tick(effect.interval.y),
-                        );
-                        Box::new(
-                            base.skip_duration(start)
-                                .amplify(1.0)
-                                .periodic_access(period, move |s| {
-                                    if toggled.load(std::sync::atomic::Ordering::Relaxed) {
-                                        s.set_factor(0.25);
-                                        toggled.store(false, std::sync::atomic::Ordering::Relaxed);
-                                    } else {
-                                        s.set_factor(1.0);
-                                        toggled.store(true, std::sync::atomic::Ordering::Relaxed);
-                                    }
-                                })
-                                .delay(start),
-                        )
-                    }
-                    kson::effects::AudioEffect::Flanger(f) => Box::new(
-                        flanger(
-                            base.skip_duration(start),
-                            Duration::from_millis(4),
-                            Duration::from_millis(1),
-                            0.5,
-                            0.05,
-                        )
-                        .delay(start),
-                    ),
-                    kson::effects::AudioEffect::PitchShift(p) => {
-                        Box::new(pitch_shift(base, p.pitch.interpolate(1.0, true) as _))
-                    }
-                    kson::effects::AudioEffect::BitCrusher(b) => {
-                        Box::new(bit_crusher(base, b.reduction.interpolate(1.0, true) as _))
-                    }
-                    kson::effects::AudioEffect::Phaser(p) => Box::new(base),
-                    kson::effects::AudioEffect::Wobble(w) => Box::new(
-                        wobble(
-                            base.skip_duration(start),
-                            1.0 / ((240.0 * w.wave_length.interpolate(1.0, true))
-                                / chart.bpm_at_tick(effect.interval.y) as f32),
-                            w.lo_freq.interpolate(1.0, true) as _,
-                            w.hi_freq.interpolate(1.0, true) as _,
-                        )
-                        .delay(start),
-                    ),
-                    kson::effects::AudioEffect::TapeStop(t) => {
-                        Box::new(tape_stop(base.skip_duration(start), end - start).delay(start))
-                    }
-                    kson::effects::AudioEffect::Echo(_) => Box::new(base),
-                    kson::effects::AudioEffect::SideChain(_) => Box::new(base),
-                    _ => Box::new(base),
-                };
-                Box::new(effected_part(current, effected, start, end - start))
-            },
-        );
+                            );
+                            let feedback = r.feedback_level.interpolate(1.0, true).clamp(0.0, 1.0);
+                            let iterations = Arc::new(AtomicI32::new(0));
+                            Box::new(
+                                base.skip_duration(start)
+                                    .take_duration(duration)
+                                    .repeat_infinite()
+                                    .amplify(1.0)
+                                    .periodic_access(duration, move |s| {
+                                        s.set_factor(
+                                            feedback.powi(iterations.fetch_add(
+                                                1,
+                                                std::sync::atomic::Ordering::Relaxed,
+                                            )),
+                                        );
+                                    })
+                                    .delay(start),
+                            )
+                        }
+                        kson::effects::AudioEffect::SideChain(_) => Box::new(base),
+                        _ => Box::new(base),
+                    };
+                    (
+                        Box::new(effected_part(current, effected, start, end - start)),
+                        match effect.track {
+                            Some(Track::FX(Side::Left)) => (effect.interval, prev_right),
+                            Some(Track::FX(Side::Right)) => (prev_left, effect.interval),
+                            _ => (prev_left, prev_right),
+                        },
+                    )
+                },
+            );
 
         Ok(Self {
             chart,

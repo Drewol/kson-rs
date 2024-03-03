@@ -43,7 +43,14 @@ where
     type Item = D;
 
     fn next(&mut self) -> Option<Self::Item> {
-        let (original, effected) = (self.original.next(), self.effected.next());
+        let (original, effected) = (
+            self.original.next(),
+            if self.take == 0 {
+                None
+            } else {
+                self.effected.next()
+            },
+        );
         if self.take == 0 {
             original
         } else if self.skip > 0 {
