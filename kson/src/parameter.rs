@@ -312,15 +312,23 @@ impl FromStr for EffectParameterValue {
                 }
             }
 
-            if v.ends_with("kHz") {
-                if let Ok(r) = v.trim_end_matches("kHz").parse::<f32>() {
+            if v.ends_with("kHz") || v.ends_with("khz") {
+                if let Ok(r) = v
+                    .trim_end_matches("kHz")
+                    .trim_end_matches("khz")
+                    .parse::<f32>()
+                {
                     let r = EffectFreq::Khz(r);
                     return EffectParameterValue::Freq(r..=r);
                 }
             }
 
-            if v.ends_with("Hz") {
-                if let Ok(r) = v.trim_end_matches("Hz").parse::<i32>() {
+            if v.ends_with("Hz") || v.ends_with("hz") {
+                if let Ok(r) = v
+                    .trim_end_matches("Hz")
+                    .trim_end_matches("hz")
+                    .parse::<i32>()
+                {
                     let r = EffectFreq::Hz(r);
                     return EffectParameterValue::Freq(r..=r);
                 }

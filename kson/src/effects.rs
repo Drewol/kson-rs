@@ -38,6 +38,27 @@ pub enum AudioEffect {
     PeakingFilter(PeakingFilter),
 }
 
+impl AudioEffect {
+    pub fn name(&self) -> &'static str {
+        match self {
+            AudioEffect::ReTrigger(_) => "ReTrigger",
+            AudioEffect::Gate(_) => "Gate",
+            AudioEffect::Flanger(_) => "Flanger",
+            AudioEffect::PitchShift(_) => "PitchShift",
+            AudioEffect::BitCrusher(_) => "BitCrusher",
+            AudioEffect::Phaser(_) => "Phaser",
+            AudioEffect::Wobble(_) => "Wobble",
+            AudioEffect::TapeStop(_) => "TapeStop",
+            AudioEffect::Echo(_) => "Echo",
+            AudioEffect::SideChain(_) => "SideChain",
+            AudioEffect::AudioSwap(_) => "AudioSwap",
+            AudioEffect::HighPassFilter(_) => "HighPassFilter",
+            AudioEffect::LowPassFilter(_) => "LowPassFilter",
+            AudioEffect::PeakingFilter(_) => "PeakingFilter",
+        }
+    }
+}
+
 impl TryFrom<&str> for AudioEffect {
     type Error = ();
 
@@ -223,13 +244,13 @@ impl Default for Gate {
 impl Default for Flanger {
     fn default() -> Self {
         Self {
-            period: EffectParameter::from_str("0").unwrap(),
-            delay: EffectParameter::from_str("0").unwrap(),
-            depth: EffectParameter::from_str("0").unwrap(),
-            feedback: EffectParameter::from_str("0").unwrap(),
-            stereo_width: EffectParameter::from_str("0").unwrap(),
-            vol: EffectParameter::from_str("0").unwrap(),
-            mix: EffectParameter::from_str("0").unwrap(),
+            period: EffectParameter::from_str("2.0").unwrap(),
+            delay: EffectParameter::from_str("30samples").unwrap(),
+            depth: EffectParameter::from_str("45samples").unwrap(),
+            feedback: EffectParameter::from_str("60%").unwrap(),
+            stereo_width: EffectParameter::from_str("0%").unwrap(),
+            vol: EffectParameter::from_str("75%").unwrap(),
+            mix: EffectParameter::from_str("0%>80%").unwrap(),
         }
     }
 }
@@ -247,8 +268,8 @@ impl Default for PitchShift {
 impl Default for BitCrusher {
     fn default() -> Self {
         Self {
-            reduction: EffectParameter::from_str("0").unwrap(),
-            mix: EffectParameter::from_str("0").unwrap(),
+            reduction: EffectParameter::from_str("0samples-30samples").unwrap(),
+            mix: EffectParameter::from_str("0%>100%").unwrap(),
         }
     }
 }
@@ -269,20 +290,20 @@ impl Default for Phaser {
 impl Default for Wobble {
     fn default() -> Self {
         Self {
-            wave_length: EffectParameter::from_str("0").unwrap(),
-            lo_freq: EffectParameter::from_str("0").unwrap(),
-            hi_freq: EffectParameter::from_str("0").unwrap(),
-            q: EffectParameter::from_str("0").unwrap(),
-            mix: EffectParameter::from_str("0").unwrap(),
+            wave_length: EffectParameter::from_str("1/12").unwrap(),
+            lo_freq: EffectParameter::from_str("500Hz").unwrap(),
+            hi_freq: EffectParameter::from_str("20000Hz").unwrap(),
+            q: EffectParameter::from_str("1.414").unwrap(),
+            mix: EffectParameter::from_str("0%>50%").unwrap(),
         }
     }
 }
 impl Default for TapeStop {
     fn default() -> Self {
         Self {
-            speed: EffectParameter::from_str("0").unwrap(),
-            trigger: EffectParameter::from_str("0").unwrap(),
-            mix: EffectParameter::from_str("0").unwrap(),
+            speed: EffectParameter::from_str("50%").unwrap(),
+            trigger: EffectParameter::from_str("off>on").unwrap(),
+            mix: EffectParameter::from_str("0%>100%").unwrap(),
         }
     }
 }

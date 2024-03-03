@@ -7,8 +7,16 @@ use crate::{
     shaded_mesh::ShadedMesh,
     songselect::Song,
     sources::{
+        self,
         biquad::{biquad, BiQuadState, BiQuadType, BiquadController},
+        bitcrush::bit_crusher,
+        effected_part::effected_part,
+        flanger::flanger,
         owned_source::owned_source,
+        phaser::phaser,
+        pitch_shift::pitch_shift,
+        tape_stop::tape_stop,
+        wobble::wobble,
     },
     vg_ui::Vgfx,
     ControlMessage,
@@ -22,6 +30,7 @@ use kson::{
     score_ticks::{PlacedScoreTick, ScoreTick, ScoreTickSummary, ScoreTicker},
     Chart, Graph,
 };
+use log::info;
 use puffin::{profile_function, profile_scope};
 use rodio::{dynamic_mixer::DynamicMixerController, source::Buffered, Decoder, Source};
 use std::{
@@ -32,6 +41,7 @@ use std::{
     path::PathBuf,
     rc::Rc,
     sync::{
+        atomic::AtomicBool,
         mpsc::{Receiver, Sender},
         Arc,
     },
@@ -252,12 +262,17 @@ enum HoldState {
 mod graphics;
 use graphics::*;
 
+type ChartSource =
+    std::boxed::Box<(dyn rodio::source::Source<Item = f32> + std::marker::Send + 'static)>;
+
 pub struct GameData {
     song: Arc<Song>,
     diff_idx: usize,
     chart: kson::Chart,
     skin_folder: PathBuf,
     audio: std::boxed::Box<(dyn rodio::source::Source<Item = f32> + std::marker::Send + 'static)>,
+    effect_audio:
+        std::boxed::Box<(dyn rodio::source::Source<Item = f32> + std::marker::Send + 'static)>,
 }
 
 impl GameData {
@@ -268,12 +283,105 @@ impl GameData {
         skin_folder: PathBuf,
         audio: Box<dyn Source<Item = f32> + Send>,
     ) -> anyhow::Result<Self> {
+        let audio = audio.buffered();
+
+        //TODO: Does not belong in game crate
+        let effect_audio = chart.get_effect_tracks().iter().fold(
+            Box::new(audio.clone()) as Box<dyn Source<Item = f32> + Send>,
+            |current, effect| {
+                //TODO: Buffering for every effect is slow but otherwise overlapping FX don't work.
+                //      Check if there are overlaps and only buffer then? Not great but should be a bit better
+                // let current = current.buffered();
+                // let base = current.clone();
+                let base = audio.clone();
+                let start = chart.tick_to_ms(effect.interval.y);
+                let end = chart.tick_to_ms(effect.interval.y + effect.interval.l);
+                let end = Duration::from_nanos((end * 1000000.0) as _);
+                let start = Duration::from_nanos((start * 1000000.0) as _);
+
+                info!(
+                    "Effecting part: {:?} - {:?} with {}",
+                    &start,
+                    &end,
+                    effect.effect.name()
+                );
+
+                let effected: Box<dyn Source<Item = f32> + Send> = match &effect.effect {
+                    kson::effects::AudioEffect::ReTrigger(r) => Box::new(
+                        base.skip_duration(start)
+                            .take_duration(Duration::from_secs_f64(
+                                (240.0 * r.wave_length.interpolate(1.0, true) as f64)
+                                    / chart.bpm_at_tick(effect.interval.y),
+                            ))
+                            .repeat_infinite()
+                            .delay(start),
+                    ),
+                    kson::effects::AudioEffect::Gate(g) => {
+                        let toggled = Arc::new(AtomicBool::new(false));
+                        let period = Duration::from_secs_f64(
+                            (120.0 * g.wave_length.interpolate(1.0, true) as f64)
+                                / chart.bpm_at_tick(effect.interval.y),
+                        );
+                        Box::new(
+                            base.skip_duration(start)
+                                .amplify(1.0)
+                                .periodic_access(period, move |s| {
+                                    if toggled.load(std::sync::atomic::Ordering::Relaxed) {
+                                        s.set_factor(0.25);
+                                        toggled.store(false, std::sync::atomic::Ordering::Relaxed);
+                                    } else {
+                                        s.set_factor(1.0);
+                                        toggled.store(true, std::sync::atomic::Ordering::Relaxed);
+                                    }
+                                })
+                                .delay(start),
+                        )
+                    }
+                    kson::effects::AudioEffect::Flanger(f) => Box::new(
+                        flanger(
+                            base.skip_duration(start),
+                            Duration::from_millis(4),
+                            Duration::from_millis(1),
+                            0.5,
+                            0.05,
+                        )
+                        .delay(start),
+                    ),
+                    kson::effects::AudioEffect::PitchShift(p) => {
+                        Box::new(pitch_shift(base, p.pitch.interpolate(1.0, true) as _))
+                    }
+                    kson::effects::AudioEffect::BitCrusher(b) => {
+                        Box::new(bit_crusher(base, b.reduction.interpolate(1.0, true) as _))
+                    }
+                    kson::effects::AudioEffect::Phaser(p) => Box::new(base),
+                    kson::effects::AudioEffect::Wobble(w) => Box::new(
+                        wobble(
+                            base.skip_duration(start),
+                            1.0 / ((240.0 * w.wave_length.interpolate(1.0, true))
+                                / chart.bpm_at_tick(effect.interval.y) as f32),
+                            w.lo_freq.interpolate(1.0, true) as _,
+                            w.hi_freq.interpolate(1.0, true) as _,
+                        )
+                        .delay(start),
+                    ),
+                    kson::effects::AudioEffect::TapeStop(t) => {
+                        Box::new(tape_stop(base.skip_duration(start), end - start).delay(start))
+                    }
+                    kson::effects::AudioEffect::Echo(_) => Box::new(base),
+                    kson::effects::AudioEffect::SideChain(_) => Box::new(base),
+                    _ => Box::new(base),
+                };
+                Box::new(effected_part(current, effected, start, end - start))
+            },
+        );
+
         Ok(Self {
             chart,
             skin_folder,
             diff_idx,
             song,
-            audio,
+            audio: Box::new(audio),
+            effect_audio: Box::new(effect_audio.buffered()),
         })
     }
 }
@@ -289,6 +397,7 @@ impl SceneData for GameData {
             diff_idx,
             song,
             audio,
+            effect_audio,
         } = *self;
         profile_function!();
 
@@ -437,7 +546,9 @@ impl SceneData for GameData {
 
         let mut playback = kson_music_playback::AudioPlayback::new();
         let (biquad_control, _) = std::sync::mpsc::channel();
-        playback.open(audio, "Game").expect("Failed to load audio");
+        playback
+            .open(audio, "Game", Some(effect_audio))
+            .expect("Failed to load audio");
         playback.build_effects(&chart);
         playback.stop();
 
@@ -1131,6 +1242,15 @@ impl Scene for Game {
                 }
             }
         }
+
+        self.playback.set_fx_enable(
+            self.input_state
+                .is_button_held(UscButton::FX(kson::Side::Left))
+                .is_some(),
+            self.input_state
+                .is_button_held(UscButton::FX(kson::Side::Right))
+                .is_some(),
+        );
 
         Ok(())
     }

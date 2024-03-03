@@ -454,9 +454,7 @@ impl Ksh for crate::Chart {
         }
 
         // set up effect events
-        {
-            let effects = new_chart.audio.audio_effect.as_mut().unwrap();
-
+        if let Some(effects) = new_chart.audio.audio_effect.as_mut() {
             for key in effects.fx.long_event.keys().cloned() {
                 let Ok(effect) = AudioEffect::try_from(key.as_str()) else {
                     continue;

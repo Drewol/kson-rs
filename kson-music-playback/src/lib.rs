@@ -16,6 +16,7 @@ use std::time::Duration;
 #[derive(Clone)]
 pub struct AudioFile {
     samples: Arc<Mutex<Vec<f32>>>,
+    effected_samples: Arc<Mutex<Vec<f32>>>,
     sample_rate: u32,
     channels: u16,
     size: usize,
@@ -80,7 +81,11 @@ impl Iterator for AudioFile {
         }
         {
             let mut pos = self.pos.load(Ordering::SeqCst);
-            let samples = self.samples.lock().unwrap();
+            let samples = if self.fx_enable.iter().any(|x| x.load(Ordering::Relaxed)) {
+                self.effected_samples.lock().unwrap()
+            } else {
+                self.samples.lock().unwrap()
+            };
 
             if pos >= self.size {
                 None
@@ -193,6 +198,13 @@ impl AudioPlayback {
             last_file: String::new(),
             laser_funcs: [Vec::new(), Vec::new()],
             laser_values: (None, None),
+        }
+    }
+
+    pub fn set_fx_enable(&mut self, left: bool, right: bool) {
+        if let Some(file) = &self.file {
+            file.fx_enable[0].store(left, Ordering::Relaxed);
+            file.fx_enable[1].store(right, Ordering::Relaxed);
         }
     }
 
@@ -348,10 +360,20 @@ impl AudioPlayback {
             false
         }
     }
-    pub fn open(&mut self, source: impl Source<Item = f32>, filename: &str) -> Result<()> {
+    pub fn open(
+        &mut self,
+        source: impl Source<Item = f32>,
+        filename: &str,
+        effected: Option<impl Source<Item = f32>>,
+    ) -> Result<()> {
         let rate = source.sample_rate();
         let channels = source.channels();
         let dataref: Arc<Mutex<Vec<f32>>> = Arc::new(Mutex::new(source.collect()));
+        let effectref: Arc<Mutex<Vec<f32>>> = if let Some(effected) = effected {
+            Arc::new(Mutex::new(effected.collect()))
+        } else {
+            dataref.clone()
+        };
         let data = dataref.lock().unwrap();
 
         let laser_dsp = kson_audio::dsp_from_definition(AudioEffect::PeakingFilter(
@@ -384,6 +406,7 @@ impl AudioPlayback {
         self.file = Some(AudioFile {
             size: (*data).len(),
             samples: dataref.clone(),
+            effected_samples: effectref,
             sample_rate: rate,
             channels,
             pos: Arc::new(AtomicUsize::new(0)),
@@ -410,7 +433,11 @@ impl AudioPlayback {
         self.close();
         let file = File::open(path)?;
         let source = rodio::Decoder::new(BufReader::new(file))?;
-        self.open(source.convert_samples(), path)
+        self.open(
+            source.convert_samples(),
+            path,
+            None as Option<Box<dyn Source<Item = f32>>>,
+        )
     }
 
     pub fn stop(&mut self) {
