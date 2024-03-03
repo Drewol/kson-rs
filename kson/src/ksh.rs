@@ -49,6 +49,30 @@ const fn find_laser_char(value: u8) -> u8 {
     }
 }
 
+const fn legacy_effect_map(value: u8) -> &'static str {
+    match value {
+        b'S' => "Retrigger;8",
+        b'V' => "Retrigger;12",
+        b'T' => "Retrigger;16",
+        b'W' => "Retrigger;24",
+        b'U' => "Retrigger;32",
+        b'G' => "Gate;4",
+        b'H' => "Gate;8",
+        b'K' => "Gate;12",
+        b'I' => "Gate;16",
+        b'L' => "Gate;24",
+        b'J' => "Gate;32",
+        b'F' => "Flanger",
+        b'P' => "PitchShift;12",
+        b'B' => "BitCrusher;5",
+        b'Q' => "Phaser",
+        b'X' => "Wobble;12",
+        b'A' => "TapeStop",
+        b'D' => "SideChain",
+        _ => "",
+    }
+}
+
 #[inline]
 fn laser_char_to_value(value: u8) -> Result<f64, KshReadError> {
     let v = find_laser_char(value);
@@ -100,6 +124,18 @@ fn laser_value_to_char(v: f64) -> Result<char, KshWriteError> {
         Ok(LASER_CHARS.chars().nth(i).unwrap())
     }
 }
+
+fn split_fx_string(v: String) -> (String, Option<String>, Option<String>) {
+    let mut v = v.split(";");
+    (
+        v.next().unwrap().to_string(),
+        v.next().map(|x| x.to_string()),
+        v.next().map(|x| x.to_string()),
+    )
+}
+
+const PLACEHOLDER_PARAM_1: &str = "_p1";
+const PLACEHOLDER_PARAM_2: &str = "_p2";
 
 impl Ksh for crate::Chart {
     fn from_ksh(data: &str) -> Result<crate::Chart, KshReadError> {
@@ -198,6 +234,8 @@ impl Ksh for crate::Chart {
             LaserSection(0, Vec::new(), 1),
         ];
 
+        let mut fx_string: [Option<String>; 2] = [None, None];
+
         for measure in parts {
             let measure_lines = measure.lines();
             let line_count = measure.lines().filter(is_beat_line).count() as u32;
@@ -235,7 +273,45 @@ impl Ksh for crate::Chart {
                             new_chart.note.fx[i].push(Interval {
                                 y: long_y[i + 4],
                                 l: y - long_y[i + 4],
-                            })
+                            });
+
+                            if fx_string[i].is_none() {
+                                let legacy_string = legacy_effect_map(last_char[i + 4]);
+                                if legacy_string != "" {
+                                    fx_string[i] = Some(legacy_string.to_owned());
+                                }
+                            }
+
+                            if let Some(fx_string) = fx_string[i].take() {
+                                let (name, param_1, param_2) = split_fx_string(fx_string);
+
+                                let v = new_chart
+                                    .audio
+                                    .audio_effect
+                                    .get_or_insert(Default::default())
+                                    .fx
+                                    .long_event
+                                    .entry(name)
+                                    .or_insert_with(|| [vec![], vec![]]);
+
+                                v[i].push(ByPulseOption(
+                                    long_y[i + 4],
+                                    Some(
+                                        [
+                                            (
+                                                PLACEHOLDER_PARAM_1.to_string(),
+                                                param_1.unwrap_or_default(),
+                                            ),
+                                            (
+                                                PLACEHOLDER_PARAM_2.to_string(),
+                                                param_2.unwrap_or_default(),
+                                            ),
+                                        ]
+                                        .into_iter()
+                                        .collect(),
+                                    ),
+                                ))
+                            }
                         } else if (chars[i + 5] != b'0' && chars[i + 5] != b'2')
                             && (last_char[i + 4] == b'0' || last_char[i + 4] == b'2')
                         {
@@ -334,6 +410,12 @@ impl Ksh for crate::Chart {
                                 ..Default::default()
                             })
                         }
+                        "fx-l" => {
+                            fx_string[0] = Some(line_value);
+                        }
+                        "fx-r" => {
+                            fx_string[1] = Some(line_value);
+                        }
                         _ => (),
                     }
                 }
@@ -368,6 +450,32 @@ impl Ksh for crate::Chart {
                         true
                     }
                 });
+            }
+        }
+
+        // set up effect events
+        {
+            let effects = new_chart.audio.audio_effect.as_mut().unwrap();
+
+            for key in effects.fx.long_event.keys().cloned() {
+                let Ok(effect) = AudioEffect::try_from(key.as_str()) else {
+                    continue;
+                };
+                _ = effects.fx.def.entry(key).or_insert(effect);
+            }
+
+            for (effect, events) in effects.fx.long_event.iter_mut() {
+                let Some(effect) = effects.fx.def.get(effect) else {
+                    continue;
+                };
+
+                for ele in events.iter_mut().flatten() {
+                    let Some(event) = ele.1.as_mut() else {
+                        continue;
+                    };
+
+                    convert_params(effect, event);
+                }
             }
         }
 
@@ -664,5 +772,52 @@ impl Ksh for crate::Chart {
         }
 
         Ok(())
+    }
+}
+
+fn convert_params(effect: &AudioEffect, params: &mut Dict<String>) {
+    let p1 = params.remove(PLACEHOLDER_PARAM_1).unwrap_or_else(|| {
+        match effect {
+            AudioEffect::ReTrigger(_) => "8",
+            AudioEffect::Gate(_) => "4",
+            AudioEffect::PitchShift(_) => "12",
+            AudioEffect::BitCrusher(_) => "5",
+            AudioEffect::Wobble(_) => "12",
+            AudioEffect::TapeStop(_) => "50",
+            AudioEffect::Echo(_) => "4",
+            _ => "",
+        }
+        .to_string()
+    });
+    let p2 = params.remove(PLACEHOLDER_PARAM_2).unwrap_or_else(|| {
+        match effect {
+            AudioEffect::Echo(_) => "4",
+            _ => "0",
+        }
+        .to_string()
+    });
+
+    match effect {
+        AudioEffect::ReTrigger(_) | AudioEffect::Gate(_) | AudioEffect::Wobble(_) => {
+            if p1.chars().all(|x| x.is_digit(10)) {
+                params.insert("wave_length".to_string(), format!("1/{p1}"));
+            }
+        }
+        AudioEffect::PitchShift(_) => {
+            params.insert("pitch".to_string(), p1);
+        }
+        AudioEffect::BitCrusher(_) => {
+            params.insert("reduction".to_string(), format!("{p1}samples"));
+        }
+        AudioEffect::TapeStop(_) => {
+            params.insert("speed".to_string(), format!("{p1}%"));
+        }
+        AudioEffect::Echo(_) => {
+            if p1.chars().all(|x| x.is_digit(10)) {
+                params.insert("wave_length".to_string(), format!("1/{p1}"));
+            }
+            params.insert("feedback_level".to_string(), format!("{p2}%"));
+        }
+        _ => {}
     }
 }

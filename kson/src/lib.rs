@@ -729,7 +729,7 @@ pub struct KeySoundInvokeFX {
 
 type NoteParamChange = ByPulseOption<Dict<String>>;
 
-#[derive(Serialize, Deserialize, Clone)]
+#[derive(Serialize, Deserialize, Clone, Default)]
 pub struct AudioEffectFXInfo {
     #[serde(default, skip_serializing_if = "HashMap::is_empty")]
     pub def: Dict<AudioEffect>,
@@ -739,7 +739,7 @@ pub struct AudioEffectFXInfo {
     pub long_event: Dict<[Vec<NoteParamChange>; 2]>,
 }
 
-#[derive(Serialize, Deserialize, Clone)]
+#[derive(Serialize, Deserialize, Clone, Default)]
 pub struct AudioEffectLaserInfo {
     #[serde(default, skip_serializing_if = "HashMap::is_empty")]
     def: Dict<AudioEffect>,
@@ -751,7 +751,7 @@ pub struct AudioEffectLaserInfo {
     pub peaking_filter_delay: i32,
 }
 
-#[derive(Serialize, Deserialize, Clone)]
+#[derive(Serialize, Deserialize, Clone, Default)]
 pub struct AudioEffectInfo {
     pub fx: AudioEffectFXInfo,
     pub laser: AudioEffectLaserInfo,
