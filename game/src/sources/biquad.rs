@@ -3,7 +3,9 @@ use std::{
     sync::mpsc::{Receiver, Sender},
 };
 
-use rodio::Source;
+use rodio::{Sample, Source};
+
+use super::mix_source::MixSource;
 
 #[derive(Debug, Copy, Clone)]
 #[allow(unused)]
@@ -250,5 +252,11 @@ where
 
     fn total_duration(&self) -> Option<std::time::Duration> {
         self.input.total_duration()
+    }
+}
+
+impl<I: Source<Item = f32>> MixSource for BiQuad<I> {
+    fn set_mix(&mut self, mix: f32) {
+        self.mix = mix;
     }
 }

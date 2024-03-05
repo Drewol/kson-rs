@@ -4,6 +4,8 @@ use itertools::Itertools;
 use rodio::Source;
 use soundtouch::SoundTouch;
 
+use super::mix_source::MixSource;
+
 pub fn pitch_shift<I: Source<Item = f32>>(mut input: I, semitones: i32) -> PitchShift<I> {
     let channels = input.channels();
     let mut st = SoundTouch::new(channels, input.sample_rate());
@@ -15,8 +17,8 @@ pub fn pitch_shift<I: Source<Item = f32>>(mut input: I, semitones: i32) -> Pitch
     let mut out_buffer = VecDeque::new();
     out_buffer.resize(initial_latency, 0.0);
     out_buffer.make_contiguous();
-    let mut initial_input = input.by_ref().take(initial_latency).collect_vec();
-    st.put_samples(&initial_input);
+    let mut initial_input: VecDeque<f32> = input.by_ref().take(initial_latency).collect();
+    st.put_samples(initial_input.make_contiguous());
     let read = st.read_samples(out_buffer.as_mut_slices().0);
     out_buffer.truncate(read as usize);
     initial_input.clear();
@@ -26,6 +28,7 @@ pub fn pitch_shift<I: Source<Item = f32>>(mut input: I, semitones: i32) -> Pitch
         soundtouch: st,
         out_buffer,
         in_buffer: initial_input,
+        mix: 1.0,
     }
 }
 
@@ -34,7 +37,8 @@ pub struct PitchShift<I: Source<Item = f32>> {
     soundtouch: SoundTouch,
     min_samples: usize,
     out_buffer: VecDeque<f32>,
-    in_buffer: Vec<f32>,
+    in_buffer: VecDeque<f32>,
+    mix: f32,
 }
 
 impl<I> Iterator for PitchShift<I>
@@ -49,9 +53,10 @@ where
             self.input
                 .by_ref()
                 .take(self.min_samples)
-                .for_each(|x| self.in_buffer.push(x));
+                .for_each(|x| self.in_buffer.push_back(x));
 
-            self.soundtouch.put_samples(&self.in_buffer);
+            self.soundtouch
+                .put_samples(self.in_buffer.make_contiguous());
 
             self.out_buffer.resize(self.min_samples, 0.0);
             self.out_buffer.make_contiguous();
@@ -64,7 +69,15 @@ where
                 .truncate((read * self.input.channels() as u32) as usize)
         }
 
-        self.out_buffer.pop_front()
+        match (
+            self.out_buffer.pop_front().map(|x| x * self.mix),
+            self.in_buffer.pop_front().map(|x| x * (1.0 - self.mix)),
+        ) {
+            (Some(a), Some(b)) => Some(a + b),
+            (None, None) => None,
+            (None, Some(v)) => Some(v),
+            (Some(v), None) => Some(v),
+        }
     }
 }
 
@@ -86,5 +99,14 @@ where
 
     fn total_duration(&self) -> Option<std::time::Duration> {
         self.input.total_duration()
+    }
+}
+
+impl<I> MixSource for PitchShift<I>
+where
+    I: Source<Item = f32>,
+{
+    fn set_mix(&mut self, mix: f32) {
+        self.mix = mix;
     }
 }

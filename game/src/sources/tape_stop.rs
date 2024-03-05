@@ -1,16 +1,21 @@
 use std::time::Duration;
 
-use itertools::Itertools;
 use rodio::{Sample, Source};
 
+use super::mix_source::MixSource;
+
 pub fn tape_stop<I: Source<Item = D>, D: Sample>(
-    mut input: I,
+    input: I,
+    start: Duration,
     duration: Duration,
 ) -> TapeStop<I, D> {
     let duration = duration.as_secs_f64();
-    let step = 1.0f64 / input.sample_rate() as f64;
+    let sample_rate = input.sample_rate();
+    let step = 1.0f64 / sample_rate as f64;
     let channels = input.channels();
-    let held_samples = (0..channels).map(|_| input.next()).collect_vec();
+    let sample_count = (duration * input.sample_rate() as f64) as u64;
+    let mut held_samples = Vec::new();
+    held_samples.reserve((sample_count * channels as u64) as _);
 
     TapeStop {
         input,
@@ -21,6 +26,10 @@ pub fn tape_stop<I: Source<Item = D>, D: Sample>(
         duration,
         countdown: duration,
         step,
+        mix: 1.0,
+        sample_count,
+        cursor: 0,
+        start_countdown: (start.as_secs_f64() * sample_rate as f64 * channels as f64) as u128,
     }
 }
 
@@ -33,6 +42,10 @@ pub struct TapeStop<I: Source<Item = D>, D: Sample> {
     duration: f64,
     countdown: f64,
     step: f64,
+    mix: f32,
+    sample_count: u64,
+    cursor: usize,
+    start_countdown: u128,
 }
 
 impl<I, D> Iterator for TapeStop<I, D>
@@ -43,6 +56,16 @@ where
     type Item = D;
 
     fn next(&mut self) -> Option<Self::Item> {
+        let original = self.input.next();
+        if self.start_countdown > 0 {
+            self.start_countdown -= 1;
+            return original;
+        }
+
+        if self.held_samples.len() < self.channels as usize * self.sample_count as usize {
+            self.held_samples.push(original)
+        };
+
         let c = self.channel as usize;
         self.channel += 1;
         if self.channel >= self.channels {
@@ -53,14 +76,28 @@ where
 
                 while self.sample_advance <= 0.0 {
                     self.sample_advance += 1.0;
-                    for i in 0..self.channels {
-                        self.held_samples[i as usize] = self.input.next()
-                    }
+                    self.cursor += 1;
                 }
             }
         }
 
-        self.held_samples[c]
+        match (
+            self.held_samples
+                .get(c + self.cursor * self.channels as usize)
+                .copied()
+                .flatten(),
+            original,
+        ) {
+            (None, None) => None,
+            (None, Some(v)) => Some(v),
+            (Some(_), None) => None,
+            (Some(effected), Some(original)) => Some(Sample::lerp(
+                original,
+                effected,
+                (1000.0 * self.mix) as u32,
+                1000,
+            )),
+        }
     }
 }
 
@@ -83,5 +120,14 @@ where
 
     fn total_duration(&self) -> Option<std::time::Duration> {
         None
+    }
+}
+impl<I, D> MixSource for TapeStop<I, D>
+where
+    I: Source<Item = D>,
+    D: Sample,
+{
+    fn set_mix(&mut self, mix: f32) {
+        self.mix = mix;
     }
 }

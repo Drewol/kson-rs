@@ -1,9 +1,9 @@
 use std::time::Duration;
 
 use itertools::Itertools;
-use rodio::{cpal::FromSample, source::UniformSourceIterator, Sample, Source};
+use rodio::{Sample, Source};
 
-use super::triangle::TriangleWave;
+use super::{mix_source::MixSource, triangle::TriangleWave};
 
 pub fn flanger<I: Source<Item = D>, D: Sample>(
     source: I,
@@ -18,7 +18,7 @@ pub fn flanger<I: Source<Item = D>, D: Sample>(
     let sample_delay = ((target_sample_rate as u128 * delay.as_nanos()) / 1_000_000_000) as usize;
 
     Flanger {
-        input: UniformSourceIterator::new(source, target_channels, target_sample_rate),
+        input: source,
         sample_buffer: vec![vec![D::zero_value(); target_channels as usize]; sample_depth],
         depth: sample_depth,
         delay: sample_delay * target_channels as usize,
@@ -26,6 +26,7 @@ pub fn flanger<I: Source<Item = D>, D: Sample>(
         sample_rate: target_sample_rate,
         current_channel: 0,
         buffer_cursor: 0,
+        mix: 1.0,
         cursors: (0..target_channels)
             .map(|i| {
                 TriangleWave::new(
@@ -45,7 +46,7 @@ where
     I::Item: Sample,
     D: Sample,
 {
-    input: UniformSourceIterator<I, D>,
+    input: I,
     sample_buffer: Vec<Vec<D>>,
     buffer_cursor: usize,
     depth: usize,
@@ -54,13 +55,13 @@ where
     current_channel: usize,
     sample_rate: u32,
     cursors: Vec<TriangleWave>,
+    mix: f32,
 }
 
 impl<I, D> Iterator for Flanger<I, D>
 where
-    I: Source,
-    I::Item: Sample,
-    D: FromSample<I::Item> + Sample,
+    I: Source<Item = D>,
+    D: Sample,
 {
     type Item = D;
 
@@ -95,7 +96,12 @@ where
                 self.buffer_cursor = 0;
             }
 
-            Some(Sample::lerp(sample, delayed_sample, 1, 2))
+            Some(Sample::lerp(
+                sample,
+                delayed_sample,
+                (1000.0 * self.mix) as u32,
+                2000,
+            ))
         } else {
             None
         }
@@ -104,9 +110,8 @@ where
 
 impl<I, D> Source for Flanger<I, D>
 where
-    I: Source,
-    I::Item: Sample,
-    D: FromSample<I::Item> + Sample,
+    I: Source<Item = D>,
+    D: Sample,
 {
     fn current_frame_len(&self) -> Option<usize> {
         self.input.current_frame_len()
@@ -126,3 +131,12 @@ where
 }
 
 //new source, (start,end,buffered original?, effect source)
+impl<I, D> MixSource for Flanger<I, D>
+where
+    I: Source<Item = D>,
+    D: Sample,
+{
+    fn set_mix(&mut self, mix: f32) {
+        self.mix = mix;
+    }
+}

@@ -1,5 +1,7 @@
 use rodio::{Sample, Source};
 
+use super::mix_source::MixSource;
+
 pub struct BitCrush<I: Source<Item = D>, D: Sample> {
     input: I,
     samples: u32,
@@ -83,5 +85,15 @@ where
 
     fn total_duration(&self) -> Option<std::time::Duration> {
         self.input.total_duration()
+    }
+}
+
+impl<I, D> MixSource for BitCrush<I, D>
+where
+    I: Source<Item = D>,
+    D: Sample,
+{
+    fn set_mix(&mut self, mix: f32) {
+        self.mix = mix;
     }
 }

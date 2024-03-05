@@ -9,7 +9,6 @@ use std::{
 
 use di::ServiceProvider;
 
-
 use rodio::{
     decoder::LoopedDecoder,
     dynamic_mixer::{self},
@@ -150,7 +149,11 @@ impl AudioTest {
         }
 
         if tape_stop {
-            source = Box::new(tape_stop::tape_stop(source, Duration::from_secs(1)));
+            source = Box::new(tape_stop::tape_stop(
+                source,
+                Duration::ZERO,
+                Duration::from_secs(1),
+            ));
         }
 
         source
