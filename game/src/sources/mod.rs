@@ -9,6 +9,7 @@ pub mod owned_source;
 pub mod phaser;
 pub mod pitch_shift;
 pub mod re_trigger;
+pub mod side_chain;
 pub mod takeable_source;
 pub mod tape_stop;
 pub mod triangle;

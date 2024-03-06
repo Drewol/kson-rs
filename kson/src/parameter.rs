@@ -1,4 +1,6 @@
-use std::{any::Any, fmt::Display, marker::PhantomData, ops::RangeInclusive, str::FromStr};
+use std::{
+    any::Any, fmt::Display, marker::PhantomData, ops::RangeInclusive, str::FromStr, time::Duration,
+};
 
 use num_traits::{NumCast, NumOps};
 use serde::{de::Visitor, Deserialize, Serialize};
@@ -81,6 +83,37 @@ pub enum EffectParameterValue {
 
 trait EffectParam {
     fn interpolate(&self, v: f32, shape: InterpolationShape) -> f32;
+}
+
+impl EffectParameterValue {
+    pub fn to_duration(&self, bpm: f32, v: f32) -> Duration {
+        match self {
+            EffectParameterValue::Length(l, tempo) => {
+                if *tempo {
+                    Duration::from_secs_f32(
+                        (l.interpolate(v, InterpolationShape::Linear) * 240.0) / bpm,
+                    )
+                } else {
+                    Duration::from_secs_f32(l.interpolate(v, InterpolationShape::Linear))
+                }
+            }
+            EffectParameterValue::Sample(s) => {
+                Duration::from_secs_f32(s.interpolate(v, InterpolationShape::Linear) / 44100.0)
+            }
+            EffectParameterValue::Rate(r) => Duration::from_secs_f32(
+                (r.interpolate(v, InterpolationShape::Linear) * 240.0) / bpm,
+            ),
+            EffectParameterValue::Freq(f) => {
+                Duration::from_secs_f32(1.0 / f.interpolate(v, InterpolationShape::Logarithmic))
+            }
+            EffectParameterValue::Int(_) => todo!(),
+            EffectParameterValue::Float(_) => todo!(),
+            EffectParameterValue::Switch(_) => Duration::ZERO,
+            EffectParameterValue::Pitch(_) => Duration::ZERO,
+            EffectParameterValue::Filename(_) => Duration::ZERO,
+            EffectParameterValue::Undefined => Duration::ZERO,
+        }
+    }
 }
 
 impl EffectParam for RangeInclusive<f32> {
@@ -275,6 +308,16 @@ where
             T::from(self.off.interpolate(p, self.shape)).unwrap_or_default()
         }
     }
+
+    pub fn to_duration(&self, bpm: f32, v: f32, on: bool) -> Duration {
+        if on {
+            let p = self.on.as_ref().unwrap_or(&self.off);
+
+            p.to_duration(bpm, v)
+        } else {
+            self.off.to_duration(bpm, v)
+        }
+    }
 }
 
 impl FromStr for EffectParameterValue {
@@ -337,6 +380,20 @@ impl FromStr for EffectParameterValue {
                 if let Ok(r) = v.trim_end_matches("samples").parse::<i32>() {
                     return EffectParameterValue::Sample(r..=r);
                 }
+            }
+
+            if let Ok(v) = v.parse::<f32>() {
+                return EffectParameterValue::Length(
+                    EffectFloat::Float(v)..=EffectFloat::Float(v),
+                    false,
+                );
+            }
+
+            if let Ok(v) = v.parse::<i32>() {
+                return EffectParameterValue::Length(
+                    EffectFloat::Float(v as _)..=EffectFloat::Float(v as _),
+                    false,
+                );
             }
 
             if v.eq("on") {

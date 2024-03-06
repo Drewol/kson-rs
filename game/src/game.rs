@@ -18,6 +18,7 @@ use crate::{
         phaser::phaser,
         pitch_shift::pitch_shift,
         re_trigger::re_trigger,
+        side_chain::side_chain,
         tape_stop::tape_stop,
         wobble::wobble,
     },
@@ -45,7 +46,7 @@ use std::{
     path::PathBuf,
     rc::Rc,
     sync::{
-        atomic::{AtomicBool, AtomicI32},
+        atomic::{AtomicBool, AtomicI32, AtomicU16},
         mpsc::{Receiver, Sender},
         Arc,
     },
@@ -376,12 +377,43 @@ impl GameData {
 
                         Box::new(re_trigger(base, start, duration, Duration::ZERO, feedback))
                     }
-                    kson::effects::AudioEffect::SideChain(_) => Box::new(NoMix(base)),
+                    kson::effects::AudioEffect::SideChain(s) => {
+                        let bpm = chart.bpm_at_tick(effect.interval.y) as f32;
+
+                        Box::new(side_chain(
+                            base,
+                            start,
+                            s.period.to_duration(bpm, 1.0, true),
+                            s.attack_time.to_duration(bpm, 1.0, true),
+                            s.hold_time.to_duration(bpm, 1.0, true),
+                            s.release_time.to_duration(bpm, 1.0, true),
+                            s.ratio.interpolate(1.0, true),
+                        ))
+                    }
                     _ => Box::new(NoMix(base)),
                 };
 
                 Box::new(effected_part(effected, start, end - start, 1.0))
             });
+
+        let effect_audio = effect_audio.buffered();
+        let renderer = effect_audio.clone();
+        let total_duration = audio.total_duration().unwrap_or_else(|| {
+            Duration::from_secs_f64(chart.tick_to_ms(chart.get_last_tick()) / 1000.0)
+        });
+
+        let redered_progress = Arc::new(AtomicU16::new(0));
+        //Render effect audio here since we're on a different thread
+        _ = renderer
+            .periodic_access(total_duration / 100, move |_| {
+                info!(
+                    "Effects rendering: {}%",
+                    redered_progress
+                        .fetch_add(1, std::sync::atomic::Ordering::Relaxed)
+                        .min(100)
+                )
+            })
+            .skip_duration(Duration::MAX);
 
         Ok(Self {
             chart,
@@ -389,7 +421,7 @@ impl GameData {
             diff_idx,
             song,
             audio: Box::new(audio),
-            effect_audio: Box::new(effect_audio.buffered().clone()),
+            effect_audio: Box::new(effect_audio),
         })
     }
 }

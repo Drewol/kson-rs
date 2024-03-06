@@ -321,11 +321,11 @@ impl Default for Echo {
 impl Default for SideChain {
     fn default() -> Self {
         Self {
-            period: EffectParameter::from_str("0").unwrap(),
-            hold_time: EffectParameter::from_str("0").unwrap(),
-            attack_time: EffectParameter::from_str("0").unwrap(),
-            release_time: EffectParameter::from_str("0").unwrap(),
-            ratio: EffectParameter::from_str("0").unwrap(),
+            period: EffectParameter::from_str("1/4").unwrap(),
+            hold_time: EffectParameter::from_str("50ms").unwrap(),
+            attack_time: EffectParameter::from_str("10ms").unwrap(),
+            release_time: EffectParameter::from_str("1/16").unwrap(),
+            ratio: EffectParameter::from_str("1>5").unwrap(),
         }
     }
 }
