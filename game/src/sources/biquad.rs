@@ -197,6 +197,10 @@ impl<I: Source<Item = f32>> BiQuad<I> {
             }
         }
 
+        if self.mix < f32::EPSILON {
+            return sample;
+        }
+
         let src = sample;
         let za = &mut self.za;
         let zb = &mut self.zb;

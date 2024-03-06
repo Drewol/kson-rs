@@ -37,6 +37,10 @@ where
         if source.is_none() {
             return source;
         }
+        if self.mix < f32::EPSILON {
+            return source;
+        }
+
         let source = source.unwrap();
 
         if self.sample_counter == 0 {

@@ -69,7 +69,7 @@ where
         let ret = self.input.next();
         self.delay = self.delay.saturating_sub(1);
 
-        if self.delay > 0 {
+        if self.delay > 0 || self.mix < f32::EPSILON {
             return ret;
         }
 

@@ -57,8 +57,8 @@ where
 
     fn next(&mut self) -> Option<Self::Item> {
         let original = self.input.next();
-        if self.start_countdown > 0 {
-            self.start_countdown -= 1;
+        if self.start_countdown > 0 || self.mix < f32::EPSILON {
+            self.start_countdown = self.start_countdown.saturating_sub(1);
             return original;
         }
 
