@@ -74,7 +74,7 @@ glutin-winit = "0.4"
 glow = "0.13"
 raw-window-handle = "0.5.2"
 rusc_database = { path = "./rusc_database" }
-itertools = "0.10.5"
+itertools = { workspace = true }
 kson-music-playback = { path = "../kson-music-playback" }
 clap = { version = "4.3.5", features = ["derive"] }
 egui_inspect = { git = 'https://github.com/Drewol/egui_inspect.git' }

@@ -9,6 +9,7 @@ edition = "2021"
 rodio = { workspace = true }
 anyhow = { workspace = true }
 log = { workspace = true }
+itertools = { workspace = true }
 kson = { path = "../kson" }
 kson-audio = { path = "../kson-audio" }
 kson-rodio-sources = { path = "../kson-rodio-sources" }

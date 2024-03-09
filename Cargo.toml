@@ -39,3 +39,4 @@ anyhow = "1"
 rand = "0.8.5"
 log = "*"
 kson_rodio_sources = { path = "../kson-rodio-sources" }
+itertools = "0.12.1"

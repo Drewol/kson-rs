@@ -1,32 +1,25 @@
 use anyhow::Result;
-use kson::parameter::EffectParameter;
-use kson::parameter::*;
-use kson::{effects::*, Interval};
-use kson::{Chart, GraphSectionPoint};
-use kson_audio::Dsp;
+use itertools::Itertools;
+use kson::overlaps::Overlaps;
+use kson::Chart;
 
-use log::info;
 use rodio::source::{Buffered, SkipDuration};
 pub use rodio::Source;
 
 use std::collections::VecDeque;
 use std::fs::File;
 use std::io::BufReader;
-use std::ops::Add;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 use std::time::Duration;
 
 use kson_rodio_sources::{
     self,
-    biquad::{biquad, BiQuadState, BiQuadType, BiquadController},
     bitcrush::bit_crusher,
     effected_part::effected_part,
     flanger::flanger,
     gate::gate,
     mix_source::{MixSource, NoMix},
-    owned_source::owned_source,
-    phaser::phaser,
     pitch_shift::pitch_shift,
     re_trigger::re_trigger,
     side_chain::side_chain,
@@ -46,7 +39,7 @@ pub struct AudioFile {
     sample_rate: u32,
     pos: Arc<AtomicUsize>,
     effects: VecDeque<((u64, u64), Box<EffectBuilder>)>,
-    active_effects: Vec<((u64, u64), Box<dyn MixSource<Item = f32> + Send>)>,
+    active_effects: Vec<((u64, u64), Box<dyn Source<Item = f32> + Send>)>,
 }
 
 pub struct EventList<T> {
@@ -96,18 +89,12 @@ impl Iterator for AudioFile {
         let effected = self
             .active_effects
             .iter_mut()
-            .map(|x| {
-                x.1.set_mix(if enable_fx { 1.0 } else { 0.0 });
-                x.1.next()
-            })
+            .map(|x| x.1.next())
             .last()
             .flatten();
 
         self.active_effects
             .retain(|((_, end), _)| *end > (pos as u64));
-        if (pos % 10000) == 0 {
-            info!("Effects: {}", self.active_effects.len())
-        }
 
         while let Some(((start, end), builder)) = self.effects.pop_front() {
             if start > pos as _ {
@@ -115,13 +102,12 @@ impl Iterator for AudioFile {
                 break;
             }
 
-            let mut new_effect = builder(Box::new(self.audio.clone()));
-            new_effect.set_mix(1.0);
+            let new_effect = builder(Box::new(self.audio.clone()));
 
             self.active_effects.push(((start, end), new_effect));
         }
 
-        if effected.is_some() {
+        if effected.is_some() && enable_fx {
             effected
         } else {
             base
@@ -193,10 +179,9 @@ impl AudioFile {
         )
     }
 }
-type LaserFn = Box<dyn Fn(f32) -> f32>;
 
 type EffectBuilder =
-    dyn Fn(Box<dyn Source<Item = f32> + Send>) -> Box<dyn MixSource<Item = f32> + Send> + Send;
+    dyn Fn(Box<dyn Source<Item = f32> + Send>) -> Box<dyn Source<Item = f32> + Send> + Send;
 
 pub struct AudioPlayback {
     file: Option<AudioFile>,
@@ -226,34 +211,6 @@ impl AudioPlayback {
         }
     }
 
-    fn make_laser_fn(
-        base_y: u32,
-        p1: &GraphSectionPoint,
-        p2: &GraphSectionPoint,
-    ) -> Box<dyn Fn(f32) -> f32> {
-        let start_tick = (base_y + p1.ry) as f32;
-        let end_tick = (base_y + p2.ry) as f32;
-        let start_value = match p1.vf {
-            Some(v) => v,
-            None => p1.v,
-        } as f32;
-        let end_value = p2.v as f32;
-        let value_delta = end_value - start_value;
-        let length = end_tick - start_tick;
-        let a = p1.a.unwrap_or(0.5);
-        let b = p1.b.unwrap_or(0.5);
-        if (start_value - end_value).abs() < f32::EPSILON {
-            Box::new(move |_: f32| start_value)
-        } else if (a - b).abs() > f64::EPSILON {
-            Box::new(move |y: f32| {
-                let x = ((y - start_tick) / length).min(1.0).max(0.0) as f64;
-                start_value + value_delta * kson::do_curve(x, a, b) as f32
-            })
-        } else {
-            Box::new(move |y: f32| start_value + value_delta * ((y - start_tick) / length))
-        }
-    }
-
     pub fn build_effects(&mut self, chart: &Chart) {
         let offset = Duration::from_millis(chart.audio.bgm.as_ref().unwrap().offset.max(0) as _);
         let neg_offset =
@@ -266,103 +223,157 @@ impl AudioPlayback {
             return;
         };
 
+        //TODO: Clean up
+        //TODO: Effect priority
         self.effects = chart
             .get_effect_tracks()
             .into_iter()
-            .map(|effect| {
-                let start = chart.tick_to_ms(effect.interval.y);
-                let end = chart.tick_to_ms(effect.interval.y + effect.interval.l);
-                let end = Duration::from_nanos((end * 1000000.0) as _);
-                let start = Duration::from_nanos((start * 1000000.0) as _);
+            .map(|x| vec![x])
+            .coalesce(|mut a, mut b| {
+                let b = b.pop().unwrap();
+                if a.iter().any(|x| x.interval.overlaps(&b.interval)) {
+                    a.push(b);
+                    Ok(a)
+                } else {
+                    Err((a, vec![b]))
+                }
+            })
+            .map(|effect_part| {
+                let start_tick = effect_part.iter().map(|x| x.interval.y).min().unwrap();
+                let end_tick = effect_part
+                    .iter()
+                    .map(|x| x.interval.y + x.interval.l)
+                    .max()
+                    .unwrap();
 
-                let start = start.add(offset).saturating_sub(neg_offset);
-                let end = end.add(offset).saturating_sub(neg_offset);
-                let duration = end - start;
-                let bpm = chart.bpm_at_tick(effect.interval.y);
+                let section_start_ms = chart.tick_to_ms(start_tick);
+                let section_end_ms = chart.tick_to_ms(end_tick);
+                let offset_ms = offset.as_millis() as f64 - neg_offset.as_millis() as f64;
 
-                let start_pos = start.as_secs_f64() * sample_rate as f64 * channels as f64;
-                let end_pos = end.as_secs_f64() * sample_rate as f64 * channels as f64;
+                let start_pos = (section_start_ms + offset_ms)
+                    * (sample_rate as f64 / 1000.0)
+                    * channels as f64;
+                let end_pos =
+                    (section_end_ms + offset_ms) * (sample_rate as f64 / 1000.0) * channels as f64;
 
-                //TODO: Move matching outside builder function and return smaller builders
-
-                let builder = Box::new(move |base: Box<dyn Source<Item = f32> + Send>| {
-                    let start = Duration::ZERO;
-                    info!("Applying {}", effect.effect.name());
-                    let effected: Box<dyn MixSource<Item = f32> + Send> = match &effect.effect {
-                        kson::effects::AudioEffect::ReTrigger(r) => {
-                            let duration = Duration::from_secs_f64(
-                                (240.0 * r.wave_length.interpolate(1.0, true) as f64) / bpm,
-                            );
-
-                            let update_duration = Duration::from_secs_f64(
-                                (240.0 * r.update_period.interpolate(1.0, true) as f64) / bpm,
-                            );
-                            Box::new(re_trigger(base, start, duration, update_duration, 1.0))
-                        }
-                        kson::effects::AudioEffect::Gate(g) => {
-                            let period = Duration::from_secs_f64(
-                                (240.0 * g.wave_length.interpolate(1.0, true) as f64) / bpm,
-                            );
-                            Box::new(gate(base, start, period, 0.6, 0.4))
-                        }
-                        kson::effects::AudioEffect::Flanger(f) => Box::new(flanger(
-                            base,
-                            Duration::from_millis(4),
-                            Duration::from_millis(1),
-                            0.5,
-                            0.05,
-                        )),
-                        kson::effects::AudioEffect::PitchShift(p) => {
-                            Box::new(pitch_shift(base, p.pitch.interpolate(1.0, true) as _))
-                        }
-                        kson::effects::AudioEffect::BitCrusher(b) => {
-                            Box::new(bit_crusher(base, b.reduction.interpolate(1.0, true) as _))
-                        }
-                        kson::effects::AudioEffect::Phaser(p) => Box::new(
-                            //TODO
-                            flanger(
-                                base,
-                                Duration::from_millis(4),
-                                Duration::from_millis(1),
-                                0.5,
-                                0.05,
+                let effect_part = effect_part
+                    .into_iter()
+                    .map(|x| {
+                        (
+                            (
+                                chart.tick_to_ms(x.interval.y) - section_start_ms,
+                                chart.tick_to_ms(x.interval.y + x.interval.l) - section_start_ms,
+                                chart.bpm_at_tick(x.interval.y),
                             ),
-                        ),
-                        kson::effects::AudioEffect::Wobble(w) => Box::new(wobble(
-                            base,
-                            1.0 / ((240.0 * w.wave_length.interpolate(1.0, true)) / bpm as f32),
-                            w.lo_freq.interpolate(1.0, true) as _,
-                            w.hi_freq.interpolate(1.0, true) as _,
-                        )),
-                        kson::effects::AudioEffect::TapeStop(t) => {
-                            Box::new(tape_stop(base, start, duration))
-                        }
-                        kson::effects::AudioEffect::Echo(r) => {
-                            let duration = Duration::from_secs_f64(
-                                (240.0 * r.wave_length.interpolate(1.0, true) as f64) / bpm,
-                            );
-                            let feedback = r.feedback_level.interpolate(1.0, true).clamp(0.0, 1.0);
+                            x.effect,
+                        )
+                    })
+                    .collect_vec();
+                (
+                    (start_pos as u64, end_pos as u64),
+                    Box::new(move |base| {
+                        effect_part
+                            .iter()
+                            .fold(base, |base, ((start_ms, end_ms, bpm), effect)| {
+                                let start = Duration::from_nanos((start_ms * 1000000.0) as _);
+                                let end = Duration::from_nanos((end_ms * 1000000.0) as _);
+                                let duration = end - start;
+                                let bpm = *bpm;
+                                let effected: Box<dyn MixSource<Item = f32> + Send> = match effect {
+                                    kson::effects::AudioEffect::ReTrigger(r) => {
+                                        let duration = Duration::from_secs_f64(
+                                            (240.0 * r.wave_length.interpolate(1.0, true) as f64)
+                                                / bpm,
+                                        );
 
-                            Box::new(re_trigger(base, start, duration, Duration::ZERO, feedback))
-                        }
-                        kson::effects::AudioEffect::SideChain(s) => {
-                            let bpm = bpm as f32;
+                                        let update_duration = Duration::from_secs_f64(
+                                            (240.0 * r.update_period.interpolate(1.0, true) as f64)
+                                                / bpm,
+                                        );
+                                        Box::new(re_trigger(
+                                            base,
+                                            start,
+                                            duration,
+                                            update_duration,
+                                            1.0,
+                                        ))
+                                    }
+                                    kson::effects::AudioEffect::Gate(g) => {
+                                        let period = Duration::from_secs_f64(
+                                            (240.0 * g.wave_length.interpolate(1.0, true) as f64)
+                                                / bpm,
+                                        );
+                                        Box::new(gate(base, start, period, 0.6, 0.4))
+                                    }
+                                    kson::effects::AudioEffect::Flanger(f) => Box::new(flanger(
+                                        base,
+                                        Duration::from_millis(4),
+                                        Duration::from_millis(1),
+                                        0.5,
+                                        0.05,
+                                    )),
+                                    kson::effects::AudioEffect::PitchShift(p) => Box::new(
+                                        pitch_shift(base, p.pitch.interpolate(1.0, true) as _),
+                                    ),
+                                    kson::effects::AudioEffect::BitCrusher(b) => Box::new(
+                                        bit_crusher(base, b.reduction.interpolate(1.0, true) as _),
+                                    ),
+                                    kson::effects::AudioEffect::Phaser(p) => Box::new(
+                                        //TODO
+                                        flanger(
+                                            base,
+                                            Duration::from_millis(4),
+                                            Duration::from_millis(1),
+                                            0.5,
+                                            0.05,
+                                        ),
+                                    ),
+                                    kson::effects::AudioEffect::Wobble(w) => Box::new(wobble(
+                                        base,
+                                        1.0 / ((240.0 * w.wave_length.interpolate(1.0, true))
+                                            / bpm as f32),
+                                        w.lo_freq.interpolate(1.0, true) as _,
+                                        w.hi_freq.interpolate(1.0, true) as _,
+                                    )),
+                                    kson::effects::AudioEffect::TapeStop(t) => {
+                                        Box::new(tape_stop(base, start, duration))
+                                    }
+                                    kson::effects::AudioEffect::Echo(r) => {
+                                        let duration = Duration::from_secs_f64(
+                                            (240.0 * r.wave_length.interpolate(1.0, true) as f64)
+                                                / bpm,
+                                        );
+                                        let feedback =
+                                            r.feedback_level.interpolate(1.0, true).clamp(0.0, 1.0);
 
-                            Box::new(side_chain(
-                                base,
-                                start,
-                                s.period.to_duration(bpm, 1.0, true),
-                                s.attack_time.to_duration(bpm, 1.0, true),
-                                s.hold_time.to_duration(bpm, 1.0, true),
-                                s.release_time.to_duration(bpm, 1.0, true),
-                                s.ratio.interpolate(1.0, true),
-                            ))
-                        }
-                        _ => Box::new(NoMix(base)),
-                    };
-                    effected
-                }) as Box<EffectBuilder>;
-                ((start_pos as u64, end_pos as u64), builder)
+                                        Box::new(re_trigger(
+                                            base,
+                                            start,
+                                            duration,
+                                            Duration::ZERO,
+                                            feedback,
+                                        ))
+                                    }
+                                    kson::effects::AudioEffect::SideChain(s) => {
+                                        let bpm = bpm as f32;
+
+                                        Box::new(side_chain(
+                                            base,
+                                            start,
+                                            s.period.to_duration(bpm, 1.0, true),
+                                            s.attack_time.to_duration(bpm, 1.0, true),
+                                            s.hold_time.to_duration(bpm, 1.0, true),
+                                            s.release_time.to_duration(bpm, 1.0, true),
+                                            s.ratio.interpolate(1.0, true),
+                                        ))
+                                    }
+                                    _ => Box::new(NoMix(base)),
+                                };
+                                Box::new(effected_part(effected, start, duration, 1.0))
+                                    as Box<dyn Source<Item = f32> + Send>
+                            }) as Box<dyn Source<Item = f32> + Send>
+                    }) as Box<EffectBuilder>,
+                )
             })
             .collect();
     }

@@ -2,6 +2,7 @@ pub mod camera;
 pub mod effects;
 mod graph;
 mod ksh;
+pub mod overlaps;
 pub mod parameter;
 pub mod score_ticks;
 mod vox;

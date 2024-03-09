@@ -23,7 +23,6 @@ mod chart_camera;
 mod chart_editor;
 mod i18n;
 mod tools;
-mod utils;
 
 pub trait Widget {
     fn ui(self, ui: &mut Ui) -> Response;

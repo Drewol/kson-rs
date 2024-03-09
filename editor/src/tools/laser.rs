@@ -4,12 +4,11 @@ use crate::Modifiers;
 use crate::{
     action_stack::ActionStack,
     chart_editor::{MainState, ScreenState},
-    utils::Overlaps,
 };
 use anyhow::Result;
 use eframe::egui::{Painter, Pos2, Rgba, Stroke};
 use eframe::epaint::Shape;
-use kson::{Chart, GraphSectionPoint, LaserSection};
+use kson::{overlaps::Overlaps, Chart, GraphSectionPoint, LaserSection};
 
 pub struct LaserTool {
     right: bool,

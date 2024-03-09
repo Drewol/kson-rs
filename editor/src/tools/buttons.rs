@@ -1,6 +1,5 @@
 use crate::i18n;
 use crate::tools::CursorObject;
-use crate::utils::Overlaps;
 use crate::Modifiers;
 use crate::{
     action_stack::ActionStack,
@@ -9,6 +8,7 @@ use crate::{
 };
 use anyhow::Result;
 use eframe::egui::{Painter, Pos2, Rgba, Shape};
+use kson::overlaps::Overlaps;
 use kson::{Chart, Interval};
 
 //structs for cursor objects

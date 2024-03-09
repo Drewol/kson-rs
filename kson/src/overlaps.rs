@@ -1,11 +1,9 @@
-//TODO: Move to kson crate
-
 pub trait Overlaps {
     fn overlaps(&self, other: &Self) -> bool;
     fn contains(&self, y: u32) -> bool;
 }
 
-impl Overlaps for kson::Interval {
+impl Overlaps for crate::Interval {
     fn overlaps(&self, other: &Self) -> bool {
         self.y <= other.y + other.l && other.y <= self.y + self.l
     }
@@ -15,7 +13,7 @@ impl Overlaps for kson::Interval {
     }
 }
 
-impl Overlaps for kson::LaserSection {
+impl Overlaps for crate::LaserSection {
     fn overlaps(&self, other: &Self) -> bool {
         match (self.last(), other.last()) {
             (Some(self_last), Some(other_last)) => {
