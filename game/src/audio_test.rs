@@ -15,17 +15,15 @@ use rodio::{
     Source,
 };
 
-use crate::{
-    scene::Scene,
-    sources::{
-        biquad::biquad,
-        biquad::{BiQuadState, BiquadController},
-        noise::NoiseSource,
-        owned_source::owned_source,
-        takeable_source::TakeableSource,
-    },
-    InnerRuscMixer, RuscMixer,
+use kson_rodio_sources::{
+    biquad::biquad,
+    biquad::{BiQuadState, BiquadController},
+    noise::NoiseSource,
+    owned_source::owned_source,
+    takeable_source::TakeableSource,
 };
+
+use crate::{scene::Scene, InnerRuscMixer, RuscMixer};
 
 pub struct AudioTest {
     mixer: RuscMixer,
@@ -81,7 +79,7 @@ impl AudioTest {
         &self,
         mut source: Box<dyn Source<Item = f32> + Send>,
     ) -> Box<dyn Source<Item = f32> + Send> {
-        use crate::sources::*;
+        use kson_rodio_sources::*;
         let EnabledEffects {
             volume,
             flanger,

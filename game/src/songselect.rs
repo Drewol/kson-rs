@@ -2,6 +2,7 @@ use anyhow::{ensure, Result};
 use di::{RefMut, ServiceProvider};
 use game_loop::winit::event::{ElementState, Event, Ime, WindowEvent};
 use itertools::Itertools;
+use kson_rodio_sources::owned_source::owned_source;
 use log::warn;
 use puffin::{profile_function, profile_scope};
 use rodio::Source;
@@ -43,7 +44,6 @@ use crate::{
         self, DiffId, ScoreProvider, ScoreProviderEvent, SongDiffId, SongFilter, SongFilterType,
         SongId, SongProvider, SongProviderEvent, SongSort,
     },
-    sources::owned_source::owned_source,
     take_duration_fade::take_duration_fade,
     ControlMessage, RuscMixer,
 };

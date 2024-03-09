@@ -23,6 +23,7 @@ serde_json = { workspace = true }
 rodio = { workspace = true }
 anyhow = { workspace = true }
 egui = { workspace = true }
+rand = { workspace = true }
 
 egui_plot = "0.25"
 femtovg = { version = '*', default-features = false, features = [
@@ -33,6 +34,7 @@ femtovg = { version = '*', default-features = false, features = [
 gilrs = { version = "0.10.0", features = ["serde-serialize"] }
 kson = { path = "../kson" }
 kson-audio = { path = "../kson-audio" }
+kson-rodio-sources = { path = "../kson-rodio-sources" }
 
 tealr = { version = "0.9.1", features = [
     "mlua",
@@ -46,7 +48,7 @@ bitflags = "1"
 once_cell = "1"
 walkdir = "*"
 rfd = "*"
-log = "*"
+log = { workspace = true }
 simple_logger = "4.0.0"
 uuid = { version = "1.2.2", features = ["serde"] }
 poll-promise = { git = "https://github.com/EmbarkStudios/poll-promise", features = [
@@ -74,9 +76,7 @@ raw-window-handle = "0.5.2"
 rusc_database = { path = "./rusc_database" }
 itertools = "0.10.5"
 kson-music-playback = { path = "../kson-music-playback" }
-soundtouch = { git = 'https://github.com/Drewol/soundtouch-rs.git' }
 clap = { version = "4.3.5", features = ["derive"] }
-rand = "0.8.5"
 egui_inspect = { git = 'https://github.com/Drewol/egui_inspect.git' }
 sha1_smol = "1.0.0"
 futures = "0.3.28"

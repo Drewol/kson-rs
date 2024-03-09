@@ -1,6 +1,5 @@
 use std::collections::VecDeque;
 
-use itertools::Itertools;
 use rodio::Source;
 use soundtouch::SoundTouch;
 

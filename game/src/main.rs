@@ -66,7 +66,6 @@ mod shaded_mesh;
 mod skin_settings;
 mod song_provider;
 mod songselect;
-mod sources;
 mod take_duration_fade;
 mod transition;
 mod util;

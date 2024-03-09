@@ -1,6 +1,5 @@
 use std::time::Duration;
 
-use itertools::Itertools;
 use rodio::{Sample, Source};
 
 use super::mix_source::MixSource;
@@ -16,7 +15,7 @@ pub fn re_trigger<I: Source<Item = D>, D: Sample>(
     let sample_rate = source.sample_rate();
     ReTrigger {
         input: source,
-        sample_buffer: (0..channels).map(|_| vec![]).collect_vec(),
+        sample_buffer: (0..channels).map(|_| vec![]).collect(),
         buffer_cursor: 0,
         repeat_period: (sample_rate as f64 * repeat_period.as_secs_f64()) as _,
         update_period: (sample_rate as f64 * update_period.as_secs_f64()) as _,

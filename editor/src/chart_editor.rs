@@ -956,8 +956,7 @@ impl MainState {
         {
             ctx.request_repaint();
         }
-        let tick = self.audio_playback.get_tick(&self.chart);
-        self.audio_playback.update(tick);
+
         Ok(())
     }
 

@@ -1,11 +1,10 @@
 use std::time::Duration;
 
-use itertools::Itertools;
 use rodio::{Sample, Source};
 
 use super::{mix_source::MixSource, triangle::TriangleWave};
 
-pub fn flanger<I: Source<Item = D>, D: Sample>(
+pub fn flanger<I: Source<Item = D> + Send, D: Sample>(
     source: I,
     depth: Duration,
     delay: Duration,
@@ -36,13 +35,13 @@ pub fn flanger<I: Source<Item = D>, D: Sample>(
                     (i % 2) as f32 * separation,
                 )
             })
-            .collect_vec(),
+            .collect(),
     }
 }
 
 pub struct Flanger<I, D>
 where
-    I: Source,
+    I: Source + Send,
     I::Item: Sample,
     D: Sample,
 {
@@ -60,7 +59,7 @@ where
 
 impl<I, D> Iterator for Flanger<I, D>
 where
-    I: Source<Item = D>,
+    I: Source<Item = D> + Send,
     D: Sample,
 {
     type Item = D;
@@ -110,7 +109,7 @@ where
 
 impl<I, D> Source for Flanger<I, D>
 where
-    I: Source<Item = D>,
+    I: Source<Item = D> + Send,
     D: Sample,
 {
     fn current_frame_len(&self) -> Option<usize> {
@@ -133,7 +132,7 @@ where
 //new source, (start,end,buffered original?, effect source)
 impl<I, D> MixSource for Flanger<I, D>
 where
-    I: Source<Item = D>,
+    I: Source<Item = D> + Send,
     D: Sample,
 {
     fn set_mix(&mut self, mix: f32) {

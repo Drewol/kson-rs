@@ -214,6 +214,7 @@ pub struct PeakingFilter {
     pub mix: EffectParameter<f32>,
 }
 
+#[derive(Clone)]
 pub struct EffectInterval {
     pub interval: Interval,
     pub effect: AudioEffect,

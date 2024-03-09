@@ -6,7 +6,9 @@ edition = "2021"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-rodio = "*"
+rodio = { workspace = true }
+anyhow = { workspace = true }
+log = { workspace = true }
 kson = { path = "../kson" }
 kson-audio = { path = "../kson-audio" }
-anyhow = "*"
+kson-rodio-sources = { path = "../kson-rodio-sources" }

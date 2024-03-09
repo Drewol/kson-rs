@@ -7,6 +7,7 @@ members = [
     "editor",
     "game",
     "game/rusc_database",
+    "kson-rodio-sources",
 ]
 resolver = "2"
 
@@ -35,3 +36,6 @@ rodio = { version = "0", default-features = false, features = [
     "mp3",
 ] }
 anyhow = "1"
+rand = "0.8.5"
+log = "*"
+kson_rodio_sources = { path = "../kson-rodio-sources" }

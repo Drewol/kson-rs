@@ -1,31 +1,52 @@
 use anyhow::Result;
-use kson::effects::*;
 use kson::parameter::EffectParameter;
 use kson::parameter::*;
+use kson::{effects::*, Interval};
 use kson::{Chart, GraphSectionPoint};
 use kson_audio::Dsp;
 
+use log::info;
+use rodio::source::{Buffered, SkipDuration};
 pub use rodio::Source;
 
+use std::collections::VecDeque;
 use std::fs::File;
 use std::io::BufReader;
+use std::ops::Add;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
-#[derive(Clone)]
+use kson_rodio_sources::{
+    self,
+    biquad::{biquad, BiQuadState, BiQuadType, BiquadController},
+    bitcrush::bit_crusher,
+    effected_part::effected_part,
+    flanger::flanger,
+    gate::gate,
+    mix_source::{MixSource, NoMix},
+    owned_source::owned_source,
+    phaser::phaser,
+    pitch_shift::pitch_shift,
+    re_trigger::re_trigger,
+    side_chain::side_chain,
+    tape_stop::tape_stop,
+    wobble::wobble,
+};
+
 pub struct AudioFile {
-    samples: Arc<Mutex<Vec<f32>>>,
-    effected_samples: Arc<Mutex<Vec<f32>>>,
-    sample_rate: u32,
-    channels: u16,
-    size: usize,
-    pos: Arc<AtomicUsize>,
+    audio: SkipDuration<Buffered<Box<dyn Source<Item = f32> + Send>>>,
+    audio_base: SkipDuration<Buffered<Box<dyn Source<Item = f32> + Send>>>,
+    effected: Option<SkipDuration<Buffered<Box<dyn Source<Item = f32> + Send>>>>,
+    effected_base: Option<SkipDuration<Buffered<Box<dyn Source<Item = f32> + Send>>>>,
     leadin: Arc<AtomicUsize>,
     stopped: Arc<AtomicBool>,
-    laser_dsp: Arc<Mutex<Box<dyn Dsp>>>,
-    fx_dsp: [Option<Arc<Mutex<dyn Dsp>>>; 2],
     fx_enable: [Arc<AtomicBool>; 2],
+    channels: u16,
+    sample_rate: u32,
+    pos: Arc<AtomicUsize>,
+    effects: VecDeque<((u64, u64), Box<EffectBuilder>)>,
+    active_effects: Vec<((u64, u64), Box<dyn MixSource<Item = f32> + Send>)>,
 }
 
 pub struct EventList<T> {
@@ -62,75 +83,55 @@ impl Iterator for AudioFile {
     type Item = f32;
 
     fn next(&mut self) -> Option<f32> {
-        {
-            if self.stopped.load(Ordering::SeqCst) {
-                return None;
-            }
+        let leadin = self.leadin.load(Ordering::Relaxed);
+        if leadin > 0 {
+            self.leadin.store(leadin - 1, Ordering::Relaxed);
+            return Some(0.0);
         }
-        {
-            if let Ok(leadin) =
-                self.leadin
-                    .fetch_update(Ordering::Relaxed, Ordering::Relaxed, |v| {
-                        Some(v.saturating_sub(1))
-                    })
-            {
-                if leadin > 0 {
-                    return Some(0.0);
-                }
-            }
+
+        let enable_fx = self.fx_enable.iter().any(|x| x.load(Ordering::Relaxed));
+
+        let pos = self.pos.fetch_add(1, Ordering::Relaxed);
+        let base = self.audio.next();
+        let effected = self
+            .active_effects
+            .iter_mut()
+            .map(|x| {
+                x.1.set_mix(if enable_fx { 1.0 } else { 0.0 });
+                x.1.next()
+            })
+            .last()
+            .flatten();
+
+        self.active_effects
+            .retain(|((_, end), _)| *end > (pos as u64));
+        if (pos % 10000) == 0 {
+            info!("Effects: {}", self.active_effects.len())
         }
-        {
-            let mut pos = self.pos.load(Ordering::SeqCst);
-            let samples = if self.fx_enable.iter().any(|x| x.load(Ordering::Relaxed)) {
-                self.effected_samples.lock().unwrap()
-            } else {
-                self.samples.lock().unwrap()
-            };
 
-            if pos >= self.size {
-                None
-            } else {
-                let mut v = *(*samples).get(pos).unwrap();
-                v *= 0.6;
-                pos += 1;
-
-                //apply DSPs
-                for i in 0..2 {
-                    let d = &self.fx_dsp[i];
-                    let en = &self.fx_enable[i];
-                    if en.load(Ordering::SeqCst) {
-                        if let Some(d) = d {
-                            let mut d = d.lock().unwrap();
-                            d.process(&mut v, pos % self.channels as usize);
-                        }
-                    }
-                }
-
-                //apply Laser DSP
-                {
-                    let _laser = self.laser_dsp.lock().unwrap();
-                    //(*laser).process(&mut v, pos % self.channels as usize);
-                }
-                self.pos.store(pos, Ordering::SeqCst);
-                Some(v)
+        while let Some(((start, end), builder)) = self.effects.pop_front() {
+            if start > pos as _ {
+                self.effects.push_front(((start, end), builder));
+                break;
             }
-        }
-    }
 
-    #[inline]
-    fn size_hint(&self) -> (usize, Option<usize>) {
-        (0, Some(self.size - 1))
+            let mut new_effect = builder(Box::new(self.audio.clone()));
+            new_effect.set_mix(1.0);
+
+            self.active_effects.push(((start, end), new_effect));
+        }
+
+        if effected.is_some() {
+            effected
+        } else {
+            base
+        }
     }
 }
 
 impl Source for AudioFile {
     fn current_frame_len(&self) -> Option<usize> {
-        let pos = self.pos.load(Ordering::SeqCst);
-        if pos == self.size {
-            Some(0)
-        } else {
-            Some(32.min(self.size.saturating_sub(pos)))
-        }
+        self.audio.current_frame_len()
     }
 
     #[inline]
@@ -145,9 +146,7 @@ impl Source for AudioFile {
 
     #[inline]
     fn total_duration(&self) -> Option<std::time::Duration> {
-        Some(std::time::Duration::from_secs_f64(
-            (self.size / self.channels as usize) as f64 / self.sample_rate as f64,
-        ))
+        self.audio.total_duration()
     }
 }
 
@@ -168,6 +167,18 @@ impl AudioFile {
         let mut pos = ((ms / 1000.0) * (self.sample_rate * self.channels as u32) as f64) as usize;
         pos -= pos % self.channels as usize;
         self.pos.store(pos, Ordering::SeqCst);
+
+        // Needs to be done in the audio processing part
+        // self.audio = self
+        //     .audio_base
+        //     .inner()
+        //     .clone()
+        //     .skip_duration(Duration::from_secs_f64(ms / 1000.0));
+        // self.effected = self.effected_base.as_ref().map(|x| {
+        //     x.inner()
+        //         .clone()
+        //         .skip_duration(Duration::from_secs_f64(ms / 1000.0))
+        // })
     }
 
     fn set_stopped(&mut self, val: bool) {
@@ -184,11 +195,13 @@ impl AudioFile {
 }
 type LaserFn = Box<dyn Fn(f32) -> f32>;
 
+type EffectBuilder =
+    dyn Fn(Box<dyn Source<Item = f32> + Send>) -> Box<dyn MixSource<Item = f32> + Send> + Send;
+
 pub struct AudioPlayback {
     file: Option<AudioFile>,
     last_file: String,
-    laser_funcs: [Vec<(u32, u32, LaserFn)>; 2],
-    laser_values: (Option<f32>, Option<f32>),
+    effects: Vec<((u64, u64), Box<EffectBuilder>)>,
 }
 
 impl AudioPlayback {
@@ -196,8 +209,7 @@ impl AudioPlayback {
         AudioPlayback {
             file: None,
             last_file: String::new(),
-            laser_funcs: [Vec::new(), Vec::new()],
-            laser_values: (None, None),
+            effects: vec![],
         }
     }
 
@@ -243,20 +255,116 @@ impl AudioPlayback {
     }
 
     pub fn build_effects(&mut self, chart: &Chart) {
-        for i in 0..2 {
-            self.laser_funcs[i].clear();
-            for section in &chart.note.laser[i] {
-                for se in section.segments() {
-                    let s = section.tick() + se[0].ry;
-                    let e = section.tick() + se[1].ry;
-                    self.laser_funcs[i].push((
-                        s,
-                        e,
-                        AudioPlayback::make_laser_fn(section.tick(), &se[0], &se[1]),
-                    ));
-                }
-            }
-        }
+        let offset = Duration::from_millis(chart.audio.bgm.as_ref().unwrap().offset.max(0) as _);
+        let neg_offset =
+            Duration::from_millis(chart.audio.bgm.as_ref().unwrap().offset.min(0).abs() as _);
+
+        let Some(sample_rate) = self.file.as_ref().map(|x| x.sample_rate) else {
+            return;
+        };
+        let Some(channels) = self.file.as_ref().map(|x| x.channels) else {
+            return;
+        };
+
+        self.effects = chart
+            .get_effect_tracks()
+            .into_iter()
+            .map(|effect| {
+                let start = chart.tick_to_ms(effect.interval.y);
+                let end = chart.tick_to_ms(effect.interval.y + effect.interval.l);
+                let end = Duration::from_nanos((end * 1000000.0) as _);
+                let start = Duration::from_nanos((start * 1000000.0) as _);
+
+                let start = start.add(offset).saturating_sub(neg_offset);
+                let end = end.add(offset).saturating_sub(neg_offset);
+                let duration = end - start;
+                let bpm = chart.bpm_at_tick(effect.interval.y);
+
+                let start_pos = start.as_secs_f64() * sample_rate as f64 * channels as f64;
+                let end_pos = end.as_secs_f64() * sample_rate as f64 * channels as f64;
+
+                //TODO: Move matching outside builder function and return smaller builders
+
+                let builder = Box::new(move |base: Box<dyn Source<Item = f32> + Send>| {
+                    let start = Duration::ZERO;
+                    info!("Applying {}", effect.effect.name());
+                    let effected: Box<dyn MixSource<Item = f32> + Send> = match &effect.effect {
+                        kson::effects::AudioEffect::ReTrigger(r) => {
+                            let duration = Duration::from_secs_f64(
+                                (240.0 * r.wave_length.interpolate(1.0, true) as f64) / bpm,
+                            );
+
+                            let update_duration = Duration::from_secs_f64(
+                                (240.0 * r.update_period.interpolate(1.0, true) as f64) / bpm,
+                            );
+                            Box::new(re_trigger(base, start, duration, update_duration, 1.0))
+                        }
+                        kson::effects::AudioEffect::Gate(g) => {
+                            let period = Duration::from_secs_f64(
+                                (240.0 * g.wave_length.interpolate(1.0, true) as f64) / bpm,
+                            );
+                            Box::new(gate(base, start, period, 0.6, 0.4))
+                        }
+                        kson::effects::AudioEffect::Flanger(f) => Box::new(flanger(
+                            base,
+                            Duration::from_millis(4),
+                            Duration::from_millis(1),
+                            0.5,
+                            0.05,
+                        )),
+                        kson::effects::AudioEffect::PitchShift(p) => {
+                            Box::new(pitch_shift(base, p.pitch.interpolate(1.0, true) as _))
+                        }
+                        kson::effects::AudioEffect::BitCrusher(b) => {
+                            Box::new(bit_crusher(base, b.reduction.interpolate(1.0, true) as _))
+                        }
+                        kson::effects::AudioEffect::Phaser(p) => Box::new(
+                            //TODO
+                            flanger(
+                                base,
+                                Duration::from_millis(4),
+                                Duration::from_millis(1),
+                                0.5,
+                                0.05,
+                            ),
+                        ),
+                        kson::effects::AudioEffect::Wobble(w) => Box::new(wobble(
+                            base,
+                            1.0 / ((240.0 * w.wave_length.interpolate(1.0, true)) / bpm as f32),
+                            w.lo_freq.interpolate(1.0, true) as _,
+                            w.hi_freq.interpolate(1.0, true) as _,
+                        )),
+                        kson::effects::AudioEffect::TapeStop(t) => {
+                            Box::new(tape_stop(base, start, duration))
+                        }
+                        kson::effects::AudioEffect::Echo(r) => {
+                            let duration = Duration::from_secs_f64(
+                                (240.0 * r.wave_length.interpolate(1.0, true) as f64) / bpm,
+                            );
+                            let feedback = r.feedback_level.interpolate(1.0, true).clamp(0.0, 1.0);
+
+                            Box::new(re_trigger(base, start, duration, Duration::ZERO, feedback))
+                        }
+                        kson::effects::AudioEffect::SideChain(s) => {
+                            let bpm = bpm as f32;
+
+                            Box::new(side_chain(
+                                base,
+                                start,
+                                s.period.to_duration(bpm, 1.0, true),
+                                s.attack_time.to_duration(bpm, 1.0, true),
+                                s.hold_time.to_duration(bpm, 1.0, true),
+                                s.release_time.to_duration(bpm, 1.0, true),
+                                s.ratio.interpolate(1.0, true),
+                            ))
+                        }
+                        _ => Box::new(NoMix(base)),
+                    };
+                    effected
+                }) as Box<EffectBuilder>;
+                ((start_pos as u64, end_pos as u64), builder)
+            })
+            .collect();
     }
 
     pub fn get_ms(&self) -> f64 {
@@ -288,64 +396,25 @@ impl AudioPlayback {
         }
     }
 
-    fn get_laser_value_at(&self, side: usize, tick: f64) -> Option<f32> {
-        let utick = tick as u32;
-        for (s, e, f) in &self.laser_funcs[side] {
-            if utick < *s {
-                return None;
-            }
-            if utick > *e {
-                continue;
-            }
-            if utick <= *e && utick >= *s {
-                let v = f(tick as f32);
-                if side == 1 {
-                    return Some(1.0 - v);
-                } else {
-                    return Some(v);
-                }
-            }
+    pub fn get_source(&mut self) -> Option<AudioFile> {
+        if let Some(file) = self.file.as_ref() {
+            Some(AudioFile {
+                audio: file.audio.clone(),
+                audio_base: file.audio_base.clone(),
+                effected: file.effected.clone(),
+                effected_base: file.effected_base.clone(),
+                leadin: file.leadin.clone(),
+                stopped: file.stopped.clone(),
+                fx_enable: file.fx_enable.clone(),
+                channels: file.channels,
+                sample_rate: file.sample_rate,
+                pos: file.pos.clone(),
+                effects: std::mem::take(&mut self.effects).into_iter().collect(),
+                active_effects: vec![],
+            })
+        } else {
+            None
         }
-
-        None
-    }
-
-    pub fn get_source(&self) -> Option<AudioFile> {
-        self.file.clone()
-    }
-
-    pub fn update(&mut self, tick: f64) {
-        if !self.is_playing() {
-            return;
-        }
-
-        self.laser_values = (
-            self.get_laser_value_at(0, tick),
-            self.get_laser_value_at(1, tick),
-        );
-
-        let dsp_value = match self.laser_values {
-            (Some(v1), Some(v2)) => Some(v1.max(v2)),
-            (Some(v), None) => Some(v),
-            (None, Some(v)) => Some(v),
-            (None, None) => None,
-        };
-
-        if self.is_playing() {
-            if let Some(file) = &mut self.file {
-                if let Some(dsp_value) = dsp_value {
-                    let mut laser = file.laser_dsp.lock().unwrap();
-                    laser.set_param_transition(dsp_value, true);
-                } else {
-                    let mut laser = file.laser_dsp.lock().unwrap();
-                    laser.set_param_transition(0.0, false);
-                }
-            }
-        }
-    }
-
-    pub fn get_laser_values(&self) -> (Option<f32>, Option<f32>) {
-        self.laser_values
     }
 
     pub fn play(&mut self) -> bool {
@@ -362,62 +431,36 @@ impl AudioPlayback {
     }
     pub fn open(
         &mut self,
-        source: impl Source<Item = f32>,
+        source: Box<dyn Source<Item = f32> + Send>,
         filename: &str,
-        effected: Option<impl Source<Item = f32>>,
+        effected: Option<Box<dyn Source<Item = f32> + Send>>,
     ) -> Result<()> {
         let rate = source.sample_rate();
         let channels = source.channels();
-        let dataref: Arc<Mutex<Vec<f32>>> = Arc::new(Mutex::new(source.collect()));
-        let effectref: Arc<Mutex<Vec<f32>>> = if let Some(effected) = effected {
-            Arc::new(Mutex::new(effected.collect()))
-        } else {
-            dataref.clone()
-        };
-        let data = dataref.lock().unwrap();
 
-        let laser_dsp = kson_audio::dsp_from_definition(AudioEffect::PeakingFilter(
-            kson::effects::PeakingFilter {
-                freq: EffectParameter {
-                    off: EffectParameterValue::Freq(EffectFreq::Hz(100)..=EffectFreq::Hz(100)),
-                    ..Default::default()
-                },
-                freq_max: EffectParameter {
-                    off: EffectParameterValue::Freq(EffectFreq::Hz(16000)..=EffectFreq::Hz(16000)),
-                    ..Default::default()
-                },
-                q: EffectParameter {
-                    off: EffectParameterValue::Float(1.0..=1.0),
-                    ..Default::default()
-                },
-                delay: EffectParameter {
-                    off: EffectParameterValue::Float(1.0..=1.0),
-                    ..Default::default()
-                },
-                mix: EffectParameter {
-                    off: EffectParameterValue::Float(0.0..=0.0),
-                    on: Some(EffectParameterValue::Float(1.0..=1.0)),
-                    ..Default::default()
-                },
-                ..Default::default()
-            },
-        ));
-
+        let effected: Option<SkipDuration<Buffered<Box<dyn Source<Item = f32> + Send>>>> =
+            if let Some(e) = effected {
+                Some(e.buffered().skip_duration(Duration::ZERO))
+            } else {
+                None
+            };
+        let audio = source.buffered().skip_duration(Duration::ZERO);
         self.file = Some(AudioFile {
-            size: (*data).len(),
-            samples: dataref.clone(),
-            effected_samples: effectref,
-            sample_rate: rate,
-            channels,
-            pos: Arc::new(AtomicUsize::new(0)),
+            audio: audio.clone(),
+            audio_base: audio,
+            effected: effected.clone(),
+            effected_base: effected,
+            leadin: Arc::new(AtomicUsize::new(0)),
             stopped: Arc::new(AtomicBool::new(false)),
             fx_enable: [
                 Arc::new(AtomicBool::new(false)),
                 Arc::new(AtomicBool::new(false)),
             ],
-            fx_dsp: [None, None],
-            laser_dsp: Arc::new(Mutex::new(laser_dsp)),
-            leadin: Arc::new(AtomicUsize::new(0)),
+            channels,
+            sample_rate: rate,
+            pos: Arc::new(AtomicUsize::new(0)),
+            effects: VecDeque::new(),
+            active_effects: vec![],
         });
         self.last_file = filename.to_string();
         Ok(())
@@ -434,9 +477,9 @@ impl AudioPlayback {
         let file = File::open(path)?;
         let source = rodio::Decoder::new(BufReader::new(file))?;
         self.open(
-            source.convert_samples(),
+            Box::new(source.convert_samples()),
             path,
-            None as Option<Box<dyn Source<Item = f32>>>,
+            None as Option<Box<dyn Source<Item = f32> + Send>>,
         )
     }
 

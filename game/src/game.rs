@@ -6,25 +6,10 @@ use crate::{
     scene::{Scene, SceneData},
     shaded_mesh::ShadedMesh,
     songselect::Song,
-    sources::{
-        self,
-        biquad::{biquad, BiQuadState, BiQuadType, BiquadController},
-        bitcrush::bit_crusher,
-        effected_part::effected_part,
-        flanger::flanger,
-        gate::gate,
-        mix_source::{MixSource, NoMix},
-        owned_source::owned_source,
-        phaser::phaser,
-        pitch_shift::pitch_shift,
-        re_trigger::re_trigger,
-        side_chain::side_chain,
-        tape_stop::tape_stop,
-        wobble::wobble,
-    },
     vg_ui::Vgfx,
     ControlMessage,
 };
+
 use anyhow::{ensure, Result};
 use di::{RefMut, ServiceProvider};
 use egui_plot::{Line, PlotPoint, PlotPoints};
@@ -34,6 +19,10 @@ use kson::{
     effects::EffectInterval,
     score_ticks::{PlacedScoreTick, ScoreTick, ScoreTickSummary, ScoreTicker},
     Chart, Graph, Interval, Side, Track,
+};
+use kson_rodio_sources::{
+    biquad::{biquad, BiQuadState, BiQuadType, BiquadController},
+    owned_source::owned_source,
 };
 use log::info;
 use puffin::{profile_function, profile_scope};
@@ -276,8 +265,6 @@ pub struct GameData {
     chart: kson::Chart,
     skin_folder: PathBuf,
     audio: std::boxed::Box<(dyn rodio::source::Source<Item = f32> + std::marker::Send + 'static)>,
-    effect_audio:
-        std::boxed::Box<(dyn rodio::source::Source<Item = f32> + std::marker::Send + 'static)>,
 }
 
 impl GameData {
@@ -288,132 +275,9 @@ impl GameData {
         skin_folder: PathBuf,
         audio: Box<dyn Source<Item = f32> + Send>,
     ) -> anyhow::Result<Self> {
-        let audio = audio.buffered();
-        let offset = Duration::from_millis(chart.audio.bgm.as_ref().unwrap().offset.max(0) as _);
-        let neg_offset =
-            Duration::from_millis(chart.audio.bgm.as_ref().unwrap().offset.min(0).abs() as _);
         //TODO: Does not belong in game crate
         //TODO: Sort effects for proper overlapping sounds
         //TODO: Effects are added quickly now but render slowly as most the effects run for the whole song even when mixed to 0
-        let effect_audio: Box<dyn Source<Item = f32> + Send> = chart
-            .get_effect_tracks()
-            .iter()
-            .fold(Box::new(audio.clone()), |current, effect| {
-                let base = current;
-                let start = chart.tick_to_ms(effect.interval.y);
-                let end = chart.tick_to_ms(effect.interval.y + effect.interval.l);
-                let end = Duration::from_nanos((end * 1000000.0) as _);
-                let start = Duration::from_nanos((start * 1000000.0) as _);
-
-                let start = start.add(offset).saturating_sub(neg_offset);
-                let end = end.add(offset).saturating_sub(neg_offset);
-
-                info!(
-                    "Effecting part: {:?} - {:?} with {}",
-                    &start,
-                    &end,
-                    effect.effect.name()
-                );
-
-                let effected: Box<dyn MixSource<Item = f32> + Send> = match &effect.effect {
-                    kson::effects::AudioEffect::ReTrigger(r) => {
-                        let duration = Duration::from_secs_f64(
-                            (240.0 * r.wave_length.interpolate(1.0, true) as f64)
-                                / chart.bpm_at_tick(effect.interval.y),
-                        );
-
-                        let update_duration = Duration::from_secs_f64(
-                            (240.0 * r.update_period.interpolate(1.0, true) as f64)
-                                / chart.bpm_at_tick(effect.interval.y),
-                        );
-                        Box::new(re_trigger(base, start, duration, update_duration, 1.0))
-                    }
-                    kson::effects::AudioEffect::Gate(g) => {
-                        let period = Duration::from_secs_f64(
-                            (240.0 * g.wave_length.interpolate(1.0, true) as f64)
-                                / chart.bpm_at_tick(effect.interval.y),
-                        );
-                        Box::new(gate(base, start, period, 0.6, 0.4))
-                    }
-                    kson::effects::AudioEffect::Flanger(f) => Box::new(flanger(
-                        base,
-                        Duration::from_millis(4),
-                        Duration::from_millis(1),
-                        0.5,
-                        0.05,
-                    )),
-                    kson::effects::AudioEffect::PitchShift(p) => {
-                        Box::new(pitch_shift(base, p.pitch.interpolate(1.0, true) as _))
-                    }
-                    kson::effects::AudioEffect::BitCrusher(b) => {
-                        Box::new(bit_crusher(base, b.reduction.interpolate(1.0, true) as _))
-                    }
-                    kson::effects::AudioEffect::Phaser(p) => Box::new(
-                        //TODO
-                        flanger(
-                            base,
-                            Duration::from_millis(4),
-                            Duration::from_millis(1),
-                            0.5,
-                            0.05,
-                        ),
-                    ),
-                    kson::effects::AudioEffect::Wobble(w) => Box::new(wobble(
-                        base,
-                        1.0 / ((240.0 * w.wave_length.interpolate(1.0, true))
-                            / chart.bpm_at_tick(effect.interval.y) as f32),
-                        w.lo_freq.interpolate(1.0, true) as _,
-                        w.hi_freq.interpolate(1.0, true) as _,
-                    )),
-                    kson::effects::AudioEffect::TapeStop(t) => {
-                        Box::new(tape_stop(base, start, end - start))
-                    }
-                    kson::effects::AudioEffect::Echo(r) => {
-                        let duration = Duration::from_secs_f64(
-                            (240.0 * r.wave_length.interpolate(1.0, true) as f64)
-                                / chart.bpm_at_tick(effect.interval.y),
-                        );
-                        let feedback = r.feedback_level.interpolate(1.0, true).clamp(0.0, 1.0);
-
-                        Box::new(re_trigger(base, start, duration, Duration::ZERO, feedback))
-                    }
-                    kson::effects::AudioEffect::SideChain(s) => {
-                        let bpm = chart.bpm_at_tick(effect.interval.y) as f32;
-
-                        Box::new(side_chain(
-                            base,
-                            start,
-                            s.period.to_duration(bpm, 1.0, true),
-                            s.attack_time.to_duration(bpm, 1.0, true),
-                            s.hold_time.to_duration(bpm, 1.0, true),
-                            s.release_time.to_duration(bpm, 1.0, true),
-                            s.ratio.interpolate(1.0, true),
-                        ))
-                    }
-                    _ => Box::new(NoMix(base)),
-                };
-
-                Box::new(effected_part(effected, start, end - start, 1.0))
-            });
-
-        let effect_audio = effect_audio.buffered();
-        let renderer = effect_audio.clone();
-        let total_duration = audio.total_duration().unwrap_or_else(|| {
-            Duration::from_secs_f64(chart.tick_to_ms(chart.get_last_tick()) / 1000.0)
-        });
-
-        let redered_progress = Arc::new(AtomicU16::new(0));
-        //Render effect audio here since we're on a different thread
-        _ = renderer
-            .periodic_access(total_duration / 100, move |_| {
-                info!(
-                    "Effects rendering: {}%",
-                    redered_progress
-                        .fetch_add(1, std::sync::atomic::Ordering::Relaxed)
-                        .min(100)
-                )
-            })
-            .skip_duration(Duration::MAX);
 
         Ok(Self {
             chart,
@@ -421,7 +285,6 @@ impl GameData {
             diff_idx,
             song,
             audio: Box::new(audio),
-            effect_audio: Box::new(effect_audio),
         })
     }
 }
@@ -437,7 +300,6 @@ impl SceneData for GameData {
             diff_idx,
             song,
             audio,
-            effect_audio,
         } = *self;
         profile_function!();
 
@@ -587,7 +449,7 @@ impl SceneData for GameData {
         let mut playback = kson_music_playback::AudioPlayback::new();
         let (biquad_control, _) = std::sync::mpsc::channel();
         playback
-            .open(audio, "Game", Some(effect_audio))
+            .open(audio, "Game", None)
             .expect("Failed to load audio");
         playback.build_effects(&chart);
         playback.stop();
