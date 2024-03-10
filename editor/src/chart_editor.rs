@@ -23,6 +23,7 @@ use std::io::prelude::*;
 use std::io::BufReader;
 use std::path::Path;
 use std::path::PathBuf;
+use std::time::Duration;
 pub const EGUI_ID: &str = "chart_editor";
 
 pub struct MainState {
@@ -874,16 +875,22 @@ impl MainState {
                                             + bgm.offset as f64;
                                         let ms = ms.max(0.0);
                                         self.audio_playback.build_effects(&self.chart);
-                                        self.audio_playback.set_poistion(ms);
                                         self.audio_playback.play();
                                         if self.sink.len() > 0 {
                                             self.sink.clear();
                                             self.sink.sleep_until_end();
                                         }
+                                        use rodio::source::Source;
+                                        let audio_file = self
+                                            .audio_playback
+                                            .get_source()
+                                            .expect("Source not available");
+
+                                        self.audio_playback.set_fx_enable(true, true);
+
                                         self.sink.append(
-                                            self.audio_playback
-                                                .get_source()
-                                                .expect("Source not available"),
+                                            audio_file
+                                                .skip_duration(Duration::from_millis(ms as _)),
                                         );
 
                                         self.audio_playback.play();

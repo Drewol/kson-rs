@@ -107,7 +107,9 @@ impl EffectParameterValue {
                 Duration::from_secs_f32(1.0 / f.interpolate(v, InterpolationShape::Logarithmic))
             }
             EffectParameterValue::Int(_) => todo!(),
-            EffectParameterValue::Float(_) => todo!(),
+            EffectParameterValue::Float(f) => {
+                Duration::from_secs_f32(f.interpolate(v, InterpolationShape::Linear))
+            }
             EffectParameterValue::Switch(_) => Duration::ZERO,
             EffectParameterValue::Pitch(_) => Duration::ZERO,
             EffectParameterValue::Filename(_) => Duration::ZERO,
@@ -268,7 +270,10 @@ impl Display for EffectParameterValue {
                 if *tempo {
                     serialize_range(l, |v| v.to_string())
                 } else {
-                    serialize_range(l, |v| v.to_string() + "ms")
+                    serialize_range(l, |v| match v {
+                        EffectFloat::Float(v) => (v * 1000.0).to_string() + "ms",
+                        v => v.to_string(),
+                    })
                 }
             }
             EffectParameterValue::Sample(s) => serialize_range(s, |v| v.to_string() + "samples"),
@@ -279,9 +284,17 @@ impl Display for EffectParameterValue {
                     "off".to_string()
                 }
             }),
-            EffectParameterValue::Rate(r)
-            | EffectParameterValue::Pitch(r)
-            | EffectParameterValue::Float(r) => serialize_range(r, |v| v.to_string()),
+            EffectParameterValue::Rate(r) => serialize_range(r, |v| {
+                //TODO: Cleaner
+                format!("{:.1}", (v * 100.0))
+                    .trim_end_matches('0')
+                    .trim_end_matches('.')
+                    .to_string()
+                    + "%"
+            }),
+            EffectParameterValue::Pitch(r) | EffectParameterValue::Float(r) => {
+                serialize_range(r, |v| v.to_string())
+            }
             EffectParameterValue::Int(i) => serialize_range(i, i32::to_string),
             EffectParameterValue::Freq(f) => serialize_range(f, |v| v.to_string()),
             EffectParameterValue::Filename(f) => f.clone(),
@@ -383,17 +396,11 @@ impl FromStr for EffectParameterValue {
             }
 
             if let Ok(v) = v.parse::<f32>() {
-                return EffectParameterValue::Length(
-                    EffectFloat::Float(v)..=EffectFloat::Float(v),
-                    false,
-                );
+                return EffectParameterValue::Float(v..=v);
             }
 
             if let Ok(v) = v.parse::<i32>() {
-                return EffectParameterValue::Length(
-                    EffectFloat::Float(v as _)..=EffectFloat::Float(v as _),
-                    false,
-                );
+                return EffectParameterValue::Float(v as f32..=v as f32);
             }
 
             if v.eq("on") {

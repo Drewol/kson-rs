@@ -18,7 +18,7 @@ trait Effect {
     fn param_list() -> &'static [&'static str];
 }
 
-#[derive(Deserialize, Serialize, Clone, Effect)]
+#[derive(Deserialize, Serialize, Clone, Effect, PartialEq)]
 #[serde(tag = "type", content = "v")]
 #[serde(rename_all = "snake_case")]
 pub enum AudioEffect {
@@ -96,7 +96,7 @@ impl Effect for String {
     }
 }
 
-#[derive(Deserialize, Serialize, Clone, Effect)]
+#[derive(Deserialize, Serialize, Clone, Effect, PartialEq)]
 pub struct ReTrigger {
     pub update_period: EffectParameter<f32>,
     pub wave_length: EffectParameter<f32>,
@@ -105,14 +105,14 @@ pub struct ReTrigger {
     pub mix: EffectParameter<f32>,
 }
 
-#[derive(Deserialize, Serialize, Clone, Effect)]
+#[derive(Deserialize, Serialize, Clone, Effect, PartialEq)]
 pub struct Gate {
     pub wave_length: EffectParameter<f32>,
     pub rate: EffectParameter<f32>,
     pub mix: EffectParameter<f32>,
 }
 
-#[derive(Deserialize, Serialize, Clone, Effect)]
+#[derive(Deserialize, Serialize, Clone, Effect, PartialEq)]
 pub struct Flanger {
     pub period: EffectParameter<f32>,
     pub delay: EffectParameter<i64>,
@@ -123,7 +123,7 @@ pub struct Flanger {
     pub mix: EffectParameter<f32>,
 }
 
-#[derive(Deserialize, Serialize, Clone, Effect)]
+#[derive(Deserialize, Serialize, Clone, Effect, PartialEq)]
 pub struct PitchShift {
     pub pitch: EffectParameter<f32>,
     pub pitch_quantize: BoolParameter,
@@ -132,13 +132,13 @@ pub struct PitchShift {
     pub mix: EffectParameter<f32>,
 }
 
-#[derive(Deserialize, Serialize, Clone, Effect)]
+#[derive(Deserialize, Serialize, Clone, Effect, PartialEq)]
 pub struct BitCrusher {
     pub reduction: EffectParameter<i64>,
     pub mix: EffectParameter<f32>,
 }
 
-#[derive(Deserialize, Serialize, Clone, Effect)]
+#[derive(Deserialize, Serialize, Clone, Effect, PartialEq)]
 pub struct Phaser {
     pub period: EffectParameter<f32>,
     pub stage: EffectParameter<i64>,
@@ -150,7 +150,7 @@ pub struct Phaser {
     pub mix: EffectParameter<f32>,
 }
 
-#[derive(Deserialize, Serialize, Clone, Effect)]
+#[derive(Deserialize, Serialize, Clone, Effect, PartialEq)]
 pub struct Wobble {
     pub wave_length: EffectParameter<f32>,
     pub lo_freq: EffectParameter<f32>,
@@ -159,14 +159,14 @@ pub struct Wobble {
     pub mix: EffectParameter<f32>,
 }
 
-#[derive(Deserialize, Serialize, Clone, Effect)]
+#[derive(Deserialize, Serialize, Clone, Effect, PartialEq)]
 pub struct TapeStop {
     pub speed: EffectParameter<f32>,
     pub trigger: BoolParameter,
     pub mix: EffectParameter<f32>,
 }
 
-#[derive(Deserialize, Serialize, Clone, Effect)]
+#[derive(Deserialize, Serialize, Clone, Effect, PartialEq)]
 pub struct Echo {
     pub update_period: EffectParameter<f32>,
     pub wave_length: EffectParameter<f32>,
@@ -175,7 +175,7 @@ pub struct Echo {
     pub mix: EffectParameter<f32>,
 }
 
-#[derive(Deserialize, Serialize, Clone, Effect)]
+#[derive(Deserialize, Serialize, Clone, Effect, PartialEq)]
 pub struct SideChain {
     pub period: EffectParameter<f32>,
     pub hold_time: EffectParameter<f32>,
@@ -184,7 +184,7 @@ pub struct SideChain {
     pub ratio: EffectParameter<f32>,
 }
 
-#[derive(Deserialize, Serialize, Clone, Effect)]
+#[derive(Deserialize, Serialize, Clone, Effect, PartialEq)]
 pub struct HighPassFilter {
     pub v: EffectParameter<f32>,
     pub freq: EffectParameter<f32>,
@@ -194,7 +194,7 @@ pub struct HighPassFilter {
     pub mix: EffectParameter<f32>,
 }
 
-#[derive(Deserialize, Serialize, Clone, Effect)]
+#[derive(Deserialize, Serialize, Clone, Effect, PartialEq)]
 pub struct LowPassFilter {
     pub v: EffectParameter<f32>,
     pub freq: EffectParameter<f32>,
@@ -204,7 +204,7 @@ pub struct LowPassFilter {
     pub mix: EffectParameter<f32>,
 }
 
-#[derive(Deserialize, Serialize, Clone, Effect)]
+#[derive(Deserialize, Serialize, Clone, Effect, PartialEq)]
 pub struct PeakingFilter {
     pub v: EffectParameter<f32>,
     pub freq: EffectParameter<f32>,

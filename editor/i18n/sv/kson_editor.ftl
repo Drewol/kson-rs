@@ -63,3 +63,4 @@ preview_offset=Förhandsgranskningsförskjutning
 preview_duration=Förhandsgranskningslängd
 left=Vänster
 right=Höger
+effect_definitions=Effekt Definitioner

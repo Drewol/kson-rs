@@ -63,3 +63,6 @@ preview_offset=Preview Offset
 preview_duration=Preview Duration
 left=Left
 right=Right
+effect_definitions=Effect Definitions
+new_effect_definition=New Effect Defined: {$name}
+alter_effect=Effect updated: {$name}

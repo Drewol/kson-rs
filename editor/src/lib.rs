@@ -6,12 +6,15 @@ use std::str::FromStr;
 
 use chart_editor::MainState;
 
+use effect_panel::effect_panel;
 use eframe::egui::{
     self, menu, warn_if_debug_build, Button, Color32, ComboBox, DragValue, Frame, Grid, Key, Label,
     Layout, Pos2, Rect, Response, RichText, Sense, Slider, Ui, Vec2, ViewportCommand, Visuals,
 };
 use eframe::App;
+use i18n::fl;
 use i18n_embed::unic_langid::LanguageIdentifier;
+use kson::parameter::EffectParameter;
 use kson::{BgmInfo, Chart, MetaInfo};
 use puffin::profile_scope;
 use serde::{Deserialize, Serialize};
@@ -21,7 +24,10 @@ mod assets;
 mod camera_widget;
 mod chart_camera;
 mod chart_editor;
+mod effect_editor;
+mod effect_panel;
 mod i18n;
+mod param_input;
 mod tools;
 
 pub trait Widget {
@@ -213,6 +219,7 @@ struct AppState {
     bgm_edit: Option<BgmInfo>,
     exiting: bool,
     language: LanguageIdentifier,
+    show_fx_def: bool,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -669,6 +676,7 @@ impl App for AppState {
                             self.bgm_edit =
                                 Some(self.editor.chart.audio.bgm.clone().unwrap_or_default());
                         }
+                        ui.checkbox(&mut self.show_fx_def, fl!("effect_definitions"));
                     });
 
                     if !self.editor.actions.saved() {
@@ -799,6 +807,11 @@ impl App for AppState {
                 self.editor.cursor_object = borrowed_tool;
             }
 
+            if self.show_fx_def {
+                egui::SidePanel::right("effect_panel")
+                    .show(ctx, |ui| ui.add(effect_panel(&mut self.editor)));
+            }
+
             let main_response = egui::CentralPanel::default()
                 .frame(main_frame)
                 .show(ctx, |ui| self.editor.draw(ui))
@@ -911,6 +924,7 @@ pub fn main() -> eframe::Result<()> {
                 bgm_edit: None,
                 exiting: false,
                 language: config.language,
+                show_fx_def: false,
             };
 
             app.key_bindings = config.key_bindings;

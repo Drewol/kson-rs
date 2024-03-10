@@ -76,6 +76,11 @@ impl Iterator for AudioFile {
     type Item = f32;
 
     fn next(&mut self) -> Option<f32> {
+        if self.stopped.load(Ordering::Relaxed) {
+            self.pos.store(0, Ordering::Relaxed);
+            return None;
+        }
+
         let leadin = self.leadin.load(Ordering::Relaxed);
         if leadin > 0 {
             self.leadin.store(leadin - 1, Ordering::Relaxed);
@@ -146,25 +151,6 @@ impl AudioFile {
             (self.pos.load(Ordering::SeqCst) / self.channels as usize) as f64
                 / (self.sample_rate as f64 / 1000.0)
         }
-    }
-
-    fn set_ms(&mut self, ms: f64) {
-        self.leadin.store(0, Ordering::Relaxed);
-        let mut pos = ((ms / 1000.0) * (self.sample_rate * self.channels as u32) as f64) as usize;
-        pos -= pos % self.channels as usize;
-        self.pos.store(pos, Ordering::SeqCst);
-
-        // Needs to be done in the audio processing part
-        // self.audio = self
-        //     .audio_base
-        //     .inner()
-        //     .clone()
-        //     .skip_duration(Duration::from_secs_f64(ms / 1000.0));
-        // self.effected = self.effected_base.as_ref().map(|x| {
-        //     x.inner()
-        //         .clone()
-        //         .skip_duration(Duration::from_secs_f64(ms / 1000.0))
-        // })
     }
 
     fn set_stopped(&mut self, val: bool) {
@@ -511,12 +497,6 @@ impl AudioPlayback {
 
     pub fn release(&mut self) {
         self.close();
-    }
-
-    pub fn set_poistion(&mut self, ms: f64) {
-        if let Some(file) = &mut self.file {
-            file.set_ms(ms);
-        }
     }
 }
 

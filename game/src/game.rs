@@ -1208,7 +1208,6 @@ impl Scene for Game {
                             .changed()
                         {
                             let new_time = self.chart.tick_to_ms(self.current_tick);
-                            self.playback.set_poistion(new_time);
 
                             self.zero_time =
                                 SystemTime::now().sub(Duration::from_millis(new_time as _))
