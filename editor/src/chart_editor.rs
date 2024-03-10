@@ -10,7 +10,8 @@ use eframe::egui::{Painter, Rgba};
 
 use eframe::epaint::FontId;
 use egui::Ui;
-use kson::{GraphPoint, GraphSectionPoint, Interval, Ksh, Vox};
+use kson::overlaps::Overlaps;
+use kson::{ByPulseOption, GraphPoint, GraphSectionPoint, Interval, Ksh, Vox};
 use kson_music_playback as playback;
 
 use puffin::profile_scope;
@@ -974,6 +975,8 @@ impl MainState {
         self.resize_event(ui.max_rect());
 
         let painter = ui.painter_at(ui.max_rect());
+        let mut interact = ui.interact(ui.max_rect(), ui.id(), Sense::click_and_drag());
+
         //draw notes
         let mut track_line_builder = Vec::new();
         let mut track_measure_builder = Vec::new();
@@ -1271,7 +1274,7 @@ impl MainState {
             }
         }
 
-        Ok(ui.interact(ui.max_rect(), ui.id(), Sense::click_and_drag()))
+        Ok(interact)
     }
 
     pub fn drag_start(&mut self, button: PointerButton, x: f32, y: f32, modifiers: &Modifiers) {
@@ -1386,6 +1389,69 @@ impl MainState {
     pub fn mouse_wheel_event(&mut self, y: f32) {
         self.screen.x_offset_target += y.signum() * self.screen.track_width * 2.0;
         self.screen.x_offset_target = self.screen.x_offset_target.max(0.0);
+    }
+
+    pub(crate) fn context_menu(&mut self, ui: &mut Ui, pos: Pos2) {
+        let (lane, tick, tick_f) = self.get_clicked_data(pos);
+
+        let index = if lane < 0.5 { 0 } else { 1 };
+
+        let mut fx = self.chart.note.fx[index].iter();
+
+        if let Some(fx) = fx.find(|x| x.contains(tick)) {
+            let Some(effects) = self.chart.audio.audio_effect.as_ref() else {
+                return;
+            };
+            let mut effect_keys: Vec<&String> = effects.fx.def.keys().collect();
+            effect_keys.sort();
+
+            for effect_key in effect_keys {
+                let mut checked = effects
+                    .fx
+                    .long_event
+                    .get(effect_key)
+                    .map(|x| &x[index])
+                    .is_some_and(|x| x.iter().any(|x| x.tick() == fx.y));
+
+                if ui.checkbox(&mut checked, effect_key).changed() {
+                    let action = self.actions.new_action();
+                    let effect_key = effect_key.clone();
+                    let y = fx.y;
+                    if checked {
+                        action.description = fl!("insert_fx_effect", effect = effect_key.clone());
+                        action.action = Box::new(move |c| {
+                            let Some(effects) = c.audio.audio_effect.as_mut() else {
+                                bail!("No effects")
+                            };
+
+                            let events =
+                                effects.fx.long_event.entry(effect_key.clone()).or_default();
+
+                            events[index].push(ByPulseOption::new(y, None));
+
+                            Ok(())
+                        })
+                    } else {
+                        action.description = fl!("remove_fx_effect", effect = effect_key.clone());
+                        action.action = Box::new(move |c| {
+                            let Some(effects) = c.audio.audio_effect.as_mut() else {
+                                bail!("No effects")
+                            };
+
+                            let Some(events) = effects.fx.long_event.get_mut(&effect_key) else {
+                                bail!("No events")
+                            };
+
+                            events[index].retain(|v| v.tick() != y);
+
+                            Ok(())
+                        })
+                    }
+                };
+            }
+        } else {
+            ui.close_menu();
+        }
     }
 }
 #[allow(unused)]

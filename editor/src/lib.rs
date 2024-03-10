@@ -848,6 +848,8 @@ impl App for AppState {
                         self.editor
                             .drag_end(egui::PointerButton::Primary, pos.x, pos.y)
                     }
+
+                    response.context_menu(|ui| self.editor.context_menu(ui, ui.clip_rect().min));
                 }
                 Err(e) => panic!("{}", e),
             }

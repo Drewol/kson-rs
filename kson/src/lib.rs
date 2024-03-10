@@ -474,6 +474,20 @@ pub type ByPulse<T> = Vec<(u32, T)>;
 #[derive(Copy, Clone, Default)]
 pub struct ByPulseOption<T>(u32, Option<T>);
 
+impl<T> ByPulseOption<T> {
+    pub fn tick(&self) -> u32 {
+        self.0
+    }
+
+    pub fn value(&self) -> Option<&T> {
+        self.1.as_ref()
+    }
+
+    pub fn new(y: u32, v: Option<T>) -> Self {
+        Self(y, v)
+    }
+}
+
 impl<T: Serialize> Serialize for ByPulseOption<T> {
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
     where

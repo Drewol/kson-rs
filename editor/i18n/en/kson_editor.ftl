@@ -66,3 +66,5 @@ right=Right
 effect_definitions=Effect Definitions
 new_effect_definition=New Effect Defined: {$name}
 alter_effect=Effect updated: {$name}
+remove_fx_effect=Removed effect {$effect} from note
+insert_fx_effect=Added effect {$effect} to note

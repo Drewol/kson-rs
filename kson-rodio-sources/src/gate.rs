@@ -44,6 +44,10 @@ where
 
     fn next(&mut self) -> Option<Self::Item> {
         let original = self.input.next();
+        if self.length == 0 {
+            return original;
+        }
+
         if self.countdown > 0 || self.mix < f32::EPSILON {
             self.countdown = self.countdown.saturating_sub(1);
             return original;

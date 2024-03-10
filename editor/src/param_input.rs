@@ -54,6 +54,10 @@ impl<'a, T: Default + 'static> Widget for ParamEditor<'a, T> {
             }
         }
 
+        if !response.has_focus() {
+            ui.data_mut(|d| d.insert_temp(id, old_value.to_string()));
+        }
+
         response
     }
 }
