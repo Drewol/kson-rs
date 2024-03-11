@@ -490,6 +490,18 @@ impl AppState {
                 .text(i18n::fl!("beats_per_col")),
         );
 
+        let mut zoom = ui.ctx().zoom_factor();
+
+        ComboBox::new("zoom_edit", i18n::fl!("ui_scale"))
+            .selected_text(format!("{:.0}%", zoom * 100.0))
+            .show_ui(ui, |ui| {
+                for i in 2..=10 {
+                    ui.selectable_value(&mut zoom, 0.25 * i as f32, format!("{}%", 25 * i));
+                }
+            });
+
+        ui.ctx().set_zoom_factor(zoom);
+
         let selected = ComboBox::new("lang_select", "Language")
             .selected_text(self.language.language.to_string())
             .show_ui(ui, |ui| {
@@ -677,6 +689,16 @@ impl App for AppState {
                                 Some(self.editor.chart.audio.bgm.clone().unwrap_or_default());
                         }
                         ui.checkbox(&mut self.show_fx_def, fl!("effect_definitions"));
+
+                        let mut is_fullscreen =
+                            ctx.input(|x| x.viewport().fullscreen.is_some_and(|x| x));
+
+                        if ui
+                            .checkbox(&mut is_fullscreen, i18n::fl!("fullscreen"))
+                            .changed()
+                        {
+                            ctx.send_viewport_cmd(ViewportCommand::Fullscreen(is_fullscreen))
+                        }
                     });
 
                     if !self.editor.actions.saved() {

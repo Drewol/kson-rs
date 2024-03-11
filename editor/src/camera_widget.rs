@@ -203,8 +203,8 @@ impl CameraView {
         });
         let mapped_color = laser_colors
             .iter()
-            .map(Color32::to_srgba_unmultiplied)
-            .map(Hsva::from_srgba_unmultiplied)
+            .map(Color32::to_array)
+            .map(Hsva::from_srgba_premultiplied)
             .map(|hsva| Hsva::new(hsva.h, 1.0, 1.0, 1.0))
             .map(Color32::from)
             .collect::<Vec<_>>();
@@ -275,6 +275,7 @@ impl Widget for CameraView {
                     },
                 )),
             };
+
             painter.add(callback);
         }
 
@@ -319,13 +320,13 @@ unsafe fn paint_mesh_callback(
             gl.uniform_4_f32_slice(
                 gl.get_uniform_location(assets.track_shader, "lCol")
                     .as_ref(),
-                &lcol.to_srgba_unmultiplied().map(|v| v as f32 / 255.0),
+                &lcol.to_array().map(|v| v as f32 / 255.0),
             );
 
             gl.uniform_4_f32_slice(
                 gl.get_uniform_location(assets.track_shader, "rCol")
                     .as_ref(),
-                &rcol.to_srgba_unmultiplied().map(|v| v as f32 / 255.0),
+                &rcol.to_array().map(|v| v as f32 / 255.0),
             );
 
             (assets.track_shader, Some(assets.track_texture))

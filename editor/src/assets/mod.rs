@@ -84,7 +84,7 @@ fn load_texture(gl: &Context, texture: &[u8]) -> Result<Texture, String> {
         gl.tex_image_2d(
             glow::TEXTURE_2D,
             0,
-            glow::SRGB8_ALPHA8 as i32,
+            glow::RGBA8 as i32,
             img.width() as i32,
             img.height() as i32,
             0,
