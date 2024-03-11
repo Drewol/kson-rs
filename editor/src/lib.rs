@@ -916,7 +916,7 @@ pub fn main() -> eframe::Result<()> {
             };
 
             let mut app = AppState {
-                editor: MainState::new().unwrap_or_else(|_| todo!()),
+                editor: MainState::new(),
                 key_bindings: HashMap::new(),
                 show_preferences: false,
                 new_chart: None,

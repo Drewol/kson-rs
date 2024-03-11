@@ -28,7 +28,7 @@ use std::time::Duration;
 pub const EGUI_ID: &str = "chart_editor";
 
 pub struct MainState {
-    pub sink: Sink,
+    pub audio_out: Option<(rodio::OutputStream, rodio::OutputStreamHandle)>,
     pub chart: kson::Chart,
     pub save_path: Option<PathBuf>,
     pub mouse_x: f32,
@@ -41,8 +41,6 @@ pub struct MainState {
     pub screen: ScreenState,
     pub audio_playback: playback::AudioPlayback,
     pub laser_colors: [Color32; 2],
-    pub output_stream: OutputStream,
-    pub output_stream_handle: OutputStreamHandle,
 }
 
 #[derive(Copy, Clone)]
@@ -544,7 +542,7 @@ impl ScreenState {
 }
 
 impl MainState {
-    pub fn new() -> Result<MainState> {
+    pub fn new() -> MainState {
         let (new_chart, save_path) = if let Some(Ok(Some((chart, path)))) = std::env::args()
             .nth(1)
             .map(|p| open_chart_file(PathBuf::from(p)))
@@ -557,9 +555,6 @@ impl MainState {
 
             (c, None)
         };
-
-        let (output_stream, handle) = OutputStream::try_default()?;
-        let sink = Sink::try_new(&handle)?;
 
         let s = MainState {
             chart: new_chart.clone(),
@@ -592,11 +587,9 @@ impl MainState {
                 Color32::from_rgba_unmultiplied(0, 115, 144, 127),
                 Color32::from_rgba_unmultiplied(194, 6, 140, 127),
             ],
-            sink,
-            output_stream,
-            output_stream_handle: handle,
+            audio_out: None,
         };
-        Ok(s)
+        s
     }
 
     #[allow(unused)]
@@ -861,7 +854,8 @@ impl MainState {
                 }
                 GuiEvent::Play => {
                     if self.audio_playback.is_playing() {
-                        self.audio_playback.stop()
+                        self.audio_playback.stop();
+                        drop(self.audio_out.take());
                     } else if let Some(path) = &self.save_path {
                         let path = Path::new(path).parent().unwrap();
                         if let Some(bgm) = &self.chart.audio.bgm {
@@ -877,10 +871,8 @@ impl MainState {
                                         let ms = ms.max(0.0);
                                         self.audio_playback.build_effects(&self.chart);
                                         self.audio_playback.play();
-                                        if self.sink.len() > 0 {
-                                            self.sink.clear();
-                                            self.sink.sleep_until_end();
-                                        }
+                                        drop(self.audio_out.take());
+                                        let audio_out = OutputStream::try_default()?;
                                         use rodio::source::Source;
                                         let audio_file = self
                                             .audio_playback
@@ -889,14 +881,12 @@ impl MainState {
 
                                         self.audio_playback.set_fx_enable(true, true);
 
-                                        self.sink.append(
+                                        self.audio_playback.play();
+                                        audio_out.1.play_raw(
                                             audio_file
                                                 .skip_duration(Duration::from_millis(ms as _)),
-                                        );
-
-                                        self.audio_playback.play();
-
-                                        self.sink.play();
+                                        )?;
+                                        self.audio_out = Some(audio_out);
                                     }
                                     Err(msg) => {
                                         println!("{}", msg);

@@ -419,6 +419,7 @@ impl AudioPlayback {
             true
         } else {
             if let Some(file) = &mut self.file {
+                file.pos.store(0, Ordering::Relaxed);
                 file.set_stopped(false);
                 return true;
             }
