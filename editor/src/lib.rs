@@ -883,11 +883,9 @@ impl App for AppState {
 
         //check if exiting
         {
-            ctx.input(|i| {
-                if i.viewport().close_requested() && !self.saved_changes() {
-                    ctx.send_viewport_cmd(ViewportCommand::CancelClose)
-                }
-            })
+            if ctx.input(|i| i.viewport().close_requested()) && !self.saved_changes() {
+                ctx.send_viewport_cmd(ViewportCommand::CancelClose)
+            }
         }
     }
 }
