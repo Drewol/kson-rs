@@ -1384,7 +1384,7 @@ impl MainState {
     pub(crate) fn context_menu(&mut self, ui: &mut Ui, pos: Pos2) {
         let (lane, tick, tick_f) = self.get_clicked_data(pos);
 
-        let index = if lane < 0.5 { 0 } else { 1 };
+        let index = if lane < 3.0 { 0 } else { 1 };
 
         let mut fx = self.chart.note.fx[index].iter();
 
