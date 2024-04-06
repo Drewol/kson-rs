@@ -21,3 +21,4 @@ jobs:
         with:
           clippy_flags: --workspace --all-features
           filter_mode: nofilter
+          level: error
