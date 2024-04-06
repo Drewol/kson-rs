@@ -842,9 +842,9 @@ impl App for AppState {
             match main_response {
                 Ok(response) => {
                     let pos = ctx.pointer_hover_pos().unwrap_or(Pos2::ZERO);
-                    if response.hovered() && ctx.input(|x| x.scroll_delta) != Vec2::ZERO {
+                    if response.hovered() && ctx.input(|x| x.raw_scroll_delta) != Vec2::ZERO {
                         self.editor
-                            .mouse_wheel_event(ctx.input(|x| x.scroll_delta.y));
+                            .mouse_wheel_event(ctx.input(|x| x.raw_scroll_delta.y));
                     }
 
                     if response.clicked() {
@@ -866,7 +866,7 @@ impl App for AppState {
                         )
                     }
 
-                    if response.drag_released() {
+                    if response.drag_stopped() {
                         self.editor
                             .drag_end(egui::PointerButton::Primary, pos.x, pos.y)
                     }
