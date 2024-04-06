@@ -68,6 +68,7 @@ pub struct SongResultData {
     high_scores: Vec<Score>, // Same as song wheel scores
     player_name: String,
     display_index: i32, // Only on multiplayer; which player's score (not necessarily the viewer's) is being shown right not
+    #[serde(skip_serializing_if = "Option::is_none")]
     uid: Option<String>, // Only on multiplayer; the UID of the viewer
     hit_window: HitWindow, // Same as gameplay HitWindow
     autoplay: bool,

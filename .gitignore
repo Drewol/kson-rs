@@ -5,6 +5,7 @@
 imgui.ini
 profiling.json
 /skins
+!/skins/Default
 /types
 /tlout
 Main.cfg

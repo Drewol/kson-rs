@@ -1,5 +1,6 @@
 use std::{
     collections::HashMap,
+    hash::{DefaultHasher, Hash, Hasher},
     path::PathBuf,
     sync::{Arc, Mutex, RwLock},
 };
@@ -45,6 +46,32 @@ fn unimplemented() -> mlua::Result<()> {
     Err(mlua::Error::RuntimeError(
         "Function not implemented".to_string(),
     ))
+}
+
+#[inline]
+fn hash_path(path: &Path) -> u64 {
+    path.verbs()
+        .fold(egui::ahash::AHasher::default(), |mut h, v| {
+            match v {
+                femtovg::Verb::MoveTo(x, y) => (0u32, x.to_bits(), y.to_bits()).hash(&mut h),
+                femtovg::Verb::LineTo(x, y) => (1u32, x.to_bits(), y.to_bits()).hash(&mut h),
+                femtovg::Verb::BezierTo(a, b, c, d, e, f) => (
+                    2u32,
+                    a.to_bits(),
+                    b.to_bits(),
+                    c.to_bits(),
+                    d.to_bits(),
+                    e.to_bits(),
+                    f.to_bits(),
+                )
+                    .hash(&mut h),
+                femtovg::Verb::Solid => 3u32.hash(&mut h),
+                femtovg::Verb::Hole => 4u32.hash(&mut h),
+                femtovg::Verb::Close => 5u32.hash(&mut h),
+            }
+            h
+        })
+        .finish()
 }
 
 struct ScopedAssets {
@@ -97,6 +124,7 @@ pub struct Vgfx {
     restore_stack: Vec<VgfxPoint>,
     path: Option<Path>,
     fill_paint: Option<Paint>,
+    path_cache: HashMap<u64, Path>,
     image_tint: Option<Color>,
     label_color: Color, // Has some strange behaviour but needed for compat
     label_font: FontId,
@@ -161,6 +189,7 @@ impl Vgfx {
         let config = &GameConfig::get();
 
         Self {
+            path_cache: Default::default(),
             restore_stack: vec![],
             canvas,
             game_folder,
@@ -189,7 +218,11 @@ impl Vgfx {
                 "Dropped assets:\n  {} Images/Animation\n  {} Labels",
                 removed_assets.images.len(),
                 removed_assets.labels.len()
-            )
+            );
+
+            //Just clear cache here, first frame of restored scene will take longer but most important stuff should be cached quickly
+            //TODO: Do something smarter?
+            self.path_cache.clear();
         }
     }
 
@@ -291,8 +324,13 @@ impl TealData for Vgfx {
 
         //Fill
         add_lua_static_method(methods, "Fill", |_, _vgfx, _: ()| {
-            match (_vgfx.path.as_mut(), _vgfx.fill_paint.as_ref()) {
+            match (_vgfx.path.as_ref(), _vgfx.fill_paint.as_ref()) {
                 (Some(path), Some(paint)) => {
+                    let path = {
+                        profile_scope!("Path Cache");
+                        let path_hash = hash_path(path);
+                        _vgfx.path_cache.entry(path_hash).or_insert(path.clone())
+                    };
                     let canvas = &mut _vgfx
                         .canvas
                         .try_lock()
@@ -522,8 +560,6 @@ impl TealData for Vgfx {
                         .canvas
                         .try_lock()
                         .map_err(|_| mlua::Error::external("Canvas in use".to_string()))?;
-
-                    let _scale = canvas.transform().average_scale();
 
                     canvas
                         .fill_text(x, y, s.unwrap(), fill_paint)
@@ -993,6 +1029,12 @@ impl TealData for Vgfx {
         //Stroke
         add_lua_static_method(methods, "Stroke", |_lua_index, _vgfx, _: ()| {
             if let Some(path) = _vgfx.path.as_mut() {
+                let path = {
+                    profile_scope!("Path Cache");
+                    let path_hash = hash_path(path);
+                    _vgfx.path_cache.entry(path_hash).or_insert(path.clone())
+                };
+
                 let canvas = &mut _vgfx
                     .canvas
                     .try_lock()

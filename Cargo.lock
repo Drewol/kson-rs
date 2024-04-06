@@ -2029,8 +2029,7 @@ dependencies = [
 [[package]]
 name = "femtovg"
 version = "0.9.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ad3cf7e8f8e3c684b418c2640c931afc8bbc7ebe547bed6bf64170f1f51d57c9"
+source = "git+https://github.com/Drewol/femtovg?branch=VerbVisibility#772a077cb0c507216bbc9e8d80c0eb680374248b"
 dependencies = [
  "bitflags 2.5.0",
  "fnv",
