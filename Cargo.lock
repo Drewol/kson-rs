@@ -3280,6 +3280,7 @@ dependencies = [
  "nfd",
  "once_cell",
  "puffin",
+ "puffin_http",
  "regex",
  "rodio",
  "rust-embed",
