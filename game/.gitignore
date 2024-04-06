@@ -1,5 +1,5 @@
 /target
-/skins
+/skins/*
 !/skins/Default
 /types
 /tlout

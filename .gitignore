@@ -4,7 +4,7 @@
 .vscode/*
 imgui.ini
 profiling.json
-/skins
+/skins/*
 !/skins/Default
 /types
 /tlout

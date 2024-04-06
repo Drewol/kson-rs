@@ -150,7 +150,7 @@ result_set = function()
 
     if result.duration ~= nil then
         chartDuration = result.duration
-        chartDurationText = string.format("%dm %02d.%01ds", chartDuration // 60000, (chartDuration // 1000) % 60, (chartDuration // 100) % 10)
+        chartDurationText = string.format("%dm %02d.%01ds", chartDuration / 60000, (chartDuration / 1000) % 60, (chartDuration / 100) % 10)
         hitGraphHoverScale = math.max(chartDuration / 10000, 5)
     else
         chartDuration = 0
@@ -374,7 +374,7 @@ draw_score = function(score, x, y, w, h, pre)
     gfx.BeginPath()
     gfx.TextAlign(gfx.TEXT_ALIGN_RIGHT)
     gfx.FontSize(h)
-    gfx.Text(string.format("%s%04d", prefix, score // 10000), center-h/70, y)
+    gfx.Text(string.format("%s%04d", prefix, score / 10000), center-h/70, y)
     gfx.TextAlign(gfx.TEXT_ALIGN_LEFT)
     gfx.FontSize(h*0.75)
     gfx.Text(string.format("%04d", score % 10000), center+h/70, y)
@@ -660,7 +660,7 @@ draw_left_graph = function(x, y, w, h)
         hit_xscale = hitGraphHoverScale
 
         local currPos = chartDuration * ((mx - x) / w)
-        chartDurationDisp = string.format("%dm %02d.%01ds / %s" , currPos // 60000, (currPos // 1000) % 60, (currPos // 100) % 10, chartDurationText)
+        chartDurationDisp = string.format("%dm %02d.%01ds / %s" , currPos / 60000, (currPos / 1000) % 60, (currPos / 100) % 10, chartDurationText)
 
         drawLine(mx, y, mx, y+h, 1, 64, 96, 64)
     end
@@ -1205,8 +1205,8 @@ draw_graphs = function(x, y, w, h)
     if not hasHitStat or hitDeltaScale == 0.0 then
         draw_left_graph(x, y, w, h)
     else
-        draw_left_graph(x, y, w - w//4, h)
-        draw_right_graph(x + (w - w//4), y, w//4, h)
+        draw_left_graph(x, y, w - w/4, h)
+        draw_right_graph(x + (w - w/4), y, w/4, h)
     end
 end
 
