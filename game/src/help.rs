@@ -1,8 +1,10 @@
 use std::{
-    sync::{RwLock},
+    collections::HashMap,
+    sync::{OnceLock, RwLock},
 };
 
 use di::{transient_factory, RefMut, ServiceCollection};
+use puffin::ScopeId;
 use tealr::{
     mlu::{
         mlua::{self, FromLuaMulti, IntoLuaMulti, Lua, Result},
@@ -23,10 +25,12 @@ pub(crate) fn add_lua_static_method<'lua, M, A, R, F, T: 'static + Sized + ToTyp
     R: IntoLuaMulti<'lua> + TealMultiValue,
     F: 'static + MaybeSend + FnMut(&'lua Lua, &mut T, A) -> Result<R>,
 {
+    let scope_id = puffin::ThreadProfiler::call(|f| f.register_function_scope(name, "Lua", 0));
+
     methods.add_function_mut(name, move |lua, p: A| {
         let _profile_scope = if puffin::are_scopes_on() && !name.ends_with("Profile") {
             Some(puffin::ProfilerScope::new(
-                name,
+                scope_id,
                 &format!(
                     "{}:{}",
                     lua.inspect_stack(1)
@@ -34,7 +38,6 @@ pub(crate) fn add_lua_static_method<'lua, M, A, R, F, T: 'static + Sized + ToTyp
                         .unwrap_or_default(),
                     lua.inspect_stack(1).map(|s| s.curr_line()).unwrap_or(-1)
                 ),
-                "",
             ))
         } else {
             None

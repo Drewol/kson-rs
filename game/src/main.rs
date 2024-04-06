@@ -109,7 +109,9 @@ pub fn default_game_dir() -> PathBuf {
 }
 
 pub fn init_game_dir(game_dir: impl AsRef<Path>) -> anyhow::Result<()> {
-    let mut install_dir = if let Ok(manifest_dir) = std::env::var("CARGO_MANIFEST_DIR") {
+    let cargo_dir = std::env::var("CARGO_MANIFEST_DIR");
+
+    let mut install_dir = if let Ok(manifest_dir) = &cargo_dir {
         PathBuf::from(manifest_dir) // should be correct when started from `cargo run`
     } else {
         std::env::current_dir()?
@@ -140,7 +142,8 @@ pub fn init_game_dir(game_dir: impl AsRef<Path>) -> anyhow::Result<()> {
             let mut target_path = game_dir.as_ref().to_path_buf();
             target_path.push(target);
 
-            if target_path.exists() {
+            // Always install when cargo in cargo for easier skin dev
+            if target_path.exists() && cargo_dir.is_err() {
                 continue;
             }
 
@@ -339,6 +342,16 @@ fn main() -> anyhow::Result<()> {
     let mut config_path = default_game_dir();
     config_path.push("Main.cfg");
     let args = Args::parse();
+
+    let _puffin_server = if args.profiling {
+        let server_addr = format!("127.0.0.1:{}", puffin_http::DEFAULT_PORT);
+        Some(puffin_http::Server::new(&server_addr).unwrap())
+    } else {
+        None
+    };
+
+    puffin::set_scopes_on(args.profiling);
+
     let show_debug_ui = args.debug;
     if let Some(e) = init_game_dir(default_game_dir()).err() {
         warn!("{e}");

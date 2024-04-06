@@ -137,11 +137,6 @@ impl GameMain {
 
     const KEYBOARD_LASER_SENS: f32 = 1.0 / 240.0;
     pub fn update(&mut self) {
-        let should_profile = GameConfig::get().args.profiling;
-        if puffin::are_scopes_on() != should_profile {
-            puffin::set_scopes_on(should_profile);
-        }
-
         {
             for ele in self.service_provider.get_all_mut::<dyn WorkerService>() {
                 ele.write().unwrap().update()
@@ -567,7 +562,6 @@ impl GameMain {
         if let Some(s) = scenes.active.last_mut() {
             crate::log_result!(s.debug_ui(gui_context));
         }
-        puffin_egui::profiler_window(gui_context);
         egui::Window::new("Scenes").show(gui_context, |ui| {
             ui.label("Loaded");
             for ele in &scenes.loaded {

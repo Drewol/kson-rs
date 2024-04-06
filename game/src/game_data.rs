@@ -8,7 +8,7 @@ use std::{
 use di::{Activator, InjectBuilder, Injectable};
 use egui::epaint::Hsva;
 use log::warn;
-use puffin::ProfilerScope;
+use puffin::{ProfilerScope, ThreadProfiler};
 use rodio::Source;
 use tealr::{
     mlu::{mlua::AppDataRef, TealData, UserDataProxy},
@@ -355,11 +355,14 @@ impl TealData for GameData {
             },
         );
 
+        let custom_scope =
+            ThreadProfiler::call(|f| f.register_function_scope("Custom Lua Scope", "", 0));
+
         //BeginProfile
         add_lua_static_method(
             methods,
             "BeginProfile",
-            |lua, _game_data, scope: Option<String>| {
+            move |lua, _game_data, scope: Option<String>| {
                 if puffin::are_scopes_on() {
                     let scope = scope.unwrap_or_else(|| {
                         if let Some(a) = lua.inspect_stack(1) {
@@ -375,7 +378,7 @@ impl TealData for GameData {
 
                     _game_data
                         .profile_stack
-                        .push(ProfilerScope::new("Lua scope", &scope, ""))
+                        .push(ProfilerScope::new(custom_scope, &scope))
                 }
                 Ok(())
             },

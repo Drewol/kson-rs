@@ -15,7 +15,7 @@ name = "kson-editor"
 [dependencies]
 egui_glow = { workspace = true, features = ["winit"] }
 puffin = { workspace = true }
-puffin_egui = { workspace = true }
+puffin_http = { workspace = true }
 serde = { workspace = true }
 image = { workspace = true }
 emath = { workspace = true }
@@ -33,7 +33,6 @@ femtovg = { version = '*', default-features = false, features = [
 
 gilrs = { version = "0.10.0", features = ["serde-serialize"] }
 kson = { path = "../kson" }
-kson-audio = { path = "../kson-audio" }
 kson-rodio-sources = { path = "../kson-rodio-sources" }
 
 tealr = { version = "0.9.1", features = [
@@ -49,7 +48,7 @@ once_cell = "1"
 walkdir = "*"
 rfd = "*"
 log = { workspace = true }
-simple_logger = "4.0.0"
+simple_logger = { workspace = true }
 uuid = { version = "1.2.2", features = ["serde"] }
 poll-promise = { git = "https://github.com/EmbarkStudios/poll-promise", features = [
     "tokio",

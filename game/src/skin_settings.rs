@@ -1,4 +1,4 @@
-use puffin_egui::egui::Color32;
+use egui::Color32;
 use serde::{de::Visitor, Deserialize, Serialize};
 use tealr::{
     mlu::mlua::{FromLua, IntoLuaMulti, MultiValue, Value},

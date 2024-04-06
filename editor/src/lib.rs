@@ -913,7 +913,7 @@ impl App for AppState {
 }
 
 pub fn main() -> eframe::Result<()> {
-    env_logger::init();
+    simple_logger::init_with_env();
     #[cfg(feature = "profiling")]
     {
         start_puffin_server();
