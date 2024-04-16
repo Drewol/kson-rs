@@ -1160,7 +1160,7 @@ draw_basic_hitstat = function(x, y, w, h, full)
             draw_score(highestScore - result.score, x+w/2, stat_y, w/2, 25, "-")
         elseif highestScore == result.score then
             gfx.FillColor(128, 128, 128)
-            draw_score(0, x+w/2, stat_y, w/2, 25, utf8.char(0xB1))
+            draw_score(0, x+w/2, stat_y, w/2, 25, "±")
         else
             gfx.FillColor(32, 255, 32)
             draw_score(result.score - highestScore, x+w/2, stat_y, w/2, 25, "+")

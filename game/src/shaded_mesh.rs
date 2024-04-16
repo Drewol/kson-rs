@@ -115,6 +115,8 @@ pub struct ShadedMesh {
     aabb: AxisAlignedBoundingBox,
     transform: Mat4,
     context: Context,
+    requires_in_tex: bool,
+    requires_in_color: bool,
 }
 
 impl ShadedMesh {
@@ -141,15 +143,18 @@ impl ShadedMesh {
                 .join("\n");
 
         let mut params = HashMap::new();
-        params.insert("color".into(), vec4(1.0, 1.0, 1.0, 1.0).into());
 
+        let material =
+            Program::from_source(context, &vertex_shader_source, &fragment_shader_source)?;
+
+        if material.requires_uniform("color") {
+            params.insert("color".into(), vec4(1.0, 1.0, 1.0, 1.0).into());
+        }
+        let requires_in_color = material.requires_attribute("inColor");
+        let requires_in_tex = material.requires_attribute("inTex");
         Ok(Self {
             params,
-            material: Program::from_source(
-                context,
-                &vertex_shader_source,
-                &fragment_shader_source,
-            )?,
+            material,
             state: RenderStates {
                 cull: three_d::Cull::None,
                 blend: Blend::TRANSPARENCY,
@@ -165,6 +170,8 @@ impl ShadedMesh {
             transform: Mat4::identity(),
             vertecies_color: None,
             context: context.clone(),
+            requires_in_color,
+            requires_in_tex,
         })
     }
 
@@ -210,6 +217,8 @@ void main() {
             transform: Mat4::identity(),
             vertecies_color: None,
             context: context.clone(),
+            requires_in_color: false,
+            requires_in_tex: false,
         })
     }
 
@@ -253,8 +262,11 @@ void main() {
         Ok(())
     }
 
-    pub fn set_param(&mut self, key: impl Into<String>, param: impl Into<ShaderParam>) {
-        self.params.insert(key.into(), param.into());
+    pub fn set_param(&mut self, key: &str, param: impl Into<ShaderParam>) {
+        if self.material.requires_uniform(key) {
+            let key: String = key.into();
+            self.params.insert(key, param.into());
+        }
     }
 
     pub fn use_texture(
@@ -310,20 +322,19 @@ void main() {
         Ok(())
     }
 
+    #[inline]
     fn use_params(&self) {
         for (name, param) in &self.params {
-            if self.material.requires_uniform(name) {
-                match param {
-                    ShaderParam::Single(v) => self.material.use_uniform(name, v),
-                    ShaderParam::Vec2(v) => self.material.use_uniform(name, v),
-                    ShaderParam::Vec3(v) => self.material.use_uniform(name, v),
-                    ShaderParam::Vec4(v) => self.material.use_uniform(name, v),
-                    ShaderParam::IVec2(v) => self.material.use_uniform(name, v),
-                    ShaderParam::IVec3(v) => self.material.use_uniform(name, v),
-                    ShaderParam::IVec4(v) => self.material.use_uniform(name, v),
-                    ShaderParam::Int(v) => self.material.use_uniform(name, v),
-                    ShaderParam::Texture(v) => self.material.use_texture(name, v),
-                }
+            match param {
+                ShaderParam::Single(v) => self.material.use_uniform(name, v),
+                ShaderParam::Vec2(v) => self.material.use_uniform(name, v),
+                ShaderParam::Vec3(v) => self.material.use_uniform(name, v),
+                ShaderParam::Vec4(v) => self.material.use_uniform(name, v),
+                ShaderParam::IVec2(v) => self.material.use_uniform(name, v),
+                ShaderParam::IVec3(v) => self.material.use_uniform(name, v),
+                ShaderParam::IVec4(v) => self.material.use_uniform(name, v),
+                ShaderParam::Int(v) => self.material.use_uniform(name, v),
+                ShaderParam::Texture(v) => self.material.use_texture(name, v),
             }
         }
     }
@@ -333,13 +344,13 @@ void main() {
         self.use_params();
         self.material
             .use_vertex_attribute("inPos", &self.vertecies_pos);
-        if self.material.requires_attribute("inTex") {
+        if self.requires_in_tex {
             self.material
                 .use_vertex_attribute("inTex", &self.vertecies_uv); //UVs
         }
 
         if let Some(colors) = self.vertecies_color.as_ref() {
-            if self.material.requires_attribute("inColor") {
+            if self.requires_in_color {
                 self.material.use_vertex_attribute("inColor", colors);
             }
         }
@@ -369,6 +380,7 @@ void main() {
             .draw_elements(self.state, camera.viewport(), &self.indecies);
     }
 
+    #[inline]
     fn set_camera_uniforms(&self, camera: &three_d_asset::Camera) {
         self.material.use_uniform("proj", camera.projection());
         self.material.use_uniform("camera", camera.view());
@@ -376,13 +388,13 @@ void main() {
         self.use_params();
         self.material
             .use_vertex_attribute("inPos", &self.vertecies_pos);
-        if self.material.requires_attribute("inTex") {
+        if self.requires_in_tex {
             self.material
                 .use_vertex_attribute("inTex", &self.vertecies_uv); //UVs
         }
 
         if let Some(colors) = self.vertecies_color.as_ref() {
-            if self.material.requires_attribute("inColor") {
+            if self.requires_in_color {
                 self.material.use_vertex_attribute("inColor", colors);
             }
         }
@@ -675,19 +687,19 @@ impl TealData for ShadedMesh {
         );
 
         methods.add_method_mut("SetParam", |_, this, params: (String, f32)| {
-            this.set_param(params.0, params.1);
+            this.set_param(params.0.as_str(), params.1);
             Ok(())
         });
         methods.add_method_mut("SetParamVec2", |_, this, params: (String, f32, f32)| {
             let data = vec2(params.1, params.2);
-            this.set_param(params.0, data);
+            this.set_param(params.0.as_str(), data);
             Ok(())
         });
         methods.add_method_mut(
             "SetParamVec3",
             |_, this, params: (String, f32, f32, f32)| {
                 let data = vec3(params.1, params.2, params.3);
-                this.set_param(params.0, data);
+                this.set_param(params.0.as_str(), data);
                 Ok(())
             },
         );
@@ -695,7 +707,7 @@ impl TealData for ShadedMesh {
             "SetParamVec4",
             |_, this, params: (String, f32, f32, f32, f32)| {
                 let data = vec4(params.1, params.2, params.3, params.4);
-                this.set_param(params.0, data);
+                this.set_param(params.0.as_str(), data);
                 Ok(())
             },
         );
