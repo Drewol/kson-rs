@@ -605,6 +605,7 @@ impl Game {
                 tilt: 0.0,
                 view_size: vec2(0.0, 0.0),
                 shakes: vec![],
+                spins: vec![],
             },
             lua_game_state: lua_data::LuaGameState::default(),
             control_tx: None,
@@ -834,6 +835,26 @@ impl Game {
                         20.0,
                         100.0,
                     ));
+
+                    {
+                        let events = &self.chart.camera.cam.pattern.laser.slam_event;
+
+                        if let Ok(i) = events.half_spin.binary_search_by_key(&tick.y, |x| x.0) {
+                            self.camera
+                                .spins
+                                .push(camera::CameraSpin::Half(events.half_spin[i]));
+                        }
+                        if let Ok(i) = events.spin.binary_search_by_key(&tick.y, |x| x.0) {
+                            self.camera
+                                .spins
+                                .push(camera::CameraSpin::Full(events.spin[i]));
+                        }
+                        if let Ok(i) = events.swing.binary_search_by_key(&tick.y, |x| x.0) {
+                            self.camera
+                                .spins
+                                .push(camera::CameraSpin::Swing(events.swing[i]));
+                        }
+                    }
 
                     if let Some(slam_sample) = self.slam_sample.clone() {
                         self.mixer.add(slam_sample.convert_samples()); //TODO: Amplyfy with slam volume
@@ -1167,6 +1188,7 @@ impl Scene for Game {
                 .is_some(),
         );
 
+        self.camera.check_spins(self.current_tick);
         Ok(())
     }
 
@@ -1390,6 +1412,12 @@ impl Scene for Game {
             };
 
             self.camera.tilt = self.current_roll as f32 * 12.5;
+            self.camera.tilt += self
+                .camera
+                .spins
+                .iter()
+                .map(|x| x.roll_at(self.current_tick as f32))
+                .sum::<f32>();
 
             self.view.cursor = self.with_offset(time.as_secs_f64() * 1000.0) + leadin_ms;
 

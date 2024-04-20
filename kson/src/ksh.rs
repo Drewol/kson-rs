@@ -7,6 +7,10 @@ use crate::*;
 
 use thiserror::Error;
 
+use self::camera::CamPatternInvokeSpin;
+use self::camera::CamPatternInvokeSwing;
+use self::camera::CamPatternInvokeSwingValue;
+
 #[derive(Debug, Error)]
 pub enum KshReadError {
     #[error("Laser value out of range: '{0}'")]
@@ -242,7 +246,7 @@ impl Ksh for crate::Chart {
             if line_count == 0 {
                 continue;
             }
-            let mut ticks_per_line = (new_chart.beat.resolution * 4 * num / den) / line_count;
+            let mut ticks_per_line = (KSON_RESOLUTION * 4 * num / den) / line_count;
             let mut has_read_notes = false;
             for line in measure_lines {
                 if is_beat_line(&line) {
@@ -350,6 +354,54 @@ impl Ksh for crate::Chart {
                         last_char[i + 6] = chars[i + 8];
                     }
 
+                    if chars.len() > 12 {
+                        let spin_length =
+                            u32::from_str_radix(&String::from_utf8_lossy(&chars[12..]), 10)
+                                .map(|x| (x * 4 * KSON_RESOLUTION) / 192);
+                        let slam_event = &mut new_chart.camera.cam.pattern.laser.slam_event;
+
+                        if let Ok(spin_length) = spin_length {
+                            match (
+                                chars.get(10).copied().unwrap_or_default(),
+                                chars.get(11).copied().unwrap_or_default(),
+                            ) {
+                                (b'@', b'<') => slam_event.half_spin.push(CamPatternInvokeSpin(
+                                    y,
+                                    -1,
+                                    spin_length,
+                                )),
+                                (b'@', b'>') => slam_event.half_spin.push(CamPatternInvokeSpin(
+                                    y,
+                                    1,
+                                    spin_length,
+                                )),
+                                (b'@', b'(') => {
+                                    slam_event
+                                        .spin
+                                        .push(CamPatternInvokeSpin(y, -1, spin_length))
+                                }
+                                (b'@', b')') => {
+                                    slam_event
+                                        .spin
+                                        .push(CamPatternInvokeSpin(y, 1, spin_length))
+                                }
+                                (b'S', b'(') => slam_event.swing.push(CamPatternInvokeSwing(
+                                    y,
+                                    -1,
+                                    spin_length,
+                                    CamPatternInvokeSwingValue::default(),
+                                )),
+                                (b'S', b')') => slam_event.swing.push(CamPatternInvokeSwing(
+                                    y,
+                                    1,
+                                    spin_length,
+                                    CamPatternInvokeSwingValue::default(),
+                                )),
+                                _ => {}
+                            }
+                        }
+                    }
+
                     y += ticks_per_line;
                 } else if line.contains('=') {
                     let mut line_data = line.split('=');
@@ -369,8 +421,7 @@ impl Ksh for crate::Chart {
                             num = new_sig.0;
                             den = new_sig.1;
                             if !has_read_notes {
-                                ticks_per_line =
-                                    (new_chart.beat.resolution * 4 * num / den) / line_count;
+                                ticks_per_line = (KSON_RESOLUTION * 4 * num / den) / line_count;
                             }
                             new_chart.beat.time_sig.push((sig_idx, new_sig));
                         }
@@ -432,7 +483,7 @@ impl Ksh for crate::Chart {
                 let mut for_removal: HashSet<u32> = HashSet::new();
                 let mut prev = iter.next().unwrap();
                 for next in iter {
-                    if (next.ry - prev.ry) <= (new_chart.beat.resolution / 8) {
+                    if (next.ry - prev.ry) <= (KSON_RESOLUTION / 8) {
                         prev.vf = Some(next.v);
                         for_removal.insert(next.ry);
                         if for_removal.contains(&prev.ry) {
@@ -551,7 +602,7 @@ impl Ksh for crate::Chart {
             }
 
             let next_measure_tick = self.measure_to_tick(measure + 1);
-            let slam_distance = self.beat.resolution / 8;
+            let slam_distance = KSON_RESOLUTION / 8;
             for y in measure_tick..next_measure_tick {
                 //Tick events
                 {

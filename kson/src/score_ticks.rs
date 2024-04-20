@@ -12,7 +12,11 @@ impl ScoreTick {
     pub fn lane(&self) -> usize {
         match self {
             ScoreTick::Laser { lane, pos: _ } => *lane,
-            ScoreTick::Slam { lane, start: _, end: _ } => *lane,
+            ScoreTick::Slam {
+                lane,
+                start: _,
+                end: _,
+            } => *lane,
             ScoreTick::Chip { lane } => *lane,
             ScoreTick::Hold { lane } => *lane,
         }
@@ -41,9 +45,9 @@ pub trait ScoreTicker {
 
 fn get_hold_step_at(y: u32, chart: &Chart) -> u32 {
     if chart.bpm_at_tick(y) > 255.0 {
-        chart.beat.resolution / 2
+        KSON_RESOLUTION / 2
     } else {
-        chart.beat.resolution / 4
+        KSON_RESOLUTION / 4
     }
 }
 

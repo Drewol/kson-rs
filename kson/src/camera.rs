@@ -63,12 +63,83 @@ fn cmp_graph_section((y, graph): &(u32, Vec<GraphSectionPoint>), cmp_y: u32) -> 
 #[serde(default)]
 pub struct CamInfo {
     pub body: CamGraphs,
-    pub tilt_assign: Option<CamGraphs>,
+    #[serde(skip_serializing_if = "CamPatternInfo::is_empty")]
     pub pattern: CamPatternInfo,
 }
 
-#[derive(Serialize, Deserialize, Copy, Clone, Default)]
-pub struct CamPatternInfo;
+#[derive(Serialize, Deserialize, Clone, Default)]
+#[serde(default)]
+pub struct CamPatternInfo {
+    #[serde(skip_serializing_if = "CamPatternLaserInfo::is_empty")]
+    pub laser: CamPatternLaserInfo,
+}
+
+impl CamPatternInfo {
+    fn is_empty(&self) -> bool {
+        self.laser.slam_event.is_empty()
+    }
+}
+
+#[derive(Serialize, Deserialize, Clone, Default)]
+#[serde(default)]
+pub struct CamPatternLaserInfo {
+    #[serde(skip_serializing_if = "CamPatternLaserInvokeList::is_empty")]
+    pub slam_event: CamPatternLaserInvokeList,
+}
+
+impl CamPatternLaserInfo {
+    fn is_empty(&self) -> bool {
+        self.slam_event.is_empty()
+    }
+}
+
+#[derive(Serialize, Deserialize, Clone, Default)]
+#[serde(default)]
+pub struct CamPatternLaserInvokeList {
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub spin: Vec<CamPatternInvokeSpin>,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub half_spin: Vec<CamPatternInvokeSpin>,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub swing: Vec<CamPatternInvokeSwing>,
+}
+
+impl CamPatternLaserInvokeList {
+    fn is_empty(&self) -> bool {
+        self.spin.is_empty() && self.swing.is_empty() && self.half_spin.is_empty()
+    }
+}
+
+/// (pulse, direction, duration)
+#[derive(Debug, Serialize, Deserialize, Copy, Clone, Default)]
+pub struct CamPatternInvokeSpin(pub u32, pub i32, pub u32);
+#[derive(Debug, Serialize, Deserialize, Copy, Clone, Default)]
+pub struct CamPatternInvokeSwing(
+    pub u32,
+    pub i32,
+    pub u32,
+    #[serde(default, skip_serializing_if = "IsDefault::is_default")] pub CamPatternInvokeSwingValue,
+);
+
+#[derive(Debug, Serialize, Deserialize, Copy, Clone, PartialEq)]
+pub struct CamPatternInvokeSwingValue {
+    pub scale: f32,  // scale
+    pub repeat: u32, // number of repetitions
+    pub decay_order: u32, // order of the decay that scales camera values (0-2)
+                     // (note that this decay is applied even if repeat=1)
+                     // - equation: `value * (1.0 - ((l - ry) / l))^decay_order`
+                     // - 0: no decay, 1: linear decay, 2: squared decay
+}
+
+impl Default for CamPatternInvokeSwingValue {
+    fn default() -> Self {
+        Self {
+            scale: 1.0,
+            repeat: 1,
+            decay_order: 0,
+        }
+    }
+}
 
 type GraphVec = Vec<GraphPoint>;
 
@@ -84,4 +155,17 @@ pub struct CamGraphs {
     #[serde(rename = "rotation_z.jdgline")]
     pub rotation_z_jdgline: GraphVec,
     pub split: GraphVec,
+}
+
+pub trait IsDefault {
+    fn is_default(&self) -> bool;
+}
+
+impl<T> IsDefault for T
+where
+    T: Default + PartialEq,
+{
+    fn is_default(&self) -> bool {
+        self.eq(&T::default())
+    }
 }

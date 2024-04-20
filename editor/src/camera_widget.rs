@@ -8,7 +8,7 @@ use eframe::{
 };
 use egui_glow::{check_for_gl_error, glow::NativeVertexArray};
 use emath::{pos2, vec2, Rect, Vec2};
-use kson::Chart;
+use kson::{Chart, KSON_RESOLUTION};
 use once_cell::sync::OnceCell;
 use puffin::{profile_function, profile_scope};
 
@@ -79,10 +79,10 @@ impl CameraView {
         let tick_height = -0.03;
         let bottom_margin = -tick * tick_height;
 
-        let min_tick_render = tick as i32 - chart.beat.resolution as i32 * 8;
+        let min_tick_render = tick as i32 - KSON_RESOLUTION as i32 * 8;
 
         let screen = crate::chart_editor::ScreenState {
-            beat_res: chart.beat.resolution,
+            beat_res: KSON_RESOLUTION,
             beats_per_col: u32::MAX, //whole chart in one column
             bottom_margin,           //one of these could maybe scroll the chart
             top_margin: 0.0,

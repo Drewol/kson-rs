@@ -665,12 +665,9 @@ pub struct BeatInfo {
     pub bpm: ByPulse<f64>,
     pub time_sig: ByMeasureIdx<TimeSignature>,
     pub scroll_speed: Vec<GraphPoint>,
-    #[serde(
-        skip_serializing_if = "serde_eq::<_, 240>",
-        default = "serde_def_n::<u32, 240>"
-    )]
-    pub resolution: u32,
 }
+
+pub const KSON_RESOLUTION: u32 = 240;
 
 impl BeatInfo {
     fn new() -> Self {
@@ -678,7 +675,6 @@ impl BeatInfo {
             bpm: Vec::new(),
             time_sig: Vec::new(),
             scroll_speed: Vec::new(),
-            resolution: 240,
         }
     }
 }
@@ -926,7 +922,7 @@ impl Chart {
         };
 
         let remaining = ms - self.tick_to_ms(bpm.0);
-        bpm.0 + ticks_from_ms(remaining, bpm.1, self.beat.resolution) as u32
+        bpm.0 + ticks_from_ms(remaining, bpm.1, KSON_RESOLUTION) as u32
     }
 
     pub fn tick_to_ms(&self, tick: u32) -> f64 {
@@ -937,10 +933,10 @@ impl Chart {
             if b.0 > tick {
                 break;
             }
-            ret += ms_from_ticks((b.0 - prev.0) as i64, prev.1, self.beat.resolution);
+            ret += ms_from_ticks((b.0 - prev.0) as i64, prev.1, KSON_RESOLUTION);
             prev = b;
         }
-        ret + ms_from_ticks((tick - prev.0) as i64, prev.1, self.beat.resolution)
+        ret + ms_from_ticks((tick - prev.0) as i64, prev.1, KSON_RESOLUTION)
     }
 
     pub fn tick_to_measure(&self, tick: u32) -> u32 {
@@ -949,8 +945,7 @@ impl Chart {
         let mut remaining_ticks = tick;
         if let Some(first_sig) = time_sig_iter.next() {
             let mut prev_index = first_sig.0;
-            let mut prev_ticks_per_measure =
-                self.beat.resolution * 4 * first_sig.1 .0 / first_sig.1 .1;
+            let mut prev_ticks_per_measure = KSON_RESOLUTION * 4 * first_sig.1 .0 / first_sig.1 .1;
             if prev_ticks_per_measure == 0 {
                 return ret;
             }
@@ -963,8 +958,7 @@ impl Chart {
                 ret += measure_count;
                 remaining_ticks -= tick_count;
                 prev_index = current_sig.0;
-                prev_ticks_per_measure =
-                    self.beat.resolution * 4 * current_sig.1 .0 / current_sig.1 .1;
+                prev_ticks_per_measure = KSON_RESOLUTION * 4 * current_sig.1 .0 / current_sig.1 .1;
                 if prev_ticks_per_measure == 0 {
                     return ret;
                 }
@@ -981,8 +975,7 @@ impl Chart {
 
         if let Some(first_sig) = time_sig_iter.next() {
             let mut prev_index = first_sig.0;
-            let mut prev_ticks_per_measure =
-                self.beat.resolution * 4 * first_sig.1 .0 / first_sig.1 .1;
+            let mut prev_ticks_per_measure = KSON_RESOLUTION * 4 * first_sig.1 .0 / first_sig.1 .1;
             for current_sig in time_sig_iter {
                 let measure_count = current_sig.0 - prev_index;
                 if measure_count > remaining_measures {
@@ -991,8 +984,7 @@ impl Chart {
                 ret += measure_count * prev_ticks_per_measure;
                 remaining_measures -= measure_count;
                 prev_index = current_sig.0;
-                prev_ticks_per_measure =
-                    self.beat.resolution * 4 * current_sig.1 .0 / current_sig.1 .1;
+                prev_ticks_per_measure = KSON_RESOLUTION * 4 * current_sig.1 .0 / current_sig.1 .1;
             }
             ret += remaining_measures * prev_ticks_per_measure;
         }
@@ -1015,9 +1007,9 @@ impl Chart {
         };
 
         for time_sig in &self.beat.time_sig {
-            let ticks_per_beat = self.beat.resolution * 4 / time_sig.1 .1;
-            let ticks_per_measure = self.beat.resolution * 4 * time_sig.1 .0 / time_sig.1 .1;
-            let prev_ticks_per_measure = self.beat.resolution * 4 * prev_sig.1 .0 / prev_sig.1 .1;
+            let ticks_per_beat = KSON_RESOLUTION * 4 / time_sig.1 .1;
+            let ticks_per_measure = KSON_RESOLUTION * 4 * time_sig.1 .0 / time_sig.1 .1;
+            let prev_ticks_per_measure = KSON_RESOLUTION * 4 * prev_sig.1 .0 / prev_sig.1 .1;
 
             let new_start = prev_start + (time_sig.0 - prev_sig.0) * prev_ticks_per_measure;
             if ticks_per_measure > 0 && ticks_per_beat > 0 {

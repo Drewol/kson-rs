@@ -11,7 +11,7 @@ use eframe::egui::{Painter, Rgba};
 use eframe::epaint::FontId;
 use egui::Ui;
 use kson::overlaps::Overlaps;
-use kson::{ByPulseOption, GraphPoint, GraphSectionPoint, Interval, Ksh, Vox};
+use kson::{ByPulseOption, GraphPoint, GraphSectionPoint, Interval, Ksh, Vox, KSON_RESOLUTION};
 use kson_music_playback as playback;
 
 use puffin::profile_scope;
@@ -595,7 +595,7 @@ impl MainState {
     #[allow(unused)]
     pub fn get_cursor_ms_from_mouse(&self) -> f64 {
         let tick = self.screen.pos_to_tick(self.mouse_x, self.mouse_y);
-        let tick = tick - (tick % (self.chart.beat.resolution / 2));
+        let tick = tick - (tick % (KSON_RESOLUTION / 2));
         self.chart.tick_to_ms(tick)
     }
 
@@ -640,7 +640,7 @@ impl MainState {
     ) {
         let transform_value = |v: f32| (v - bounds.0) / (bounds.1 - bounds.0);
 
-        let ticks_per_col = self.screen.beats_per_col * self.chart.beat.resolution;
+        let ticks_per_col = self.screen.beats_per_col * KSON_RESOLUTION;
         let min_tick_render = self.screen.pos_to_tick(-100.0, self.screen.h);
         let max_tick_render = self.screen.pos_to_tick(self.screen.w + 50.0, 0.0);
 
@@ -680,7 +680,7 @@ impl MainState {
     ) {
         let transform_value = |v: f32| (v - bounds.0) / (bounds.1 - bounds.0);
 
-        let ticks_per_col = self.screen.beats_per_col * self.chart.beat.resolution;
+        let ticks_per_col = self.screen.beats_per_col * KSON_RESOLUTION;
         let min_tick_render = self.screen.pos_to_tick(-100.0, self.screen.h);
         let max_tick_render = self.screen.pos_to_tick(self.screen.w + 50.0, 0.0);
 
@@ -949,9 +949,7 @@ impl MainState {
         }
 
         let delta_time = (10.0 * ctx.input(|x| x.unstable_dt)).min(1.0);
-        if self.screen.update(delta_time, self.chart.beat.resolution)
-            || self.audio_playback.is_playing()
-        {
+        if self.screen.update(delta_time, KSON_RESOLUTION) || self.audio_playback.is_playing() {
             ctx.request_repaint();
         }
 
@@ -1269,7 +1267,7 @@ impl MainState {
 
     pub fn drag_start(&mut self, button: PointerButton, x: f32, y: f32, modifiers: &Modifiers) {
         if let PointerButton::Primary = button {
-            let res = self.chart.beat.resolution;
+            let res = KSON_RESOLUTION;
             let lane = self.screen.pos_to_lane(x);
             let tick = self.screen.pos_to_tick(x, y);
             let tick = tick - (tick % (res / 2));
@@ -1294,7 +1292,7 @@ impl MainState {
             let lane = self.screen.pos_to_lane(x);
             let tick = self.screen.pos_to_tick(x, y);
             let tick_f = self.screen.pos_to_tick_f(x, y);
-            let tick = tick - (tick % (self.chart.beat.resolution / 2));
+            let tick = tick - (tick % (KSON_RESOLUTION / 2));
             if let Some(cursor) = &mut self.cursor_object {
                 cursor.drag_end(
                     self.screen,
@@ -1316,15 +1314,15 @@ impl MainState {
         self.screen.top_margin = size.top() + 20.0;
         self.screen.left_margin = size.left();
 
-        self.screen.tick_height = self.screen.chart_draw_height()
-            / (self.chart.beat.resolution * self.screen.beats_per_col) as f32;
+        self.screen.tick_height =
+            self.screen.chart_draw_height() / (KSON_RESOLUTION * self.screen.beats_per_col) as f32;
     }
 
     fn get_clicked_data(&self, pos: Pos2) -> (f32, u32, f64) {
         let lane = self.screen.pos_to_lane(pos.x);
         let tick = self.screen.pos_to_tick(pos.x, pos.y);
         let tick_f: f64 = self.screen.pos_to_tick_f(pos.x, pos.y);
-        let tick = tick - (tick % (self.chart.beat.resolution / 2));
+        let tick = tick - (tick % (KSON_RESOLUTION / 2));
 
         (lane, tick, tick_f)
     }

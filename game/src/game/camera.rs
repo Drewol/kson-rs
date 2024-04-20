@@ -15,6 +15,53 @@ pub struct ChartCamera {
     pub tilt: f32,
     pub view_size: Vec2,
     pub shakes: Vec<CameraShake>,
+    pub spins: Vec<CameraSpin>,
+}
+
+#[derive(Debug, Clone, Copy)]
+pub enum CameraSpin {
+    Half(kson::camera::CamPatternInvokeSpin),
+    Full(kson::camera::CamPatternInvokeSpin),
+    Swing(kson::camera::CamPatternInvokeSwing),
+}
+
+impl CameraSpin {
+    pub fn active_at(&self, tick: u32) -> bool {
+        match self {
+            CameraSpin::Half(s) => s.0 <= tick && s.0 + s.2 >= tick,
+            CameraSpin::Full(s) => s.0 <= tick && s.0 + s.2 >= tick,
+            CameraSpin::Swing(s) => s.0 <= tick && s.0 + s.2 >= tick,
+        }
+    }
+
+    pub fn roll_at(self, tick: f32) -> f32 {
+        match self {
+            CameraSpin::Half(_) => 0.0,
+            CameraSpin::Full(kson::camera::CamPatternInvokeSpin(y, dir, len)) => {
+                //Reference https://github.com/kshootmania/ksm-v2/blob/master/kshootmania/src/music_game/camera/cam_pattern/cam_pattern_spin.cpp#L52
+                let rate = (tick - y as f32) / len as f32;
+                if rate < 0.0 || rate > 1.0 {
+                    return 0.0;
+                }
+
+                let abs_degrees = if rate < 360.0 / 675.0 {
+                    (rate / (360.0 / 675.0) * 0.75).sin() / (0.75f32).sin() * 360.0
+                } else if rate < 440.0 / 675.0 {
+                    (((rate * 675.0 - 360.0) * 9.0 / 8.0).to_radians()).sin() * 30.0
+                } else {
+                    (1.0 - ((1.0 - rate) * 90.0 / 235.0 * 675.0)
+                        .to_radians()
+                        .cos()
+                        .powf(2.0))
+                        * 30.0
+                };
+
+                let dir = -(dir as f32).signum();
+                abs_degrees * dir
+            }
+            CameraSpin::Swing(_) => 0.0,
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -55,6 +102,10 @@ impl CameraShake {
 }
 
 impl ChartCamera {
+    pub fn check_spins(&mut self, tick: u32) {
+        self.spins.retain(|x| x.active_at(tick))
+    }
+
     pub fn egui_widget(&mut self, ui: &mut egui::Ui) -> egui::Response {
         egui::Grid::new("camera_widget")
             .num_columns(2)

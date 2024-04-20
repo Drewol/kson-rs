@@ -13,6 +13,7 @@ pub struct ChartView {
 }
 
 use anyhow::{ensure, Result};
+use kson::KSON_RESOLUTION;
 use puffin::{profile_function, profile_scope};
 use three_d::{
     vec2, vec3, Blend, Camera, ColorMaterial, CpuMesh, DepthTest, Indices, InnerSpace, Mat3, Mat4,
@@ -101,7 +102,7 @@ impl ChartView {
 
                     if let Some(value) = s.vf {
                         let value = value as f32 * track_w;
-                        syoff = chart.beat.resolution as f32 / 8.0;
+                        syoff = KSON_RESOLUTION as f32 / 8.0;
                         graphics::generate_slam_verts(
                             &mut section_verts,
                             start_value,
@@ -137,7 +138,7 @@ impl ChartView {
                     if let Some(value) = e.vf {
                         let start_value = e.v as f32 * track_w;
                         let value = value as f32 * track_w;
-                        let syoff = chart.beat.resolution as f32 / 8.0;
+                        let syoff = KSON_RESOLUTION as f32 / 8.0;
                         graphics::generate_slam_verts(
                             &mut section_verts,
                             start_value,
@@ -176,10 +177,10 @@ impl ChartView {
 
         let _glow_state = if (0.0_f32 * 8.0).fract() > 0.5 { 2 } else { 3 };
         let view_tick = chart.ms_to_tick(view_time) as i64 - view_offset;
-        let view_distance = (chart.beat.resolution as f32 * 4.0) / self.hispeed;
+        let view_distance = (KSON_RESOLUTION as f32 * 4.0) / self.hispeed;
         let last_view_tick = view_distance.ceil() as i64 + view_tick;
         let first_view_tick = view_tick - view_distance as i64;
-        let y_view_div = ((chart.beat.resolution as f32 * 4.0) / self.hispeed) / Self::TRACK_LENGTH;
+        let y_view_div = ((KSON_RESOLUTION as f32 * 4.0) / self.hispeed) / Self::TRACK_LENGTH;
         let _white_mat = Rc::new(ColorMaterial {
             color: Srgba::WHITE,
             ..Default::default()
