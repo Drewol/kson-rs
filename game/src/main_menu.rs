@@ -10,7 +10,7 @@ use game_loop::winit::event::{ElementState, Event, WindowEvent};
 use rodio::dynamic_mixer::DynamicMixerController;
 use tealr::{
     mlu::{
-        mlua::{AppDataRef, Function, Lua},
+        mlua::{AppDataRef, Function, Lua, LuaOptions, StdLib},
         ExportInstances, TealData, UserData, UserDataProxy,
     },
     ToTypename,
@@ -105,7 +105,7 @@ pub struct MainMenu {
 
 impl MainMenu {
     pub fn new(service_provider: ServiceProvider) -> Self {
-        let lua = Rc::new(Lua::new());
+        let lua = LuaProvider::new_lua();
         let (tx, button_rx) = std::sync::mpsc::channel();
         lua.set_app_data(tx);
         tealr::mlu::set_global_env(ExportBindings, &lua).expect("Failed to set menu bindings");

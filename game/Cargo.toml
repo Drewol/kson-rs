@@ -38,7 +38,7 @@ kson-rodio-sources = { path = "../kson-rodio-sources" }
 tealr = { version = "0.9.1", features = [
     "mlua",
     "derive",
-    "mlua_luajit52",
+    "mlua_lua52",
     "mlua_vendored",
     "mlua_serialize",
 ] }

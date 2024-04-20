@@ -187,7 +187,7 @@ impl SettingsDialog {
             current_tab: 0,
             tabs,
             input_state,
-            lua: Rc::new(Lua::new()),
+            lua: LuaProvider::new_lua(),
             setting_advance: 0.0,
         }
     }

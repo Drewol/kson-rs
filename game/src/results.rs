@@ -249,7 +249,7 @@ impl SceneData for SongResultData {
             close: false,
             control_tx: None,
             data: *self,
-            lua: Rc::new(Lua::new()),
+            lua: LuaProvider::new_lua(),
             services,
         }))
     }

@@ -1,4 +1,4 @@
-use std::{rc::Rc};
+use std::rc::Rc;
 
 use crate::{
     config::GameConfig,
@@ -13,8 +13,8 @@ use di::{injectable, Ref, RefMut};
 use log::info;
 use puffin::profile_scope;
 use serde_json::json;
-use tealr::mlu::mlua::Lua;
-use tealr::mlu::mlua::LuaSerdeExt;
+use tealr::mlu::mlua::{Lua, StdLib};
+use tealr::mlu::mlua::{LuaOptions, LuaSerdeExt};
 
 //TODO: Used expanded macro because of wrong dependencies, use macro when fixed
 #[injectable]
@@ -28,6 +28,10 @@ pub struct LuaProvider {
 }
 
 impl LuaProvider {
+    pub fn new_lua() -> Rc<Lua> {
+        Rc::new(Lua::new())
+    }
+
     pub fn register_libraries(&self, lua: Rc<Lua>, script_path: impl AsRef<str>) -> Result<()> {
         //Set path for 'require' (https://stackoverflow.com/questions/4125971/setting-the-global-lua-path-variable-from-c-c?lq=1)
         let mut real_script_path = GameConfig::get().skin_path();
@@ -69,8 +73,11 @@ impl LuaProvider {
 
         {
             let package: tealr::mlu::mlua::Table = lua.globals().get("package").unwrap();
+            let old_path: String = package.get("path").unwrap();
+
             let package_path = format!(
-                "{0}/scripts/?.lua;{0}/scripts/?",
+                "{0};{1}/scripts/?.lua;{1}/scripts/?",
+                old_path,
                 real_script_path.as_os_str().to_string_lossy()
             );
             package.set("path", package_path).unwrap();

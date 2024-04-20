@@ -95,7 +95,7 @@ pub struct Game {
     beam_colors: Vec<Vec4>,
     beam_colors_current: [[f32; 4]; 6],
     draw_axis_guides: bool,
-    target_roll: Option<f64>,
+    target_roll: TargetRoll,
     current_roll: f64,
     hit_ratings: Vec<HitRating>,
     mixer: Arc<DynamicMixerController<f32>>,
@@ -106,6 +106,12 @@ pub struct Game {
     foreground: Option<GameBackground>,
     service_provider: ServiceProvider,
     sync_delta: VecDeque<f64>,
+}
+
+enum TargetRoll {
+    None,
+    Laser(f64),
+    Manual(f64),
 }
 
 #[derive(Debug, Default)]
@@ -578,7 +584,7 @@ impl Game {
             song,
             diff_idx,
             intro_done: false,
-            lua: Rc::new(Lua::new()),
+            lua: LuaProvider::new_lua(),
             chart,
             view,
             duration,
@@ -627,7 +633,7 @@ impl Game {
             beam_colors_current: [[0.0; 4]; 6],
             draw_axis_guides: false,
             current_roll: 0.0,
-            target_roll: None,
+            target_roll: TargetRoll::None,
             hit_ratings: Vec::new(),
             mixer: service_provider.get_required(),
             biquad_control,
@@ -1103,12 +1109,19 @@ impl Scene for Game {
             self.biquad_control.send((None, Some(0.0)))
         };
 
-        self.target_roll = match self.laser_target {
-            [Some(l), Some(r)] => Some(r + l - 1.0),
-            [Some(l), None] => Some(l),
-            [None, Some(r)] => Some(r - 1.0),
-            _ => None,
-        };
+        self.target_roll = self
+            .chart
+            .camera
+            .tilt
+            .manual
+            .value_at(self.current_tick as f64)
+            .map(|x| TargetRoll::Manual(x))
+            .unwrap_or_else(|| match self.laser_target {
+                [Some(l), Some(r)] => TargetRoll::Laser(r + l - 1.0),
+                [Some(l), None] => TargetRoll::Laser(l),
+                [None, Some(r)] => TargetRoll::Laser(r - 1.0),
+                _ => TargetRoll::None,
+            });
 
         for (side, assist_ticks) in self.laser_assist_ticks.iter_mut().enumerate() {
             //TODO: If on straight laser, keep assist high
@@ -1357,16 +1370,23 @@ impl Scene for Game {
         {
             profile_scope!("Update camera");
             let max_roll_speed = dt / kson::beat_in_ms(self.chart.bpm_at_tick(self.current_tick));
-            self.current_roll = if let Some(target_roll) = self.target_roll {
-                if self.current_roll - target_roll < 0.0 {
-                    (self.current_roll + max_roll_speed * 2.0).min(target_roll)
-                } else {
-                    (self.current_roll - max_roll_speed * 2.0).max(target_roll)
+            self.current_roll = match self.target_roll {
+                TargetRoll::Laser(target_roll) => {
+                    if self.current_roll - target_roll < 0.0 {
+                        (self.current_roll + max_roll_speed * 2.0).min(target_roll)
+                    } else {
+                        (self.current_roll - max_roll_speed * 2.0).max(target_roll)
+                    }
                 }
-            } else if self.current_roll.is_sign_negative() {
-                (self.current_roll + max_roll_speed).min(0.0)
-            } else {
-                (self.current_roll - max_roll_speed).max(0.0)
+                TargetRoll::Manual(v) => v,
+
+                TargetRoll::None => {
+                    if self.current_roll.is_sign_negative() {
+                        (self.current_roll + max_roll_speed).min(0.0)
+                    } else {
+                        (self.current_roll - max_roll_speed).max(0.0)
+                    }
+                }
             };
 
             self.camera.tilt = self.current_roll as f32 * 12.5;

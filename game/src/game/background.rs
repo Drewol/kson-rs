@@ -98,7 +98,7 @@ impl TealData for GameBackgroundLua {
             let bg = &mut lua
                 .app_data_mut::<ShadedMesh>()
                 .expect("Background or Foreground mesh data not set");
-            bg.set_param(name, value);
+            bg.set_param(name.as_str(), value);
             Ok(())
         });
 
@@ -107,7 +107,7 @@ impl TealData for GameBackgroundLua {
             let bg = &mut lua
                 .app_data_mut::<ShadedMesh>()
                 .expect("Background or Foreground mesh data not set");
-            bg.set_param(name, value);
+            bg.set_param(name.as_str(), value);
             Ok(())
         });
 

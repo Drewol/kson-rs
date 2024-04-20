@@ -223,10 +223,10 @@ impl SongSelectScene {
             .init_scores(&mut initial_songs.iter());
         song_select.songs.add(initial_songs, vec![]);
         Self {
-            filter_lua: Rc::new(Lua::new()),
-            sort_lua: Rc::new(Lua::new()),
-            background_lua: Rc::new(Lua::new()),
-            lua: Rc::new(Lua::new()),
+            filter_lua: LuaProvider::new_lua(),
+            sort_lua: LuaProvider::new_lua(),
+            background_lua: LuaProvider::new_lua(),
+            lua: LuaProvider::new_lua(),
             state: song_select,
             program_control: None,
             diff_advance: 0.0,
