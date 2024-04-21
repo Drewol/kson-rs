@@ -311,8 +311,10 @@ impl WorkerService for NauticaSongProvider {
             //TODO: Check scroll position and request more songs
         }
 
-        for ele in self.events.drain(..) {
-            self.bus.broadcast(ele);
+        if self.bus.rx_count() > 0 {
+            for ele in self.events.drain(..) {
+                self.bus.broadcast(ele);
+            }
         }
     }
 }
