@@ -1,6 +1,7 @@
 use std::path::{Path, PathBuf};
 
 use crate::{
+    game::ChartView,
     game_data::{ExportGame, GameData, LuaPath},
     shaded_mesh::ShadedMesh,
     util::lua_address,
@@ -173,6 +174,7 @@ impl TealData for GameBackgroundLua {
                     .map(|x| *x)
                     .expect("Background data not set")
             };
+
             let bg = &mut lua
                 .app_data_mut::<ShadedMesh>()
                 .expect("Background mesh not set");
@@ -275,7 +277,7 @@ impl GameBackground {
         clear: bool,
     ) {
         profile_function!();
-        let center = camera.pixel_at_position(vec3(0.0, -50.0, 0.0));
+        let center = camera.pixel_at_position(ChartView::TRACK_DIRECTION * -50.0);
         let bpm = chart.bpm_at_tick(tick);
 
         {

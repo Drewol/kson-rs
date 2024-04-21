@@ -186,20 +186,10 @@ impl ShadedMesh {
 
         Ok(Self {
             params: HashMap::default(),
-            material: Program::from_source( //https://stackoverflow.com/questions/2588875/whats-the-best-way-to-draw-a-fullscreen-quad-in-opengl-3-2
+            material: Program::from_source(
+                //https://stackoverflow.com/questions/2588875/whats-the-best-way-to-draw-a-fullscreen-quad-in-opengl-3-2
                 context,
-                "
-out vec2 texVp; // texcoords are in the normalized [0,1] range for the viewport-filling quad part of the triangle
-in vec3 inPos;
-uniform ivec2 viewport;
-void main() {
-    vec2 vertices[3]=vec2[3](vec2(-1,-1), vec2(3,-1), vec2(-1, 3));
-    gl_Position = vec4(vertices[int(inPos.x)],0,1);
-    texVp = 0.5 * gl_Position.xy + vec2(0.5);
-    texVp.x *= viewport.x;
-    texVp.y *= viewport.y;
-}
-                ",
+                include_str!("static_assets/fullscreen.vs"),
                 fragment_shader,
             )?,
             state: RenderStates {
@@ -362,9 +352,9 @@ void main() {
     pub fn draw_fullscreen(&self, viewport: three_d::Viewport) {
         self.use_params();
 
-        self.material.use_uniform_if_required(
+        self.material.use_uniform(
             "viewport",
-            Vector2::new(viewport.width as i32, viewport.height as i32),
+            Vector2::<i32>::new(viewport.width as i32, viewport.height as i32),
         );
         self.material
             .use_vertex_attribute("inPos", &self.vertecies_pos);
