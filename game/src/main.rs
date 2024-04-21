@@ -512,10 +512,18 @@ fn main() -> anyhow::Result<()> {
     let fps_paint = vg::Paint::color(vg::Color::white()).with_text_align(vg::Align::Right);
 
     let mut scenes = Scenes::new();
+
     if GameConfig::get().args.chart.as_ref().is_none() {
         let mut title = Box::new(main_menu::MainMenu::new(services.create_scope()));
         title.suspend();
         scenes.loaded.push(title);
+        if GameConfig::get().args.notitle {
+            let songsel = Box::new(songselect::SongSelectScene::new(
+                Box::new(songselect::SongSelect::new()),
+                services.create_scope(),
+            ));
+            scenes.loaded.push(songsel);
+        }
     }
 
     if let Some(chart_path) = GameConfig::get().args.chart.as_ref() {

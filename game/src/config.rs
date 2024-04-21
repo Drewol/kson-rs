@@ -21,6 +21,8 @@ pub struct Args {
     pub sound_test: bool,
     #[arg(short, long)]
     pub profiling: bool,
+    #[arg(long)]
+    pub notitle: bool,
 }
 
 #[derive(Debug, Deserialize, Serialize, Clone)]
