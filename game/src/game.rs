@@ -829,9 +829,10 @@ impl Game {
                     }
                 }
                 ScoreTick::Slam { lane, start, end } => {
+                    let signum = (end - start).signum() as i32;
                     self.camera.shakes.push(CameraShake::new(
                         ((start - end).abs() * 2.0).to_radians() as _,
-                        (end - start).signum() as _,
+                        signum as _,
                         20.0,
                         100.0,
                     ));
@@ -840,19 +841,28 @@ impl Game {
                         let events = &self.chart.camera.cam.pattern.laser.slam_event;
 
                         if let Ok(i) = events.half_spin.binary_search_by_key(&tick.y, |x| x.0) {
-                            self.camera
-                                .spins
-                                .push(camera::CameraSpin::Half(events.half_spin[i]));
+                            let cam_pattern_invoke_spin = events.half_spin[i];
+                            if events.half_spin[i].1 == signum {
+                                self.camera
+                                    .spins
+                                    .push(camera::CameraSpin::Half(cam_pattern_invoke_spin));
+                            }
                         }
                         if let Ok(i) = events.spin.binary_search_by_key(&tick.y, |x| x.0) {
-                            self.camera
-                                .spins
-                                .push(camera::CameraSpin::Full(events.spin[i]));
+                            let cam_pattern_invoke_spin = events.spin[i];
+                            if cam_pattern_invoke_spin.1 == signum {
+                                self.camera
+                                    .spins
+                                    .push(camera::CameraSpin::Full(cam_pattern_invoke_spin));
+                            }
                         }
                         if let Ok(i) = events.swing.binary_search_by_key(&tick.y, |x| x.0) {
-                            self.camera
-                                .spins
-                                .push(camera::CameraSpin::Swing(events.swing[i]));
+                            let cam_pattern_invoke_swing = events.swing[i];
+                            if cam_pattern_invoke_swing.1 == signum {
+                                self.camera
+                                    .spins
+                                    .push(camera::CameraSpin::Swing(cam_pattern_invoke_swing));
+                            }
                         }
                     }
 
