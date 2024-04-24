@@ -19,6 +19,6 @@ jobs:
       - run: rustup component add clippy
       - uses: giraffate/clippy-action@v1
         with:
-          clippy_flags: --workspace --all-features
+          clippy_flags: --workspace --all-features -- -Awarnings
           filter_mode: nofilter
           level: error
