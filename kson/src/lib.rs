@@ -907,6 +907,31 @@ impl Chart {
         }
     }
 
+    pub fn mode_bpm(&self) -> Option<f64> {
+        let mut last_bpm = *self.beat.bpm.first()?;
+
+        let mut durations: HashMap<u64, f64> = HashMap::new();
+
+        for ab in self.beat.bpm.windows(2) {
+            let a = ab[0];
+            let b = ab[1];
+            let l = durations.entry(a.1.to_bits()).or_default();
+            *l = *l + (self.tick_to_ms(b.0) - self.tick_to_ms(a.0));
+
+            last_bpm = b;
+        }
+
+        {
+            let x = durations.entry(last_bpm.1.to_bits()).or_default();
+            *x = *x + (self.tick_to_ms(self.get_last_tick()) - self.tick_to_ms(last_bpm.0));
+        }
+
+        durations
+            .iter()
+            .max_by(|a, b| a.1.total_cmp(b.1))
+            .map(|x| f64::from_bits(*x.0))
+    }
+
     pub fn ms_to_tick(&self, ms: f64) -> u32 {
         if ms <= 0.0 {
             return 0;

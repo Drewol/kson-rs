@@ -177,10 +177,10 @@ impl ChartView {
 
         let _glow_state = if (0.0_f32 * 8.0).fract() > 0.5 { 2 } else { 3 };
         let view_tick = chart.ms_to_tick(view_time) as i64 - view_offset;
-        let view_distance = (KSON_RESOLUTION as f32 * 4.0) / self.hispeed;
+        let view_distance = (KSON_RESOLUTION as f32 * 8.0) / self.hispeed;
         let last_view_tick = view_distance.ceil() as i64 + view_tick;
         let first_view_tick = view_tick - view_distance as i64;
-        let y_view_div = ((KSON_RESOLUTION as f32 * 4.0) / self.hispeed) / Self::TRACK_LENGTH;
+        let y_view_div = view_distance / Self::TRACK_LENGTH;
         let _white_mat = Rc::new(ColorMaterial {
             color: Srgba::WHITE,
             ..Default::default()

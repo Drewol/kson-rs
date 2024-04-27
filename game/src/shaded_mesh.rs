@@ -352,7 +352,7 @@ impl ShadedMesh {
     pub fn draw_fullscreen(&self, viewport: three_d::Viewport) {
         self.use_params();
 
-        self.material.use_uniform(
+        self.material.use_uniform_if_required(
             "viewport",
             Vector2::<i32>::new(viewport.width as i32, viewport.height as i32),
         );

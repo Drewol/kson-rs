@@ -1,5 +1,6 @@
 use crate::{
     button_codes::{UscButton, UscInputEvent},
+    config::GameConfig,
     input_state::InputState,
     log_result,
     lua_service::LuaProvider,
@@ -573,6 +574,7 @@ impl Game {
     ) -> Result<Self> {
         let mut view = ChartView::new(skin_root, td);
         view.build_laser_meshes(&chart);
+        view.hispeed = (GameConfig::get().mod_speed / chart.mode_bpm().unwrap()) as f32;
         let duration = chart.ms_to_tick(3000.0 + chart.tick_to_ms(chart.get_last_tick()));
         let mut slam_path = skin_root.clone();
         slam_path.push("audio");
@@ -1646,8 +1648,11 @@ impl Scene for Game {
                 let delta = ls.get_axis(side).delta as f64;
 
                 if self.input_state.is_button_held(UscButton::Start).is_some() {
+                    let mut config = GameConfig::get_mut();
                     self.view.hispeed += delta as f32 * 0.1;
                     self.view.hispeed = self.view.hispeed.clamp(0.1, 10.0);
+
+                    config.mod_speed = (self.view.hispeed * self.lua_game_state.bpm) as f64;
                 }
 
                 let input_dir = delta.total_cmp(&0.0);
