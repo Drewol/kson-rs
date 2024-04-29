@@ -1,4 +1,5 @@
 use std::{
+    borrow::BorrowMut,
     ops::{Add, Sub},
     rc::Rc,
     sync::{
@@ -32,7 +33,7 @@ use three_d as td;
 
 use crate::{
     button_codes::{LaserState, UscInputEvent},
-    config::GameConfig,
+    config::{Fullscreen, GameConfig},
     game::HitRating,
     game_data::GameData,
     input_state::InputState,
@@ -416,7 +417,23 @@ impl GameMain {
             Event::WindowEvent {
                 window_id,
                 event: WindowEvent::Resized(physical_size),
-            } => self.reset_viewport_size(physical_size),
+            } => {
+                let windowed = &mut GameConfig::get_mut().graphics.fullscreen;
+                if let Fullscreen::Windowed { pos, size } = windowed {
+                    *size = *physical_size;
+                }
+                self.reset_viewport_size(physical_size)
+            }
+            Event::WindowEvent {
+                window_id,
+                event: WindowEvent::Moved(physical_pos),
+            } => {
+                let windowed = &mut GameConfig::get_mut().graphics.fullscreen;
+                if let Fullscreen::Windowed { pos, size } = windowed {
+                    *pos = *physical_pos;
+                }
+            }
+
             Event::WindowEvent {
                 event: WindowEvent::CursorMoved { position, .. },
                 ..
@@ -668,11 +685,30 @@ impl GameMain {
     }
 
     fn toggle_fullscreen(&self, window: &Window) {
+        let fullscreen = &mut GameConfig::get_mut().graphics.fullscreen;
         match window.fullscreen() {
-            Some(_) => window.set_fullscreen(None),
-            None => window.set_fullscreen(Some(game_loop::winit::window::Fullscreen::Borderless(
-                window.current_monitor(),
-            ))),
+            Some(_) => {
+                window.set_fullscreen(None);
+                *fullscreen = Fullscreen::Windowed {
+                    pos: window
+                        .outer_position()
+                        .unwrap_or(PhysicalPosition::new(0, 0)),
+                    size: window.inner_size(),
+                }
+            }
+            None => {
+                let current_monitor = window.current_monitor();
+
+                if let Some(m) = current_monitor.as_ref() {
+                    *fullscreen = Fullscreen::Borderless {
+                        monitor: m.position(),
+                    };
+                }
+
+                window.set_fullscreen(Some(game_loop::winit::window::Fullscreen::Borderless(
+                    current_monitor,
+                )))
+            }
         }
     }
 }

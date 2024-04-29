@@ -5,6 +5,7 @@ use game_loop::winit::keyboard::PhysicalKey;
 use log::{error, info};
 use once_cell::sync::OnceCell;
 use serde::{Deserialize, Serialize};
+use winit::dpi::{PhysicalPosition, PhysicalSize};
 
 use crate::{
     button_codes::{CustomBindings, UscButton},
@@ -26,6 +27,7 @@ pub struct Args {
 }
 
 #[derive(Debug, Deserialize, Serialize, Clone)]
+#[serde(default)]
 pub struct GameConfig {
     #[serde(skip_serializing, skip_deserializing)]
     config_file: PathBuf,
@@ -50,6 +52,45 @@ pub struct GameConfig {
     pub keybinds: Vec<Keybinds>,
     pub controller_binds: CustomBindings,
     pub song_select: SongSelectSettings,
+    pub graphics: GraphicsSettings,
+}
+
+#[derive(Debug, Deserialize, Serialize, Clone)]
+pub enum Fullscreen {
+    Windowed {
+        pos: PhysicalPosition<i32>,
+        size: PhysicalSize<u32>,
+    },
+    Borderless {
+        monitor: PhysicalPosition<i32>,
+    },
+    Exclusive {
+        monitor: PhysicalPosition<i32>,
+        resolution: PhysicalSize<u32>,
+    },
+}
+
+#[derive(Debug, Deserialize, Serialize, Clone)]
+#[serde(default)]
+pub struct GraphicsSettings {
+    pub fullscreen: Fullscreen,
+    pub vsync: bool,
+    pub anti_alias: u8,
+    pub target_fps: u32,
+}
+
+impl Default for GraphicsSettings {
+    fn default() -> Self {
+        Self {
+            fullscreen: Fullscreen::Windowed {
+                pos: PhysicalPosition::new(0, 0),
+                size: PhysicalSize::new(1280, 720),
+            },
+            vsync: true,
+            anti_alias: 4,
+            target_fps: 120,
+        }
+    }
 }
 
 #[derive(Debug, Deserialize, Serialize, Clone, Default)]
@@ -155,6 +196,7 @@ impl Default for GameConfig {
             global_offset: 0,
             controller_binds: HashMap::new(),
             song_select: SongSelectSettings::default(),
+            graphics: GraphicsSettings::default()
 
         }
     }

@@ -16,8 +16,18 @@ use glutin::{
 };
 use glutin_winit::DisplayBuilder;
 use raw_window_handle::HasRawWindowHandle;
+use winit::{dpi::PhysicalPosition, monitor::MonitorHandle};
 
-use crate::button_codes::UscInputEvent;
+use crate::{button_codes::UscInputEvent, config::GameConfig};
+
+fn find_monitor(
+    event_loop: &EventLoop<UscInputEvent>,
+    pos: PhysicalPosition<i32>,
+) -> Option<MonitorHandle> {
+    event_loop
+        .available_monitors()
+        .find(|x| x.position() == pos)
+}
 
 /// Mostly borrowed code from femtovg/examples
 pub fn create_window() -> (
@@ -28,18 +38,43 @@ pub fn create_window() -> (
     EventLoop<UscInputEvent>,
     PossiblyCurrentContext,
 ) {
+    let settings = &GameConfig::get().graphics;
+
     let event_loop = EventLoopBuilder::<UscInputEvent>::with_user_event()
         .build()
         .unwrap();
 
     let window_builder = WindowBuilder::new()
-        .with_inner_size(winit::dpi::PhysicalSize::new(1280, 720))
         .with_resizable(true)
-        .with_title("Test");
+        .with_title("USC Game");
+
+    let window_builder = match settings.fullscreen {
+        crate::config::Fullscreen::Windowed { pos, size } => {
+            window_builder.with_position(pos).with_inner_size(size)
+        }
+        crate::config::Fullscreen::Borderless { monitor } => window_builder.with_fullscreen(Some(
+            winit::window::Fullscreen::Borderless(find_monitor(&event_loop, monitor)),
+        )),
+        crate::config::Fullscreen::Exclusive {
+            monitor,
+            resolution,
+        } => {
+            if let Some(mode) = find_monitor(&event_loop, monitor).and_then(|monitor| {
+                monitor
+                    .video_modes()
+                    .filter(|x| x.size() == resolution)
+                    .max_by_key(|x| x.refresh_rate_millihertz())
+            }) {
+                window_builder.with_fullscreen(Some(winit::window::Fullscreen::Exclusive(mode)))
+            } else {
+                window_builder
+            }
+        }
+    };
 
     let template = ConfigTemplateBuilder::new()
         .with_alpha_size(8)
-        .with_multisampling(4);
+        .with_multisampling(settings.anti_alias);
 
     let display_builder = DisplayBuilder::new().with_window_builder(Some(window_builder));
 
@@ -121,7 +156,11 @@ pub fn create_window() -> (
     surface
         .set_swap_interval(
             &gl_context,
-            glutin::surface::SwapInterval::Wait(NonZeroU32::new(1).unwrap()),
+            if settings.vsync {
+                glutin::surface::SwapInterval::Wait(NonZeroU32::new(1).unwrap())
+            } else {
+                glutin::surface::SwapInterval::DontWait
+            },
         )
         .unwrap();
 
