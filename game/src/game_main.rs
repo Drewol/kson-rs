@@ -276,9 +276,10 @@ impl GameMain {
                     MainMenuButton::Exit => {
                         scenes.clear();
                     }
-                    MainMenuButton::Options => scenes
-                        .loaded
-                        .push(Box::new(SettingsScreen::new(self.input_state.clone()))),
+                    MainMenuButton::Options => scenes.loaded.push(Box::new(SettingsScreen::new(
+                        self.input_state.clone(),
+                        window,
+                    ))),
                     _ => {}
                 },
                 ControlMessage::Song { diff, loader, song } => {
