@@ -1,6 +1,6 @@
 mod controller_binding;
 
-use std::collections::HashMap;
+use std::{collections::HashMap, sync::mpsc::Sender};
 
 use egui::{CollapsingResponse, InnerResponse, RichText, Separator, Slider, TextEdit, Ui};
 use gilrs::GamepadId;
@@ -12,6 +12,7 @@ use winit::{
 
 use crate::{
     config::{Fullscreen, GameConfig},
+    game_main::ControlMessage,
     input_state::InputState,
     scene::Scene,
     skin_settings::SkinSettingValue,
@@ -28,10 +29,15 @@ pub struct SettingsScreen {
     controllers: HashMap<GamepadId, String>,
     monitors: Vec<MonitorHandle>,
     primary_monitor: Option<MonitorHandle>,
+    tx: Sender<ControlMessage>,
 }
 
 impl SettingsScreen {
-    pub fn new(input_state: InputState, window: &winit::window::Window) -> Self {
+    pub fn new(
+        input_state: InputState,
+        tx: Sender<ControlMessage>,
+        window: &winit::window::Window,
+    ) -> Self {
         let controllers = {
             let lock_gilrs = input_state.lock_gilrs();
             lock_gilrs
@@ -52,12 +58,14 @@ impl SettingsScreen {
             controllers,
             monitors,
             primary_monitor,
+            tx,
         }
     }
 
     fn apply(&self) {
         let mut c = GameConfig::get_mut();
         *c = self.altered_settings.clone();
+        _ = self.tx.send(ControlMessage::ApplySettings);
     }
 }
 
@@ -167,7 +175,6 @@ impl Scene for SettingsScreen {
                         .show_ui(ui, |ui| {
                             for i in 0..4 {
                                 let aa = 1 << i;
-                                let aa = (aa / 2) * 2; // 1 => 0
                                 if ui
                                     .selectable_label(
                                         aa == self.altered_settings.graphics.anti_alias,
@@ -429,7 +436,7 @@ fn monitor_select(
 
 fn aa_text(aa: u8) -> String {
     match aa {
-        0 => "Off".into(),
+        1 => "Off".into(),
         v => format!("{v}x"),
     }
 }

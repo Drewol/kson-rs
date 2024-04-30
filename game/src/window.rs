@@ -20,13 +20,11 @@ use winit::{dpi::PhysicalPosition, monitor::MonitorHandle};
 
 use crate::{button_codes::UscInputEvent, config::GameConfig};
 
-fn find_monitor(
-    event_loop: &EventLoop<UscInputEvent>,
+pub fn find_monitor(
+    mut monitors: impl Iterator<Item = MonitorHandle>,
     pos: PhysicalPosition<i32>,
 ) -> Option<MonitorHandle> {
-    event_loop
-        .available_monitors()
-        .find(|x| x.position() == pos)
+    monitors.find(|x| x.position() == pos)
 }
 
 /// Mostly borrowed code from femtovg/examples
@@ -52,19 +50,23 @@ pub fn create_window() -> (
         crate::config::Fullscreen::Windowed { pos, size } => {
             window_builder.with_position(pos).with_inner_size(size)
         }
-        crate::config::Fullscreen::Borderless { monitor } => window_builder.with_fullscreen(Some(
-            winit::window::Fullscreen::Borderless(find_monitor(&event_loop, monitor)),
-        )),
+        crate::config::Fullscreen::Borderless { monitor } => {
+            window_builder.with_fullscreen(Some(winit::window::Fullscreen::Borderless(
+                find_monitor(event_loop.available_monitors(), monitor),
+            )))
+        }
         crate::config::Fullscreen::Exclusive {
             monitor,
             resolution,
         } => {
-            if let Some(mode) = find_monitor(&event_loop, monitor).and_then(|monitor| {
-                monitor
-                    .video_modes()
-                    .filter(|x| x.size() == resolution)
-                    .max_by_key(|x| x.refresh_rate_millihertz())
-            }) {
+            if let Some(mode) =
+                find_monitor(event_loop.available_monitors(), monitor).and_then(|monitor| {
+                    monitor
+                        .video_modes()
+                        .filter(|x| x.size() == resolution)
+                        .max_by_key(|x| x.refresh_rate_millihertz())
+                })
+            {
                 window_builder.with_fullscreen(Some(winit::window::Fullscreen::Exclusive(mode)))
             } else {
                 window_builder

@@ -614,6 +614,8 @@ fn main() -> anyhow::Result<()> {
                     context: context.clone(),
                 },
                 &g.window,
+                &surface,
+                &window_gl,
             );
             surface
                 .swap_buffers(&window_gl)

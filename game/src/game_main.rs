@@ -1,5 +1,6 @@
 use std::{
     borrow::BorrowMut,
+    num::NonZeroU32,
     ops::{Add, Sub},
     rc::Rc,
     sync::{
@@ -20,6 +21,11 @@ use game_loop::winit::{
     window::Window,
 };
 
+use glutin::{
+    context::{GlContext, PossiblyCurrentContext},
+    display::GetGlDisplay,
+    surface::{AsRawSurface, GlSurface, SwapInterval},
+};
 use kson::Chart;
 use log::*;
 use puffin::{profile_function, profile_scope};
@@ -46,6 +52,7 @@ use crate::{
     transition::Transition,
     util::lua_address,
     vg_ui::Vgfx,
+    window::find_monitor,
     worker_service::WorkerService,
     LuaArena, RuscMixer, Scenes, FRAME_ACC_SIZE,
 };
@@ -68,6 +75,8 @@ pub enum ControlMessage {
         gauge: f32,
         hit_ratings: Vec<HitRating>,
     },
+
+    ApplySettings,
 }
 
 impl Default for ControlMessage {
@@ -176,6 +185,8 @@ impl GameMain {
         &mut self,
         frame_input: FrameInput,
         window: &game_loop::winit::window::Window,
+        surface: &glutin::surface::Surface<glutin::surface::WindowSurface>,
+        gl_context: &PossiblyCurrentContext,
     ) -> FrameOutput {
         let GameMain {
             lua_arena,
@@ -278,6 +289,7 @@ impl GameMain {
                     }
                     MainMenuButton::Options => scenes.loaded.push(Box::new(SettingsScreen::new(
                         self.input_state.clone(),
+                        control_tx.clone(),
                         window,
                     ))),
                     _ => {}
@@ -324,6 +336,39 @@ impl GameMain {
                             service_provider.create_scope(),
                         ))
                     }
+                }
+                ControlMessage::ApplySettings => {
+                    //TODO: Reload skin
+                    let settings = GameConfig::get();
+                    _ = surface.set_swap_interval(
+                        gl_context,
+                        if settings.graphics.vsync {
+                            SwapInterval::Wait(NonZeroU32::new(1).unwrap())
+                        } else {
+                            SwapInterval::DontWait
+                        },
+                    );
+
+                    window.set_fullscreen(match settings.graphics.fullscreen {
+                        Fullscreen::Windowed { .. } => None,
+                        Fullscreen::Borderless { monitor } => {
+                            let m = find_monitor(window.available_monitors(), monitor);
+                            Some(game_loop::winit::window::Fullscreen::Borderless(m))
+                        }
+                        Fullscreen::Exclusive {
+                            monitor,
+                            resolution,
+                        } => {
+                            let m =
+                                find_monitor(window.available_monitors(), monitor).and_then(|m| {
+                                    m.video_modes()
+                                        .filter(|x| x.size() == resolution)
+                                        .max_by_key(|x| x.refresh_rate_millihertz())
+                                });
+
+                            m.map(|x| game_loop::winit::window::Fullscreen::Exclusive(x))
+                        }
+                    })
                 }
             }
         }
