@@ -40,7 +40,7 @@ use three_d as td;
 use crate::{
     button_codes::{LaserState, UscInputEvent},
     config::{Fullscreen, GameConfig},
-    game::HitRating,
+    game::{Gauge, HitRating},
     game_data::GameData,
     input_state::InputState,
     lua_http::LuaHttp,
@@ -72,7 +72,7 @@ pub enum ControlMessage {
         song: Arc<songselect::Song>,
         diff_idx: usize,
         score: u32,
-        gauge: f32,
+        gauge: Gauge,
         hit_ratings: Vec<HitRating>,
     },
 

@@ -11,7 +11,7 @@ use serde::Serialize;
 
 use crate::{
     button_codes::UscButton,
-    game::{HitRating, HitWindow},
+    game::{Gauge, HitRating, HitWindow},
     lua_service::LuaProvider,
     scene::{Scene, SceneData},
     song_provider::{DiffId, ScoreProvider, SongDiffId, SongId},
@@ -92,7 +92,7 @@ impl SongResultData {
         diff_idx: usize,
         score: u32,
         hit_ratings: Vec<HitRating>,
-        gauge: f32,
+        gauge: Gauge,
     ) -> Self {
         let Difficulty {
             jacket_path,
@@ -172,8 +172,8 @@ impl SongResultData {
             difficulty,
             bpm,
             grade,
-            gauge_samples: vec![0.0; 256],
-            gauge,
+            gauge_samples: Vec::from(gauge.get_samples()),
+            gauge: gauge.value(),
             goods: hit_ratings
                 .iter()
                 .filter(|x| {

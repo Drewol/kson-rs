@@ -115,14 +115,17 @@ enum TargetRoll {
     Manual(f64),
 }
 
+pub const GAUGE_SAMPLES: usize = 128;
+
 #[derive(Debug, Default)]
-enum Gauge {
+pub enum Gauge {
     #[default]
     None,
     Normal {
         chip_gain: f32,
         tick_gain: f32,
         value: f32,
+        samples: [f32; GAUGE_SAMPLES],
     },
 }
 
@@ -147,32 +150,13 @@ impl Gauge {
                 chip_gain,
                 tick_gain,
                 value,
+                ..
             } => match rating {
-                HitRating::Crit {
-                    tick: t,
-                    delta: _,
-                    time: _,
-                } if tick_is_short(t) => *value += *chip_gain,
-                HitRating::Crit {
-                    tick: _,
-                    delta: _,
-                    time: _,
-                } => *value += *tick_gain,
-                HitRating::Good {
-                    tick: _,
-                    delta: _,
-                    time: _,
-                } => *value += *chip_gain / 3.0, //Only chips can have a "good" rating
-                HitRating::Miss {
-                    tick: t,
-                    delta: _,
-                    time: _,
-                } if tick_is_short(t) => *value -= 0.02,
-                HitRating::Miss {
-                    tick: _,
-                    delta: _,
-                    time: _,
-                } => *value -= 0.02 / 4.0,
+                HitRating::Crit { tick: t, .. } if tick_is_short(t) => *value += *chip_gain,
+                HitRating::Crit { .. } => *value += *tick_gain,
+                HitRating::Good { .. } => *value += *chip_gain / 3.0, //Only chips can have a "good" rating
+                HitRating::Miss { tick: t, .. } if tick_is_short(t) => *value -= 0.02,
+                HitRating::Miss { .. } => *value -= 0.02 / 4.0,
                 HitRating::None => {}
             },
         }
@@ -180,21 +164,13 @@ impl Gauge {
         //Clamp
         match self {
             Gauge::None => todo!(),
-            Gauge::Normal {
-                chip_gain: _,
-                tick_gain: _,
-                value,
-            } => *value = value.clamp(0.0, 1.0),
+            Gauge::Normal { value, .. } => *value = value.clamp(0.0, 1.0),
         }
     }
 
     pub fn is_cleared(&self) -> bool {
         match self {
-            Gauge::Normal {
-                chip_gain: _,
-                tick_gain: _,
-                value,
-            } => *value >= 0.7,
+            Gauge::Normal { value, .. } => *value >= 0.7,
             Gauge::None => false,
         }
     }
@@ -202,11 +178,21 @@ impl Gauge {
     pub fn value(&self) -> f32 {
         match self {
             Gauge::None => 0.0,
-            Gauge::Normal {
-                chip_gain: _,
-                tick_gain: _,
-                value,
-            } => *value,
+            Gauge::Normal { value, .. } => *value,
+        }
+    }
+
+    pub fn update_sample(&mut self, sample: usize) {
+        match self {
+            Gauge::None => {}
+            Gauge::Normal { value, samples, .. } => samples[sample.min(GAUGE_SAMPLES)] = *value,
+        }
+    }
+
+    pub fn get_samples(&self) -> &[f32] {
+        match self {
+            Gauge::None => &[],
+            Gauge::Normal { samples, .. } => samples,
         }
     }
 }
@@ -234,11 +220,7 @@ pub enum HitRating {
 impl From<&Gauge> for lua_data::LuaGauge {
     fn from(value: &Gauge) -> Self {
         match value {
-            Gauge::Normal {
-                chip_gain: _,
-                tick_gain: _,
-                value,
-            } => lua_data::LuaGauge {
+            Gauge::Normal { value, .. } => lua_data::LuaGauge {
                 gauge_type: 0,
                 options: 0,
                 value: *value,
@@ -1088,7 +1070,7 @@ impl Scene for Game {
                     song: self.song.clone(),
                     diff_idx: self.diff_idx,
                     score: self.calculate_display_score() as u32,
-                    gauge: self.gauge.value(),
+                    gauge: std::mem::take(&mut self.gauge),
                     hit_ratings: std::mem::take(&mut self.hit_ratings),
                 })
                 .unwrap();
@@ -1201,6 +1183,10 @@ impl Scene for Game {
         );
 
         self.camera.check_spins(self.current_tick);
+
+        self.gauge
+            .update_sample(GAUGE_SAMPLES * self.current_tick as usize / self.duration as usize);
+
         Ok(())
     }
 
@@ -1228,6 +1214,7 @@ impl Scene for Game {
             chip_gain,
             tick_gain,
             value: 0.0,
+            samples: [0.0; GAUGE_SAMPLES],
         };
 
         self.control_tx = Some(app_control_tx);
