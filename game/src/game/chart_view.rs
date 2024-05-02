@@ -1,6 +1,6 @@
 use std::{collections::HashSet, path::Path, rc::Rc, sync::Arc};
 
-use crate::game::HoldState;
+use crate::{config::GameConfig, game::HoldState};
 
 use super::graphics::{self, GlVertex};
 
@@ -9,6 +9,7 @@ pub struct ChartView {
     pub cursor: f64,
     laser_meshes: [Vec<Vec<graphics::GlVertex>>; 2],
     track: CpuMesh,
+    distant_button_scale: f32,
     pub state: i32,
 }
 
@@ -74,6 +75,7 @@ impl ChartView {
         };
 
         ChartView {
+            distant_button_scale: GameConfig::get().distant_button_scale,
             cursor: 0.0,
             hispeed: 1.0,
             laser_meshes: [Vec::new(), Vec::new()],
@@ -274,8 +276,16 @@ impl ChartView {
         let notes = {
             profile_scope!("Transform notes");
             notes.iter().map(|n| {
+                let distance_scale = match n.2 {
+                    NoteType::BtChip | NoteType::FxChip | NoteType::FxChipSample => {
+                        ((-n.0.y / Self::TRACK_LENGTH) * self.distant_button_scale).max(1.0)
+                    }
+                    _ => 1.0,
+                };
+
                 (
-                    Mat4::from_translation(n.0) * Mat4::from_nonuniform_scale(1.0, -n.1.y, 1.0),
+                    Mat4::from_translation(n.0)
+                        * Mat4::from_nonuniform_scale(1.0, -n.1.y * distance_scale, 1.0),
                     n.2,
                 )
             })

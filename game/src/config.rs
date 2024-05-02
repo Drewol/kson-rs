@@ -53,6 +53,7 @@ pub struct GameConfig {
     pub controller_binds: CustomBindings,
     pub song_select: SongSelectSettings,
     pub graphics: GraphicsSettings,
+    pub distant_button_scale: f32,
 }
 
 #[derive(Debug, Deserialize, Serialize, Clone)]
@@ -196,7 +197,8 @@ impl Default for GameConfig {
             global_offset: 0,
             controller_binds: HashMap::new(),
             song_select: SongSelectSettings::default(),
-            graphics: GraphicsSettings::default()
+            graphics: GraphicsSettings::default(),
+            distant_button_scale: 2.0,
 
         }
     }
