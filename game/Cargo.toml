@@ -64,7 +64,7 @@ three-d-asset = { version = "0.6.0", features = [
     "tiff",
 ] }
 directories = "5.0.1"
-zip = "0.6.4"
+zip = "1.2.0"
 game-loop = { git = "https://github.com/Drewol/game-loop.git", features = [
     "winit",
 ] }
