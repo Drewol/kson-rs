@@ -82,7 +82,7 @@ futures = "0.3.28"
 num_cpus = "1.16.0"
 encoding = "0.2.33"
 kson-editor = { path = "../editor" }
-serde_with = "3.3.0"
+serde_with = "3.8.1"
 more-di = { version = "3.1.0", features = ["async"] }
 bus = "2.4.1"
 
