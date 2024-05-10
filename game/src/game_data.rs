@@ -378,7 +378,7 @@ impl TealData for GameData {
 
                     _game_data
                         .profile_stack
-                        .push(ProfilerScope::new(custom_scope, &scope))
+                        .push(ProfilerScope::new(custom_scope, scope))
                 }
                 Ok(())
             },

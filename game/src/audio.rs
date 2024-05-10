@@ -1,4 +1,4 @@
-use cpal::{Sample as CpalSample};
+use cpal::Sample as CpalSample;
 use rodio::{cpal, Sample, Source};
 
 pub struct ChartAudio {
@@ -10,7 +10,7 @@ pub struct ChartAudio {
     effec_active: bool,
     effect_offset: usize,
 }
-
+#[allow(unused)]
 pub trait ChartAudioSource: Source
 where
     Self: Sized,

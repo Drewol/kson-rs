@@ -120,7 +120,7 @@ where
     }
 
     fn channels(&self) -> u16 {
-        self.channels as u16
+        self.channels
     }
 
     fn sample_rate(&self) -> u32 {

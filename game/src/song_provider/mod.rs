@@ -3,7 +3,7 @@
 use std::{
     collections::HashSet,
     default,
-    fmt::{format, Debug},
+    fmt::{format, Debug, Display, Write},
     sync::Arc,
     time::Duration,
 };
@@ -59,13 +59,13 @@ pub struct SongSort {
     pub direction: SortDir,
 }
 
-impl Into<(rusc_database::SortColumn, rusc_database::SortDir)> for SongSort {
-    fn into(self) -> (rusc_database::SortColumn, rusc_database::SortDir) {
+impl From<SongSort> for (rusc_database::SortColumn, rusc_database::SortDir) {
+    fn from(val: SongSort) -> Self {
         (
-            match self.sort_type {
+            match val.sort_type {
                 SongSortType::Title => rusc_database::SortColumn::Title,
             },
-            match self.direction {
+            match val.direction {
                 SortDir::Asc => rusc_database::SortDir::Asc,
                 SortDir::Desc => rusc_database::SortDir::Desc,
             },
@@ -82,11 +82,11 @@ impl SongSort {
     }
 }
 
-impl ToString for SongSort {
-    fn to_string(&self) -> String {
+impl Display for SongSort {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter) -> std::fmt::Result {
         match (self.sort_type, self.direction) {
-            (SongSortType::Title, SortDir::Asc) => "Title ^".to_owned(),
-            (SongSortType::Title, SortDir::Desc) => "Title v".to_owned(),
+            (SongSortType::Title, SortDir::Asc) => formatter.write_str("Title ^"),
+            (SongSortType::Title, SortDir::Desc) => formatter.write_str("Title v"),
         }
     }
 }
@@ -99,12 +99,12 @@ pub enum SongFilterType {
     Collection(String),
 }
 
-impl ToString for SongFilterType {
-    fn to_string(&self) -> String {
+impl Display for SongFilterType {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter) -> std::fmt::Result {
         match self {
-            SongFilterType::None => "None".to_owned(),
-            SongFilterType::Folder(f) => format!("Folder: {f}"),
-            SongFilterType::Collection(c) => format!("Collection: {c}"),
+            SongFilterType::None => formatter.write_str("None"),
+            SongFilterType::Folder(f) => formatter.write_fmt(format_args!("Folder: {f}")),
+            SongFilterType::Collection(c) => formatter.write_fmt(format_args!("Collection: {c}")),
         }
     }
 }

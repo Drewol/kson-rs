@@ -323,9 +323,9 @@ impl FileSongProvider {
                                                         .expect("Failed to insert chart")
                                                 };
 
-                                                song.bpm = c.meta.disp_bpm.clone();
-                                                song.title = c.meta.title.clone();
-                                                song.artist = c.meta.artist.clone();
+                                                song.bpm.clone_from(&c.meta.disp_bpm);
+                                                song.title.clone_from(&c.meta.title);
+                                                song.artist.clone_from(&c.meta.artist);
 
                                                 song.difficulties.write().unwrap().push(
                                                     Difficulty {
@@ -431,7 +431,7 @@ impl FileSongProvider {
             score_bus: bus::Bus::new(32),
             song_bus: bus::Bus::new(32),
             worker_tx,
-            sort: sorting.clone(),
+            sort: *sorting,
             filter: filter.clone(),
             query: String::new(),
         }
@@ -487,7 +487,7 @@ impl SongProvider for FileSongProvider {
             self.filter.clone(),
             self.sort,
         ));
-        GameConfig::get_mut().song_select.sorting = self.sort.clone();
+        GameConfig::get_mut().song_select.sorting = self.sort;
     }
 
     fn set_filter(&mut self, filter: super::SongFilter) {

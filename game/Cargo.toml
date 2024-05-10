@@ -92,3 +92,6 @@ features = ["serde"]
 
 [target.'cfg(unix)'.dependencies]
 openssl = { version = "^0.10", features = ["vendored"] }
+
+[lints.clippy]
+arc_with_non_send_sync = "allow"

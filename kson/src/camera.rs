@@ -1,6 +1,6 @@
 use std::cmp::Ordering;
 
-use crate::{overlaps::Overlaps, ByPulse, Graph, GraphPoint, GraphSectionPoint};
+use crate::{ByPulse, Graph, GraphPoint, GraphSectionPoint};
 use serde::{Deserialize, Serialize};
 
 #[cfg(feature = "schema")]

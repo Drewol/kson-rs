@@ -13,12 +13,11 @@ pub struct ChartView {
     pub state: i32,
 }
 
-use anyhow::{ensure, Result};
 use kson::KSON_RESOLUTION;
 use puffin::{profile_function, profile_scope};
 use three_d::{
-    vec2, vec3, Blend, Camera, ColorMaterial, CpuMesh, DepthTest, Indices, InnerSpace, Mat3, Mat4,
-    Matrix4, Positions, RenderStates, Texture2D, Transform, Vec2, Vec3, Vec4, Viewport, Zero,
+    vec2, vec3, Blend, ColorMaterial, CpuMesh, DepthTest, Indices, Mat3, RenderStates, Texture2D,
+    Vec3,
 };
 use three_d_asset::Srgba;
 impl ChartView {

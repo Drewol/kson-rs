@@ -80,7 +80,7 @@ impl Graph<f64> for Vec<GraphPoint> {
         }
     }
 
-    fn wide_at(&self, tick: f64) -> u32 {
+    fn wide_at(&self, _tick: f64) -> u32 {
         1
     }
 }
@@ -151,7 +151,7 @@ impl Graph<Option<f64>> for Vec<GraphSectionPoint> {
         }
     }
 
-    fn wide_at(&self, tick: f64) -> u32 {
+    fn wide_at(&self, _tick: f64) -> u32 {
         1
     }
 }
@@ -167,7 +167,7 @@ impl Graph<Option<f64>> for LaserSection {
         self.1.direction_at(r_tick)
     }
 
-    fn wide_at(&self, tick: f64) -> u32 {
+    fn wide_at(&self, _tick: f64) -> u32 {
         self.2 as _
     }
 }

@@ -32,11 +32,11 @@ impl From<&EffectFloat> for f32 {
     }
 }
 
-impl ToString for EffectFloat {
-    fn to_string(&self) -> String {
+impl Display for EffectFloat {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter) -> std::fmt::Result {
         match self {
-            EffectFloat::Float(f) => f.to_string(),
-            EffectFloat::Fraction(a, b) => format!("{}/{}", a, b),
+            EffectFloat::Float(f) => f.fmt(formatter),
+            EffectFloat::Fraction(a, b) => formatter.write_fmt(format_args!("{}/{}", a, b)),
         }
     }
 }
@@ -48,11 +48,11 @@ pub enum EffectFreq {
     Khz(f32),
 }
 
-impl ToString for EffectFreq {
-    fn to_string(&self) -> String {
+impl Display for EffectFreq {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter) -> std::fmt::Result {
         match self {
-            EffectFreq::Hz(f) => f.to_string() + "Hz",
-            EffectFreq::Khz(f) => f.to_string() + "kHz",
+            EffectFreq::Hz(f) => formatter.write_fmt(format_args!("{f}Hz")),
+            EffectFreq::Khz(f) => formatter.write_fmt(format_args!("{f}kHz")),
         }
     }
 }
@@ -197,12 +197,12 @@ impl<T: Any> Serialize for EffectParameter<T> {
     }
 }
 
-impl<T: Any> ToString for EffectParameter<T> {
-    fn to_string(&self) -> String {
+impl<T: Any> Display for EffectParameter<T> {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter) -> std::fmt::Result {
         if let Some(on) = &self.on {
-            format!("{}>{}", self.off, on)
+            formatter.write_fmt(format_args!("{}>{}", self.off, on))
         } else {
-            format!("{}", &self.off)
+            formatter.write_fmt(format_args!("{}", &self.off))
         }
     }
 }

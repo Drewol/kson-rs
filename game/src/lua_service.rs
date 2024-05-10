@@ -13,8 +13,8 @@ use di::{injectable, Ref, RefMut};
 use log::info;
 use puffin::profile_scope;
 use serde_json::json;
-use tealr::mlu::mlua::{Lua, StdLib};
-use tealr::mlu::mlua::{LuaOptions, LuaSerdeExt};
+use tealr::mlu::mlua::Lua;
+use tealr::mlu::mlua::LuaSerdeExt;
 
 //TODO: Used expanded macro because of wrong dependencies, use macro when fixed
 #[injectable]
@@ -24,7 +24,6 @@ pub struct LuaProvider {
     context: Ref<three_d::core::Context>,
     mixer: Ref<InnerRuscMixer>,
     game_data: RefMut<game_data::GameData>,
-    registrerd: Vec<u32>,
 }
 
 impl LuaProvider {

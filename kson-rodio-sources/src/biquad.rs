@@ -3,7 +3,7 @@ use std::{
     sync::mpsc::{Receiver, Sender},
 };
 
-use rodio::{Sample, Source};
+use rodio::Source;
 
 use super::mix_source::MixSource;
 

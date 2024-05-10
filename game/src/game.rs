@@ -13,30 +13,28 @@ use crate::{
 
 use anyhow::{ensure, Result};
 use di::{RefMut, ServiceProvider};
-use egui_plot::{Line, PlotPoint, PlotPoints};
+use egui_plot::{Line, PlotPoints};
 use image::GenericImageView;
 use itertools::Itertools;
 use kson::{
-    effects::EffectInterval,
     score_ticks::{PlacedScoreTick, ScoreTick, ScoreTickSummary, ScoreTicker},
-    Chart, Graph, Interval, Side, Track,
+    Chart, Graph,
 };
 use kson_rodio_sources::{
     biquad::{biquad, BiQuadState, BiQuadType, BiquadController},
     owned_source::owned_source,
 };
-use log::info;
+
 use puffin::{profile_function, profile_scope};
 use rodio::{dynamic_mixer::DynamicMixerController, source::Buffered, Decoder, Source};
 use std::{
     cmp::Ordering,
     collections::VecDeque,
     f32::consts::SQRT_2,
-    ops::{Add, Sub},
+    ops::Sub,
     path::PathBuf,
     rc::Rc,
     sync::{
-        atomic::{AtomicBool, AtomicI32, AtomicU16},
         mpsc::{Receiver, Sender},
         Arc,
     },
@@ -125,7 +123,7 @@ pub enum Gauge {
         chip_gain: f32,
         tick_gain: f32,
         value: f32,
-        samples: [f32; GAUGE_SAMPLES],
+        samples: Box<[f32; GAUGE_SAMPLES]>,
     },
 }
 
@@ -192,7 +190,7 @@ impl Gauge {
     pub fn get_samples(&self) -> &[f32] {
         match self {
             Gauge::None => &[],
-            Gauge::Normal { samples, .. } => samples,
+            Gauge::Normal { samples, .. } => samples.as_ref(),
         }
     }
 }
@@ -243,10 +241,6 @@ enum HoldState {
 }
 
 mod graphics;
-use graphics::*;
-
-type ChartSource =
-    std::boxed::Box<(dyn rodio::source::Source<Item = f32> + std::marker::Send + 'static)>;
 
 pub struct GameData {
     song: Arc<Song>,
@@ -466,8 +460,8 @@ impl SceneData for GameData {
             service_provider.get_required(),
             service_provider.get_required(),
         )
-        .or_else(|e| {
-            log::warn!("Failed to load background: {e} \n {:?}", &bg_folder);
+        .inspect_err(|e| log::warn!("Failed to load background: {e} \n {:?}", &bg_folder))
+        .or_else(|_| {
             GameBackground::new(
                 &context,
                 true,
@@ -1130,7 +1124,7 @@ impl Scene for Game {
             .tilt
             .manual
             .value_at(self.current_tick as f64)
-            .map(|x| TargetRoll::Manual(x))
+            .map(TargetRoll::Manual)
             .unwrap_or_else(|| match self.laser_target {
                 [Some(l), Some(r)] => TargetRoll::Laser(r + l - 1.0),
                 [Some(l), None] => TargetRoll::Laser(l),
@@ -1214,7 +1208,7 @@ impl Scene for Game {
             chip_gain,
             tick_gain,
             value: 0.0,
-            samples: [0.0; GAUGE_SAMPLES],
+            samples: Box::new([0.0; GAUGE_SAMPLES]),
         };
 
         self.control_tx = Some(app_control_tx);

@@ -10,15 +10,12 @@ pub struct ParamEditor<'a, T> {
 }
 
 impl<'a, T: Clone> ParamEditor<'a, T> {
-    pub fn new(value: &'a mut EffectParameter<T>, allow_filename: bool) -> Self {
+    pub fn new(value: &'a mut EffectParameter<T>, _allow_filename: bool) -> Self {
         Self {
             get_set_value: Box::new(move |v: Option<EffectParameter<T>>| {
+                //TOOO: Check for filename
                 if let Some(v) = v {
-                    if allow_filename {
-                        *value = v;
-                    } else if !is_filename(&v) {
-                        *value = v;
-                    }
+                    *value = v;
                 }
                 value.clone()
             }),
@@ -26,12 +23,13 @@ impl<'a, T: Clone> ParamEditor<'a, T> {
     }
 }
 
+#[allow(unused)]
 fn is_filename<T>(v: &EffectParameter<T>) -> bool {
-    match (&v.off, &v.on) {
-        (kson::parameter::EffectParameterValue::Filename(_), _) => true,
-        (_, Some(kson::parameter::EffectParameterValue::Filename(_))) => true,
-        _ => false,
-    }
+    matches!(
+        (&v.off, &v.on),
+        (kson::parameter::EffectParameterValue::Filename(_), _)
+            | (_, Some(kson::parameter::EffectParameterValue::Filename(_)))
+    )
 }
 
 impl<'a, T: Default + 'static> Widget for ParamEditor<'a, T> {
@@ -62,8 +60,8 @@ impl<'a, T: Default + 'static> Widget for ParamEditor<'a, T> {
     }
 }
 
-pub fn param_editor<'a, T: Clone + Default + 'static>(
-    param: &'a mut EffectParameter<T>,
+pub fn param_editor<T: Clone + Default + 'static>(
+    param: &mut EffectParameter<T>,
     allow_filename: bool,
 ) -> impl egui::Widget + '_ {
     let editor = ParamEditor::new(param, allow_filename);

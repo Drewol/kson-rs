@@ -14,7 +14,6 @@ use eframe::egui::{
 use eframe::App;
 use i18n::fl;
 use i18n_embed::unic_langid::LanguageIdentifier;
-use kson::parameter::EffectParameter;
 use kson::{BgmInfo, Chart, MetaInfo};
 use puffin::profile_scope;
 use serde::{Deserialize, Serialize};
@@ -570,7 +569,7 @@ impl App for AppState {
         std::time::Duration::from_secs(300)
     }
 
-    fn update(&mut self, ctx: &egui::Context, frame: &mut eframe::Frame) {
+    fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
         //input checking
         //TODO: Block events when exiting?
         let events = { ctx.input(|x| x.events.clone()) };
@@ -913,7 +912,7 @@ impl App for AppState {
 }
 
 pub fn main() -> eframe::Result<()> {
-    simple_logger::init_with_env();
+    _ = simple_logger::init_with_env();
     #[cfg(feature = "profiling")]
     {
         start_puffin_server();

@@ -312,7 +312,7 @@ impl GameConfig {
         let instance_result = match file_content {
             Ok(Ok(mut config)) => {
                 config.args = args;
-                config.config_file = path.clone();
+                config.config_file.clone_from(&path);
                 path.pop();
                 config.game_folder = path;
                 INSTANCE.set(RwLock::new(config))

@@ -14,8 +14,6 @@ use tealr::mlu::mlua::{Function, Lua, LuaSerdeExt};
 use three_d::{ColorMaterial, Gm, Mat3, Rad, Rectangle, Texture2DRef, Vec2, Zero};
 
 use crate::{
-    game_data::GameData,
-    input_state::InputState,
     log_result,
     main_menu::MainMenuButton,
     results::SongResultData,
@@ -40,11 +38,8 @@ pub struct Transition {
     control_tx: Sender<ControlMessage>,
     pub state: TransitionState,
     transition_lua: Rc<Lua>,
-    context: three_d::Context,
     vgfx: RefMut<crate::Vgfx>,
     prev_screengrab: Option<Gm<Rectangle, ColorMaterial>>,
-    input_state: InputState,
-    game_data: RefMut<GameData>,
     service_provider: ServiceProvider,
 }
 
@@ -79,8 +74,7 @@ impl Transition {
         control_tx: Sender<ControlMessage>,
         vgfx: RefMut<crate::Vgfx>,
         viewport: three_d::Viewport,
-        input_state: InputState,
-        game_data: RefMut<GameData>,
+
         service_provider: ServiceProvider,
     ) -> Self {
         if let Ok(reset_fn) = transition_lua.globals().get::<_, Function>("reset") {
@@ -146,11 +140,8 @@ impl Transition {
             target_state: None,
             control_tx,
             state: TransitionState::Intro,
-            context,
             vgfx,
             prev_screengrab: prev_grab,
-            input_state,
-            game_data,
             service_provider,
         }
     }
@@ -219,7 +210,6 @@ impl Scene for Transition {
                             }))
                         }
                         ControlMessage::Song { song, diff, loader } => {
-                            let context = self.context.clone();
                             let skin_folder = self.vgfx.read().unwrap().skin_folder();
                             Some(Promise::spawn_thread("Load song", move || {
                                 let (chart, audio) = loader();

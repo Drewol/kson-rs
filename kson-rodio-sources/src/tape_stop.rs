@@ -14,8 +14,7 @@ pub fn tape_stop<I: Source<Item = D>, D: Sample>(
     let step = 1.0f64 / sample_rate as f64;
     let channels = input.channels();
     let sample_count = (duration * input.sample_rate() as f64) as u64;
-    let mut held_samples = Vec::new();
-    held_samples.reserve((sample_count * channels as u64) as _);
+    let held_samples = Vec::with_capacity((sample_count * channels as u64) as _);
 
     TapeStop {
         input,

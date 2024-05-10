@@ -5,7 +5,6 @@ use std::{
 };
 
 use game_loop::winit::event::ElementState;
-use gilrs::GamepadId;
 use kson::Side;
 
 use crate::button_codes::{LaserAxis, LaserState, UscButton, UscInputEvent};

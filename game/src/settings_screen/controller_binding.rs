@@ -4,11 +4,7 @@ use egui::Stroke;
 use gilrs::{ev::Code, Axis, Button, GamepadId};
 use uuid::Uuid;
 
-use crate::{
-    button_codes::{CustomControlleMap, UscButton},
-    config::GameConfig,
-    input_state::InputState,
-};
+use crate::{button_codes::UscButton, config::GameConfig, input_state::InputState};
 
 #[derive(Debug, PartialEq, Default)]
 enum ActiveBinding {
@@ -69,7 +65,7 @@ impl BindingUi {
                         None
                     }
                 })
-                .unwrap_or_else(|| ActiveBinding::Axis(axis, states)),
+                .unwrap_or(ActiveBinding::Axis(axis, states)),
         }
     }
 

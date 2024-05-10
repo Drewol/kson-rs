@@ -1,5 +1,4 @@
 use std::{
-    borrow::BorrowMut,
     num::NonZeroU32,
     ops::{Add, Sub},
     rc::Rc,
@@ -11,23 +10,21 @@ use std::{
 };
 
 use di::{RefMut, ServiceProvider};
-use egui_glow::{winit, EguiGlow};
+use egui_glow::EguiGlow;
 use femtovg::Paint;
 use game_loop::winit::{
     dpi::{PhysicalPosition, PhysicalSize},
     event,
-    keyboard::{Key, NamedKey, SmolStr},
+    keyboard::{Key, NamedKey},
     platform::modifier_supplement::KeyEventExtModifierSupplement,
     window::Window,
 };
 
 use glutin::{
-    context::{GlContext, PossiblyCurrentContext},
-    display::GetGlDisplay,
-    surface::{AsRawSurface, GlSurface, SwapInterval},
+    context::PossiblyCurrentContext,
+    surface::{GlSurface, SwapInterval},
 };
 use kson::Chart;
-use log::*;
 use puffin::{profile_function, profile_scope};
 
 use td::{FrameOutput, Modifiers};
@@ -269,7 +266,7 @@ impl GameMain {
                     MainMenuButton::Start => {
                         scenes.suspend_top();
 
-                        if let Ok(arena) = lua_arena.read() {
+                        if let Ok(_arena) = lua_arena.read() {
                             let transition_lua = transition_lua.clone();
                             scenes.transition = Some(Transition::new(
                                 transition_lua,
@@ -277,8 +274,6 @@ impl GameMain {
                                 control_tx.clone(),
                                 vgfx.clone(),
                                 frame_input.viewport,
-                                self.input_state.clone(),
-                                game_data.clone(),
                                 service_provider.create_scope(),
                             ))
                         }
@@ -295,7 +290,7 @@ impl GameMain {
                     _ => {}
                 },
                 ControlMessage::Song { diff, loader, song } => {
-                    if let Ok(arena) = lua_arena.read() {
+                    if let Ok(_arena) = lua_arena.read() {
                         let transition_lua = transition_song_lua.clone();
                         scenes.transition = Some(Transition::new(
                             transition_lua,
@@ -303,8 +298,6 @@ impl GameMain {
                             control_tx.clone(),
                             vgfx.clone(),
                             frame_input.viewport,
-                            self.input_state.clone(),
-                            game_data.clone(),
                             service_provider.create_scope(),
                         ))
                     }
@@ -317,7 +310,7 @@ impl GameMain {
                     gauge,
                     hit_ratings,
                 } => {
-                    if let Ok(arena) = lua_arena.read() {
+                    if let Ok(_arena) = lua_arena.read() {
                         let transition_lua = transition_lua.clone();
                         scenes.transition = Some(Transition::new(
                             transition_lua,
@@ -331,8 +324,6 @@ impl GameMain {
                             control_tx.clone(),
                             vgfx.clone(),
                             frame_input.viewport,
-                            self.input_state.clone(),
-                            game_data.clone(),
                             service_provider.create_scope(),
                         ))
                     }
@@ -366,7 +357,7 @@ impl GameMain {
                                         .max_by_key(|x| x.refresh_rate_millihertz())
                                 });
 
-                            m.map(|x| game_loop::winit::window::Fullscreen::Exclusive(x))
+                            m.map(game_loop::winit::window::Fullscreen::Exclusive)
                         }
                     })
                 }
@@ -461,21 +452,21 @@ impl GameMain {
                 }
             }
             Event::WindowEvent {
-                window_id,
+                window_id: _,
                 event: WindowEvent::Resized(physical_size),
             } => {
                 let windowed = &mut GameConfig::get_mut().graphics.fullscreen;
-                if let Fullscreen::Windowed { pos, size } = windowed {
+                if let Fullscreen::Windowed { size, .. } = windowed {
                     *size = *physical_size;
                 }
                 self.reset_viewport_size(physical_size)
             }
             Event::WindowEvent {
-                window_id,
+                window_id: _,
                 event: WindowEvent::Moved(physical_pos),
             } => {
                 let windowed = &mut GameConfig::get_mut().graphics.fullscreen;
-                if let Fullscreen::Windowed { pos, size } = windowed {
+                if let Fullscreen::Windowed { pos, .. } = windowed {
                     *pos = *physical_pos;
                 }
             }

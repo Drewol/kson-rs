@@ -342,6 +342,7 @@ fn serde_eq<T: Into<i64> + Copy, const N: i64>(v: &T) -> bool {
     N == (*v).into()
 }
 
+#[allow(unused)]
 fn serde_def_n<T: From<u32> + Copy, const N: u32>() -> T {
     N.into()
 }
@@ -833,7 +834,7 @@ pub struct LegacyBgInfo {
 pub struct KshLayerInfo {
     pub filename: Option<String>, // self-explanatory (can be KSM default animation layer such as "arrow")
     /// one-loop duration in milliseconds.
-    ///  
+    ///
     /// If the value is negative, the animation is played backwards.
     ///
     /// If the value is zero, the play speed is tempo-synchronized and set to 1 frame per 0.035 measure (= 28.571... frames/measure).
@@ -916,14 +917,14 @@ impl Chart {
             let a = ab[0];
             let b = ab[1];
             let l = durations.entry(a.1.to_bits()).or_default();
-            *l = *l + (self.tick_to_ms(b.0) - self.tick_to_ms(a.0));
+            *l += self.tick_to_ms(b.0) - self.tick_to_ms(a.0);
 
             last_bpm = b;
         }
 
         {
             let x = durations.entry(last_bpm.1.to_bits()).or_default();
-            *x = *x + (self.tick_to_ms(self.get_last_tick()) - self.tick_to_ms(last_bpm.0));
+            *x += self.tick_to_ms(self.get_last_tick()) - self.tick_to_ms(last_bpm.0);
         }
 
         durations
@@ -1026,7 +1027,7 @@ impl Chart {
     pub fn beat_line_iter(&self) -> MeasureBeatLines {
         let mut funcs: Vec<(u32, Box<BeatLineFn>)> = Vec::new();
         let mut prev_start = 0;
-        let mut prev_sig = match self.beat.time_sig.get(0) {
+        let mut prev_sig = match self.beat.time_sig.first() {
             Some(v) => v,
             None => &(0, TimeSignature(4, 4)),
         };

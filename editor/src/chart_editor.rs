@@ -16,7 +16,7 @@ use kson_music_playback as playback;
 
 use puffin::profile_scope;
 
-use rodio::{OutputStream, OutputStreamHandle, Sink};
+use rodio::OutputStream;
 use std::collections::VecDeque;
 use std::ffi::OsStr;
 use std::fs::File;
@@ -203,7 +203,7 @@ impl ScreenState {
                         [sx - xoff, sy - syoff, 0.0],
                     ]
                     .iter()
-                    .map(|p| make_vert(p))
+                    .map(&make_vert)
                     .collect();
 
                     let i_off = mesh.vertices.len() as u32;
@@ -257,7 +257,7 @@ impl ScreenState {
                             [sx - xoff, csy, 0.0],
                         ]
                         .iter()
-                        .map(|p| make_vert(p))
+                        .map(&make_vert)
                         .collect();
                         mesh.vertices.append(&mut points);
                         mesh.indices.append(&mut vec![
@@ -447,13 +447,13 @@ impl ScreenState {
         bounds: (f32, f32),
         track_bounds: Option<(f32, f32)>,
     ) -> Option<Pos2> {
-        if let (None, None) = (points.get(0), points.get(1)) {
+        if let (None, None) = (points.first(), points.get(1)) {
             return None;
         }
 
         let track_bounds = track_bounds.unwrap_or((0.0, 1.0));
 
-        let start = points.get(0).unwrap();
+        let start = points.first().unwrap();
 
         let (a, b) = if let (Some(a), Some(b)) = (start.a, start.b) {
             (a, b)
@@ -556,7 +556,7 @@ impl MainState {
             (c, None)
         };
 
-        let s = MainState {
+        MainState {
             chart: new_chart.clone(),
             screen: ScreenState {
                 top: 0.0,
@@ -588,8 +588,7 @@ impl MainState {
                 Color32::from_rgba_unmultiplied(194, 6, 140, 127),
             ],
             audio_out: None,
-        };
-        s
+        }
     }
 
     #[allow(unused)]
@@ -963,7 +962,7 @@ impl MainState {
         self.resize_event(ui.max_rect());
 
         let painter = ui.painter_at(ui.max_rect());
-        let mut interact = ui.interact(ui.max_rect(), ui.id(), Sense::click_and_drag());
+        let interact = ui.interact(ui.max_rect(), ui.id(), Sense::click_and_drag());
 
         //draw notes
         let mut track_line_builder = Vec::new();
@@ -1380,7 +1379,7 @@ impl MainState {
     }
 
     pub(crate) fn context_menu(&mut self, ui: &mut Ui, pos: Pos2) {
-        let (lane, tick, tick_f) = self.get_clicked_data(pos);
+        let (lane, tick, _tick_f) = self.get_clicked_data(pos);
 
         let index = if lane < 3.0 { 0 } else { 1 };
 

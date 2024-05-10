@@ -2,7 +2,7 @@ use std::path::Path;
 use std::time::Duration;
 
 use sqlx::migrate::Migrator;
-use sqlx::{query, query_as, query_scalar, ConnectOptions, Execute, Pool, Row, SqlitePool};
+use sqlx::{query, query_as, query_scalar, ConnectOptions, Pool, Row, SqlitePool};
 
 static MIGRATOR: Migrator = sqlx::migrate!("./migrations"); // defaults to "./migrations"
 
@@ -112,7 +112,7 @@ impl LocalSongsDb {
     pub async fn get_songs(&self) -> std::result::Result<std::vec::Vec<ChartEntry>, sqlx::Error> {
         query_as!(
             ChartEntry,
-            "SELECT 
+            "SELECT
             rowid,
             folderid,
             path,
@@ -143,7 +143,7 @@ impl LocalSongsDb {
     pub async fn get_song(&self, id: i64) -> std::result::Result<ChartEntry, sqlx::Error> {
         query_as!(
             ChartEntry,
-            "SELECT 
+            "SELECT
             rowid,
             folderid,
             path,
@@ -278,9 +278,9 @@ impl LocalSongsDb {
         }: ScoreEntry,
     ) -> std::result::Result<sqlx::sqlite::SqliteQueryResult, sqlx::Error> {
         query!("
-            INSERT INTO 
-			Scores(score,crit,near,early,late,combo,miss,gauge,auto_flags,replay,timestamp,chart_hash,user_name,user_id,local_score,window_perfect,window_good,window_hold,window_miss,window_slam,gauge_type,gauge_opt,mirror,random) 
-			VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)", 
+            INSERT INTO
+			Scores(score,crit,near,early,late,combo,miss,gauge,auto_flags,replay,timestamp,chart_hash,user_name,user_id,local_score,window_perfect,window_good,window_hold,window_miss,window_slam,gauge_type,gauge_opt,mirror,random)
+			VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
             score,
             crit,
             near,
@@ -314,7 +314,7 @@ impl LocalSongsDb {
     ) -> std::result::Result<std::vec::Vec<ChartEntry>, sqlx::Error> {
         query_as!(
             ChartEntry,
-            "SELECT 
+            "SELECT
         rowid,
         folderid,
         path,
@@ -372,7 +372,7 @@ impl LocalSongsDb {
         query_scalar!(
             "INSERT INTO Charts(
 			folderid,path,title,artist,title_translit,artist_translit,jacket_path,effector,illustrator,
-			diff_name,diff_shortname,bpm,diff_index,level,hash,preview_file,preview_offset,preview_length,lwt,custom_offset) 
+			diff_name,diff_shortname,bpm,diff_index,level,hash,preview_file,preview_offset,preview_length,lwt,custom_offset)
 			VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,0) RETURNING rowid",
             folderid,
             path,
@@ -423,7 +423,7 @@ impl LocalSongsDb {
     ) -> std::result::Result<sqlx::sqlite::SqliteQueryResult, sqlx::Error> {
         query!(
             "INSERT INTO Challenges(
-			title,charts,chart_meta,clear_mark,best_score,req_text,path,hash,level,lwt) 
+			title,charts,chart_meta,clear_mark,best_score,req_text,path,hash,level,lwt)
 			VALUES(?,?,?,?,?,?,?,?,?,?)",
             title,
             charts,
@@ -547,7 +547,7 @@ impl LocalSongsDb {
     ) -> std::result::Result<std::vec::Vec<ScoreEntry>, sqlx::Error> {
         query_as!(
             ScoreEntry,
-            "SELECT 
+            "SELECT
         rowid,
         score,
         crit,
@@ -585,7 +585,7 @@ impl LocalSongsDb {
     ) -> std::result::Result<std::vec::Vec<ScoreEntry>, sqlx::Error> {
         query_as!(
             ScoreEntry,
-            "SELECT 
+            "SELECT
         rowid,
         score,
         crit,

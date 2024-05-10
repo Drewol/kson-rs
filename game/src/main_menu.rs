@@ -7,10 +7,9 @@ use std::{
 use anyhow::{anyhow, Result};
 use di::ServiceProvider;
 use game_loop::winit::event::{ElementState, Event, WindowEvent};
-use rodio::dynamic_mixer::DynamicMixerController;
 use tealr::{
     mlu::{
-        mlua::{AppDataRef, Function, Lua, LuaOptions, StdLib},
+        mlua::{AppDataRef, Function, Lua},
         ExportInstances, TealData, UserData, UserDataProxy,
     },
     ToTypename,
@@ -34,7 +33,7 @@ pub enum MainMenuButton {
 }
 
 #[derive(Debug, UserData, ToTypename)]
-struct Bindings(Sender<MainMenuButton>);
+struct Bindings;
 
 impl TealData for Bindings {
     fn add_methods<'lua, T: tealr::mlu::TealDataMethods<'lua, Self>>(methods: &mut T) {

@@ -23,10 +23,8 @@ use directories::ProjectDirs;
 
 use femtovg as vg;
 
-use game_loop::winit::event::{Event, WindowEvent};
 use game_main::ControlMessage;
 
-use glow::HasContext;
 use glutin_winit::GlWindow;
 use help::ServiceHelper;
 use kson::Ksh;

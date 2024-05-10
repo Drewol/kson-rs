@@ -27,6 +27,8 @@ use kson_rodio_sources::{
     wobble::wobble,
 };
 
+type ActiveEffect = ((u64, u64), Box<dyn Source<Item = f32> + Send>);
+
 pub struct AudioFile {
     audio: SkipDuration<Buffered<Box<dyn Source<Item = f32> + Send>>>,
     audio_base: SkipDuration<Buffered<Box<dyn Source<Item = f32> + Send>>>,
@@ -39,7 +41,7 @@ pub struct AudioFile {
     sample_rate: u32,
     pos: Arc<AtomicUsize>,
     effects: VecDeque<((u64, u64), Box<EffectBuilder>)>,
-    active_effects: Vec<((u64, u64), Box<dyn Source<Item = f32> + Send>)>,
+    active_effects: Vec<ActiveEffect>,
 }
 
 pub struct EventList<T> {
@@ -199,8 +201,16 @@ impl AudioPlayback {
 
     pub fn build_effects(&mut self, chart: &Chart) {
         let offset = Duration::from_millis(chart.audio.bgm.as_ref().unwrap().offset.max(0) as _);
-        let neg_offset =
-            Duration::from_millis(chart.audio.bgm.as_ref().unwrap().offset.min(0).abs() as _);
+        let neg_offset = Duration::from_millis(
+            chart
+                .audio
+                .bgm
+                .as_ref()
+                .unwrap()
+                .offset
+                .min(0)
+                .unsigned_abs() as _,
+        );
 
         let Some(sample_rate) = self.file.as_ref().map(|x| x.sample_rate) else {
             return;
@@ -291,7 +301,7 @@ impl AudioPlayback {
                                         );
                                         Box::new(gate(base, start, period, 0.6, 0.4))
                                     }
-                                    kson::effects::AudioEffect::Flanger(f) => Box::new(flanger(
+                                    kson::effects::AudioEffect::Flanger(_f) => Box::new(flanger(
                                         base,
                                         Duration::from_millis(4),
                                         Duration::from_millis(1),
@@ -304,7 +314,7 @@ impl AudioPlayback {
                                     kson::effects::AudioEffect::BitCrusher(b) => Box::new(
                                         bit_crusher(base, b.reduction.interpolate(1.0, true) as _),
                                     ),
-                                    kson::effects::AudioEffect::Phaser(p) => Box::new(
+                                    kson::effects::AudioEffect::Phaser(_p) => Box::new(
                                         //TODO
                                         flanger(
                                             base,
@@ -321,7 +331,7 @@ impl AudioPlayback {
                                         w.lo_freq.interpolate(1.0, true) as _,
                                         w.hi_freq.interpolate(1.0, true) as _,
                                     )),
-                                    kson::effects::AudioEffect::TapeStop(t) => {
+                                    kson::effects::AudioEffect::TapeStop(_t) => {
                                         Box::new(tape_stop(base, start, duration))
                                     }
                                     kson::effects::AudioEffect::Echo(r) => {
@@ -437,11 +447,7 @@ impl AudioPlayback {
         let channels = source.channels();
 
         let effected: Option<SkipDuration<Buffered<Box<dyn Source<Item = f32> + Send>>>> =
-            if let Some(e) = effected {
-                Some(e.buffered().skip_duration(Duration::ZERO))
-            } else {
-                None
-            };
+            effected.map(|e| e.buffered().skip_duration(Duration::ZERO));
         let audio = source.buffered().skip_duration(Duration::ZERO);
         self.file = Some(AudioFile {
             audio: audio.clone(),

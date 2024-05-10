@@ -1,5 +1,5 @@
 use anyhow::bail;
-use eframe::egui::{self, ComboBox, Label, Response};
+use eframe::egui::{self, ComboBox};
 
 use crate::{
     chart_editor::MainState,
@@ -7,7 +7,7 @@ use crate::{
     i18n::{self, fl},
 };
 
-const EFFECT_OPTIONS: [&'static str; 11] = [
+const EFFECT_OPTIONS: [&str; 11] = [
     "Retrigger",
     "Gate",
     "Flanger",
@@ -37,7 +37,7 @@ pub fn effect_panel(state: &mut MainState) -> impl egui::Widget + '_ {
                 effect.edit(ui);
             });
 
-            if unaltered.ne(&effect) {
+            if unaltered.ne(effect) {
                 let action = state.actions.new_action();
                 action.description = fl!("alter_effect", name = key.clone());
                 let key = key.clone();

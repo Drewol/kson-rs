@@ -40,7 +40,7 @@ impl CameraSpin {
             CameraSpin::Full(kson::camera::CamPatternInvokeSpin(y, dir, len)) => {
                 //Reference https://github.com/kshootmania/ksm-v2/blob/master/kshootmania/src/music_game/camera/cam_pattern/cam_pattern_spin.cpp#L52
                 let rate = (tick - y as f32) / len as f32;
-                if rate < 0.0 || rate > 1.0 {
+                if !(0.0..=1.0).contains(&rate) {
                     return 0.0;
                 }
 

@@ -130,7 +130,7 @@ fn laser_value_to_char(v: f64) -> Result<char, KshWriteError> {
 }
 
 fn split_fx_string(v: String) -> (String, Option<String>, Option<String>) {
-    let mut v = v.split(";");
+    let mut v = v.split(';');
     (
         v.next().unwrap().to_string(),
         v.next().map(|x| x.to_string()),
@@ -181,7 +181,7 @@ impl Ksh for crate::Chart {
                     if let Ok(v) = value.parse::<f64>() {
                         new_chart.beat.bpm.push((0, v))
                     }
-                    new_chart.meta.disp_bpm = value.clone();
+                    new_chart.meta.disp_bpm.clone_from(&value);
                 }
                 "beat" => {}
                 "o" => bgm.offset = value.parse()?,
@@ -281,7 +281,7 @@ impl Ksh for crate::Chart {
 
                             if fx_string[i].is_none() {
                                 let legacy_string = legacy_effect_map(last_char[i + 4]);
-                                if legacy_string != "" {
+                                if !legacy_string.is_empty() {
                                     fx_string[i] = Some(legacy_string.to_owned());
                                 }
                             }
@@ -355,9 +355,9 @@ impl Ksh for crate::Chart {
                     }
 
                     if chars.len() > 12 {
-                        let spin_length =
-                            u32::from_str_radix(&String::from_utf8_lossy(&chars[12..]), 10)
-                                .map(|x| (x * 4 * KSON_RESOLUTION) / 192);
+                        let spin_length = String::from_utf8_lossy(&chars[12..])
+                            .parse::<u32>()
+                            .map(|x| (x * 4 * KSON_RESOLUTION) / 192);
                         let slam_event = &mut new_chart.camera.cam.pattern.laser.slam_event;
 
                         if let Ok(spin_length) = spin_length {
@@ -848,7 +848,7 @@ fn convert_params(effect: &AudioEffect, params: &mut Dict<String>) {
 
     match effect {
         AudioEffect::ReTrigger(_) | AudioEffect::Gate(_) | AudioEffect::Wobble(_) => {
-            if p1.chars().all(|x| x.is_digit(10)) {
+            if p1.chars().all(|x| x.is_ascii_digit()) {
                 params.insert("wave_length".to_string(), format!("1/{p1}"));
             }
         }
@@ -862,7 +862,7 @@ fn convert_params(effect: &AudioEffect, params: &mut Dict<String>) {
             params.insert("speed".to_string(), format!("{p1}%"));
         }
         AudioEffect::Echo(_) => {
-            if p1.chars().all(|x| x.is_digit(10)) {
+            if p1.chars().all(|x| x.is_ascii_digit()) {
                 params.insert("wave_length".to_string(), format!("1/{p1}"));
             }
             params.insert("feedback_level".to_string(), format!("{p2}%"));

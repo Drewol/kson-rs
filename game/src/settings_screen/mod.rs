@@ -90,7 +90,11 @@ impl Scene for SettingsScreen {
         "Settings"
     }
 
-    fn tick(&mut self, dt: f64, knob_state: crate::button_codes::LaserState) -> anyhow::Result<()> {
+    fn tick(
+        &mut self,
+        _dt: f64,
+        _knob_state: crate::button_codes::LaserState,
+    ) -> anyhow::Result<()> {
         if let Some(binding_ui) = self.binding_ui.as_mut() {
             binding_ui.run_checks(&mut self.altered_settings)
         }
@@ -402,7 +406,7 @@ fn monitor_select(
     ui: &mut Ui,
     monitors: &[MonitorHandle],
 ) {
-    if monitors.len() == 0 {
+    if monitors.is_empty() {
         return;
     }
 

@@ -23,7 +23,7 @@ use tealr::{
     },
     mlua_create_named_parameters, ToTypename,
 };
-use three_d_asset::{vec2, vec3, Vector2, Vector3, Viewport};
+use three_d_asset::{vec2, Vector2, Vector3, Viewport};
 
 #[derive(Debug, Clone, Copy)]
 pub struct BackgroundData {

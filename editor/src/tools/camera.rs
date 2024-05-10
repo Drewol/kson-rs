@@ -6,7 +6,7 @@ use eframe::{
 use crate::i18n;
 use glam::vec3;
 use kson::{Chart, Graph, GraphPoint, GraphSectionPoint};
-use std::{default::Default, f32::EPSILON, ops::Sub};
+use std::{default::Default, f32::EPSILON, fmt::Display, ops::Sub};
 
 use crate::camera_widget::CameraView;
 use crate::chart_camera::ChartCamera;
@@ -25,11 +25,11 @@ impl Default for CameraPaths {
     }
 }
 
-impl ToString for CameraPaths {
-    fn to_string(&self) -> String {
+impl Display for CameraPaths {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter) -> std::fmt::Result {
         match self {
-            CameraPaths::Zoom => i18n::fl!("radius").to_string(),
-            CameraPaths::RotationX => i18n::fl!("angle").to_string(),
+            CameraPaths::Zoom => formatter.write_str(&i18n::fl!("radius")),
+            CameraPaths::RotationX => formatter.write_str(&i18n::fl!("angle")),
         }
     }
 }

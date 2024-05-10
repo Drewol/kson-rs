@@ -17,6 +17,7 @@ pub use buttons::*;
 pub use camera::*;
 pub use laser::*;
 
+#[allow(unused)]
 pub trait CursorObject {
     fn primary_click(
         &mut self,

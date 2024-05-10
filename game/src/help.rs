@@ -1,10 +1,6 @@
-use std::{
-    collections::HashMap,
-    sync::{OnceLock, RwLock},
-};
+use std::sync::RwLock;
 
 use di::{transient_factory, RefMut, ServiceCollection};
-use puffin::ScopeId;
 use tealr::{
     mlu::{
         mlua::{self, FromLuaMulti, IntoLuaMulti, Lua, Result},
@@ -31,7 +27,7 @@ pub(crate) fn add_lua_static_method<'lua, M, A, R, F, T: 'static + Sized + ToTyp
         let _profile_scope = if puffin::are_scopes_on() && !name.ends_with("Profile") {
             Some(puffin::ProfilerScope::new(
                 scope_id,
-                &format!(
+                format!(
                     "{}:{}",
                     lua.inspect_stack(1)
                         .and_then(|s| s.source().source.map(|s| s.to_string()))

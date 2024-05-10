@@ -9,7 +9,7 @@ use std::{
 };
 
 use anyhow::ensure;
-use femtovg::{renderer::OpenGl, Canvas, ImageId};
+use femtovg::{renderer::OpenGl, Canvas};
 
 enum LoaderRequest {
     LoadIamge(usize),

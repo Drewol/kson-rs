@@ -1,6 +1,6 @@
 use std::{
     collections::HashMap,
-    hash::{DefaultHasher, Hash, Hasher},
+    hash::{Hash, Hasher},
     path::PathBuf,
     sync::{Arc, Mutex, RwLock},
 };

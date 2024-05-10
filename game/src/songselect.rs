@@ -9,7 +9,6 @@ use rodio::Source;
 use serde::Serialize;
 use serde_json::json;
 use std::{
-    collections::{HashMap, HashSet},
     fmt::Debug,
     ops::Add,
     path::PathBuf,
@@ -17,7 +16,7 @@ use std::{
     sync::{
         atomic::{AtomicBool, AtomicU64, AtomicUsize},
         mpsc::{channel, Receiver, Sender},
-        Arc, Mutex, RwLock,
+        Arc, RwLock,
     },
     time::{Duration, SystemTime},
 };
@@ -142,9 +141,6 @@ impl ToTypename for SongSelect {
         })
     }
 }
-
-type SyncSongProvider = Arc<Mutex<dyn SongProvider>>;
-type SyncScoreProvider = Arc<Mutex<dyn ScoreProvider>>;
 
 impl SongSelect {
     pub fn new() -> Self {
@@ -793,7 +789,7 @@ impl Scene for SongSelectScene {
 
                 if let MenuState::Folders | MenuState::Levels = self.menu_state {
                     if let Ok(set_mode) = self.filter_lua.globals().get::<_, Function>("set_mode") {
-                        set_mode.call::<_, ()>(self.menu_state == MenuState::Folders);
+                        _ = set_mode.call::<_, ()>(self.menu_state == MenuState::Folders);
                     }
                 }
             }
@@ -832,7 +828,7 @@ impl Scene for SongSelectScene {
 
             if let MenuState::Folders | MenuState::Levels = self.menu_state {
                 if let Ok(set_mode) = self.filter_lua.globals().get::<_, Function>("set_mode") {
-                    set_mode.call::<_, ()>(self.menu_state == MenuState::Folders);
+                    _ = set_mode.call::<_, ()>(self.menu_state == MenuState::Folders);
                 }
             }
         }
