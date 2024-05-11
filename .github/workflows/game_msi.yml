@@ -10,9 +10,9 @@ jobs:
           - name: ubuntu-latest
             artifact: target/**/*.deb
           - name: macos-latest
-            artifact: target/release/osx
+            artifact: target/release/bundle/osx
           - name: macos-13
-            artifact: target/release/osx
+            artifact: target/release/bundle/osx
     runs-on: ${{matrix.os.name}}
     steps:
       - uses: actions/checkout@v1
