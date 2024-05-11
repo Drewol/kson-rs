@@ -26,7 +26,7 @@ jobs:
         run: sudo apt-get update && sudo apt-get install -y libasound2-dev libsoundtouch-dev libegl1-mesa-dev libfreetype6-dev zlib1g-dev libgtk-3-dev libudev-dev
       - run: cargo bundle --release
       - run: cargo bundle --release --bin kson-editor
-      - run: tar -cvf ${{ runner.os }}-${{ runner.arch }}.tar target/release/bundle/osx
+      - run: tar --strip-components 4 -cvf ${{ runner.os }}-${{ runner.arch }}.tar target/release/bundle/osx
         if: ${{ runner.os == 'macOS' }}
       - uses: actions/upload-artifact@v3
         with:
