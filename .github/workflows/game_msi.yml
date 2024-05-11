@@ -29,7 +29,7 @@ jobs:
       - run: tar --strip-components 4 -cvf ${{ runner.os }}-${{ runner.arch }}.tar target/release/bundle/osx
         if: ${{ runner.os == 'macOS' }}
       - name: Upload to R2
-        working-directory: ${{ github.workspace }}/target/wix
+        working-directory: ${{ github.workspace }}
         env:
           AWS_ACCESS_KEY_ID: ${{ secrets.CLOUDFLARE_API_ID }}
           AWS_SECRET_ACCESS_KEY: ${{ secrets.CLOUDFLARE_API_TOKEN }}
