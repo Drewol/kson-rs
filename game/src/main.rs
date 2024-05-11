@@ -114,11 +114,20 @@ pub fn init_game_dir(game_dir: impl AsRef<Path>) -> anyhow::Result<()> {
     } else {
         std::env::current_dir()?
     };
+
     install_dir.push("fonts");
 
     if !install_dir.exists() {
         install_dir = std::env::current_exe()?;
         install_dir.pop();
+        #[cfg(target_os = "macos")]
+        {
+            //if app bundle
+            if install_dir.with_file_name("Resources").exists() {
+                install_dir.set_file_name("Resources");
+            }
+        }
+
         install_dir.push("fonts");
 
         if !install_dir.exists() {

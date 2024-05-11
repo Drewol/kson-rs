@@ -1,8 +1,29 @@
 name: Game Installer
 on:
   push:
-    branches: [master, r2upload]
+    branches: [master]
 jobs:
+  bundle:
+    strategy:
+      matrix:
+        os: [ubuntu-latest, macos-latest, macos-13]
+    runs-on: ${{matrix.os}}
+    steps:
+      - uses: actions/checkout@v1
+      - uses: actions/cache@v2
+        with:
+          path: target
+          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+      - run: cargo install cargo-bundle
+      - name: Install Packages
+        if: ${{ matrix.os == 'ubuntu-latest' }}
+        run: sudo apt-get install -y libasound2-dev libsoundtouch-dev libegl1-mesa-dev libfreetype6-dev zlib1g-dev libgtk-3-dev libudev-dev
+      - run: cargo bundle --release
+      - run: cargo bundle --bin kson-editor
+      - uses: actions/upload-artifact@v3
+        with:
+          name: App bundle
+          path: target/release/bundle/**
   windows_installer:
     runs-on: windows-latest
     steps:

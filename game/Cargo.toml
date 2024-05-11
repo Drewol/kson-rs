@@ -3,6 +3,7 @@ name = "rusc"
 version = "0.1.0"
 edition = "2021"
 authors = ["Drewol"]
+description = "Game inspired by Sound Voltex"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
@@ -95,3 +96,12 @@ openssl = { version = "^0.10", features = ["vendored"] }
 
 [lints.clippy]
 arc_with_non_send_sync = "allow"
+
+[package.metadata.bundle]
+name = "USC"
+identifier = "dev.kson.usc"
+resources = ["skins", "fonts"]
+
+[package.metadata.bundle.bin.kson-editor]
+name = "KSON-Editor"
+identifier = "dev.kson.editor"
