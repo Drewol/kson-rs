@@ -28,6 +28,14 @@ jobs:
       - run: cargo bundle --release --bin kson-editor
       - run: tar --strip-components 4 -cvf ${{ runner.os }}-${{ runner.arch }}.tar target/release/bundle/osx
         if: ${{ runner.os == 'macOS' }}
+      - name: Upload to R2
+        working-directory: ${{ github.workspace }}/target/wix
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.CLOUDFLARE_API_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          AWS_DEFAULT_REGION: weur
+        run: aws s3 sync . s3://${{ secrets.R2_BUCKET }}/${{ github.ref_name }} --endpoint-url ${{ secrets.S3_ENDPOINT }} --exclude "*" --include "*.tar" --include "*.deb"
+        continue-on-error: true
       - uses: actions/upload-artifact@v3
         with:
           name: ${{ runner.os }}-${{ runner.arch }}-Bundle
