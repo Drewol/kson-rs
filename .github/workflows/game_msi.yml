@@ -27,7 +27,7 @@ jobs:
       - run: cargo bundle --release
       - run: cargo bundle --release --bin kson-editor
       - run: tar -cvf ${{ runner.os }}-${{ runner.arch }}.tar target/release/bundle/osx
-        if: ${{ runner.os == "macOS" }}
+        if: ${{ runner.os == 'macOS' }}
       - uses: actions/upload-artifact@v3
         with:
           name: ${{ runner.os }}-${{ runner.arch }}-Bundle
