@@ -100,7 +100,7 @@ arc_with_non_send_sync = "allow"
 [package.metadata.bundle]
 name = "USC"
 identifier = "dev.kson.usc"
-resources = ["skins", "fonts"]
+resources = ["game/skins", "game/fonts"]
 
 [package.metadata.bundle.bin.kson-editor]
 name = "KSON-Editor"
