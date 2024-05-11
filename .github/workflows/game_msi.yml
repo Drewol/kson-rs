@@ -6,14 +6,20 @@ jobs:
   bundle:
     strategy:
       matrix:
-        os: [ubuntu-latest, macos-latest, macos-13]
-    runs-on: ${{matrix.os}}
+        os:
+          - name: ubuntu-latest
+            artifact: target/**/*.deb
+          - name: macos-latest
+            artifact: target/release/osx
+          - name: macos-13
+            artifact: target/release/osx
+    runs-on: ${{matrix.os.name}}
     steps:
       - uses: actions/checkout@v1
       - uses: actions/cache@v2
         with:
           path: target
-          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+          key: ${{ runner.os }}-${{ runner.arch }}-cargo-${{ hashFiles('**/Cargo.lock') }}
       - run: cargo install --git https://github.com/burtonageo/cargo-bundle
       - name: Install Packages
         if: ${{ matrix.os == 'ubuntu-latest' }}
@@ -22,8 +28,8 @@ jobs:
       - run: cargo bundle --release --bin kson-editor
       - uses: actions/upload-artifact@v3
         with:
-          name: App bundle
-          path: target/release/bundle/**
+          name: ${{ runner.os }}-${{ runner.arch }}-Bundle
+          path: ${{ matrix.os.artifact }}
   windows_installer:
     runs-on: windows-latest
     steps:
