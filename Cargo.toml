@@ -14,7 +14,7 @@ resolver = "2"
 opt-level = 3
 
 [profile.release]
-debug = true
+strip = true
 
 [workspace.dependencies]
 serde = { version = "1", features = ["derive"] }
