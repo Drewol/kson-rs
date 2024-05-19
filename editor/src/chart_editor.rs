@@ -69,6 +69,7 @@ impl ScreenState {
         mb: &mut Vec<Mesh>,
         color: Color32,
         with_uv: bool,
+        slam_height_override: f32,
     ) {
         //TODO: Draw sections as a single `Mesh`
         profile_scope!("Section");
@@ -78,7 +79,11 @@ impl ScreenState {
             max: pos2(1.0, 1.0),
         };
         let wide = section.wide() == 2;
-        let slam_height = 6.0_f32 * self.note_height_mult();
+        let slam_height = if slam_height_override.is_nan() {
+            6.0_f32 * self.note_height_mult()
+        } else {
+            slam_height_override
+        };
         let half_lane = self.lane_width() / 2.0;
         let half_track = self.track_width / 2.0;
         let track_lane_diff = self.track_width - self.lane_width();
@@ -1149,8 +1154,13 @@ impl MainState {
                             break;
                         }
 
-                        self.screen
-                            .draw_laser_section(section, &mut laser_builder, *color, false);
+                        self.screen.draw_laser_section(
+                            section,
+                            &mut laser_builder,
+                            *color,
+                            false,
+                            f32::NAN,
+                        );
                     }
                 }
             }

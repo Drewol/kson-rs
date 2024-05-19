@@ -76,7 +76,7 @@ impl CameraView {
 
     pub fn add_chart_objects(&mut self, chart: &Chart, tick: f32, laser_colors: &[Color32; 2]) {
         profile_function!();
-        let tick_height = -0.03;
+        let tick_height = -4.0 / KSON_RESOLUTION as f32;
         let bottom_margin = -tick * tick_height;
 
         let min_tick_render = tick as i32 - KSON_RESOLUTION as i32 * 8;
@@ -212,7 +212,13 @@ impl CameraView {
             let mut laser_meshes = Vec::new();
 
             for section in lane {
-                screen.draw_laser_section(section, &mut laser_meshes, mapped_color[side], true);
+                screen.draw_laser_section(
+                    section,
+                    &mut laser_meshes,
+                    mapped_color[side],
+                    true,
+                    tick_height.abs() * 25.0,
+                );
             }
             self.meshes.append(
                 &mut laser_meshes

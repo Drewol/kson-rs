@@ -318,9 +318,13 @@ impl CursorObject for LaserTool {
                 LaserEditMode::Edit(_) => Some(Rgba::from_rgba_premultiplied(0.0, 0.76, 0.0, 0.25)),
             } {
                 let mut mb = Vec::new();
-                state
-                    .screen
-                    .draw_laser_section(&self.section, &mut mb, color.into(), false);
+                state.screen.draw_laser_section(
+                    &self.section,
+                    &mut mb,
+                    color.into(),
+                    false,
+                    f32::NAN,
+                );
                 painter.extend(mb.into_iter().map(Shape::mesh));
             }
 
