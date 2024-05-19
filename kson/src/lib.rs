@@ -86,8 +86,8 @@ pub struct GraphPoint {
     pub y: u32,
     pub v: f64,
     pub vf: Option<f64>,
-    pub a: Option<f64>,
-    pub b: Option<f64>,
+    pub a: f64,
+    pub b: f64,
 }
 impl<'de> Deserialize<'de> for GraphPoint {
     fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
@@ -117,9 +117,9 @@ impl<'de> Deserialize<'de> for GraphPoint {
                     SingleOrPair::Pair(v, vf) => (v, Some(vf)),
                 };
                 let (a, b) = if let Some((a, b)) = seq.next_element::<(f64, f64)>()? {
-                    (Some(a), Some(b))
+                    (a, b)
                 } else {
-                    (None, None)
+                    (0.5, 0.5)
                 };
 
                 Ok(GraphPoint { y, v, vf, a, b })
@@ -136,12 +136,8 @@ impl Serialize for GraphPoint {
         S: serde::Serializer,
     {
         use serde::ser::SerializeTuple;
-        let point_len = if let (Some(a), Some(b)) = (self.a, self.b) {
-            if (a - b).abs() > f64::EPSILON {
-                3
-            } else {
-                2
-            }
+        let point_len = if (self.a - self.b).abs() > f64::EPSILON {
+            3
         } else {
             2
         };
@@ -154,7 +150,7 @@ impl Serialize for GraphPoint {
             top_tup.serialize_element(&self.v)?;
         }
         if point_len == 3 {
-            top_tup.serialize_element(&(self.a.unwrap(), self.b.unwrap()))?;
+            top_tup.serialize_element(&(self.a, self.b))?;
         }
 
         top_tup.end()
@@ -166,8 +162,8 @@ pub struct GraphSectionPoint {
     pub ry: u32,
     pub v: f64,
     pub vf: Option<f64>,
-    pub a: Option<f64>,
-    pub b: Option<f64>,
+    pub a: f64,
+    pub b: f64,
 }
 
 impl<'de> Deserialize<'de> for GraphSectionPoint {
@@ -198,9 +194,9 @@ impl<'de> Deserialize<'de> for GraphSectionPoint {
                     SingleOrPair::Pair(v, vf) => (v, Some(vf)),
                 };
                 let (a, b) = if let Some((a, b)) = seq.next_element::<(f64, f64)>()? {
-                    (Some(a), Some(b))
+                    (a, b)
                 } else {
-                    (None, None)
+                    (0.5, 0.5)
                 };
 
                 Ok(GraphSectionPoint { ry, v, vf, a, b })
@@ -217,12 +213,8 @@ impl Serialize for GraphSectionPoint {
         S: serde::Serializer,
     {
         use serde::ser::SerializeTuple;
-        let point_len = if let (Some(a), Some(b)) = (self.a, self.b) {
-            if (a - b).abs() > f64::EPSILON {
-                3
-            } else {
-                2
-            }
+        let point_len = if (self.a - self.b).abs() > f64::EPSILON {
+            3
         } else {
             2
         };
@@ -235,7 +227,7 @@ impl Serialize for GraphSectionPoint {
             top_tup.serialize_element(&self.v)?;
         }
         if point_len == 3 {
-            top_tup.serialize_element(&(self.a.unwrap(), self.b.unwrap()))?;
+            top_tup.serialize_element(&(self.a, self.b))?;
         }
 
         top_tup.end()
@@ -250,8 +242,8 @@ impl GraphSectionPoint {
             ry,
             v,
             vf: None,
-            a: None,
-            b: None,
+            a: 0.5,
+            b: 0.5,
         }
     }
 }
@@ -682,7 +674,8 @@ impl BeatInfo {
 
 #[derive(Serialize, Deserialize, Clone, Default)]
 pub struct BgmInfo {
-    pub filename: Option<String>,
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub filename: String,
     #[serde(default = "default_one::<f64>")]
     pub vol: f64,
     #[serde(default = "default_zero::<i32>")]
@@ -709,7 +702,7 @@ pub struct PreviewInfo {
 impl BgmInfo {
     fn new() -> Self {
         BgmInfo {
-            filename: None,
+            filename: String::new(),
             vol: 1.0,
             offset: 0,
             preview: PreviewInfo::default(),
@@ -771,7 +764,7 @@ pub struct AudioEffectInfo {
 
 #[derive(Serialize, Deserialize, Clone)]
 pub struct AudioInfo {
-    pub bgm: Option<BgmInfo>,
+    pub bgm: BgmInfo,
     pub audio_effect: Option<AudioEffectInfo>,
     #[serde(skip_deserializing)]
     pub key_sound: Option<KeySoundInfo>,
@@ -782,7 +775,7 @@ impl AudioInfo {
         AudioInfo {
             key_sound: None,
             audio_effect: None,
-            bgm: None,
+            bgm: BgmInfo::default(),
         }
     }
 }
@@ -938,13 +931,13 @@ impl Chart {
             return 0;
         }
 
-        let bpm = match self
-            .beat
-            .bpm
-            .binary_search_by(|b| self.tick_to_ms(b.0).partial_cmp(&ms).unwrap())
-        {
-            Ok(i) => self.beat.bpm.get(i).unwrap(),
-            Err(i) => self.beat.bpm.get(i - 1).unwrap(),
+        let bpm = match self.beat.bpm.binary_search_by(|b| {
+            self.tick_to_ms(b.0)
+                .partial_cmp(&ms)
+                .unwrap_or(std::cmp::Ordering::Less)
+        }) {
+            Ok(i) => self.beat.bpm[i],
+            Err(i) => self.beat.bpm[i - 1],
         };
 
         let remaining = ms - self.tick_to_ms(bpm.0);
@@ -1019,8 +1012,8 @@ impl Chart {
 
     pub fn bpm_at_tick(&self, tick: u32) -> f64 {
         match self.beat.bpm.binary_search_by(|b| b.0.cmp(&tick)) {
-            Ok(i) => self.beat.bpm.get(i).unwrap().1,
-            Err(i) => self.beat.bpm.get(i - 1).unwrap().1,
+            Ok(i) => self.beat.bpm[i].1,
+            Err(i) => self.beat.bpm[i - 1].1,
         }
     }
 

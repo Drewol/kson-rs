@@ -186,7 +186,8 @@ impl SongDiffId {
 
 impl TealData for SongDiffId {}
 
-type LoadSongFn = Box<dyn FnOnce() -> (Chart, Box<dyn rodio::Source<Item = f32> + Send>) + Send>;
+pub type LoadSongFn =
+    Box<dyn FnOnce() -> anyhow::Result<(Chart, Box<dyn rodio::Source<Item = f32> + Send>)> + Send>;
 
 pub trait SongProvider {
     fn subscribe(&mut self) -> bus::BusReader<SongProviderEvent>;
@@ -196,7 +197,7 @@ pub trait SongProvider {
     fn set_sort(&mut self, sort: SongSort);
     fn set_filter(&mut self, filter: SongFilter);
     fn set_current_index(&mut self, index: u64);
-    fn load_song(&self, id: &SongDiffId) -> LoadSongFn;
+    fn load_song(&self, id: &SongDiffId) -> anyhow::Result<LoadSongFn>;
     fn add_score(&self, id: SongDiffId, score: Score);
     /// Returns: `(music, skip, duration)`
     fn get_preview(

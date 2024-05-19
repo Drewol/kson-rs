@@ -139,7 +139,7 @@ pub fn instance(gl: &Context) -> AssetInstance {
                 hold_shader: shaders::button::load_hold(gl)?,
             })
         })
-        .unwrap()
+        .expect("Failed to instanciate assets")
 }
 
 pub mod shaders {

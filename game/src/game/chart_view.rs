@@ -13,6 +13,7 @@ pub struct ChartView {
     pub state: i32,
 }
 
+use anyhow::anyhow;
 use kson::KSON_RESOLUTION;
 use puffin::{profile_function, profile_scope};
 use three_d::{
@@ -26,7 +27,7 @@ impl ChartView {
     pub const TRACK_DIRECTION: Vec3 = vec3(0.0, 1.0, 0.0);
     pub const Z_NEAR: f32 = 0.01;
 
-    pub fn new(skin_root: impl AsRef<Path>, td: &three_d::Context) -> Self {
+    pub fn new(skin_root: impl AsRef<Path>, td: &three_d::Context) -> anyhow::Result<Self> {
         let _indices: [u16; 6] = [0, 1, 2, 0, 2, 3];
         let mut texure_path = skin_root.as_ref().to_path_buf();
         texure_path.push("textures");
@@ -39,12 +40,11 @@ impl ChartView {
             texure_path.with_file_name("track.png"),
             texure_path.with_file_name("fxbutton.png"),
             texure_path.with_file_name("button.png"),
-        ])
-        .unwrap();
+        ])?;
 
         let _laser_texture = Some(Arc::new(Texture2D::new(
             td,
-            &textures.deserialize("laser_l").unwrap(),
+            &textures.deserialize("laser_l")?,
         )));
         let _laser_render_states = RenderStates {
             blend: Blend::ADD,
@@ -52,7 +52,7 @@ impl ChartView {
             ..Default::default()
         };
 
-        let track_texture = Arc::new(Texture2D::new(td, &textures.deserialize("track").unwrap()));
+        let track_texture = Arc::new(Texture2D::new(td, &textures.deserialize("track")?));
 
         let _track_mat = Rc::new(ColorMaterial {
             color: Srgba::WHITE,
@@ -73,14 +73,14 @@ impl ChartView {
             ..Default::default()
         };
 
-        ChartView {
+        Ok(ChartView {
             distant_button_scale: GameConfig::get().distant_button_scale,
             cursor: 0.0,
             hispeed: 1.0,
             laser_meshes: [Vec::new(), Vec::new()],
             track,
             state: 0,
-        }
+        })
     }
 
     pub fn build_laser_meshes(&mut self, chart: &kson::Chart) {
@@ -164,7 +164,7 @@ impl ChartView {
         td: &three_d::Context,
         buttons_held: HashSet<usize>,
         mut beam_colors: [[f32; 4]; 6],
-    ) -> graphics::TrackRenderMeshes {
+    ) -> anyhow::Result<graphics::TrackRenderMeshes> {
         use three_d::prelude::*;
         profile_function!();
         let view_time = self.cursor;
@@ -372,13 +372,18 @@ impl ChartView {
             profile_scope!("Lasers");
             for i in 0..2 {
                 for (sidx, s) in chart.note.laser[i].iter().enumerate() {
-                    let end_y = s.tick() + s.last().unwrap().ry;
+                    let end_y = s.tick()
+                        + s.last()
+                            .ok_or(anyhow!("Tried to render an empty laser section"))?
+                            .ry;
                     if (s.tick() as i64) > last_view_tick {
                         break;
                     } else if (end_y as i64) < first_view_tick {
                         continue;
                     }
-                    let vertices = self.laser_meshes[i].get(sidx).unwrap();
+                    let vertices = self.laser_meshes[i]
+                        .get(sidx)
+                        .ok_or(anyhow!("Laser meshes not built correctly"))?;
                     let yoff = (view_tick - s.tick() as i64) as f32;
                     let laser_mesh = CpuMesh {
                         indices: Indices::U32((0u32..(vertices.len() as u32)).collect()),
@@ -403,13 +408,13 @@ impl ChartView {
                 }
             }
         }
-        graphics::TrackRenderMeshes {
+        Ok(graphics::TrackRenderMeshes {
             fx_hold,
             bt_hold,
             fx_chip,
             bt_chip,
             lasers,
             lane_beams,
-        }
+        })
     }
 }

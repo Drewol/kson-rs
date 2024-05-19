@@ -76,8 +76,8 @@ where
             self.sample_buffer[self.buffer_cursor][self.current_channel] = sample;
 
             let delayed_buffer_cursor = (self.buffer_cursor as i64
-                - ((self.cursors[self.current_channel].next().unwrap() + 0.5)
-                    * (self.depth - 1) as f32) as i64)
+                - ((self.cursors[self.current_channel].next()? + 0.5) * (self.depth - 1) as f32)
+                    as i64)
                 .rem_euclid(self.sample_buffer.len() as i64);
 
             let delayed_sample =

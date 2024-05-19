@@ -232,7 +232,9 @@ impl GameBackground {
         lua.globals().set(full_name, GameBackgroundLua)?;
 
         {
-            vgfx.write().unwrap().init_asset_scope(lua_address(&lua))
+            vgfx.write()
+                .expect("Lock error")
+                .init_asset_scope(lua_address(&lua))
         }
 
         tealr::mlu::set_global_env(ExportVgfx, &lua)?;

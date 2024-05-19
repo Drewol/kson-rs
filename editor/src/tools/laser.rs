@@ -42,8 +42,8 @@ impl LaserTool {
             ry,
             v,
             vf: None,
-            a: Some(0.5),
-            b: Some(0.5),
+            a: 0.5,
+            b: 0.5,
         }
     }
 
@@ -142,20 +142,21 @@ impl CursorObject for LaserTool {
                     let v = std::mem::replace(&mut self.section, LaserSection(0, Vec::new(), 1));
                     let v = std::rc::Rc::new(v); //Can't capture by clone so use RC
                     let i = if self.right { 1 } else { 0 };
-                    let new_action = actions.new_action();
-                    new_action.description = i18n::fl!(
-                        "add_laser",
-                        side = if self.right {
-                            i18n::fl!("right")
-                        } else {
-                            i18n::fl!("left")
-                        }
+                    actions.new_action(
+                        i18n::fl!(
+                            "add_laser",
+                            side = if self.right {
+                                i18n::fl!("right")
+                            } else {
+                                i18n::fl!("left")
+                            }
+                        ),
+                        move |edit_chart| {
+                            edit_chart.note.laser[i].push(v.as_ref().clone());
+                            edit_chart.note.laser[i].sort_by(|a, b| a.0.cmp(&b.0));
+                            Ok(())
+                        },
                     );
-                    new_action.action = Box::new(move |edit_chart| {
-                        edit_chart.note.laser[i].push(v.as_ref().clone());
-                        edit_chart.note.laser[i].sort_by(|a, b| a.0.partial_cmp(&b.0).unwrap());
-                        Ok(())
-                    });
 
                     return;
                 }
@@ -212,12 +213,13 @@ impl CursorObject for LaserTool {
                 let laser_i = if right { 1 } else { 0 };
                 let updated_point = self.section.1[curving_index];
 
-                let new_action = actions.new_action();
-                new_action.description = i18n::fl!("adjust_laser_curve", side = laser_text);
-                new_action.action = Box::new(move |c| {
-                    c.note.laser[laser_i][section_index].1[curving_index] = updated_point;
-                    Ok(())
-                });
+                actions.new_action(
+                    i18n::fl!("adjust_laser_curve", side = laser_text),
+                    move |c| {
+                        c.note.laser[laser_i][section_index].1[curving_index] = updated_point;
+                        Ok(())
+                    },
+                );
             }
             self.mode = LaserEditMode::Edit(LaserEditState {
                 section_index: edit_state.section_index,
@@ -238,19 +240,20 @@ impl CursorObject for LaserTool {
     ) {
         if let Some(index) = self.hit_test(chart, tick) {
             let laser_i = if self.right { 1 } else { 0 };
-            let new_action = actions.new_action();
-            new_action.description = i18n::fl!(
-                "remove_laser",
-                side = if self.right {
-                    i18n::fl!("right")
-                } else {
-                    i18n::fl!("left")
-                }
+            actions.new_action(
+                i18n::fl!(
+                    "remove_laser",
+                    side = if self.right {
+                        i18n::fl!("right")
+                    } else {
+                        i18n::fl!("left")
+                    }
+                ),
+                move |chart: &mut Chart| {
+                    chart.note.laser[laser_i].remove(index);
+                    Ok(())
+                },
             );
-            new_action.action = Box::new(move |chart: &mut Chart| {
-                chart.note.laser[laser_i].remove(index);
-                Ok(())
-            });
         }
     }
 
@@ -276,30 +279,20 @@ impl CursorObject for LaserTool {
             }
             LaserEditMode::None => {}
             LaserEditMode::Edit(edit_state) => {
-                for gp in &mut self.section.1 {
-                    if gp.a.is_none() {
-                        gp.a = Some(0.5);
-                    }
-                    if gp.b.is_none() {
-                        gp.b = Some(0.5);
-                    }
-                }
                 if let Some(curving_index) = edit_state.curving_index {
                     let end_point = self.section.1[curving_index + 1];
                     let point = &mut self.section.1[curving_index];
                     let start_tick = (self.section.0 + point.ry) as f64;
                     let end_tick = (self.section.0 + end_point.ry) as f64;
-                    point.a = Some(
-                        ((tick_f - start_tick) / (end_tick - start_tick))
-                            .max(0.0)
-                            .min(1.0),
-                    );
+                    point.a = ((tick_f - start_tick) / (end_tick - start_tick))
+                        .max(0.0)
+                        .min(1.0);
 
                     let start_value = point.vf.unwrap_or(point.v);
                     let in_value = lane as f64 / 5.0 - 0.5 / 6.0;
                     let value = (in_value - start_value) / (end_point.v - start_value);
 
-                    self.section.1[curving_index].b = Some(value.min(1.0).max(0.0));
+                    self.section.1[curving_index].b = value.min(1.0).max(0.0);
                 }
             }
         }
@@ -327,7 +320,7 @@ impl CursorObject for LaserTool {
                 let mut mb = Vec::new();
                 state
                     .screen
-                    .draw_laser_section(&self.section, &mut mb, color.into(), false)?;
+                    .draw_laser_section(&self.section, &mut mb, color.into(), false);
                 painter.extend(mb.into_iter().map(Shape::mesh));
             }
 

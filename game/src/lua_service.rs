@@ -42,15 +42,12 @@ impl LuaProvider {
         tealr::mlu::set_global_env(ExportGame, &lua)?;
         tealr::mlu::set_global_env(LuaPath, &lua)?;
         tealr::mlu::set_global_env(ExportLuaHttp, &lua)?;
-        lua.globals()
-            .set(
-                "IRData",
-                lua.to_value(&json!({
-                    "Active": false
-                }))
-                .unwrap(),
-            )
-            .unwrap();
+        lua.globals().set(
+            "IRData",
+            lua.to_value(&json!({
+                "Active": false
+            }))?,
+        )?;
         arena
             .write()
             .expect("Could not get lock to lua arena")
@@ -58,7 +55,9 @@ impl LuaProvider {
             .push(lua.clone());
 
         {
-            vgfx.write().unwrap().init_asset_scope(lua_address(&lua))
+            vgfx.write()
+                .expect("Lock error")
+                .init_asset_scope(lua_address(&lua))
         }
 
         {
@@ -71,17 +70,17 @@ impl LuaProvider {
         }
 
         {
-            let package: tealr::mlu::mlua::Table = lua.globals().get("package").unwrap();
-            let old_path: String = package.get("path").unwrap();
+            let package: tealr::mlu::mlua::Table = lua.globals().get("package")?;
+            let old_path: String = package.get("path")?;
 
             let package_path = format!(
                 "{0};{1}/scripts/?.lua;{1}/scripts/?",
                 old_path,
                 real_script_path.as_os_str().to_string_lossy()
             );
-            package.set("path", package_path).unwrap();
+            package.set("path", package_path)?;
 
-            lua.globals().set("package", package).unwrap();
+            lua.globals().set("package", package)?;
         }
 
         real_script_path.push("scripts");

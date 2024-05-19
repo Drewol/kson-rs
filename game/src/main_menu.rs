@@ -9,7 +9,7 @@ use di::ServiceProvider;
 use game_loop::winit::event::{ElementState, Event, WindowEvent};
 use tealr::{
     mlu::{
-        mlua::{AppDataRef, Function, Lua},
+        mlua::{self, AppDataRef, Function, Lua},
         ExportInstances, TealData, UserData, UserDataProxy,
     },
     ToTypename,
@@ -51,31 +51,45 @@ impl TealData for Bindings {
          */
 
         methods.add_function("Start", |lua, ()| {
-            let s: AppDataRef<Sender<MainMenuButton>> = lua.app_data_ref().unwrap();
+            let s: AppDataRef<Sender<MainMenuButton>> = lua
+                .app_data_ref()
+                .ok_or(mlua::Error::external("Button app data not set"))?;
             s.send(MainMenuButton::Start).map_err(Error::external)
         });
         methods.add_function("DLScreen", |lua, ()| {
-            let s: AppDataRef<Sender<MainMenuButton>> = lua.app_data_ref().unwrap();
+            let s: AppDataRef<Sender<MainMenuButton>> = lua
+                .app_data_ref()
+                .ok_or(mlua::Error::external("Button app data not set"))?;
             s.send(MainMenuButton::Downloads).map_err(Error::external)
         });
         methods.add_function("Multiplayer", |lua, ()| {
-            let s: AppDataRef<Sender<MainMenuButton>> = lua.app_data_ref().unwrap();
+            let s: AppDataRef<Sender<MainMenuButton>> = lua
+                .app_data_ref()
+                .ok_or(mlua::Error::external("Button app data not set"))?;
             s.send(MainMenuButton::Multiplayer).map_err(Error::external)
         });
         methods.add_function("Exit", |lua, ()| {
-            let s: AppDataRef<Sender<MainMenuButton>> = lua.app_data_ref().unwrap();
+            let s: AppDataRef<Sender<MainMenuButton>> = lua
+                .app_data_ref()
+                .ok_or(mlua::Error::external("Button app data not set"))?;
             s.send(MainMenuButton::Exit).map_err(Error::external)
         });
         methods.add_function("Settings", |lua, ()| {
-            let s: AppDataRef<Sender<MainMenuButton>> = lua.app_data_ref().unwrap();
+            let s: AppDataRef<Sender<MainMenuButton>> = lua
+                .app_data_ref()
+                .ok_or(mlua::Error::external("Button app data not set"))?;
             s.send(MainMenuButton::Options).map_err(Error::external)
         });
         methods.add_function("Update", |lua, ()| {
-            let s: AppDataRef<Sender<MainMenuButton>> = lua.app_data_ref().unwrap();
+            let s: AppDataRef<Sender<MainMenuButton>> = lua
+                .app_data_ref()
+                .ok_or(mlua::Error::external("Button app data not set"))?;
             s.send(MainMenuButton::Update).map_err(Error::external)
         });
         methods.add_function("Challenges", |lua, ()| {
-            let s: AppDataRef<Sender<MainMenuButton>> = lua.app_data_ref().unwrap();
+            let s: AppDataRef<Sender<MainMenuButton>> = lua
+                .app_data_ref()
+                .ok_or(mlua::Error::external("Button app data not set"))?;
             s.send(MainMenuButton::Challenges).map_err(Error::external)
         });
     }
@@ -144,7 +158,7 @@ impl Scene for MainMenu {
             log::info!("Pressed: {:?}", &button);
             self.control_tx
                 .as_ref()
-                .unwrap()
+                .ok_or(anyhow!("control_tx not set"))?
                 .send(ControlMessage::MainMenu(button))
                 .map_err(|_| anyhow!("Failed to send button"))?;
         }

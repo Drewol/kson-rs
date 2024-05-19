@@ -191,7 +191,7 @@ impl Scene for AudioTest {
             self.source_owner = owner;
             let source: Box<dyn Source<Item = f32> + Send> =
                 if let Some(takeable) = self.real_source.take() {
-                    if let Some(source) = takeable.write().unwrap().take() {
+                    if let Some(source) = takeable.write().expect("Lock error").take() {
                         let (source, taker) = TakeableSource::new(source);
                         self.real_source = Some(taker);
 

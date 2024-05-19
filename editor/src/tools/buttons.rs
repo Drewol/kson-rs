@@ -90,18 +90,19 @@ impl CursorObject for ButtonInterval {
 
         if let Some(index) = index {
             // remove found index
-            let new_action = actions.new_action();
             let fx = self.fx;
-            new_action.description = i18n::fl!("remove_note", lane = if fx { "FX" } else { "BT" });
-            new_action.action = Box::new(move |chart: &mut Chart| {
-                if fx {
-                    chart.note.fx[lane].remove(index);
-                } else {
-                    chart.note.bt[lane].remove(index);
-                }
+            actions.new_action(
+                i18n::fl!("remove_note", lane = if fx { "FX" } else { "BT" }),
+                move |chart: &mut Chart| {
+                    if fx {
+                        chart.note.fx[lane].remove(index);
+                    } else {
+                        chart.note.bt[lane].remove(index);
+                    }
 
-                Ok(())
-            });
+                    Ok(())
+                },
+            );
         }
     }
 
@@ -128,35 +129,37 @@ impl CursorObject for ButtonInterval {
         if self.fx {
             let l = self.lane;
 
-            let new_action = actions.new_action();
-            new_action.description = i18n::fl!(
-                "add_fx",
-                side = if self.lane == 0 {
-                    i18n::fl!("left")
-                } else {
-                    i18n::fl!("right")
-                }
+            actions.new_action(
+                i18n::fl!(
+                    "add_fx",
+                    side = if self.lane == 0 {
+                        i18n::fl!("left")
+                    } else {
+                        i18n::fl!("right")
+                    }
+                ),
+                move |edit_chart: &mut Chart| {
+                    edit_chart.note.fx[l].push(v);
+                    edit_chart.note.fx[l].sort_by(|a, b| a.y.cmp(&b.y));
+                    Ok(())
+                },
             );
-            new_action.action = Box::new(move |edit_chart: &mut Chart| {
-                edit_chart.note.fx[l].push(v);
-                edit_chart.note.fx[l].sort_by(|a, b| a.y.partial_cmp(&b.y).unwrap());
-                Ok(())
-            });
         } else {
             let l = self.lane;
 
-            let new_action = actions.new_action();
-            new_action.description = i18n::fl!(
-                "add_bt",
-                lane = std::char::from_u32('A' as u32 + self.lane as u32)
-                    .unwrap_or_default()
-                    .to_string()
+            actions.new_action(
+                i18n::fl!(
+                    "add_bt",
+                    lane = std::char::from_u32('A' as u32 + self.lane as u32)
+                        .unwrap_or_default()
+                        .to_string()
+                ),
+                move |edit_chart: &mut Chart| {
+                    edit_chart.note.bt[l].push(v);
+                    edit_chart.note.bt[l].sort_by(|a, b| a.y.cmp(&b.y));
+                    Ok(())
+                },
             );
-            new_action.action = Box::new(move |edit_chart: &mut Chart| {
-                edit_chart.note.bt[l].push(v);
-                edit_chart.note.bt[l].sort_by(|a, b| a.y.partial_cmp(&b.y).unwrap());
-                Ok(())
-            });
         }
         self.pressed = false;
         self.lane = 0;

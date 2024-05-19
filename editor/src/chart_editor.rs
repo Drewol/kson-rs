@@ -1,6 +1,6 @@
 use crate::tools::*;
 use crate::*;
-use anyhow::{bail, Result};
+use anyhow::{anyhow, bail, Result};
 
 use eframe::egui::epaint::{Mesh, Vertex, WHITE_UV};
 use eframe::egui::{
@@ -69,7 +69,7 @@ impl ScreenState {
         mb: &mut Vec<Mesh>,
         color: Color32,
         with_uv: bool,
-    ) -> Result<()> {
+    ) {
         //TODO: Draw sections as a single `Mesh`
         profile_scope!("Section");
         let y_base = section.tick();
@@ -178,7 +178,7 @@ impl ScreenState {
                 start_value = start_value * 2.0 - 0.5;
             }
 
-            let curve_points = (s.a.unwrap_or(0.5), s.b.unwrap_or(0.5));
+            let curve_points = (s.a, s.b);
 
             for (x, y, h, (sv, ev)) in self.interval_to_ranges(&interval) {
                 if (curve_points.0 - curve_points.1).abs() < std::f64::EPSILON {
@@ -356,8 +356,6 @@ impl ScreenState {
             ..Default::default()
         };
         mb.push(segment);
-
-        Ok(())
     }
 
     pub fn lane_width(&self) -> f32 {
@@ -453,13 +451,9 @@ impl ScreenState {
 
         let track_bounds = track_bounds.unwrap_or((0.0, 1.0));
 
-        let start = points.first().unwrap();
+        let start = points.first()?;
 
-        let (a, b) = if let (Some(a), Some(b)) = (start.a, start.b) {
-            (a, b)
-        } else {
-            (0.5, 0.5)
-        };
+        let (a, b) = (start.a, start.b);
 
         let transform_value = |v: f64| (v - bounds.0 as f64) / (bounds.1 - bounds.0) as f64;
 
@@ -468,7 +462,7 @@ impl ScreenState {
         } else {
             transform_value(start.v)
         };
-        let end = points.get(1).unwrap();
+        let end = points.get(1)?;
         let start_tick = start.y;
         let end_tick = end.y;
         match start_tick.cmp(&end_tick) {
@@ -735,7 +729,7 @@ impl MainState {
                 }
             }
             (Some(path), Ok(chart)) => {
-                let mut file = File::create(path).unwrap();
+                let mut file = File::create(path)?;
                 profile_scope!("Write kson");
                 file.write_all(serde_json::to_string(&chart)?.as_bytes())?;
                 self.actions.save();
@@ -798,10 +792,14 @@ impl MainState {
                     new_chart.beat.time_sig.push((0, kson::TimeSignature(4, 4)));
 
                     let audio_pathbuf = std::path::PathBuf::from(new_chart_opts.audio);
-                    new_chart.audio.bgm = Some(kson::BgmInfo {
-                        filename: Some(String::from(
-                            audio_pathbuf.file_name().unwrap().to_str().unwrap(),
-                        )),
+                    new_chart.audio.bgm = kson::BgmInfo {
+                        filename: String::from(
+                            audio_pathbuf
+                                .file_name()
+                                .ok_or(anyhow!("Invalid filename"))?
+                                .to_str()
+                                .ok_or(anyhow!("Failed to convert filename to string"))?,
+                        ),
                         offset: 0,
                         vol: 1.0,
                         preview: {
@@ -814,26 +812,35 @@ impl MainState {
                         legacy: kson::LegacyBgmInfo {
                             fp_filenames: vec![],
                         },
-                    });
+                    };
                     self.save_path = if let Some(save_path) = new_chart_opts.destination {
                         //copy audio file
                         let mut audio_new_path = save_path.clone();
-                        audio_new_path.push(audio_pathbuf.file_name().unwrap());
+                        audio_new_path.push(
+                            audio_pathbuf
+                                .file_name()
+                                .ok_or(anyhow!("Invalid filename"))?,
+                        );
                         if !audio_new_path.exists() {
-                            std::fs::copy(audio_pathbuf, audio_new_path).unwrap();
+                            std::fs::copy(audio_pathbuf, audio_new_path)?;
                         }
                         Some(save_path)
                     } else {
-                        Some(audio_pathbuf.parent().unwrap().to_path_buf())
+                        Some(
+                            audio_pathbuf
+                                .parent()
+                                .ok_or(anyhow!("Invalid path"))?
+                                .to_path_buf(),
+                        )
                     };
 
-                    let mut kson_path = self.save_path.clone().unwrap();
+                    let mut kson_path =
+                        self.save_path.clone().ok_or(anyhow!("Invalid save path"))?;
                     kson_path.push(new_chart_opts.filename);
                     kson_path.set_extension("kson");
                     self.save_path = Some(kson_path.clone());
                     if let Ok(mut file) = File::create(kson_path) {
-                        file.write_all(serde_json::to_string(&new_chart).unwrap().as_bytes())
-                            .unwrap();
+                        file.write_all(serde_json::to_string(&new_chart)?.as_bytes())?;
                     }
                     self.actions.reset(new_chart.clone());
                     self.chart = new_chart;
@@ -845,7 +852,7 @@ impl MainState {
                         if let Ok(nfd::Response::Okay(file_path)) = dialog_result {
                             let mut path = PathBuf::from(file_path);
                             path.set_extension("ksh");
-                            let file = File::create(&path).unwrap();
+                            let file = File::create(&path)?;
                             profile_scope!("Write KSH");
                             chart.to_ksh(file)?;
                         }
@@ -856,41 +863,43 @@ impl MainState {
                         self.audio_playback.stop();
                         drop(self.audio_out.take());
                     } else if let Some(path) = &self.save_path {
-                        let path = Path::new(path).parent().unwrap();
-                        if let Some(bgm) = &self.chart.audio.bgm {
-                            if let Some(filename) = &bgm.filename {
-                                let filename = &filename.split(';').next().unwrap();
-                                let path = path.join(Path::new(filename));
-                                info!("Playing file: {}", path.display());
-                                let path = path.to_str().unwrap();
-                                match self.audio_playback.open_path(path) {
-                                    Ok(_) => {
-                                        let ms = self.chart.tick_to_ms(self.cursor_line)
-                                            + bgm.offset as f64;
-                                        let ms = ms.max(0.0);
-                                        self.audio_playback.build_effects(&self.chart);
-                                        self.audio_playback.play();
-                                        drop(self.audio_out.take());
-                                        let audio_out = OutputStream::try_default()?;
-                                        use rodio::source::Source;
-                                        let audio_file = self
-                                            .audio_playback
-                                            .get_source()
-                                            .expect("Source not available");
+                        let path = Path::new(path)
+                            .parent()
+                            .ok_or(anyhow!("Invalid audio path"))?;
+                        let bgm = &self.chart.audio.bgm;
+                        let filename = &bgm.filename;
+                        let filename = &filename
+                            .split(';')
+                            .next()
+                            .ok_or(anyhow!("Invalid audio filename"))?;
+                        let path = path.join(Path::new(filename));
+                        info!("Playing file: {}", path.display());
+                        let path = path.to_str().ok_or(anyhow!("Invalid audio path"))?;
+                        match self.audio_playback.open_path(path) {
+                            Ok(_) => {
+                                let ms =
+                                    self.chart.tick_to_ms(self.cursor_line) + bgm.offset as f64;
+                                let ms = ms.max(0.0);
+                                self.audio_playback.build_effects(&self.chart);
+                                self.audio_playback.play();
+                                drop(self.audio_out.take());
+                                let audio_out = OutputStream::try_default()?;
+                                use rodio::source::Source;
+                                let audio_file = self
+                                    .audio_playback
+                                    .get_source()
+                                    .expect("Source not available");
 
-                                        self.audio_playback.set_fx_enable(true, true);
+                                self.audio_playback.set_fx_enable(true, true);
 
-                                        self.audio_playback.play();
-                                        audio_out.1.play_raw(
-                                            audio_file
-                                                .skip_duration(Duration::from_millis(ms as _)),
-                                        )?;
-                                        self.audio_out = Some(audio_out);
-                                    }
-                                    Err(msg) => {
-                                        println!("{}", msg);
-                                    }
-                                }
+                                self.audio_playback.play();
+                                audio_out.1.play_raw(
+                                    audio_file.skip_duration(Duration::from_millis(ms as _)),
+                                )?;
+                                self.audio_out = Some(audio_out);
+                            }
+                            Err(msg) => {
+                                println!("{}", msg);
                             }
                         }
                     }
@@ -1127,19 +1136,21 @@ impl MainState {
                 for (lane, color) in self.chart.note.laser.iter().zip(self.laser_colors.iter()) {
                     for section in lane {
                         let y_base = section.tick();
-                        if section.last().unwrap().ry + y_base < min_tick_render {
+                        if section
+                            .last()
+                            .ok_or(anyhow!("Tried to draw an empty laser section"))?
+                            .ry
+                            + y_base
+                            < min_tick_render
+                        {
                             continue;
                         }
                         if y_base > max_tick_render {
                             break;
                         }
 
-                        self.screen.draw_laser_section(
-                            section,
-                            &mut laser_builder,
-                            *color,
-                            false,
-                        )?;
+                        self.screen
+                            .draw_laser_section(section, &mut laser_builder, *color, false);
                     }
                 }
             }
@@ -1211,7 +1222,7 @@ impl MainState {
                         color,
                     );
                     match changes.binary_search_by(|c| c.0.cmp(&bpm_change.0)) {
-                        Ok(idx) => changes.get_mut(idx).unwrap().1.push(entry),
+                        Ok(idx) => changes[idx].1.push(entry),
                         Err(new_idx) => {
                             let new_vec = vec![entry];
                             changes.insert(new_idx, (bpm_change.0, new_vec));
@@ -1226,7 +1237,7 @@ impl MainState {
                     let entry = (format!("{}/{}", ts_change.1 .0, ts_change.1 .1), color);
 
                     match changes.binary_search_by(|c| c.0.cmp(&tick)) {
-                        Ok(idx) => changes.get_mut(idx).unwrap().1.push(entry),
+                        Ok(idx) => changes[idx].1.push(entry),
                         Err(new_idx) => {
                             let new_vec = vec![entry];
                             changes.insert(new_idx, (tick, new_vec));
@@ -1401,38 +1412,42 @@ impl MainState {
                     .is_some_and(|x| x.iter().any(|x| x.tick() == fx.y));
 
                 if ui.checkbox(&mut checked, effect_key).changed() {
-                    let action = self.actions.new_action();
                     let effect_key = effect_key.clone();
                     let y = fx.y;
                     if checked {
-                        action.description = fl!("insert_fx_effect", effect = effect_key.clone());
-                        action.action = Box::new(move |c| {
-                            let Some(effects) = c.audio.audio_effect.as_mut() else {
-                                bail!("No effects")
-                            };
+                        self.actions.new_action(
+                            fl!("insert_fx_effect", effect = effect_key.clone()),
+                            move |c| {
+                                let Some(effects) = c.audio.audio_effect.as_mut() else {
+                                    bail!("No effects")
+                                };
 
-                            let events =
-                                effects.fx.long_event.entry(effect_key.clone()).or_default();
+                                let events =
+                                    effects.fx.long_event.entry(effect_key.clone()).or_default();
 
-                            events[index].push(ByPulseOption::new(y, None));
+                                events[index].push(ByPulseOption::new(y, None));
 
-                            Ok(())
-                        })
+                                Ok(())
+                            },
+                        )
                     } else {
-                        action.description = fl!("remove_fx_effect", effect = effect_key.clone());
-                        action.action = Box::new(move |c| {
-                            let Some(effects) = c.audio.audio_effect.as_mut() else {
-                                bail!("No effects")
-                            };
+                        self.actions.new_action(
+                            fl!("remove_fx_effect", effect = effect_key.clone()),
+                            move |c| {
+                                let Some(effects) = c.audio.audio_effect.as_mut() else {
+                                    bail!("No effects")
+                                };
 
-                            let Some(events) = effects.fx.long_event.get_mut(&effect_key) else {
-                                bail!("No events")
-                            };
+                                let Some(events) = effects.fx.long_event.get_mut(&effect_key)
+                                else {
+                                    bail!("No events")
+                                };
 
-                            events[index].retain(|v| v.tick() != y);
+                                events[index].retain(|v| v.tick() != y);
 
-                            Ok(())
-                        })
+                                Ok(())
+                            },
+                        )
                     }
                 };
             }
@@ -1460,7 +1475,7 @@ fn open_chart_file(path: PathBuf) -> Result<Option<(kson::Chart, PathBuf)>> {
     match path.extension().and_then(OsStr::to_str).unwrap_or_default() {
         "ksh" => {
             let mut data = String::from("");
-            File::open(&path).unwrap().read_to_string(&mut data)?;
+            File::open(&path)?.read_to_string(&mut data)?;
             Ok(Some((kson::Chart::from_ksh(&data)?, path)))
         }
         "kson" => {
@@ -1471,7 +1486,7 @@ fn open_chart_file(path: PathBuf) -> Result<Option<(kson::Chart, PathBuf)>> {
         }
         "vox" => {
             let mut data = String::from("");
-            File::open(&path).unwrap().read_to_string(&mut data)?;
+            File::open(&path)?.read_to_string(&mut data)?;
             Ok(Some((kson::Chart::from_vox(&data)?, path)))
         }
 
@@ -1498,7 +1513,7 @@ fn save_chart_as(chart: &kson::Chart) -> Result<Option<PathBuf>> {
         nfd::Response::Okay(file_path) => {
             let mut path = PathBuf::from(&file_path);
             path.set_extension("kson");
-            let mut file = File::create(&path).unwrap();
+            let mut file = File::create(&path)?;
             profile_scope!("Write kson");
             file.write_all(serde_json::to_string(&chart)?.as_bytes())?;
             Ok(Some(path))

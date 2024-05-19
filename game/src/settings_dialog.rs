@@ -208,7 +208,7 @@ impl SettingsDialog {
                 {
                     let detla_ms = press_time
                         .duration_since(other_press_time)
-                        .unwrap()
+                        .expect("Time decreased?")
                         .as_millis();
 
                     if detla_ms < 100 {

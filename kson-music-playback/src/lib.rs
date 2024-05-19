@@ -200,17 +200,8 @@ impl AudioPlayback {
     }
 
     pub fn build_effects(&mut self, chart: &Chart) {
-        let offset = Duration::from_millis(chart.audio.bgm.as_ref().unwrap().offset.max(0) as _);
-        let neg_offset = Duration::from_millis(
-            chart
-                .audio
-                .bgm
-                .as_ref()
-                .unwrap()
-                .offset
-                .min(0)
-                .unsigned_abs() as _,
-        );
+        let offset = Duration::from_millis(chart.audio.bgm.offset.max(0) as _);
+        let neg_offset = Duration::from_millis(chart.audio.bgm.offset.min(0).unsigned_abs() as _);
 
         let Some(sample_rate) = self.file.as_ref().map(|x| x.sample_rate) else {
             return;
@@ -226,7 +217,7 @@ impl AudioPlayback {
             .into_iter()
             .map(|x| vec![x])
             .coalesce(|mut a, mut b| {
-                let b = b.pop().unwrap();
+                let b = b.remove(0);
                 if a.iter().any(|x| x.interval.overlaps(&b.interval)) {
                     a.push(b);
                     Ok(a)
@@ -235,12 +226,16 @@ impl AudioPlayback {
                 }
             })
             .map(|effect_part| {
-                let start_tick = effect_part.iter().map(|x| x.interval.y).min().unwrap();
+                let start_tick = effect_part
+                    .iter()
+                    .map(|x| x.interval.y)
+                    .min()
+                    .unwrap_or_default();
                 let end_tick = effect_part
                     .iter()
                     .map(|x| x.interval.y + x.interval.l)
                     .max()
-                    .unwrap();
+                    .unwrap_or_default();
 
                 let section_start_ms = chart.tick_to_ms(start_tick);
                 let section_end_ms = chart.tick_to_ms(end_tick);
@@ -385,10 +380,7 @@ impl AudioPlayback {
     pub fn get_tick(&self, chart: &Chart) -> f64 {
         if self.is_playing() {
             let ms = self.get_ms();
-            let offset = match &chart.audio.bgm {
-                Some(bgm) => bgm.offset,
-                None => 0,
-            };
+            let offset = chart.audio.bgm.offset;
             let ms = ms - offset as f64;
             chart.ms_to_tick(ms) as f64
         } else {
@@ -496,9 +488,8 @@ impl AudioPlayback {
     //release trhe currently loaded file
     pub fn close(&mut self) {
         self.stop();
-        if self.file.is_some() {
-            self.file.as_mut().unwrap().set_stopped(true);
-            self.file = None;
+        if let Some(mut file) = self.file.take() {
+            file.set_stopped(true);
         }
     }
 

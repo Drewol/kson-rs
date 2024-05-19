@@ -29,15 +29,18 @@ where
         }
     }
 
-    pub fn new_action(&mut self) -> &mut Action<T> {
+    pub fn new_action(
+        &mut self,
+        description: impl Into<String>,
+        f: impl Fn(&mut T) -> anyhow::Result<()> + 'static,
+    ) {
         self.undo_stack.push(Action {
-            action: Box::new(|_| panic!("Unset Action")),
-            description: String::new(),
+            action: Box::new(f),
+            description: description.into(),
             id: self.next_id,
         });
         self.next_id += 1;
         self.redo_stack.clear();
-        self.undo_stack.last_mut().unwrap()
     }
 
     pub fn undo(&mut self) {

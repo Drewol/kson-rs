@@ -10,7 +10,7 @@ use itertools::Itertools;
 use puffin::profile_function;
 use tealr::{
     mlu::{
-        mlua::{FromLua, Lua},
+        mlua::{self, FromLua, Lua},
         TealData, UserData,
     },
     ToTypename,
@@ -477,8 +477,8 @@ impl ShadedMesh {
         vgfx: &RwLock<Vgfx>,
     ) -> Result<(), tealr::mlu::mlua::Error> {
         let [c0r0, c0r1, c1r0, c1r1, c2r0, c2r1] = {
-            let vgfx = vgfx.write().unwrap();
-            let canvas = vgfx.canvas.lock().unwrap();
+            let vgfx = vgfx.write().expect("Lock error");
+            let canvas = vgfx.canvas.lock().expect("Lock error");
             let transform = canvas.transform();
             //transform.scale(1.0, -1.0);
 
@@ -645,11 +645,13 @@ impl TealData for ShadedMesh {
         methods.add_method_mut("Draw", |lua, this, _: ()| {
             let frame = lua
                 .app_data_ref::<RefMut<game_data::GameData>>()
-                .unwrap()
+                .ok_or(mlua::Error::external("App data not set"))?
                 .read()
-                .unwrap()
+                .expect("Lock error")
                 .resolution;
-            let vgfx = &lua.app_data_ref::<RefMut<Vgfx>>().unwrap();
+            let vgfx = &lua
+                .app_data_ref::<RefMut<Vgfx>>()
+                .ok_or(mlua::Error::external("VGFX App data not set"))?;
             this.draw_lua_skin(frame, vgfx)
         });
         methods.add_method_mut("AddTexture", |_lua, this, params: (String, String)| {
@@ -708,7 +710,9 @@ impl TealData for ShadedMesh {
                 .map(|vert| (vec2(vert.0 .0, vert.0 .1), vec2(vert.1 .0, vert.1 .1)))
                 .unzip();
 
-            let context = &lua.app_data_ref::<Arc<three_d::Context>>().unwrap();
+            let context = &lua
+                .app_data_ref::<Arc<three_d::Context>>()
+                .ok_or(mlua::Error::external("three_d Context app data not set"))?;
             this.vertecies_pos = VertexBuffer::new_with_data(context, &pos);
             this.vertecies_uv = VertexBuffer::new_with_data(context, &uv);
 

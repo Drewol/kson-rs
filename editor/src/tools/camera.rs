@@ -99,8 +99,8 @@ impl CursorObject for CameraTool {
                         y: start_end[0].y,
                         v: start_end[0].v,
                         vf: start_end[0].vf,
-                        a: Some(a),
-                        b: Some(b),
+                        a,
+                        b,
                     }
                 } else {
                     start_end[0]
@@ -134,8 +134,8 @@ impl CursorObject for CameraTool {
                             ry: p.y,
                             v: p.v,
                             vf: p.vf,
-                            a: Some(a),
-                            b: Some(b),
+                            a,
+                            b,
                         })
                         .collect::<Vec<_>>(),
                     painter,
@@ -167,8 +167,7 @@ impl CursorObject for CameraTool {
         for (i, points) in graph.windows(2).enumerate() {
             if let Some(control_point) = screen.get_control_point_pos(points, (-3.0, 3.0), None) {
                 if control_point.distance(pos) < 5.0 {
-                    self.curving_index =
-                        Some((i, points[0].a.unwrap_or(0.5), points[0].b.unwrap_or(0.5)));
+                    self.curving_index = Some((i, points[0].a, points[0].b));
                 }
             }
         }
@@ -185,29 +184,29 @@ impl CursorObject for CameraTool {
         _pos: Pos2,
     ) {
         if let Some((ci, a, b)) = self.curving_index {
-            let new_action = actions.new_action();
             let active_line = self.display_line;
-            new_action.action = Box::new(move |chart| {
-                let graph = match active_line {
-                    CameraPaths::Zoom => &mut chart.camera.cam.body.zoom,
-                    CameraPaths::RotationX => &mut chart.camera.cam.body.rotation_x,
-                };
+            actions.new_action(
+                i18n::fl!(
+                    "edit_curve_for_camera",
+                    graph = match self.display_line {
+                        CameraPaths::Zoom => i18n::fl!("radius"),
+                        CameraPaths::RotationX => i18n::fl!("angle"),
+                    }
+                ),
+                move |chart| {
+                    let graph = match active_line {
+                        CameraPaths::Zoom => &mut chart.camera.cam.body.zoom,
+                        CameraPaths::RotationX => &mut chart.camera.cam.body.rotation_x,
+                    };
 
-                if let Some(point) = graph.get_mut(ci) {
-                    point.a = Some(a);
-                    point.b = Some(b);
-                }
+                    if let Some(point) = graph.get_mut(ci) {
+                        point.a = a;
+                        point.b = b;
+                    }
 
-                Ok(())
-            });
-
-            new_action.description = i18n::fl!(
-                "edit_curve_for_camera",
-                graph = match self.display_line {
-                    CameraPaths::Zoom => i18n::fl!("radius"),
-                    CameraPaths::RotationX => i18n::fl!("angle"),
-                }
-            )
+                    Ok(())
+                },
+            );
         }
 
         self.curving_index = None
@@ -282,8 +281,6 @@ impl CursorObject for CameraTool {
                     });
 
                 if ui.button(i18n::fl!("add_control_point")).clicked() {
-                    let new_action = state.actions.new_action();
-                    new_action.description = i18n::fl!("added_camera_control_point").to_string();
                     let Self {
                         angle,
                         radius,
@@ -293,31 +290,34 @@ impl CursorObject for CameraTool {
                         curving_index: _,
                     } = *self;
                     let y = state.cursor_line;
-                    new_action.action = Box::new(move |c| {
-                        if angle_dirty {
-                            c.camera.cam.body.rotation_x.push(kson::GraphPoint {
-                                y,
-                                v: angle as f64,
-                                vf: None,
-                                a: Some(0.5),
-                                b: Some(0.5),
-                            })
-                        }
-                        if radius_dirty {
-                            c.camera.cam.body.zoom.push(kson::GraphPoint {
-                                y,
-                                v: radius as f64,
-                                vf: None,
-                                a: Some(0.5),
-                                b: Some(0.5),
-                            });
-                        }
+                    state.actions.new_action(
+                        i18n::fl!("added_camera_control_point").to_string(),
+                        move |c| {
+                            if angle_dirty {
+                                c.camera.cam.body.rotation_x.push(kson::GraphPoint {
+                                    y,
+                                    v: angle as f64,
+                                    vf: None,
+                                    a: 0.5,
+                                    b: 0.5,
+                                })
+                            }
+                            if radius_dirty {
+                                c.camera.cam.body.zoom.push(kson::GraphPoint {
+                                    y,
+                                    v: radius as f64,
+                                    vf: None,
+                                    a: 0.5,
+                                    b: 0.5,
+                                });
+                            }
 
-                        //TODO: just insert sorted instead
-                        c.camera.cam.body.zoom.sort_by_key(|p| p.y);
-                        c.camera.cam.body.rotation_x.sort_by_key(|p| p.y);
-                        Ok(())
-                    });
+                            //TODO: just insert sorted instead
+                            c.camera.cam.body.zoom.sort_by_key(|p| p.y);
+                            c.camera.cam.body.rotation_x.sort_by_key(|p| p.y);
+                            Ok(())
+                        },
+                    );
 
                     self.radius_dirty = false;
                     self.angle_dirty = false;

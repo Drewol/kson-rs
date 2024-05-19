@@ -117,14 +117,10 @@ impl Widget for &mut NewChartOptions {
 
 impl Widget for &mut kson::BgmInfo {
     fn ui(self, ui: &mut Ui) -> Response {
-        if self.filename.is_none() {
-            self.filename = Some(Default::default());
-        }
-
         Grid::new("bgm_info")
             .show(ui, |ui| {
                 ui.label(i18n::fl!("audio_file"));
-                ui.text_edit_singleline(self.filename.as_mut().unwrap());
+                ui.text_edit_singleline(&mut self.filename);
                 ui.end_row();
 
                 ui.label(i18n::fl!("offset"));
@@ -435,7 +431,7 @@ impl Default for Config {
             key_bindings: default_bindings,
             track_width: 72.0,
             beats_per_column: 16,
-            language: "en".parse().unwrap(),
+            language: "en".parse().expect("Bad default language"),
         }
     }
 }
@@ -507,12 +503,14 @@ impl AppState {
                 [
                     ui.selectable_value(
                         &mut self.language,
-                        "en".parse::<LanguageIdentifier>().unwrap(),
+                        "en".parse::<LanguageIdentifier>()
+                            .expect("Bad language identifier"),
                         "en",
                     ),
                     ui.selectable_value(
                         &mut self.language,
-                        "sv".parse::<LanguageIdentifier>().unwrap(),
+                        "sv".parse::<LanguageIdentifier>()
+                            .expect("Bad language identifier"),
                         "sv",
                     ),
                 ]
@@ -520,7 +518,9 @@ impl AppState {
 
         if let Some(inner) = selected.inner {
             if inner.iter().any(|r| r.clicked()) {
-                i18n::localizer().select(&[self.language.clone()]).unwrap();
+                i18n::localizer()
+                    .select(&[self.language.clone()])
+                    .expect("Failed to set language");
             }
         }
 
@@ -600,8 +600,7 @@ impl App for AppState {
                                 self.meta_edit = Some(self.editor.chart.meta.clone())
                             }
                             Some(GuiEvent::MusicInfo) => {
-                                self.bgm_edit =
-                                    Some(self.editor.chart.audio.bgm.clone().unwrap_or_default())
+                                self.bgm_edit = Some(self.editor.chart.audio.bgm.clone())
                             }
 
                             Some(action) => self.editor.gui_event_queue.push_back(action.clone()),
@@ -684,8 +683,7 @@ impl App for AppState {
                         }
                         if ui.button(i18n::fl!("music_info")).clicked() && self.meta_edit.is_none()
                         {
-                            self.bgm_edit =
-                                Some(self.editor.chart.audio.bgm.clone().unwrap_or_default());
+                            self.bgm_edit = Some(self.editor.chart.audio.bgm.clone());
                         }
                         ui.checkbox(&mut self.show_fx_def, fl!("effect_definitions"));
 
@@ -764,21 +762,23 @@ impl App for AppState {
             }
 
             //Metadata dialog
-            if self.meta_edit.is_some() {
+            if let Some(mut meta_edit) = self.meta_edit.take() {
                 let mut open = true;
                 egui::Window::new(i18n::fl!("metadata"))
                     .open(&mut open)
                     .show(ctx, |ui| {
-                        self.meta_edit.as_mut().unwrap().ui(ui);
+                        meta_edit.ui(ui);
                         ui.add_space(10.0);
                         if ui.button(i18n::fl!("ok")).clicked() {
-                            let new_action = self.editor.actions.new_action();
-                            let new_meta = self.meta_edit.take().unwrap();
-                            new_action.action = Box::new(move |chart: &mut Chart| {
-                                chart.meta = new_meta.clone();
-                                Ok(())
-                            });
-                            new_action.description = i18n::fl!("update_metadata");
+                            self.editor.actions.new_action(
+                                i18n::fl!("update_metadata"),
+                                move |chart: &mut Chart| {
+                                    chart.meta = meta_edit.clone();
+                                    Ok(())
+                                },
+                            );
+                        } else {
+                            self.meta_edit = Some(meta_edit)
                         }
                     });
                 if !open {
@@ -787,28 +787,33 @@ impl App for AppState {
             }
 
             //Music data dialog
-            if self.bgm_edit.is_some() {
+            self.bgm_edit = if let Some(mut bgm_edit) = self.bgm_edit.take() {
                 let mut open = true;
                 egui::Window::new(i18n::fl!("music_info"))
                     .open(&mut open)
                     .show(ctx, |ui| {
-                        self.bgm_edit.as_mut().unwrap().ui(ui);
+                        bgm_edit.ui(ui);
                         ui.add_space(10.0);
                         if ui.button(i18n::fl!("ok")).clicked() {
-                            let new_action = self.editor.actions.new_action();
-                            let new_bgm = self.bgm_edit.take().unwrap();
-                            new_action.description = i18n::fl!("update_music_info");
-                            new_action.action = Box::new(move |chart: &mut Chart| {
-                                chart.audio.bgm = Some(new_bgm.clone());
-                                Ok(())
-                            });
+                            let new_bgm = bgm_edit.clone();
+                            self.editor.actions.new_action(
+                                i18n::fl!("update_music_info"),
+                                move |chart: &mut Chart| {
+                                    chart.audio.bgm = new_bgm.clone();
+                                    Ok(())
+                                },
+                            );
                         }
                     });
-                if !open {
-                    self.bgm_edit = None;
+                if open {
+                    Some(bgm_edit)
+                } else {
+                    None
                 }
+            } else {
+                None
             }
-        }
+        };
 
         //main
         {

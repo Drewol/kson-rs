@@ -16,7 +16,7 @@ use crate::{
     transition::Transition,
     vg_ui::Vgfx,
 };
-use anyhow::bail;
+use anyhow::{anyhow, bail};
 use button_codes::CustomBindingFilter;
 use clap::Parser;
 use directories::ProjectDirs;
@@ -140,7 +140,10 @@ pub fn init_game_dir(game_dir: impl AsRef<Path>) -> anyhow::Result<()> {
     let r = install_dir.read_dir()?;
     for ele in r.into_iter() {
         let ele = ele?;
-        let folder_name = ele.file_name().into_string().unwrap();
+        let folder_name = ele
+            .file_name()
+            .into_string()
+            .map_err(|_| anyhow!("Bad file name"))?;
 
         if ele.file_type()?.is_dir() && (folder_name == "fonts" || folder_name == "skins") {
             // Quickly check if the root path exists, ignore it if it does
@@ -220,7 +223,7 @@ impl Scenes {
             log_result!(t.tick(dt, knob_state));
         }
 
-        if self.transition.is_some() && self.transition.as_ref().unwrap().closed() {
+        if self.transition.as_ref().is_some_and(|x| x.closed()) {
             self.transition = None;
         }
 
@@ -352,7 +355,7 @@ fn main() -> anyhow::Result<()> {
 
     let _puffin_server = if args.profiling {
         let server_addr = format!("127.0.0.1:{}", puffin_http::DEFAULT_PORT);
-        Some(puffin_http::Server::new(&server_addr).unwrap())
+        Some(puffin_http::Server::new(&server_addr)?)
     } else {
         None
     };
@@ -377,7 +380,7 @@ fn main() -> anyhow::Result<()> {
 
     let _tokio = rt.enter();
 
-    let (window, surface, canvas, gl_context, eventloop, window_gl) = window::create_window();
+    let (window, surface, canvas, gl_context, eventloop, window_gl) = window::create_window()?;
 
     {
         if GameConfig::get().mouse_knobs {
@@ -559,10 +562,10 @@ fn main() -> anyhow::Result<()> {
         };
 
         let audio = rodio::Decoder::new(std::fs::File::open(
-            chart_path.with_file_name(chart.audio.bgm.as_ref().unwrap().filename.clone().unwrap()),
+            chart_path.with_file_name(chart.audio.bgm.filename.clone()),
         )?)?;
 
-        let skin_folder = { vgfx.read().unwrap().skin_folder() };
+        let skin_folder = { vgfx.read().expect("Lock error").skin_folder() };
 
         scenes.loaded.push(
             Box::new(game::GameData::new(

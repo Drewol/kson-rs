@@ -24,7 +24,6 @@ use glutin::{
     context::PossiblyCurrentContext,
     surface::{GlSurface, SwapInterval},
 };
-use kson::Chart;
 use puffin::{profile_function, profile_scope};
 
 use td::{FrameOutput, Modifiers};
@@ -45,7 +44,7 @@ use crate::{
     main_menu::MainMenuButton,
     scene,
     settings_screen::SettingsScreen,
-    songselect,
+    song_provider, songselect,
     transition::Transition,
     util::lua_address,
     vg_ui::Vgfx,
@@ -54,15 +53,13 @@ use crate::{
     LuaArena, RuscMixer, Scenes, FRAME_ACC_SIZE,
 };
 
-type SceneLoader = dyn FnOnce() -> (Chart, Box<dyn rodio::Source<Item = f32> + Send>) + Send;
-
 pub enum ControlMessage {
     None,
     MainMenu(MainMenuButton),
     Song {
         song: Arc<songselect::Song>,
         diff: usize,
-        loader: Box<SceneLoader>,
+        loader: song_provider::LoadSongFn,
     },
     TransitionComplete(Box<dyn scene::Scene>),
     Result {
@@ -146,7 +143,7 @@ impl GameMain {
     pub fn update(&mut self) {
         {
             for ele in self.service_provider.get_all_mut::<dyn WorkerService>() {
-                ele.write().unwrap().update()
+                ele.write().expect("Worker service closed").update()
             }
         }
 
@@ -214,7 +211,7 @@ impl GameMain {
         puffin::profile_scope!("Frame");
         puffin::GlobalProfiler::lock().new_frame();
 
-        for lua in lua_arena.read().unwrap().0.iter() {
+        for lua in lua_arena.read().expect("Lock error").0.iter() {
             lua.set_app_data(frame_input.clone());
         }
         let _lua_frame_input = frame_input.clone();
@@ -224,8 +221,8 @@ impl GameMain {
             frame_input
                 .screen()
                 .clear(td::ClearState::color(0.0, 0.0, 0.0, 1.0));
-            let vgfx = vgfx.write().unwrap();
-            let mut canvas = vgfx.canvas.lock().unwrap();
+            let vgfx = vgfx.write().expect("Lock error");
+            let mut canvas = vgfx.canvas.lock().expect("Lock error");
             canvas.reset();
             canvas.set_size(frame_input.viewport.width, frame_input.viewport.height, 1.0);
             _ = canvas.fill_text(
@@ -248,11 +245,11 @@ impl GameMain {
         if *frame_count == 1 {
             lua_provider
                 .register_libraries(transition_lua.clone(), "transition.lua")
-                .unwrap();
+                .expect("Failed to register lua libraries");
 
             lua_provider
                 .register_libraries(transition_song_lua.clone(), "songtransition.lua")
-                .unwrap();
+                .expect("Failed to register lua libraries");
             *frame_count += 1;
         }
 
@@ -268,14 +265,15 @@ impl GameMain {
 
                         if let Ok(_arena) = lua_arena.read() {
                             let transition_lua = transition_lua.clone();
-                            scenes.transition = Some(Transition::new(
+                            scenes.transition = Transition::new(
                                 transition_lua,
                                 ControlMessage::MainMenu(MainMenuButton::Start),
                                 control_tx.clone(),
                                 vgfx.clone(),
                                 frame_input.viewport,
                                 service_provider.create_scope(),
-                            ))
+                            )
+                            .ok()
                         }
                     }
                     MainMenuButton::Downloads => {}
@@ -292,14 +290,15 @@ impl GameMain {
                 ControlMessage::Song { diff, loader, song } => {
                     if let Ok(_arena) = lua_arena.read() {
                         let transition_lua = transition_song_lua.clone();
-                        scenes.transition = Some(Transition::new(
+                        scenes.transition = Transition::new(
                             transition_lua,
                             ControlMessage::Song { diff, loader, song },
                             control_tx.clone(),
                             vgfx.clone(),
                             frame_input.viewport,
                             service_provider.create_scope(),
-                        ))
+                        )
+                        .ok()
                     }
                 }
                 ControlMessage::TransitionComplete(scene_data) => scenes.loaded.push(scene_data),
@@ -312,7 +311,7 @@ impl GameMain {
                 } => {
                     if let Ok(_arena) = lua_arena.read() {
                         let transition_lua = transition_lua.clone();
-                        scenes.transition = Some(Transition::new(
+                        scenes.transition = Transition::new(
                             transition_lua,
                             ControlMessage::Result {
                                 song,
@@ -325,7 +324,8 @@ impl GameMain {
                             vgfx.clone(),
                             frame_input.viewport,
                             service_provider.create_scope(),
-                        ))
+                        )
+                        .ok()
                     }
                 }
                 ControlMessage::ApplySettings => {
@@ -334,7 +334,7 @@ impl GameMain {
                     _ = surface.set_swap_interval(
                         gl_context,
                         if settings.graphics.vsync {
-                            SwapInterval::Wait(NonZeroU32::new(1).unwrap())
+                            SwapInterval::Wait(NonZeroU32::new(1).expect("Invalid value"))
                         } else {
                             SwapInterval::DontWait
                         },
@@ -388,7 +388,7 @@ impl GameMain {
         });
         gui.paint(window);
 
-        Self::run_lua_gc(lua_arena, &mut vgfx.write().unwrap());
+        Self::run_lua_gc(lua_arena, &mut vgfx.write().expect("Lock error"));
 
         if let Ok(mut a) = game_data.write() {
             a.profile_stack.clear()
@@ -599,7 +599,7 @@ impl GameMain {
 
     fn run_lua_gc(lua_arena: &mut RefMut<LuaArena>, vgfx: &mut Vgfx) {
         profile_scope!("Garbage collect");
-        lua_arena.write().unwrap().0.retain(|lua| {
+        lua_arena.write().expect("Lock error").0.retain(|lua| {
             //lua.gc_collect();
             if Rc::strong_count(lua) > 1 {
                 LuaHttp::poll(lua);

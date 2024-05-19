@@ -93,7 +93,7 @@ impl SongResultData {
         score: u32,
         hit_ratings: Vec<HitRating>,
         gauge: Gauge,
-    ) -> Self {
+    ) -> anyhow::Result<Self> {
         let Difficulty {
             jacket_path,
             level,
@@ -103,7 +103,7 @@ impl SongResultData {
             top_badge: _,
             scores,
             hash: _,
-        } = song.difficulties.read().unwrap()[diff_idx].clone();
+        } = song.difficulties.read().expect("Lock error")[diff_idx].clone();
 
         let Song {
             title,
@@ -126,10 +126,10 @@ impl SongResultData {
             0.. => "D",
         }
         .to_string();
-        let (laser_hit_stats, note_hit_stats, hold_hit_stats) = hit_ratings.iter().fold(
+        let (laser_hit_stats, note_hit_stats, hold_hit_stats) = hit_ratings.iter().try_fold(
             (vec![], vec![], vec![]),
-            |(mut laser, mut note, mut hold), x| {
-                let rating = (*x).try_into();
+            |(mut laser, mut note, mut hold), x| -> anyhow::Result<_> {
+                let rating = (*x).try_into()?;
                 match x {
                     HitRating::None => {}
                     HitRating::Crit {
@@ -152,16 +152,16 @@ impl SongResultData {
                             lane: _,
                             start: _,
                             end: _,
-                        } => laser.push(rating.unwrap()),
+                        } => laser.push(rating),
 
-                        ScoreTick::Chip { lane: _ } => note.push(rating.unwrap()),
-                        ScoreTick::Hold { lane: _ } => hold.push(rating.unwrap()),
+                        ScoreTick::Chip { lane: _ } => note.push(rating),
+                        ScoreTick::Hold { lane: _ } => hold.push(rating),
                     },
                 }
-                (laser, note, hold)
+                Ok((laser, note, hold))
             },
-        );
-        Self {
+        )?;
+        Ok(Self {
             score,
             jacket_path,
             artist,
@@ -231,14 +231,18 @@ impl SongResultData {
             hold_hit_stats,
             song_id: SongDiffId::SongDiff(
                 song.id.clone(),
-                song.difficulties.read().unwrap()[diff_idx]
+                song.difficulties.read().expect("Lock error")[diff_idx]
                     .hash
                     .as_ref()
                     .map(|h| DiffId(SongId::StringId(h.clone())))
-                    .unwrap_or_else(|| song.difficulties.read().unwrap()[diff_idx].id.clone()),
+                    .unwrap_or_else(|| {
+                        song.difficulties.read().expect("Lock error")[diff_idx]
+                            .id
+                            .clone()
+                    }),
             ),
             ..Default::default()
-        }
+        })
     }
 }
 
@@ -381,7 +385,7 @@ impl From<&SongResultData> for Score {
             badge: *badge,
             timestamp: std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)
-                .unwrap()
+                .expect("System time before epoch")
                 .as_secs() as _,
             player_name: player_name.clone(),
             is_local: *is_local,
@@ -408,7 +412,7 @@ impl Scene for SongResult {
     fn init(&mut self, app_control_tx: Sender<ControlMessage>) -> anyhow::Result<()> {
         self.score_service
             .write()
-            .unwrap()
+            .expect("Lock error")
             .insert_score(&self.data.song_id, Score::from(&self.data))?;
 
         self.services

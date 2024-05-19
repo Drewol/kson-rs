@@ -33,15 +33,11 @@ where
     type Item = I::Item;
 
     fn next(&mut self) -> Option<Self::Item> {
-        let source = self.input.next();
-        if source.is_none() {
-            return source;
-        }
-        if self.mix < f32::EPSILON {
-            return source;
-        }
+        let source = self.input.next()?;
 
-        let source = source.unwrap();
+        if self.mix < f32::EPSILON {
+            return Some(source);
+        }
 
         if self.sample_counter == 0 {
             self.hold[self.current_channel as usize] = source;

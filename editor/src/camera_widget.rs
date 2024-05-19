@@ -212,9 +212,7 @@ impl CameraView {
             let mut laser_meshes = Vec::new();
 
             for section in lane {
-                screen
-                    .draw_laser_section(section, &mut laser_meshes, mapped_color[side], true)
-                    .unwrap();
+                screen.draw_laser_section(section, &mut laser_meshes, mapped_color[side], true);
             }
             self.meshes.append(
                 &mut laser_meshes
@@ -300,16 +298,16 @@ unsafe fn paint_mesh_callback(
     static VAO: OnceCell<NativeVertexArray> = OnceCell::new();
     let gl = painter.gl();
 
-    let vao = Some(VAO.get_or_init(|| gl.create_vertex_array().unwrap()));
+    let vao = Some(VAO.get_or_init(|| gl.create_vertex_array().expect("GL Error")));
 
     gl.bind_vertex_array(vao.copied()); // Unbind egui_glow vertex array object
 
     let assets = assets::instance(gl);
 
-    let vertex_buffer = CAMERA_ARRAY_BUFFER.get_or_init(|| gl.create_buffer().unwrap());
+    let vertex_buffer = CAMERA_ARRAY_BUFFER.get_or_init(|| gl.create_buffer().expect("GL Error"));
     gl.bind_buffer(glow::ARRAY_BUFFER, Some(*vertex_buffer));
 
-    let index_buffer = CAMERA_ELEMENT_BUFFER.get_or_init(|| gl.create_buffer().unwrap());
+    let index_buffer = CAMERA_ELEMENT_BUFFER.get_or_init(|| gl.create_buffer().expect("GL Error"));
     gl.bind_buffer(glow::ELEMENT_ARRAY_BUFFER, Some(*index_buffer));
     let stride = std::mem::size_of::<Vertex>() as i32;
 

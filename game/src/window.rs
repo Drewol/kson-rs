@@ -1,5 +1,6 @@
 use std::num::NonZeroU32;
 
+use anyhow::anyhow;
 use femtovg::{renderer::OpenGl, Canvas};
 use game_loop::winit::{
     self,
@@ -27,20 +28,20 @@ pub fn find_monitor(
     monitors.find(|x| x.position() == pos)
 }
 
-/// Mostly borrowed code from femtovg/examples
-pub fn create_window() -> (
+type WindowCreation = (
     winit::window::Window,
     glutin::surface::Surface<WindowSurface>,
     Canvas<OpenGl>,
     Context,
     EventLoop<UscInputEvent>,
     PossiblyCurrentContext,
-) {
+);
+
+/// Mostly borrowed code from femtovg/examples
+pub fn create_window() -> anyhow::Result<WindowCreation> {
     let settings = &GameConfig::get().graphics;
 
-    let event_loop = EventLoopBuilder::<UscInputEvent>::with_user_event()
-        .build()
-        .unwrap();
+    let event_loop = EventLoopBuilder::<UscInputEvent>::with_user_event().build()?;
 
     let window_builder = WindowBuilder::new()
         .with_resizable(true)
@@ -95,11 +96,14 @@ pub fn create_window() -> (
                         accum
                     }
                 })
-                .unwrap()
+                .expect("No config available")
         })
-        .unwrap();
+        .map_err(|e| {
+            log::error!("{e}");
+            anyhow!("Failed to build window")
+        })?;
 
-    let window = window.unwrap();
+    let window = window.ok_or(anyhow!("No window"))?;
 
     let raw_window_handle = Some(window.raw_window_handle());
 
@@ -126,22 +130,20 @@ pub fn create_window() -> (
     let raw_window_handle = window.raw_window_handle();
     let attrs = SurfaceAttributesBuilder::<WindowSurface>::new().build(
         raw_window_handle,
-        NonZeroU32::new(width).unwrap(),
-        NonZeroU32::new(height).unwrap(),
+        NonZeroU32::new(width).ok_or(anyhow!("Zero width"))?,
+        NonZeroU32::new(height).ok_or(anyhow!("Zero height"))?,
     );
 
     let surface = unsafe {
         gl_config
             .display()
-            .create_window_surface(&gl_config, &attrs)
-            .unwrap()
+            .create_window_surface(&gl_config, &attrs)?
     };
 
     let gl_context = not_current_gl_context
         .take()
-        .unwrap()
-        .make_current(&surface)
-        .unwrap();
+        .ok_or(anyhow!("No GL context"))?
+        .make_current(&surface)?;
 
     let renderer =
         unsafe { OpenGl::new_from_function_cstr(|s| gl_display.get_proc_address(s) as *const _) }
@@ -155,16 +157,14 @@ pub fn create_window() -> (
     let mut canvas = Canvas::new(renderer).expect("Cannot create canvas");
     let scale_factor = window.scale_factor();
     canvas.set_size(width, height, scale_factor as f32);
-    surface
-        .set_swap_interval(
-            &gl_context,
-            if settings.vsync {
-                glutin::surface::SwapInterval::Wait(NonZeroU32::new(1).unwrap())
-            } else {
-                glutin::surface::SwapInterval::DontWait
-            },
-        )
-        .unwrap();
+    surface.set_swap_interval(
+        &gl_context,
+        if settings.vsync {
+            glutin::surface::SwapInterval::Wait(NonZeroU32::new(1).expect("Bad value"))
+        } else {
+            glutin::surface::SwapInterval::DontWait
+        },
+    )?;
 
-    (window, surface, canvas, context, event_loop, gl_context)
+    Ok((window, surface, canvas, context, event_loop, gl_context))
 }

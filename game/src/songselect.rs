@@ -1,4 +1,4 @@
-use anyhow::{ensure, Result};
+use anyhow::{anyhow, ensure, Result};
 use di::{RefMut, ServiceProvider};
 use game_loop::winit::event::{ElementState, Event, Ime, WindowEvent};
 use itertools::Itertools;
@@ -22,7 +22,7 @@ use std::{
 };
 use tealr::{
     mlu::{
-        mlua::{Function, Lua, LuaSerdeExt},
+        mlua::{self, Function, Lua, LuaSerdeExt},
         TealData, UserData,
     },
     SingleType, ToTypename,
@@ -66,12 +66,11 @@ pub struct Difficulty {
 impl TealData for Difficulty {
     fn add_fields<'lua, F: tealr::mlu::TealDataFields<'lua, Self>>(fields: &mut F) {
         fields.add_field_method_get("jacketPath", |_, diff| {
-            Ok(diff
-                .jacket_path
+            diff.jacket_path
                 .clone()
                 .into_os_string()
                 .into_string()
-                .unwrap())
+                .map_err(|_| mlua::Error::external("Bad path"))
         });
         fields.add_field_method_get("level", |_, diff| Ok(diff.level));
         fields.add_field_method_get("difficulty", |_, diff| Ok(diff.difficulty));
@@ -99,7 +98,7 @@ impl TealData for Song {
         fields.add_field_method_get("bpm", |_, song| Ok(song.bpm.clone()));
         fields.add_field_method_get("id", |_, song| Ok(song.id.clone()));
         fields.add_field_method_get("difficulties", |_, song| {
-            Ok(song.difficulties.read().unwrap().clone())
+            Ok(song.difficulties.read().expect("Lock error").clone())
         });
     }
 }
@@ -210,12 +209,12 @@ impl SongSelectScene {
         let input_state = InputState::clone(&services.get_required());
         let song_provider: RefMut<dyn SongProvider> = services.get_required();
         let score_provider: RefMut<dyn ScoreProvider> = services.get_required();
-        let score_events = score_provider.write().unwrap().subscribe();
-        let song_events = song_provider.write().unwrap().subscribe();
-        let initial_songs = song_provider.write().unwrap().get_all();
+        let score_events = score_provider.write().expect("Lock error").subscribe();
+        let song_events = song_provider.write().expect("Lock error").subscribe();
+        let initial_songs = song_provider.write().expect("Lock error").get_all();
         _ = score_provider
             .write()
-            .unwrap()
+            .expect("Lock error")
             .init_scores(&mut initial_songs.iter());
         song_select.songs.add(initial_songs, vec![]);
         Self {
@@ -257,7 +256,7 @@ impl SongSelectScene {
 
     fn update_filter_sort_lua(&self) -> anyhow::Result<(Vec<SongFilterType>, Vec<SongSort>)> {
         let (filters, sorts) = {
-            let sp = self.song_provider.read().unwrap();
+            let sp = self.song_provider.read().expect("Lock error");
             (sp.get_available_filters(), sp.get_available_sorts())
         };
 
@@ -328,8 +327,7 @@ impl Scene for SongSelectScene {
                             {
                                 state.preview_countdown = 1500.0;
 
-                                let set_song_idx: Function =
-                                    self.lua.globals().get("set_index").unwrap();
+                                let set_song_idx: Function = self.lua.globals().get("set_index")?;
 
                                 set_song_idx.call::<_, i32>(state.selected_index + 1)?;
                             }
@@ -343,18 +341,20 @@ impl Scene for SongSelectScene {
                                 .songs
                                 .get(state.selected_index as usize)
                                 .cloned()
-                                .unwrap();
+                                .ok_or(anyhow!("Selected index not in collection"))?;
                             let diff = state.selected_diff_index as usize;
-                            let loader = self.song_provider.read().unwrap().load_song(
+                            let loader = self.song_provider.read().expect("Lock error").load_song(
                                 &SongDiffId::SongDiff(
                                     song.id.clone(),
-                                    song.difficulties.read().unwrap()[diff].id.clone(),
+                                    song.difficulties.read().expect("Lock error")[diff]
+                                        .id
+                                        .clone(),
                                 ),
-                            );
+                            )?;
                             ensure!(self
                                 .program_control
                                 .as_ref()
-                                .unwrap()
+                                .ok_or(anyhow!("Program control not set"))?
                                 .send(ControlMessage::Song { diff, song, loader })
                                 .is_ok());
                         }
@@ -385,7 +385,7 @@ impl Scene for SongSelectScene {
         lua_provider.register_libraries(self.sort_lua.clone(), "songselect/sortwheel.lua")?;
         (self.filters, self.sorts) = self.update_filter_sort_lua()?;
 
-        let mut bgm_amp = Arc::new(1_f32);
+        let mut bgm_amp = 1_f32;
         let preview_playing = self.state.preview_finished.clone();
         let suspended = self.suspended.clone();
         self.mixer.add(owned_source(
@@ -398,7 +398,7 @@ impl Scene for SongSelectScene {
                         .inner_mut()
                         .set_paused(suspended.load(std::sync::atomic::Ordering::Relaxed));
 
-                    let amp = Arc::get_mut(&mut bgm_amp).unwrap();
+                    let amp = &mut bgm_amp;
                     if preview_playing.load(std::sync::atomic::Ordering::SeqCst) == 0 {
                         *amp += 1.0 / 50.0;
                     } else {
@@ -439,7 +439,12 @@ impl Scene for SongSelectScene {
                     .load(std::sync::atomic::Ordering::SeqCst)
                     != song_id_u64
                 {
-                    match self.song_provider.read().unwrap().get_preview(song_id) {
+                    match self
+                        .song_provider
+                        .read()
+                        .expect("Lock error")
+                        .get_preview(song_id)
+                    {
                         Ok((preview, skip, duration)) => {
                             profile_scope!("Start Preview");
                             self.state
@@ -450,7 +455,7 @@ impl Scene for SongSelectScene {
                                 .preview_playing
                                 .store(song_id_u64, std::sync::atomic::Ordering::Relaxed);
                             let current_preview = self.state.preview_playing.clone();
-                            let mut amp = Arc::new(1_f32);
+                            let mut amp = 1_f32;
                             let mixer = self.mixer.clone();
                             let owner = self.sample_marker.clone();
                             let preview_finish_signal = self.state.preview_finished.clone();
@@ -478,7 +483,7 @@ impl Scene for SongSelectScene {
                                                     .load(std::sync::atomic::Ordering::Relaxed),
                                             );
 
-                                        let amp = Arc::get_mut(&mut amp).unwrap();
+                                        let amp = &mut amp;
                                         let current_preview = current_preview
                                             .load(std::sync::atomic::Ordering::Relaxed);
                                         if current_preview != song_id_u64 {
@@ -513,7 +518,7 @@ impl Scene for SongSelectScene {
                 SongProviderEvent::SongsAdded(new_songs) => {
                     self.score_provider
                         .read()
-                        .unwrap()
+                        .expect("Lock error")
                         .init_scores(&mut new_songs.iter())?;
                     self.state.songs.append(new_songs)
                 }
@@ -543,7 +548,10 @@ impl Scene for SongSelectScene {
             songs_dirty = true;
             match score_event {
                 ScoreProviderEvent::NewScore(id, score) => {
-                    self.song_provider.write().unwrap().add_score(id, score);
+                    self.song_provider
+                        .write()
+                        .expect("Lock error")
+                        .add_score(id, score);
                 }
             }
         }
@@ -552,7 +560,7 @@ impl Scene for SongSelectScene {
             self.update_lua()?;
 
             if index_dirty {
-                let set_song_idx: Function = self.lua.globals().get("set_index").unwrap();
+                let set_song_idx: Function = self.lua.globals().get("set_index")?;
                 set_song_idx.call::<_, i32>(self.state.selected_index + 1)?;
             }
 
@@ -561,12 +569,18 @@ impl Scene for SongSelectScene {
                 self.state
                     .songs
                     .get(self.state.selected_index as usize)
-                    .map(|s| s.difficulties.read().unwrap().len().saturating_sub(1))
+                    .map(|s| {
+                        s.difficulties
+                            .read()
+                            .expect("Lock error")
+                            .len()
+                            .saturating_sub(1)
+                    })
                     .unwrap_or_default()
                     .min(self.state.selected_diff_index as usize) as _;
 
             if diff != self.state.selected_diff_index {
-                let set_diff_idx: Function = self.lua.globals().get("set_diff").unwrap();
+                let set_diff_idx: Function = self.lua.globals().get("set_diff")?;
                 set_diff_idx.call::<_, ()>(self.state.selected_diff_index + 1)?;
             }
         }
@@ -580,11 +594,11 @@ impl Scene for SongSelectScene {
                     let song_idx = self.state.songs[song_idx].id.as_u64();
                     self.song_provider
                         .write()
-                        .unwrap()
+                        .expect("Lock error")
                         .set_current_index(song_idx as _);
 
                     if song_advance_steps != 0 {
-                        let set_song_idx: Function = self.lua.globals().get("set_index").unwrap();
+                        let set_song_idx: Function = self.lua.globals().get("set_index")?;
 
                         set_song_idx.call::<_, ()>(self.state.selected_index + 1)?;
                     }
@@ -595,12 +609,15 @@ impl Scene for SongSelectScene {
                         self.state.selected_diff_index =
                             (self.state.selected_diff_index + diff_advance_steps).clamp(
                                 0,
-                                song.difficulties.read().unwrap().len().saturating_sub(1) as _,
+                                song.difficulties
+                                    .read()
+                                    .expect("Lock error")
+                                    .len()
+                                    .saturating_sub(1) as _,
                             );
 
                         if prev_diff != self.state.selected_diff_index {
-                            let set_diff_idx: Function =
-                                self.lua.globals().get("set_diff").unwrap();
+                            let set_diff_idx: Function = self.lua.globals().get("set_diff")?;
                             set_diff_idx.call::<_, ()>(self.state.selected_diff_index + 1)?;
                         }
                     }
@@ -617,7 +634,7 @@ impl Scene for SongSelectScene {
                     if (diff_advance_steps + song_advance_steps) != 0 {
                         self.song_provider
                             .write()
-                            .unwrap()
+                            .expect("Lock error")
                             .set_sort(self.sorts[self.sort_index]);
                         let set_selection: Function =
                             self.sort_lua.globals().get("set_selection")?;
@@ -632,7 +649,7 @@ impl Scene for SongSelectScene {
                 if (diff_advance_steps + song_advance_steps) != 0 {
                     self.song_provider
                         .write()
-                        .unwrap()
+                        .expect("Lock error")
                         .set_filter(SongFilter::new(
                             self.filters[self.folder_filter_index].clone(),
                             self.level_filter,
@@ -648,13 +665,12 @@ impl Scene for SongSelectScene {
                         .rem_euclid(self.filters.len() as _)
                         as _;
                     if (diff_advance_steps + song_advance_steps) != 0 {
-                        self.song_provider
-                            .write()
-                            .unwrap()
-                            .set_filter(SongFilter::new(
+                        self.song_provider.write().expect("Lock error").set_filter(
+                            SongFilter::new(
                                 self.filters[self.folder_filter_index].clone(),
                                 self.level_filter,
-                            ));
+                            ),
+                        );
                         let set_selection: Function =
                             self.filter_lua.globals().get("set_selection")?;
                         set_selection.call((self.folder_filter_index + 1, true))?;
@@ -743,7 +759,7 @@ impl Scene for SongSelectScene {
                 _ = self.update_lua();
                 self.song_provider
                     .write()
-                    .unwrap()
+                    .expect("Lock error")
                     .set_search(&self.state.search_text);
             }
         }
@@ -769,13 +785,24 @@ impl Scene for SongSelectScene {
 
                         if let (Some(pc), Some(song)) = (&self.program_control, song) {
                             let diff = state.selected_diff_index as usize;
-                            let loader = self.song_provider.read().unwrap().load_song(
-                                &SongDiffId::SongDiff(
-                                    song.id.clone(),
-                                    song.difficulties.read().unwrap()[diff].id.clone(),
-                                ),
-                            );
-                            _ = pc.send(ControlMessage::Song { diff, loader, song });
+                            match self.song_provider.read().expect("Lock error").load_song(
+                                &SongDiffId::SongDiff(song.id.clone(), {
+                                    song.difficulties.read().expect("Lock error")[diff]
+                                        .id
+                                        .clone()
+                                }),
+                            ) {
+                                Ok(loader) => {
+                                    _ = pc.send(ControlMessage::Song {
+                                        diff,
+                                        loader,
+                                        song: song.clone(),
+                                    });
+                                }
+                                Err(err) => {
+                                    log::warn!("Failed to load song: {err}");
+                                }
+                            };
                         }
                     }
                     MenuState::Levels => {

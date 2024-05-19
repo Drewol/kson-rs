@@ -11,7 +11,7 @@ use crate::{
     ControlMessage,
 };
 
-use anyhow::{ensure, Result};
+use anyhow::{anyhow, ensure, Result};
 use di::{RefMut, ServiceProvider};
 use egui_plot::{Line, PlotPoints};
 use image::GenericImageView;
@@ -494,33 +494,30 @@ impl SceneData for GameData {
         )
         .ok();
 
-        Ok(Box::new(
-            Game::new(
-                chart,
-                &skin_folder,
-                &context,
-                fx_long_shader,
-                bt_long_shader,
-                fx_chip_shader,
-                [
-                    [laser_left, laser_left_active],
-                    [laser_right, laser_right_active],
-                ],
-                track_shader,
-                bt_chip_shader,
-                beam_shader,
-                song,
-                diff_idx,
-                playback,
-                InputState::clone(&service_provider.get_required()),
-                beam_colors,
-                biquad_control,
-                background,
-                foreground,
-                service_provider,
-            )
-            .unwrap(),
-        ))
+        Ok(Box::new(Game::new(
+            chart,
+            &skin_folder,
+            &context,
+            fx_long_shader,
+            bt_long_shader,
+            fx_chip_shader,
+            [
+                [laser_left, laser_left_active],
+                [laser_right, laser_right_active],
+            ],
+            track_shader,
+            bt_chip_shader,
+            beam_shader,
+            song,
+            diff_idx,
+            playback,
+            InputState::clone(&service_provider.get_required()),
+            beam_colors,
+            biquad_control,
+            background,
+            foreground,
+            service_provider,
+        )?))
     }
 }
 
@@ -548,9 +545,12 @@ impl Game {
         foreground: Option<GameBackground>,
         service_provider: ServiceProvider,
     ) -> Result<Self> {
-        let mut view = ChartView::new(skin_root, td);
+        let mut view = ChartView::new(skin_root, td)?;
         view.build_laser_meshes(&chart);
-        view.hispeed = (GameConfig::get().mod_speed / chart.mode_bpm().unwrap()) as f32;
+        view.hispeed = (GameConfig::get().mod_speed
+            / chart
+                .mode_bpm()
+                .ok_or(anyhow!("Failed to calculate Mode BPM"))?) as f32;
         let duration = chart.ms_to_tick(3000.0 + chart.tick_to_ms(chart.get_last_tick()));
         let mut slam_path = skin_root.clone();
         slam_path.push("audio");
@@ -676,7 +676,7 @@ impl Game {
         lua_data::LuaGameState {
             title: self.chart.meta.title.clone(),
             artist: self.chart.meta.artist.clone(),
-            jacket_path: self.song.as_ref().difficulties.read().unwrap()[self.diff_idx]
+            jacket_path: self.song.as_ref().difficulties.read().expect("Lock error")[self.diff_idx]
                 .jacket_path
                 .clone(),
             demo_mode: false,
@@ -744,9 +744,13 @@ impl Game {
     }
 
     fn reset_canvas(&mut self) {
-        let vgfx = self.lua.app_data_mut::<RefMut<Vgfx>>().unwrap();
-        let vgfx = vgfx.write().unwrap();
-        let canvas = &mut vgfx.canvas.lock().unwrap();
+        let Some(vgfx) = self.lua.app_data_mut::<RefMut<Vgfx>>() else {
+            log::error!("VGFX app data not set");
+            return;
+        };
+
+        let vgfx = vgfx.write().expect("Lock error");
+        let canvas = &mut vgfx.canvas.lock().expect("Lock error");
         canvas.flush();
         canvas.reset();
         canvas.reset_transform();
@@ -1004,12 +1008,7 @@ impl Game {
     }
 
     fn with_offset(&self, time_ms: f64) -> f64 {
-        time_ms
-            - if let Some(bgm) = &self.chart.audio.bgm {
-                bgm.offset as f64
-            } else {
-                0.0
-            }
+        time_ms - self.chart.audio.bgm.offset as f64
     }
 }
 
@@ -1059,7 +1058,7 @@ impl Scene for Game {
         if self.current_tick >= self.duration && !self.results_requested {
             self.control_tx
                 .as_ref()
-                .unwrap()
+                .ok_or(anyhow!("control_tx not set"))?
                 .send(ControlMessage::Result {
                     song: self.song.clone(),
                     diff_idx: self.diff_idx,
@@ -1067,8 +1066,7 @@ impl Scene for Game {
                     gauge: std::mem::take(&mut self.gauge),
                     hit_ratings: std::mem::take(&mut self.hit_ratings),
                 })
-                .unwrap();
-
+                .expect("Main loop messaging error");
             self.results_requested = true;
         }
         let missed_chip_tick = self.chart.ms_to_tick(
@@ -1459,10 +1457,14 @@ impl Scene for Game {
         let new_lua_state = self.lua_game_state(viewport, &td_camera);
         if new_lua_state != self.lua_game_state {
             self.lua_game_state = new_lua_state;
-            log_result!(self
-                .lua
-                .globals()
-                .set("gameplay", self.lua.to_value(&self.lua_game_state).unwrap()));
+            let lua_game_state = match self.lua.to_value(&self.lua_game_state) {
+                Ok(s) => s,
+                Err(e) => {
+                    log::error!("{e}");
+                    return;
+                }
+            };
+            log_result!(self.lua.globals().set("gameplay", lua_game_state));
         }
 
         //Set glow/hit states
@@ -1499,12 +1501,18 @@ impl Scene for Game {
             .collect();
 
         target.render(&td_camera, [&self.track_shader], &[]);
-        let render_data = self.view.render(
+        let render_data = match self.view.render(
             &self.chart,
             td_context,
             buttons_held,
             self.beam_colors_current,
-        );
+        ) {
+            Ok(d) => d,
+            Err(e) => {
+                log::error!("{e}");
+                return;
+            }
+        };
 
         self.fx_long_shaders.draw_instanced_camera(
             &td_camera,

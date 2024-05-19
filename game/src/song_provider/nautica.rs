@@ -22,7 +22,7 @@ use crate::{
 };
 
 use super::{DiffId, LoadSongFn, SongDiffId, SongId, SongProvider, SongProviderEvent};
-use anyhow::{bail, ensure, Result};
+use anyhow::{anyhow, bail, ensure, Result};
 use kson::Ksh;
 use poll_promise::Promise;
 use serde::{Deserialize, Serialize};
@@ -237,7 +237,7 @@ async fn next_songs(path: String) -> Result<NauticaSongs> {
         let jacket_path = match jacket_response
             .headers()
             .get(reqwest::header::CONTENT_TYPE)
-            .unwrap()
+            .ok_or(anyhow!("No content type header"))?
             .to_str()
             .unwrap_or_default()
         {
@@ -261,28 +261,11 @@ async fn next_songs(path: String) -> Result<NauticaSongs> {
 
 impl NauticaSongProvider {
     pub fn new() -> Self {
-        let first_songs =
-            poll_promise::Promise::spawn_async(next_songs("https://ksm.dev/app/songs".to_string()))
-                .block_and_take()
-                .unwrap();
-
-        let mut events = VecDeque::new();
-        let new_songs = first_songs
-            .data
-            .iter()
-            .map(|d| {
-                let song = d.as_song();
-                Arc::new(song)
-            })
-            .collect_vec();
-
-        events.push_back(SongProviderEvent::SongsAdded(new_songs.clone()));
-
         Self {
             next: None,
-            events,
-            all_songs: new_songs,
-            next_url: first_songs.links.next.unwrap_or_default(),
+            events: VecDeque::new(),
+            all_songs: vec![],
+            next_url: "https://ksm.dev/app/songs".into(),
             bus: bus::Bus::new(32),
         }
     }
@@ -339,15 +322,18 @@ impl SongProvider for NauticaSongProvider {
     fn add_score(&self, id: SongDiffId, score: Score) {
         let song = match &id {
             SongDiffId::Missing => None,
-            SongDiffId::DiffOnly(diff) => self
-                .all_songs
-                .iter()
-                .find(|x| x.difficulties.read().unwrap().iter().any(|d| d.id == *diff)),
+            SongDiffId::DiffOnly(diff) => self.all_songs.iter().find(|x| {
+                x.difficulties
+                    .read()
+                    .expect("Lock error")
+                    .iter()
+                    .any(|d| d.id == *diff)
+            }),
             SongDiffId::SongDiff(song, diff) => self.all_songs.iter().find(|x| x.id == *song),
         };
 
         if let (Some(song), Some(diff)) = (song, id.get_diff()) {
-            let diffs = &mut song.difficulties.write().unwrap();
+            let diffs = &mut song.difficulties.write().expect("Lock error");
             let diff = diffs.iter_mut().find(|x| x.id == *diff);
             if let Some(diff) = diff {
                 diff.top_badge = diff.top_badge.max(score.badge);
@@ -374,15 +360,12 @@ impl SongProvider for NauticaSongProvider {
         }
     }
 
-    fn load_song(
-        &self,
-        id: &SongDiffId,
-    ) -> Box<dyn FnOnce() -> (kson::Chart, Box<dyn rodio::Source<Item = f32> + Send>) + Send> {
+    fn load_song(&self, id: &SongDiffId) -> anyhow::Result<LoadSongFn> {
         let SongDiffId::SongDiff(SongId::StringId(song_id), diff_id) = id else {
-            todo!() //return Err
+            bail!("Bad song id")
         };
 
-        let song_uuid = Uuid::parse_str(song_id).unwrap();
+        let song_uuid = Uuid::parse_str(song_id)?;
 
         let mut song_path = project_dirs().cache_dir().to_path_buf();
 
@@ -395,13 +378,13 @@ impl SongProvider for NauticaSongProvider {
             .all_songs
             .iter()
             .find(|x| x.id == SongId::StringId(song_id.clone()))
-            .expect("song id not in song list");
+            .ok_or(anyhow!("song id not in song list"))?;
 
-        let read = &song.difficulties.read().unwrap();
+        let read = &song.difficulties.read().expect("Lock error");
         let diff = read
             .iter()
             .find(|x| x.id == *diff_id)
-            .expect("diff id not in songs difficulties");
+            .ok_or(anyhow!("diff id not in songs difficulties"))?;
 
         download_song(song_uuid, diff.difficulty)
     }
@@ -438,8 +421,9 @@ impl SongProvider for NauticaSongProvider {
             .json()
             .expect("Failed to parse nautica song");
 
-            ensure!(nautica.preview_url.is_some());
-            let preview_url = nautica.preview_url.unwrap();
+            let Some(preview_url) = nautica.preview_url else {
+                bail!("No preview url")
+            };
 
             let mut bytes = reqwest::blocking::get(preview_url)?.bytes()?;
 
@@ -451,6 +435,10 @@ impl SongProvider for NauticaSongProvider {
     }
 
     fn subscribe(&mut self) -> bus::BusReader<SongProviderEvent> {
+        if self.next.is_none() {
+            self.next = Some(Promise::spawn_async(next_songs(self.next_url.clone())));
+        }
+
         self.bus.add_rx()
     }
 
@@ -463,35 +451,28 @@ impl SongProvider for NauticaSongProvider {
     }
 }
 
-fn download_song(id: Uuid, diff: u8) -> LoadSongFn {
-    Box::new(move || {
+fn download_song(id: Uuid, diff: u8) -> anyhow::Result<LoadSongFn> {
+    Ok(Box::new(move || {
         let mut song_path = project_dirs().cache_dir().to_path_buf();
 
         song_path.push(id.hyphenated().to_string());
         song_path.push("data.zip");
 
         if song_path.exists() {
-            let file = File::open(song_path).unwrap();
+            let file = File::open(song_path)?;
             let file = BufReader::new(file);
-            return song_from_zip(file, diff).expect("Failed to load song from zip");
+            return song_from_zip(file, diff);
         }
 
         let NauticaSong { data: nautica } =
-            reqwest::blocking::get(format!("https://ksm.dev/app/songs/{}", id.as_hyphenated()))
-                .expect("Failed to get song")
-                .json()
-                .expect("Failed to parse nautica song");
+            reqwest::blocking::get(format!("https://ksm.dev/app/songs/{}", id.as_hyphenated()))?
+                .json()?;
+        let mut data = reqwest::blocking::get(nautica.cdn_download_url)?.bytes()?;
+        std::fs::write(&song_path, data)?;
 
-        let mut data = reqwest::blocking::get(nautica.cdn_download_url)
-            .expect("Failed to download song zip")
-            .bytes()
-            .unwrap();
-
-        std::fs::write(&song_path, data).expect("Failed to create song zip for downloading");
-
-        let file = File::open(song_path).expect("Ug");
-        song_from_zip(BufReader::new(file), diff).expect("Failed to load song from zip")
-    })
+        let file = File::open(song_path)?;
+        song_from_zip(BufReader::new(file), diff)
+    }))
 }
 
 fn song_from_zip(
@@ -515,7 +496,7 @@ fn song_from_zip(
 
         if let Ok(chart) = kson::Chart::from_ksh(&chart_string) {
             if chart.meta.difficulty == diff {
-                let bgm_name = chart.audio.bgm.clone().unwrap().filename.unwrap();
+                let bgm_name = chart.audio.bgm.filename.clone();
                 let bgm_path = file_folder.with_file_name(bgm_name);
                 let bgm_path = bgm_path.to_str().unwrap_or("").replace('\\', "/");
 

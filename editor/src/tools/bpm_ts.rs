@@ -75,10 +75,7 @@ impl CursorObject for BpmTool {
                     let v = bpm;
                     let y = tick;
 
-                    let new_action = a.new_action();
-
-                    new_action.description = i18n::fl!("add_bpm_change");
-                    new_action.action = Box::new(move |c| {
+                    a.new_action(i18n::fl!("add_bpm_change"), move |c| {
                         c.beat.bpm.push((y, v));
                         c.beat.bpm.sort_by(|a, b| a.0.cmp(&b.0));
                         Ok(())
@@ -89,9 +86,7 @@ impl CursorObject for BpmTool {
                 Some(Box::new(move |a: &mut ActionStack<Chart>, bpm: f64| {
                     let v = bpm;
 
-                    let new_action = a.new_action();
-                    new_action.description = i18n::fl!("edit_bpm_change");
-                    new_action.action = Box::new(move |c| {
+                    a.new_action(i18n::fl!("edit_bpm_change"), move |c| {
                         if let Some(change) = c.beat.bpm.get_mut(index) {
                             change.1 = v;
                             Ok(())
@@ -141,9 +136,7 @@ impl CursorObject for BpmTool {
         _pos: Pos2,
     ) {
         if let Ok(index) = chart.beat.bpm.binary_search_by_key(&tick, |f| f.0) {
-            let new_action = actions.new_action();
-            new_action.description = i18n::fl!("remove_bpm_change");
-            new_action.action = Box::new(move |chart: &mut Chart| {
+            actions.new_action(i18n::fl!("remove_bpm_change"), move |chart: &mut Chart| {
                 chart.beat.bpm.remove(index);
                 Ok(())
             })
@@ -187,7 +180,7 @@ impl CursorObject for TimeSigTool {
                 .binary_search_by(|tsc| tsc.0.cmp(&measure))
             {
                 self.state = CursorToolStates::Edit(idx);
-                self.ts = chart.beat.time_sig.get(idx).unwrap().1;
+                self.ts = chart.beat.time_sig[idx].1;
             } else {
                 self.state = CursorToolStates::Add(measure);
                 self.ts = kson::TimeSignature(4, 4);
@@ -207,12 +200,13 @@ impl CursorObject for TimeSigTool {
     ) {
         let measure = chart.tick_to_measure(tick);
         if let Ok(index) = chart.beat.time_sig.binary_search_by_key(&measure, |f| f.0) {
-            let new_action = actions.new_action();
-            new_action.description = i18n::fl!("remove_time_signature_change");
-            new_action.action = Box::new(move |chart: &mut Chart| {
-                chart.beat.time_sig.remove(index);
-                Ok(())
-            })
+            actions.new_action(
+                i18n::fl!("remove_time_signature_change"),
+                move |chart: &mut Chart| {
+                    chart.beat.time_sig.remove(index);
+                    Ok(())
+                },
+            )
         }
     }
 
@@ -237,18 +231,14 @@ impl CursorObject for TimeSigTool {
                 let v = kson::TimeSignature(ts[0] as u32, ts[1] as u32);
                 let idx = measure;
 
-                let new_action = a.new_action();
-                new_action.description = i18n::fl!("add_time_signature_change");
-                new_action.action = Box::new(move |c| {
+                a.new_action(i18n::fl!("add_time_signature_change"), move |c| {
                     c.beat.time_sig.push((idx, v));
                     c.beat.time_sig.sort_by(|a, b| a.0.cmp(&b.0));
                     Ok(())
                 });
             })),
             CursorToolStates::Edit(index) => Some(Box::new(move |a, ts| {
-                let new_action = a.new_action();
-                new_action.description = i18n::fl!("edit_time_signature_change");
-                new_action.action = Box::new(move |c| {
+                a.new_action(i18n::fl!("edit_time_signature_change"), move |c| {
                     if let Some(change) = c.beat.time_sig.get_mut(index) {
                         change.1 .0 = ts[0] as u32;
                         change.1 .1 = ts[1] as u32;

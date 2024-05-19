@@ -58,11 +58,11 @@ impl InputState {
     }
 
     pub fn get_axis(&self, side: Side) -> LaserAxis {
-        self.laser_state.read().unwrap().get_axis(side)
+        self.laser_state.read().expect("Lock error").get_axis(side)
     }
 
     pub fn lock_gilrs(&self) -> std::sync::MutexGuard<'_, gilrs::Gilrs> {
-        self.gilrs.lock().unwrap()
+        self.gilrs.lock().expect("Lock error")
     }
 
     pub fn text_input_active(&self) -> bool {

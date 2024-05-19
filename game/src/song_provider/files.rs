@@ -22,7 +22,7 @@ use super::{
     DiffId, LoadSongFn, ScoreProvider, ScoreProviderEvent, SongDiffId, SongFilter, SongId,
     SongProvider, SongProviderEvent, SongSort,
 };
-use anyhow::{bail, ensure};
+use anyhow::{anyhow, bail, ensure};
 
 use futures::{executor::block_on, AsyncReadExt, StreamExt};
 use itertools::Itertools;
@@ -112,7 +112,7 @@ impl FileSongProvider {
                     song.title = diff.title;
                     song.difficulties = Arc::new(RwLock::new(vec![]));
                 }
-                let mut difficulties = song.difficulties.write().unwrap();
+                let mut difficulties = song.difficulties.write().expect("Lock error");
 
                 difficulty_id_path_map.insert(diff.rowid as u64, PathBuf::from(&diff.path));
                 let diff_path = PathBuf::from(diff.path);
@@ -212,20 +212,33 @@ impl FileSongProvider {
                                                             encoding::DecoderTrap::Strict,
                                                             encoding::all::WINDOWS_31J,
                                                         );
-                                                        if let Some(err) = c.as_ref().err() {
-                                                            log::warn!("{:?}: {}", f.path(), err);
-                                                            continue;
-                                                        }
+                                                        let c = match c {
+                                                            Ok(c) => c,
+                                                            Err(err) => {
+                                                                log::warn!(
+                                                                    "{:?}: {}",
+                                                                    f.path(),
+                                                                    err
+                                                                );
 
-                                                        let c = kson::Chart::from_ksh(&c.unwrap());
+                                                                continue;
+                                                            }
+                                                        };
 
-                                                        if let Some(err) = c.as_ref().err() {
-                                                            log::warn!("{:?}: {}", f.path(), err);
-                                                            continue;
-                                                        }
+                                                        let c = kson::Chart::from_ksh(&c);
 
-                                                        let c = c.unwrap();
+                                                        let c = match c {
+                                                            Ok(c) => c,
+                                                            Err(err) => {
+                                                                log::warn!(
+                                                                    "{:?}: {}",
+                                                                    f.path(),
+                                                                    err
+                                                                );
 
+                                                                continue;
+                                                            }
+                                                        };
                                                         if c.get_last_tick() > 0 {
                                                             charts.push((f.path(), c, hash));
                                                         }
@@ -282,13 +295,7 @@ impl FileSongProvider {
                                                             hash: hash.to_string(),
                                                             preview_file: Some(
                                                                 path.with_file_name(
-                                                                    c.audio
-                                                                        .bgm
-                                                                        .as_ref()
-                                                                        .unwrap()
-                                                                        .filename
-                                                                        .clone()
-                                                                        .unwrap(),
+                                                                    c.audio.bgm.filename.clone(),
                                                                 )
                                                                 .to_string_lossy()
                                                                 .to_string(),
@@ -296,16 +303,12 @@ impl FileSongProvider {
                                                             preview_offset: c
                                                                 .audio
                                                                 .bgm
-                                                                .as_ref()
-                                                                .unwrap()
                                                                 .preview
                                                                 .offset
                                                                 as _,
                                                             preview_length: c
                                                                 .audio
                                                                 .bgm
-                                                                .as_ref()
-                                                                .unwrap()
                                                                 .preview
                                                                 .duration
                                                                 as _,
@@ -327,8 +330,10 @@ impl FileSongProvider {
                                                 song.title.clone_from(&c.meta.title);
                                                 song.artist.clone_from(&c.meta.artist);
 
-                                                song.difficulties.write().unwrap().push(
-                                                    Difficulty {
+                                                song.difficulties
+                                                    .write()
+                                                    .expect("Lock error")
+                                                    .push(Difficulty {
                                                         jacket_path,
                                                         level: c.meta.level,
                                                         difficulty: c.meta.difficulty,
@@ -341,11 +346,15 @@ impl FileSongProvider {
                                                             .unwrap_or_default(),
                                                         scores,
                                                         hash: Some(hash),
-                                                    },
-                                                );
+                                                    });
                                             }
 
-                                            if song.difficulties.read().unwrap().is_empty() {
+                                            if song
+                                                .difficulties
+                                                .read()
+                                                .expect("Lock error")
+                                                .is_empty()
+                                            {
                                                 return;
                                             }
 
@@ -502,12 +511,12 @@ impl SongProvider for FileSongProvider {
 
     fn set_current_index(&mut self, _index: u64) {}
 
-    fn load_song(&self, id: &SongDiffId) -> LoadSongFn {
+    fn load_song(&self, id: &SongDiffId) -> anyhow::Result<LoadSongFn> {
         let _diff_index = match id {
             SongDiffId::DiffOnly(diff_id) | SongDiffId::SongDiff(_, diff_id) => match &diff_id.0 {
                 SongId::IntId(id) => *id,
                 SongId::StringId(hash) => {
-                    block_on(self.database.get_hash_id(hash)).unwrap().unwrap()
+                    block_on(self.database.get_hash_id(hash))?.ok_or(anyhow!("No song hash"))?
                 }
                 SongId::Missing => todo!(),
             },
@@ -515,37 +524,20 @@ impl SongProvider for FileSongProvider {
         };
 
         let db = self.database.clone();
-        let path = PathBuf::from(
-            block_on!(db.get_song(_diff_index as _))
-                .expect("No diff with that id")
-                .path,
-        );
+        let path = PathBuf::from(block_on!(db.get_song(_diff_index as _))?.path);
 
-        Box::new(move || {
+        Ok(Box::new(move || {
             let chart = kson::Chart::from_ksh(
                 &std::fs::read_to_string(&path).expect("Failed to read file"),
             )
             .expect("Failed to parse ksh");
 
-            let audio = rodio::decoder::Decoder::new(
-                std::fs::File::open(
-                    path.with_file_name(
-                        chart
-                            .audio
-                            .bgm
-                            .as_ref()
-                            .expect("Chart has no BGM info")
-                            .filename
-                            .as_ref()
-                            .expect("Chart has no BGM filename"),
-                    ),
-                )
-                .expect("Failed to open file"),
-            )
-            .expect("Failed to open chart audio");
+            let audio = rodio::decoder::Decoder::new(std::fs::File::open(
+                path.with_file_name(&chart.audio.bgm.filename),
+            )?)?;
 
-            (chart, Box::new(audio.convert_samples()))
-        })
+            Ok((chart, Box::new(audio.convert_samples())))
+        }))
     }
 
     fn get_preview(
@@ -563,14 +555,14 @@ impl SongProvider for FileSongProvider {
         let id = *id;
         let db = self.database.clone();
         let mut charts = block_on!(db.get_charts_for_folder(id))?;
-        let chart = charts.pop();
-
-        ensure!(chart.is_some());
-        let mut chart = chart.unwrap();
+        let Some(mut chart) = charts.pop() else {
+            bail!("No chart found")
+        };
 
         info!("Got chart: {:?}", &chart.preview_file);
-        ensure!(chart.preview_file.is_some());
-        let path = chart.preview_file.take().unwrap();
+        let Some(path) = chart.preview_file.take() else {
+            bail!("No preview file")
+        };
 
         let source = rodio::Decoder::new(std::fs::File::open(
             PathBuf::from(&chart.path).with_file_name(path),
@@ -600,15 +592,18 @@ impl SongProvider for FileSongProvider {
     fn add_score(&self, id: SongDiffId, score: Score) {
         let song = match &id {
             SongDiffId::Missing => None,
-            SongDiffId::DiffOnly(diff) => self
-                .all_songs
-                .iter()
-                .find(|x| x.difficulties.read().unwrap().iter().any(|d| d.id == *diff)),
+            SongDiffId::DiffOnly(diff) => self.all_songs.iter().find(|x| {
+                x.difficulties
+                    .read()
+                    .expect("Lock error")
+                    .iter()
+                    .any(|d| d.id == *diff)
+            }),
             SongDiffId::SongDiff(song, diff) => self.all_songs.iter().find(|x| x.id == *song),
         };
 
         if let (Some(song), Some(diff)) = (song, id.get_diff()) {
-            let diffs = &mut song.difficulties.write().unwrap();
+            let diffs = &mut song.difficulties.write().expect("Lock error");
             let diff = diffs.iter_mut().find(|x| x.id == *diff);
             if let Some(diff) = diff {
                 diff.top_badge = diff.top_badge.max(score.badge);
@@ -633,8 +628,12 @@ impl SongProvider for FileSongProvider {
 
     fn get_available_filters(&self) -> Vec<super::SongFilterType> {
         let songs_path = songs_path();
-        let song_path_contents: Vec<_> =
-            songs_path.read_dir().and_then(|x| x.try_collect()).unwrap();
+        let Ok(song_path_contents): Result<Vec<_>, _> =
+            songs_path.read_dir().and_then(|x| x.try_collect())
+        else {
+            log::warn!("Failed to iterate folders");
+            return vec![];
+        };
 
         let mut res = vec![super::SongFilterType::None];
 
@@ -745,7 +744,7 @@ impl ScoreProvider for FileSongProvider {
             .collect::<HashMap<_, _>>();
 
         songs.for_each(|song| {
-            let mut diffs = song.difficulties.write().unwrap();
+            let mut diffs = song.difficulties.write().expect("Lock error");
             for diff in diffs.iter_mut() {
                 diff.scores = scores.remove(&diff.id).unwrap_or_default();
                 diff.scores.sort_by_key(|x| -x.score);

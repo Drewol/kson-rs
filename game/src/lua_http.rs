@@ -7,7 +7,7 @@ use std::{collections::HashMap, str::FromStr};
 
 use tealr::{
     mlu::{
-        mlua::{Function, Lua, RegistryKey},
+        mlua::{self, Function, Lua, RegistryKey},
         ExportInstances, FromToLua, TealData, UserData, UserDataProxy,
     },
     ToTypename,
@@ -95,7 +95,9 @@ impl Response {
 impl LuaHttp {
     pub fn poll(lua: &Lua) {
         let (mut calls, mut callbacks) = {
-            let mut http = lua.app_data_mut::<LuaHttp>().unwrap();
+            let mut http = lua
+                .app_data_mut::<LuaHttp>()
+                .expect("LuaHttp app data not set");
 
             (
                 std::mem::take(&mut http.calls),
@@ -118,7 +120,10 @@ impl LuaHttp {
         }
 
         {
-            let mut http = lua.app_data_mut::<LuaHttp>().unwrap();
+            let mut http = lua
+                .app_data_mut::<LuaHttp>()
+                .expect("LuaHttp app data not set");
+
             http.calls.append(&mut remaining_calls);
             for (id, key) in callbacks.drain() {
                 http.callbacks.insert(id, key);
@@ -170,14 +175,16 @@ impl TealData for ExportLuaHttp {
                  content,
                  headers,
              }| {
-                let client = reqwest::blocking::Client::builder().build().unwrap();
+                let client = reqwest::blocking::Client::builder()
+                    .build()
+                    .map_err(mlua::Error::external)?;
 
                 let mut req = client.post(url).body(content);
                 for (header, value) in headers.iter() {
                     req = req.header(header, value);
                 }
 
-                let req = req.build().unwrap();
+                let req = req.build().map_err(mlua::Error::external)?;
 
                 client
                     .execute(req)
@@ -196,14 +203,38 @@ impl TealData for ExportLuaHttp {
 
                     http.calls
                         .push(poll_promise::Promise::spawn_async(async move {
-                            let client = reqwest::Client::builder()
+                            let client = match reqwest::Client::builder()
                                 .default_headers(HeaderMap::from_iter(headers.iter().map(
-                                    |(name, value)| (name.parse().unwrap(), value.parse().unwrap()),
+                                    |(name, value)| {
+                                        (
+                                            name.parse()
+                                                .inspect_err(|e| log::warn!("{e}"))
+                                                .unwrap_or(HeaderName::from_static(
+                                                    "Bad header name",
+                                                )),
+                                            value
+                                                .parse()
+                                                .inspect_err(|e| log::warn!("{e}"))
+                                                .unwrap_or(HeaderValue::from_static(
+                                                    "Bad header value",
+                                                )),
+                                        )
+                                    },
                                 )))
                                 .build()
-                                .unwrap();
+                            {
+                                Ok(v) => v,
+                                Err(e) => {
+                                    return Response::error(format!("{e}"));
+                                }
+                            };
 
-                            let req = client.get(url).build().unwrap();
+                            let req = match client.get(url).build() {
+                                Ok(v) => v,
+                                Err(e) => {
+                                    return Response::error(format!("{e}"));
+                                }
+                            };
 
                             match client.execute(req).await.map(Response::from_response) {
                                 Ok(r) => {
@@ -237,14 +268,38 @@ impl TealData for ExportLuaHttp {
 
                     http.calls
                         .push(poll_promise::Promise::spawn_async(async move {
-                            let client = reqwest::Client::builder()
+                            let client = match reqwest::Client::builder()
                                 .default_headers(HeaderMap::from_iter(headers.iter().map(
-                                    |(name, value)| (name.parse().unwrap(), value.parse().unwrap()),
+                                    |(name, value)| {
+                                        (
+                                            name.parse()
+                                                .inspect_err(|e| log::warn!("{e}"))
+                                                .unwrap_or(HeaderName::from_static(
+                                                    "Bad header name",
+                                                )),
+                                            value
+                                                .parse()
+                                                .inspect_err(|e| log::warn!("{e}"))
+                                                .unwrap_or(HeaderValue::from_static(
+                                                    "Bad header value",
+                                                )),
+                                        )
+                                    },
                                 )))
                                 .build()
-                                .unwrap();
+                            {
+                                Ok(v) => v,
+                                Err(e) => {
+                                    return Response::error(e.to_string());
+                                }
+                            };
 
-                            let request = client.post(url).body(content).build().unwrap();
+                            let request = match client.post(url).body(content).build() {
+                                Ok(v) => v,
+                                Err(e) => {
+                                    return Response::error(e.to_string());
+                                }
+                            };
 
                             match client.execute(request).await.map(Response::from_response) {
                                 Ok(r) => {

@@ -308,8 +308,8 @@ impl Scene for SettingsScreen {
                                 name,
                                 values,
                             } => {
-                                let SkinSettingValue::Text(t) =
-                                    self.altered_settings.skin_settings.get_mut(name).unwrap()
+                                let Some(SkinSettingValue::Text(t)) =
+                                    self.altered_settings.skin_settings.get_mut(name)
                                 else {
                                     continue;
                                 };
@@ -327,8 +327,8 @@ impl Scene for SettingsScreen {
                                 name,
                                 secret,
                             } => {
-                                let SkinSettingValue::Text(t) =
-                                    self.altered_settings.skin_settings.get_mut(name).unwrap()
+                                let Some(SkinSettingValue::Text(t)) =
+                                    self.altered_settings.skin_settings.get_mut(name)
                                 else {
                                     continue;
                                 };
@@ -340,8 +340,8 @@ impl Scene for SettingsScreen {
                                 label,
                                 name,
                             } => {
-                                let SkinSettingValue::Color(col) =
-                                    self.altered_settings.skin_settings.get_mut(name).unwrap()
+                                let Some(SkinSettingValue::Color(col)) =
+                                    self.altered_settings.skin_settings.get_mut(name)
                                 else {
                                     continue;
                                 };
@@ -353,8 +353,8 @@ impl Scene for SettingsScreen {
                                 label,
                                 name,
                             } => {
-                                let SkinSettingValue::Bool(v) =
-                                    self.altered_settings.skin_settings.get_mut(name).unwrap()
+                                let Some(SkinSettingValue::Bool(v)) =
+                                    self.altered_settings.skin_settings.get_mut(name)
                                 else {
                                     continue;
                                 };
@@ -367,8 +367,8 @@ impl Scene for SettingsScreen {
                                 min,
                                 max,
                             } => {
-                                let SkinSettingValue::Float(v) =
-                                    self.altered_settings.skin_settings.get_mut(name).unwrap()
+                                let Some(SkinSettingValue::Float(v)) =
+                                    self.altered_settings.skin_settings.get_mut(name)
                                 else {
                                     continue;
                                 };
@@ -382,8 +382,8 @@ impl Scene for SettingsScreen {
                                 min,
                                 max,
                             } => {
-                                let SkinSettingValue::Integer(v) =
-                                    self.altered_settings.skin_settings.get_mut(name).unwrap()
+                                let Some(SkinSettingValue::Integer(v)) =
+                                    self.altered_settings.skin_settings.get_mut(name)
                                 else {
                                     continue;
                                 };
@@ -406,16 +406,17 @@ fn monitor_select(
     ui: &mut Ui,
     monitors: &[MonitorHandle],
 ) {
-    if monitors.is_empty() {
+    let Some(default_monitor) = monitors.first() else {
+        log::warn!("Could not iterate monitors");
         return;
-    }
+    };
 
     let (current_index, current_monitor) = monitors
         .iter()
         .cloned()
         .enumerate()
         .find(|x| x.1.position() == *selected_monitor)
-        .unwrap_or((0, monitors.first().unwrap().clone()));
+        .unwrap_or((0, default_monitor.clone()));
 
     egui::ComboBox::from_label("Monitor")
         .selected_text(

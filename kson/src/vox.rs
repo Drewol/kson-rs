@@ -91,8 +91,8 @@ fn tick_from_vox(vox_time: &str, chart: &Chart) -> Result<u32, VoxReadError> {
         .time_sig
         .binary_search_by_key(&(measure - 1), |t| t.0)
     {
-        Ok(i) => chart.beat.time_sig.get(i).unwrap(),
-        Err(i) => chart.beat.time_sig.get(i - 1).unwrap(),
+        Ok(i) => chart.beat.time_sig[i],
+        Err(i) => chart.beat.time_sig[i - 1],
     };
 
     let tick_per_beat = 192 / current_sig.1 .1;
@@ -195,8 +195,8 @@ impl Vox for crate::Chart {
                                     vec![GraphSectionPoint {
                                         ry: 0,
                                         v,
-                                        a: None,
-                                        b: None,
+                                        a: 0.5,
+                                        b: 0.5,
                                         vf: None,
                                     }],
                                     wide
@@ -213,8 +213,8 @@ impl Vox for crate::Chart {
                                         current_section.1.push(GraphSectionPoint {
                                             ry,
                                             v ,
-                                            a: None,
-                                            b: None,
+                                            a: 0.5,
+                                            b: 0.5,
                                             vf: None,
                                         });
                                     }
@@ -226,7 +226,7 @@ impl Vox for crate::Chart {
                             _ => return Err(VoxReadError::UnknownLaserNodeError(node_type))
                         }
                         if node_type == 2 {
-                            let finished_section = std::mem::replace(&mut  current_section,  LaserSection(y, vec![GraphSectionPoint {ry: 0,v: 0.0,a: None,b: None,vf: None,
+                            let finished_section = std::mem::replace(&mut  current_section,  LaserSection(y, vec![GraphSectionPoint {ry: 0,v: 0.0,a: 0.5,b: 0.5,vf: None,
                                 }],
                                 wide
                             ));

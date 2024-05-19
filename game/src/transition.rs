@@ -4,6 +4,7 @@ use std::{
     sync::{mpsc::Sender, Arc},
 };
 
+use anyhow::anyhow;
 use di::{RefMut, ServiceProvider};
 
 use log::warn;
@@ -76,7 +77,7 @@ impl Transition {
         viewport: three_d::Viewport,
 
         service_provider: ServiceProvider,
-    ) -> Self {
+    ) -> anyhow::Result<Self> {
         if let Ok(reset_fn) = transition_lua.globals().get::<_, Function>("reset") {
             if let Some(e) = reset_fn.call::<(), ()>(()).err() {
                 warn!("Error resetting transition: {}", e);
@@ -115,26 +116,30 @@ impl Transition {
             loader: _,
         } = &target
         {
-            let mut vgfx = vgfx.write().unwrap();
-            let diff = &song.difficulties.read().unwrap()[*diff];
+            let mut vgfx = vgfx.write().expect("Failed to lock VG");
+            let diff = song
+                .difficulties
+                .read()
+                .expect("Failed to lock song diffs")
+                .get(*diff)
+                .cloned()
+                .ok_or(anyhow!("Song does not contain selected diff"))?;
             let lua_idx = lua_address(&transition_lua);
             log_result!(transition_lua.globals().set(
                 "song",
-                transition_lua
-                    .to_value(&json!({
-                        "jacket": vgfx.load_image(&diff.jacket_path, lua_idx).unwrap_or(0),
-                        "title": song.title,
-                        "artist": song.artist,
-                        "bpm": song.bpm,
-                        "difficulty": diff.difficulty,
-                        "level": diff.level,
-                        "effector": diff.effector
-                    }))
-                    .unwrap(),
+                transition_lua.to_value(&json!({
+                    "jacket": vgfx.load_image(&diff.jacket_path, lua_idx).unwrap_or(0),
+                    "title": song.title,
+                    "artist": song.artist,
+                    "bpm": song.bpm,
+                    "difficulty": diff.difficulty,
+                    "level": diff.level,
+                    "effector": diff.effector
+                }))?
             ));
         }
 
-        Self {
+        Ok(Self {
             target,
             transition_lua,
             target_state: None,
@@ -143,7 +148,7 @@ impl Transition {
             vgfx,
             prev_screengrab: prev_grab,
             service_provider,
-        }
+        })
     }
 }
 
@@ -190,7 +195,13 @@ impl Scene for Transition {
 
     fn render_ui(&mut self, dt: f64) -> anyhow::Result<()> {
         {
-            self.vgfx.read().unwrap().canvas.lock().unwrap().reset();
+            self.vgfx
+                .read()
+                .expect("Lock error")
+                .canvas
+                .lock()
+                .expect("Lock error")
+                .reset();
         }
         //TODO: Render last frame before transition
         //TODO: Handle rendering of next scene during outro
@@ -210,9 +221,9 @@ impl Scene for Transition {
                             }))
                         }
                         ControlMessage::Song { song, diff, loader } => {
-                            let skin_folder = self.vgfx.read().unwrap().skin_folder();
+                            let skin_folder = self.vgfx.read().expect("Lock error").skin_folder();
                             Some(Promise::spawn_thread("Load song", move || {
-                                let (chart, audio) = loader();
+                                let (chart, audio) = loader()?;
                                 load_chart(chart, song, diff, skin_folder, audio)
                             }))
                         }
@@ -231,7 +242,7 @@ impl Scene for Transition {
                                     score,
                                     hit_ratings,
                                     gauge,
-                                )))
+                                )?))
                             },
                         )),
                         _ => None,
@@ -248,7 +259,7 @@ impl Scene for Transition {
                             .send(ControlMessage::TransitionComplete(
                                 finished.make_scene(self.service_provider.create_scope())?,
                             ))
-                            .unwrap(),
+                            .expect("Failed to communicate with main game"),
                         Ok(Err(loading_error)) => {
                             log::error!("{}", loading_error);
                             self.state = TransitionState::Countdown(5);

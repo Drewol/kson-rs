@@ -222,147 +222,151 @@ pub struct EffectInterval {
     pub dom: bool,
 }
 
+fn default_param<T: Default>(val: &str) -> EffectParameter<T> {
+    EffectParameter::from_str(val).unwrap_or_default()
+}
+
 impl Default for ReTrigger {
     fn default() -> Self {
         Self {
-            update_period: EffectParameter::from_str("1/2").unwrap(),
-            wave_length: EffectParameter::from_str("0").unwrap(),
-            rate: EffectParameter::from_str("70%").unwrap(),
-            update_trigger: EffectParameter::from_str("off").unwrap(),
-            mix: EffectParameter::from_str("0%>100%").unwrap(),
+            update_period: default_param("1/2"),
+            wave_length: default_param("0"),
+            rate: default_param("70%"),
+            update_trigger: default_param("off"),
+            mix: default_param("0%>100%"),
         }
     }
 }
 impl Default for Gate {
     fn default() -> Self {
         Self {
-            wave_length: EffectParameter::from_str("0").unwrap(),
-            rate: EffectParameter::from_str("70%").unwrap(),
-            mix: EffectParameter::from_str("0%>90%").unwrap(),
+            wave_length: default_param("0"),
+            rate: default_param("70%"),
+            mix: default_param("0%>90%"),
         }
     }
 }
 impl Default for Flanger {
     fn default() -> Self {
         Self {
-            period: EffectParameter::from_str("2.0").unwrap(),
-            delay: EffectParameter::from_str("30samples").unwrap(),
-            depth: EffectParameter::from_str("45samples").unwrap(),
-            feedback: EffectParameter::from_str("60%").unwrap(),
-            stereo_width: EffectParameter::from_str("0%").unwrap(),
-            vol: EffectParameter::from_str("75%").unwrap(),
-            mix: EffectParameter::from_str("0%>80%").unwrap(),
+            period: default_param("2.0"),
+            delay: default_param("30samples"),
+            depth: default_param("45samples"),
+            feedback: default_param("60%"),
+            stereo_width: default_param("0%"),
+            vol: default_param("75%"),
+            mix: default_param("0%>80%"),
         }
     }
 }
 impl Default for PitchShift {
     fn default() -> Self {
         Self {
-            pitch: EffectParameter::from_str("0").unwrap(),
-            pitch_quantize: EffectParameter::from_str("0").unwrap(),
-            chunk_size: EffectParameter::from_str("0").unwrap(),
-            overlap: EffectParameter::from_str("0").unwrap(),
-            mix: EffectParameter::from_str("0").unwrap(),
+            pitch: default_param("0"),
+            pitch_quantize: default_param("0"),
+            chunk_size: default_param("0"),
+            overlap: default_param("0"),
+            mix: default_param("0"),
         }
     }
 }
 impl Default for BitCrusher {
     fn default() -> Self {
         Self {
-            reduction: EffectParameter::from_str("0samples-30samples").unwrap(),
-            mix: EffectParameter::from_str("0%>100%").unwrap(),
+            reduction: default_param("0samples-30samples"),
+            mix: default_param("0%>100%"),
         }
     }
 }
 impl Default for Phaser {
     fn default() -> Self {
         Self {
-            period: EffectParameter::from_str("0").unwrap(),
-            stage: EffectParameter::from_str("0").unwrap(),
-            lo_freq: EffectParameter::from_str("0").unwrap(),
-            hi_freq: EffectParameter::from_str("0").unwrap(),
-            q: EffectParameter::from_str("0").unwrap(),
-            feedback: EffectParameter::from_str("0").unwrap(),
-            stereo_width: EffectParameter::from_str("0").unwrap(),
-            mix: EffectParameter::from_str("0").unwrap(),
+            period: default_param("0"),
+            stage: default_param("0"),
+            lo_freq: default_param("0"),
+            hi_freq: default_param("0"),
+            q: default_param("0"),
+            feedback: default_param("0"),
+            stereo_width: default_param("0"),
+            mix: default_param("0"),
         }
     }
 }
 impl Default for Wobble {
     fn default() -> Self {
         Self {
-            wave_length: EffectParameter::from_str("1/12").unwrap(),
-            lo_freq: EffectParameter::from_str("500Hz").unwrap(),
-            hi_freq: EffectParameter::from_str("20000Hz").unwrap(),
-            q: EffectParameter::from_str("1.414").unwrap(),
-            mix: EffectParameter::from_str("0%>50%").unwrap(),
+            wave_length: default_param("1/12"),
+            lo_freq: default_param("500Hz"),
+            hi_freq: default_param("20000Hz"),
+            q: default_param("1.414"),
+            mix: default_param("0%>50%"),
         }
     }
 }
 impl Default for TapeStop {
     fn default() -> Self {
         Self {
-            speed: EffectParameter::from_str("50%").unwrap(),
-            trigger: EffectParameter::from_str("off>on").unwrap(),
-            mix: EffectParameter::from_str("0%>100%").unwrap(),
+            speed: default_param("50%"),
+            trigger: default_param("off>on"),
+            mix: default_param("0%>100%"),
         }
     }
 }
 impl Default for Echo {
     fn default() -> Self {
         Self {
-            update_period: EffectParameter::from_str("0").unwrap(),
-            wave_length: EffectParameter::from_str("0").unwrap(),
-            update_trigger: EffectParameter::from_str("0").unwrap(),
-            feedback_level: EffectParameter::from_str("0").unwrap(),
-            mix: EffectParameter::from_str("0").unwrap(),
+            update_period: default_param("0"),
+            wave_length: default_param("0"),
+            update_trigger: default_param("0"),
+            feedback_level: default_param("0"),
+            mix: default_param("0"),
         }
     }
 }
 impl Default for SideChain {
     fn default() -> Self {
         Self {
-            period: EffectParameter::from_str("1/4").unwrap(),
-            hold_time: EffectParameter::from_str("50ms").unwrap(),
-            attack_time: EffectParameter::from_str("10ms").unwrap(),
-            release_time: EffectParameter::from_str("1/16").unwrap(),
-            ratio: EffectParameter::from_str("1>5").unwrap(),
+            period: default_param("1/4"),
+            hold_time: default_param("50ms"),
+            attack_time: default_param("10ms"),
+            release_time: default_param("1/16"),
+            ratio: default_param("1>5"),
         }
     }
 }
 impl Default for HighPassFilter {
     fn default() -> Self {
         Self {
-            v: EffectParameter::from_str("0").unwrap(),
-            freq: EffectParameter::from_str("0").unwrap(),
-            freq_max: EffectParameter::from_str("0").unwrap(),
-            q: EffectParameter::from_str("0").unwrap(),
-            delay: EffectParameter::from_str("0").unwrap(),
-            mix: EffectParameter::from_str("0").unwrap(),
+            v: default_param("0"),
+            freq: default_param("0"),
+            freq_max: default_param("0"),
+            q: default_param("0"),
+            delay: default_param("0"),
+            mix: default_param("0"),
         }
     }
 }
 impl Default for LowPassFilter {
     fn default() -> Self {
         Self {
-            v: EffectParameter::from_str("0").unwrap(),
-            freq: EffectParameter::from_str("0").unwrap(),
-            freq_max: EffectParameter::from_str("0").unwrap(),
-            q: EffectParameter::from_str("0").unwrap(),
-            delay: EffectParameter::from_str("0").unwrap(),
-            mix: EffectParameter::from_str("0").unwrap(),
+            v: default_param("0"),
+            freq: default_param("0"),
+            freq_max: default_param("0"),
+            q: default_param("0"),
+            delay: default_param("0"),
+            mix: default_param("0"),
         }
     }
 }
 impl Default for PeakingFilter {
     fn default() -> Self {
         Self {
-            v: EffectParameter::from_str("0").unwrap(),
-            freq: EffectParameter::from_str("0").unwrap(),
-            freq_max: EffectParameter::from_str("0").unwrap(),
-            q: EffectParameter::from_str("0").unwrap(),
-            delay: EffectParameter::from_str("0").unwrap(),
-            mix: EffectParameter::from_str("0").unwrap(),
+            v: default_param("0"),
+            freq: default_param("0"),
+            freq_max: default_param("0"),
+            q: default_param("0"),
+            delay: default_param("0"),
+            mix: default_param("0"),
         }
     }
 }

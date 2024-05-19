@@ -92,6 +92,8 @@ impl Index<usize> for SongCollection {
     type Output = Arc<Song>;
 
     fn index(&self, index: usize) -> &Self::Output {
-        self.songs.get(&self.order[index]).unwrap()
+        self.songs
+            .get(&self.order[index])
+            .expect("Index out of bounds")
     }
 }

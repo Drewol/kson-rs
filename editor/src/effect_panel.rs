@@ -38,22 +38,22 @@ pub fn effect_panel(state: &mut MainState) -> impl egui::Widget + '_ {
             });
 
             if unaltered.ne(effect) {
-                let action = state.actions.new_action();
-                action.description = fl!("alter_effect", name = key.clone());
                 let key = key.clone();
                 let effect = effect.clone();
-                action.action = Box::new(move |c| {
-                    let Some(effects) = c.audio.audio_effect.as_mut() else {
-                        bail!("No effects defined")
-                    };
+                state
+                    .actions
+                    .new_action(fl!("alter_effect", name = key.clone()), move |c| {
+                        let Some(effects) = c.audio.audio_effect.as_mut() else {
+                            bail!("No effects defined")
+                        };
 
-                    let Some(original) = effects.fx.def.get_mut(&key) else {
-                        bail!("Effect not defined")
-                    };
-                    *original = effect.clone();
+                        let Some(original) = effects.fx.def.get_mut(&key) else {
+                            bail!("Effect not defined")
+                        };
+                        *original = effect.clone();
 
-                    Ok(())
-                })
+                        Ok(())
+                    })
             };
         }
 
@@ -80,15 +80,15 @@ pub fn effect_panel(state: &mut MainState) -> impl egui::Widget + '_ {
             && !effects.fx.def.contains_key(&new_name)
         {
             if let Ok(effect) = kson::effects::AudioEffect::try_from(effect_type.as_str()) {
-                let new_action = state.actions.new_action();
-                new_action.description = fl!("new_effect_definition", name = new_name.clone());
-
-                new_action.action = Box::new(move |c| {
-                    let mut effects = c.audio.audio_effect.take().unwrap_or_default();
-                    effects.fx.def.insert(new_name.clone(), effect.clone());
-                    c.audio.audio_effect = Some(effects);
-                    Ok(())
-                });
+                state.actions.new_action(
+                    fl!("new_effect_definition", name = new_name.clone()),
+                    move |c| {
+                        let mut effects = c.audio.audio_effect.take().unwrap_or_default();
+                        effects.fx.def.insert(new_name.clone(), effect.clone());
+                        c.audio.audio_effect = Some(effects);
+                        Ok(())
+                    },
+                );
             } else {
                 ui.data_mut(|x| x.insert_temp(id, (new_name, effect_type)));
             }

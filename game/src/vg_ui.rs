@@ -7,6 +7,7 @@ use std::{
 
 const COMPAT_TEXT_SCALE: f32 = 21.5 / 30.0; // Needed because old usc has two different text rendering methods for text, and fasttext/labels
 
+use anyhow::anyhow;
 use di::{Activator, InjectBuilder, Injectable};
 use femtovg::{renderer::OpenGl, Canvas, Color, FontId, ImageFlags, ImageId, Paint, Path};
 
@@ -171,7 +172,7 @@ struct Label {
 impl Vgfx {
     pub fn new(canvas: Arc<Mutex<Canvas<OpenGl>>>, game_folder: std::path::PathBuf) -> Self {
         let default_fonts = {
-            let mut canvas = canvas.lock().unwrap();
+            let mut canvas = canvas.lock().expect("Lock error");
 
             let mut font_dir = game_folder.clone();
             font_dir.push("fonts");
@@ -251,7 +252,7 @@ impl Vgfx {
         let img = self.with_canvas(|x| x.load_image_file(&path, ImageFlags::empty()))??;
         self.scoped_assets
             .get_mut(&lua_index)
-            .unwrap()
+            .ok_or(anyhow!("Assets not initialized"))?
             .images
             .insert(self.next_img_id, VgImage::Static(img));
         let result = self.next_img_id;
@@ -317,7 +318,11 @@ impl TealData for Vgfx {
             if let Some(paint) = _vgfx.fill_paint.as_ref() {
                 let mut p = Path::new();
                 p.rect(x, y, w, h);
-                _vgfx.canvas.lock().unwrap().fill_path(&p, paint);
+                _vgfx
+                    .canvas
+                    .lock()
+                    .expect("Lock error")
+                    .fill_path(&p, paint);
             }
             Ok(())
         });
@@ -398,7 +403,7 @@ impl TealData for Vgfx {
                 _vgfx
                     .scoped_assets
                     .get_mut(&lua_address(lua))
-                    .unwrap()
+                    .ok_or(mlua::Error::external("Assets not initialized"))?
                     .images
                     .insert(this_id, VgImage::Static(img));
                 Ok(this_id)
@@ -455,7 +460,7 @@ impl TealData for Vgfx {
                 _vgfx
                     .scoped_assets
                     .get_mut(&lua_address(lua))
-                    .unwrap()
+                    .ok_or(mlua::Error::external("Assets not initialized"))?
                     .images
                     .insert(this_id, VgImage::Static(img));
                 Ok(Some(this_id))
@@ -551,9 +556,9 @@ impl TealData for Vgfx {
         );
         add_lua_static_method(methods, "Text", |_, _vgfx, p: TextParams| {
             let TextParams { s, x, y } = p;
-            if s.is_none() {
+            let Some(s) = s else {
                 return Ok(());
-            }
+            };
             match _vgfx.fill_paint.as_ref() {
                 Some(fill_paint) => {
                     let canvas = &mut _vgfx
@@ -562,7 +567,7 @@ impl TealData for Vgfx {
                         .map_err(|_| mlua::Error::external("Canvas in use".to_string()))?;
 
                     canvas
-                        .fill_text(x, y, s.unwrap(), fill_paint)
+                        .fill_text(x, y, s, fill_paint)
                         .map_err(mlua::Error::external)?;
                     Ok(())
                 }
@@ -787,7 +792,7 @@ impl TealData for Vgfx {
                 _vgfx
                     .scoped_assets
                     .get_mut(&lua_address(lua))
-                    .unwrap()
+                    .ok_or(mlua::Error::external("Assets not initialized"))?
                     .labels
                     .insert(
                         _vgfx.next_label_id,
@@ -1078,7 +1083,7 @@ impl TealData for Vgfx {
                 if let Some(label) = _vgfx
                     .scoped_assets
                     .get_mut(&lua_address(lua))
-                    .unwrap()
+                    .ok_or(mlua::Error::external("Assets not initialized"))?
                     .labels
                     .get_mut(&p.label_id)
                 {
@@ -1268,7 +1273,7 @@ impl TealData for Vgfx {
                 _vgfx
                     .scoped_assets
                     .get_mut(&lua_address(lua))
-                    .unwrap()
+                    .ok_or(mlua::Error::external("Assets not initialized"))?
                     .paints
                     .insert(
                         _vgfx.next_paint_id,
@@ -1334,7 +1339,7 @@ impl TealData for Vgfx {
                 _vgfx
                     .scoped_assets
                     .get_mut(&lua_address(lua))
-                    .unwrap()
+                    .ok_or(mlua::Error::external("Assets not initialized"))?
                     .paints
                     .insert(
                         _vgfx.next_paint_id,
@@ -1392,7 +1397,7 @@ impl TealData for Vgfx {
                     _vgfx
                         .scoped_assets
                         .get_mut(&lua_address(lua))
-                        .unwrap()
+                        .ok_or(mlua::Error::external("Assets not initialized"))?
                         .paints
                         .insert(_vgfx.next_paint_id, paint);
                     let paint_id = _vgfx.next_paint_id;
@@ -1400,7 +1405,7 @@ impl TealData for Vgfx {
                     _vgfx
                         .scoped_assets
                         .get_mut(&lua_address(lua))
-                        .unwrap()
+                        .ok_or(mlua::Error::external("Assets not initialized"))?
                         .paint_imgs
                         .insert(paint_id, id);
                     Ok(paint_id)
@@ -1434,7 +1439,10 @@ impl TealData for Vgfx {
                     alpha,
                 } = p;
 
-                let assets = _vgfx.scoped_assets.get_mut(&lua_address(lua)).unwrap();
+                let assets = _vgfx
+                    .scoped_assets
+                    .get_mut(&lua_address(lua))
+                    .ok_or(mlua::Error::external("Assets not initialized"))?;
                 if let (Some(pattern_paint), Some(img)) =
                     (assets.paints.get_mut(&paint), assets.paint_imgs.get(&paint))
                 {
@@ -1597,13 +1605,13 @@ impl TealData for Vgfx {
                             _vgfx
                                 .scoped_assets
                                 .get_mut(&lua_address(lua))
-                                .unwrap()
+                                .ok_or(mlua::Error::external("Assets not initialized"))?
                                 .images
                                 .insert(_vgfx.next_img_id, VgImage::Static(img_id));
                             _vgfx
                                 .scoped_assets
                                 .get_mut(&lua_address(lua))
-                                .unwrap()
+                                .ok_or(mlua::Error::external("Assets not initialized"))?
                                 .job_imgs
                                 .insert(key, _vgfx.next_img_id);
                             _vgfx.next_img_id += 1;
@@ -1643,7 +1651,7 @@ impl TealData for Vgfx {
                     _vgfx
                         .scoped_assets
                         .get_mut(&lua_address(lua))
-                        .unwrap()
+                        .ok_or(mlua::Error::external("Assets not initialized"))?
                         .job_imgs
                         .insert(path.clone(), placeholder.unwrap_or_default());
                 }
@@ -1748,7 +1756,7 @@ impl TealData for Vgfx {
                 .clone()
                 .unwrap_or_else(|| _vgfx.stroke_paint.clone());
 
-            let canvas = _vgfx.canvas.lock().unwrap();
+            let canvas = _vgfx.canvas.lock().expect("Lock error");
             if let Some(label) = _vgfx.scoped_assets[&lua_address(lua)].labels.get(&p.label) {
                 paint.set_font(&[label.font]);
                 paint.set_font_size(label.size as f32);
@@ -1949,7 +1957,7 @@ impl TealData for Vgfx {
                 _vgfx
                     .scoped_assets
                     .get_mut(&lua_address(lua))
-                    .unwrap()
+                    .ok_or(mlua::Error::external("Assets not initialized"))?
                     .images
                     .insert(_vgfx.next_img_id, VgImage::Animation(anim));
                 let res = _vgfx.next_img_id;
@@ -1968,7 +1976,11 @@ impl TealData for Vgfx {
             methods,
             "GlobalAlpha",
             |_lua_index, _vgfx, p: GlobalAlphaParams| {
-                _vgfx.canvas.lock().unwrap().set_global_alpha(p.alpha);
+                _vgfx
+                    .canvas
+                    .lock()
+                    .expect("Lock error")
+                    .set_global_alpha(p.alpha);
                 Ok(())
             },
         );
@@ -2002,7 +2014,7 @@ impl TealData for Vgfx {
                 _vgfx
                     .scoped_assets
                     .get_mut(&lua_address(lua))
-                    .unwrap()
+                    .ok_or(mlua::Error::external("Assets not initialized"))?
                     .images
                     .insert(_vgfx.next_img_id, VgImage::Animation(anim));
                 let res = _vgfx.next_img_id;
@@ -2030,7 +2042,7 @@ impl TealData for Vgfx {
                 if let Some(VgImage::Animation(anim)) = _vgfx
                     .scoped_assets
                     .get_mut(&lua_address(lua))
-                    .unwrap()
+                    .ok_or(mlua::Error::external("Assets not initialized"))?
                     .images
                     .get_mut(&animation)
                 {
@@ -2081,9 +2093,13 @@ impl TealData for Vgfx {
         );
 
         methods.add_function_mut("CreateShadedMesh", |lua, p: CreateShadedMeshParams| {
-            let context = &lua.app_data_ref::<Arc<three_d::Context>>().unwrap();
-            let vgfx = &lua.app_data_ref::<Arc<RwLock<Vgfx>>>().unwrap();
-            let vgfx = vgfx.write().unwrap();
+            let context = &lua
+                .app_data_ref::<Arc<three_d::Context>>()
+                .ok_or(mlua::Error::external("three_d Context app date not set"))?;
+            let vgfx = &lua
+                .app_data_ref::<Arc<RwLock<Vgfx>>>()
+                .ok_or(mlua::Error::external("VGFX app data not set"))?;
+            let vgfx = vgfx.write().expect("Lock error");
 
             let mut shader_path = vgfx.game_folder.clone();
             shader_path.push("skins");

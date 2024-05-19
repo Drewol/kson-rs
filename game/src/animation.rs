@@ -10,6 +10,7 @@ use std::{
 
 use anyhow::ensure;
 use femtovg::{renderer::OpenGl, Canvas};
+use log::warn;
 
 enum LoaderRequest {
     LoadIamge(usize),
@@ -46,11 +47,14 @@ fn loader(rx: Receiver<LoaderRequest>, tx: Sender<LoaderResponse>, paths: Vec<Pa
     while let Ok(request) = rx.recv() {
         match request {
             LoaderRequest::LoadIamge(index) => {
-                match image::open(&paths[index]) {
-                    Ok(img) => tx.send(LoaderResponse::ImageLoaded(img, index)).unwrap(),
-                    Err(err) => tx
-                        .send(LoaderResponse::Error(format!("{:?}", err)))
-                        .unwrap(),
+                if match image::open(&paths[index]) {
+                    Ok(img) => tx.send(LoaderResponse::ImageLoaded(img, index)),
+                    Err(err) => tx.send(LoaderResponse::Error(format!("{:?}", err))),
+                }
+                .is_err()
+                {
+                    warn!("Animation dropped without closing loader");
+                    return;
                 };
             }
             LoaderRequest::Close => return,
@@ -88,7 +92,7 @@ impl VgAnimation {
         );
 
         let first_img = {
-            let mut canvas = canvas.lock().unwrap();
+            let mut canvas = canvas.lock().expect("Lock error");
             canvas.load_image_file(&image_paths[0], femtovg::ImageFlags::empty())
         }?;
 
@@ -142,7 +146,7 @@ impl VgAnimation {
         if !self.compressed {
             match self.loader_rx.try_recv() {
                 Ok(LoaderResponse::ImageLoaded(img, idx)) if img.width() > 0 => {
-                    let mut canvas = self.canvas.lock().unwrap();
+                    let mut canvas = self.canvas.lock().expect("Lock error");
                     let image_id = canvas
                         .create_image(
                             femtovg::ImageSource::try_from(&img).expect("bad image format?"),
@@ -166,7 +170,7 @@ impl VgAnimation {
                     Ok(LoaderResponse::ImageLoaded(img, idx))
                         if img.width() > 0 && idx == self.next_image() =>
                     {
-                        let mut canvas = self.canvas.lock().unwrap();
+                        let mut canvas = self.canvas.lock().expect("Lock error");
                         let image_src =
                             femtovg::ImageSource::try_from(&img).expect("bad image format?");
                         canvas

@@ -182,14 +182,14 @@ impl TealData for GameData {
             |lua, game_data, p: PlaySampleParams| {
                 let PlaySampleParams { name, do_loop } = p;
 
-                let sample = game_data.audio_samples.get(&name);
-
-                if sample.is_none() {
+                let Some(sample) = game_data.audio_samples.get(&name) else {
                     warn!("No sample named: {name}");
                     return Ok(());
-                }
+                };
 
-                let mixer: AppDataRef<RuscMixer> = lua.app_data_ref().unwrap();
+                let mixer: AppDataRef<RuscMixer> = lua
+                    .app_data_ref()
+                    .ok_or(mlua::Error::external("Mixer app data not set"))?;
 
                 let play_control = Arc::new(AtomicUsize::new(1));
                 let prev = game_data
@@ -200,7 +200,7 @@ impl TealData for GameData {
                     p.store(0, std::sync::atomic::Ordering::SeqCst);
                 }
 
-                let to_play = sample.unwrap().clone();
+                let to_play = sample.clone();
                 if do_loop {
                     mixer.add(
                         to_play
