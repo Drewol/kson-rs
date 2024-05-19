@@ -16,6 +16,7 @@ pub struct ChartCamera {
     pub view_size: Vec2,
     pub shakes: Vec<CameraShake>,
     pub spins: Vec<CameraSpin>,
+    pub portrait: bool,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -102,6 +103,12 @@ impl CameraShake {
 }
 
 impl ChartCamera {
+    pub fn update(&mut self, view_size: Vec2) {
+        self.portrait = (view_size.x / view_size.y) < 1.0;
+
+        self.view_size = view_size;
+    }
+
     pub fn check_spins(&mut self, tick: u32) {
         self.spins.retain(|x| x.active_at(tick))
     }
@@ -132,8 +139,11 @@ impl ChartCamera {
 
 impl From<&ChartCamera> for Camera {
     fn from(val: &ChartCamera) -> Self {
-        let angle = val.angle.to_radians();
-        let base_angle = val.fov.to_radians() / 2.2;
+        let angle = (if val.portrait { 65.0 } else { 130.0 } + val.angle).to_radians();
+        let base_angle = {
+            let fov = val.fov.to_radians();
+            fov / 2.0 - fov * if val.portrait { 0.25 } else { 0.05 }
+        };
 
         let track_end: Vec3 = ChartView::TRACK_DIRECTION * val.track_length;
         let final_camera_pos: Vec3 = -ChartView::UP * val.radius * angle.to_radians().cos()

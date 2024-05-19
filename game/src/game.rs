@@ -584,6 +584,7 @@ impl Game {
                 view_size: vec2(0.0, 0.0),
                 shakes: vec![],
                 spins: vec![],
+                portrait: false,
             },
             lua_game_state: lua_data::LuaGameState::default(),
             control_tx: None,
@@ -1353,11 +1354,14 @@ impl Scene for Game {
     ) {
         profile_function!();
 
-        self.camera.view_size = vec2(viewport.width as f32, viewport.height as f32);
+        self.camera
+            .update(vec2(viewport.width as f32, viewport.height as f32));
         if self.intro_done && !self.playback.is_playing() {
             self.zero_time = SystemTime::now() + LEADIN;
             if !self.playback.play() {
-                panic!("Could not play")
+                log::error!("Could not play audio");
+                self.closed = true;
+                return;
             };
 
             let (biquad_control, biquad_events) = std::sync::mpsc::channel();
@@ -1422,15 +1426,14 @@ impl Scene for Game {
                         .body
                         .zoom
                         .value_at(self.current_tick as f64) as f32;
-            self.camera.angle = (130.0
-                + self
-                    .chart
-                    .camera
-                    .cam
-                    .body
-                    .rotation_x
-                    .value_at(self.current_tick as f64)
-                    * 30.0) as f32;
+            self.camera.angle = self
+                .chart
+                .camera
+                .cam
+                .body
+                .rotation_x
+                .value_at(self.current_tick as f64) as f32
+                * 30.0;
 
             self.camera.shakes.retain_mut(|x| {
                 x.tick(dt as _);
