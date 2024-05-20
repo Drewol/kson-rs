@@ -4994,7 +4994,7 @@ dependencies = [
  "simple_logger",
  "tealr",
  "three-d",
- "three-d-asset",
+ "three-d-asset 0.7.0",
  "tokio",
  "toml 0.8.12",
  "uuid",
@@ -6127,7 +6127,7 @@ dependencies = [
  "serde",
  "serde-wasm-bindgen",
  "thiserror",
- "three-d-asset",
+ "three-d-asset 0.6.0",
  "wasm-bindgen",
  "web-sys",
  "winit 0.28.7",
@@ -6138,6 +6138,18 @@ name = "three-d-asset"
 version = "0.6.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "e9959d4427b63958661828008f7470d6a8d2c0945b3df0dc7377d6aca38fb694"
+dependencies = [
+ "cgmath",
+ "half 2.4.0",
+ "thiserror",
+ "web-sys",
+]
+
+[[package]]
+name = "three-d-asset"
+version = "0.7.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "8207e9cdb58d83b02b320412d75ba6503d718f0cafa37de9cf0511839f3d86e1"
 dependencies = [
  "cgmath",
  "half 2.4.0",
