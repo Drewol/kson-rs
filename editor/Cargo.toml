@@ -26,7 +26,7 @@ kson = { path = "../kson" }
 directories-next = "2.0.0"
 nfd = { git = "https://github.com/SpaceManiac/nfd-rs.git", branch = "zenity" }
 log = "0.4.14"
-glam = "0.25"
+glam = "0.27"
 once_cell = "1.10.0"
 bytemuck = "1.16.0"
 tracing = { version = "0.1.34", features = ["log-always"] }
