@@ -1,4 +1,5 @@
-use three_d::Camera;
+use log::info;
+use three_d::{vec2, vec3, Camera, Matrix4, Transform, Zero};
 use three_d::{Vec2, Vec3};
 use three_d_asset::{Deg, InnerSpace, Rad, Viewport};
 
@@ -7,11 +8,8 @@ use chart_view::ChartView;
 
 #[derive(Debug, Clone)]
 pub struct ChartCamera {
-    pub fov: f32,
-    pub radius: f32,
-    pub angle: f32,
-    pub center: Vec3,
-    pub track_length: f32,
+    pub kson_radius: f32,
+    pub kson_angle: f32,
     pub tilt: f32,
     pub view_size: Vec2,
     pub shakes: Vec<CameraShake>,
@@ -102,7 +100,27 @@ impl CameraShake {
     }
 }
 
+// Statics for easier testing of values during dev
+static mut FOV_LANDSCAPE: f32 = 40.0;
+static mut FOV_PORTRAIT: f32 = 70.0;
+static mut ANGLE_LANDSCAPE: f32 = -59.0;
+static mut ANGLE_PORTRAIT: f32 = -59.0;
+static mut RADIUS_LANDSCAPE: f32 = 2.0;
+static mut RADIUS_PORTRAIT: f32 = 1.7;
+
 impl ChartCamera {
+    pub fn new() -> Self {
+        ChartCamera {
+            kson_angle: 0.0,
+            kson_radius: 0.0,
+            tilt: 0.0,
+            view_size: vec2(2.0, 1.0),
+            shakes: vec![],
+            spins: vec![],
+            portrait: false,
+        }
+    }
+
     pub fn update(&mut self, view_size: Vec2) {
         self.portrait = (view_size.x / view_size.y) < 1.0;
 
@@ -118,61 +136,108 @@ impl ChartCamera {
             .num_columns(2)
             .show(ui, |ui| {
                 ui.label("FOV");
-                ui.add(egui::Slider::new(&mut self.fov, 0.1..=180.0));
+                let (fov, angle, radius) = unsafe {
+                    if self.portrait {
+                        (&mut FOV_PORTRAIT, &mut ANGLE_PORTRAIT, &mut RADIUS_PORTRAIT)
+                    } else {
+                        (
+                            &mut FOV_LANDSCAPE,
+                            &mut ANGLE_LANDSCAPE,
+                            &mut RADIUS_LANDSCAPE,
+                        )
+                    }
+                };
+
+                ui.add(egui::Slider::new(fov, 0.1..=179.0));
                 ui.end_row();
 
                 ui.label("Angle");
-                ui.add(egui::Slider::new(&mut self.angle, -180.0..=180.0));
+                ui.add(egui::Slider::new(angle, -360.0..=360.0));
                 ui.end_row();
 
                 ui.label("Tilt");
-                ui.add(egui::Slider::new(&mut self.tilt, -180.0..=180.0));
+                ui.add(egui::Slider::new(&mut self.tilt, -360.0..=360.0));
                 ui.end_row();
 
                 ui.label("Radius");
-                ui.add(egui::Slider::new(&mut self.radius, 0.0..=10.0));
+                ui.add(egui::Slider::new(radius, 0.0..=10.0));
                 ui.end_row();
             })
             .response
     }
 }
 
+const KSON_ANGLE_FACTOR: f32 = 360.0 / 2400.0;
+
 impl From<&ChartCamera> for Camera {
     fn from(val: &ChartCamera) -> Self {
-        let angle = (if val.portrait { 65.0 } else { 130.0 } + val.angle).to_radians();
-        let base_angle = {
-            let fov = val.fov.to_radians();
-            fov / 2.0 - fov * if val.portrait { 0.25 } else { 0.05 }
+        let (fov, angle, radius) = unsafe {
+            if val.portrait {
+                (FOV_PORTRAIT, ANGLE_PORTRAIT, RADIUS_PORTRAIT)
+            } else {
+                (FOV_LANDSCAPE, ANGLE_LANDSCAPE, RADIUS_LANDSCAPE)
+            }
         };
 
-        let track_end: Vec3 = ChartView::TRACK_DIRECTION * val.track_length;
-        let final_camera_pos: Vec3 = -ChartView::UP * val.radius * angle.to_radians().cos()
-            + ChartView::TRACK_DIRECTION * val.radius * angle.to_radians().sin();
+        let radius = radius * f32::powf(3.0, val.kson_radius / -300.0);
+        let angle = angle + (val.kson_angle * KSON_ANGLE_FACTOR);
 
-        let position = ChartView::TRACK_DIRECTION * val.radius;
+        let angle_rad = (angle).to_radians();
+        let fov_rad = fov.to_radians();
+
+        //Wrong, idk why, doesn't really matter once correct values are found though
+        let base_angle_rad =
+            { (fov_rad) / (2.0) - (if val.portrait { 0.27 } else { 0.05 } * fov_rad) };
+
+        let track_end: Vec3 = ChartView::TRACK_DIRECTION * ChartView::TRACK_LENGTH;
+        let final_camera_pos: Vec3 = -ChartView::UP * radius * angle_rad.cos()
+            + ChartView::TRACK_DIRECTION * radius * angle_rad.sin();
+
+        // let up = (ChartView::UP * radius * (angle_rad).sin()
+        //     + ChartView::TRACK_DIRECTION * radius * (angle_rad).cos());
+
+        let up = if final_camera_pos.y >= 0.0 {
+            ChartView::UP
+        } else {
+            -ChartView::UP
+        };
+
+        let target = final_camera_pos
+            + (ChartView::UP * (angle_rad - base_angle_rad).cos()
+                - ChartView::TRACK_DIRECTION * (angle_rad - base_angle_rad).sin());
 
         let end_dist = (track_end - final_camera_pos).magnitude();
         let begin_dist = (-track_end - final_camera_pos).magnitude();
-
         let z_far = end_dist.max(begin_dist);
 
-        let target: Vec3 = val.center - ChartView::TRACK_DIRECTION;
+        let roll = Matrix4::from_axis_angle(ChartView::TRACK_DIRECTION, Deg(-val.tilt));
+        let target = roll.transform_vector(target - final_camera_pos) + final_camera_pos;
+        let up = roll.transform_vector(up);
+        // let final_camera_pos = roll.transform_vector(final_camera_pos);
 
         let mut cam = Camera::new_perspective(
             Viewport::new_at_origo(val.view_size.x as u32, val.view_size.y as u32),
-            position,
+            final_camera_pos,
             target,
-            ChartView::UP,
-            Deg(val.fov),
+            up.normalize(),
+            Rad(fov_rad),
             ChartView::Z_NEAR,
             z_far,
         );
-
-        cam.pitch(Rad(base_angle));
-        cam.rotate_around_with_fixed_up(&val.center, 0.0, angle);
-        cam.roll(Deg(val.tilt));
+        // cam.roll(Deg(val.tilt)); //TODO: Need to roll the position and stuff now
         cam.yaw(Rad(val.shakes.iter().map(|x| x.get_shake()).sum()));
 
         cam
     }
 }
+
+// Begin reference https://github.com/kshootmania/ksm-v2/blob/master/kshootmania/src/music_game/camera/camera_math.hpp
+pub fn crit_line_scale_value(zoom: f32) -> f32 {
+    if zoom > 0.0 {
+        zoom / 450.0
+    } else {
+        zoom / 180.0
+    }
+}
+
+// End reference

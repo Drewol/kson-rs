@@ -38,6 +38,7 @@ use scene::Scene;
 use song_provider::{DiffId, FileSongProvider, NauticaSongProvider, SongId};
 use td::{FrameInput, Viewport};
 use tealr::mlu::mlua::Lua;
+use test_scenes::camera_test;
 use three_d as td;
 
 use di::*;
@@ -65,6 +66,7 @@ mod skin_settings;
 mod song_provider;
 mod songselect;
 mod take_duration_fade;
+mod test_scenes;
 mod transition;
 mod util;
 mod vg_ui;
@@ -583,6 +585,13 @@ fn main() -> anyhow::Result<()> {
         scenes.loaded.push(Box::new(audio_test::AudioTest::new(
             services.create_scope(),
         )));
+    }
+
+    if GameConfig::get().args.camera_test {
+        scenes.loaded.push(Box::new(camera_test::CameraTest::new(
+            services.create_scope(),
+            GameConfig::get().skin_path(),
+        )))
     }
 
     let game = GameMain::new(scenes, fps_paint, gui, show_debug_ui, services);

@@ -98,8 +98,6 @@ fn parse_ksh_zoom_values(data: &str) -> Result<(f64, Option<f64>), KshReadError>
             (data.parse()?, None)
         }
     };
-    let v = v / 100.0;
-    let vf = vf.map(|val| val / 100.0);
     Ok((v, vf))
 }
 

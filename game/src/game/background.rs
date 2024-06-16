@@ -279,7 +279,7 @@ impl GameBackground {
         clear: bool,
     ) {
         profile_function!();
-        let center = camera.pixel_at_position(ChartView::TRACK_DIRECTION * -50.0);
+        let center = camera.pixel_at_position(ChartView::TRACK_DIRECTION * 50.0);
         let bpm = chart.bpm_at_tick(tick);
 
         {

@@ -44,14 +44,15 @@ use tealr::mlu::mlua::{Function, Lua, LuaSerdeExt};
 use three_d::{vec2, vec3, Blend, Camera, Mat4, Matrix4, Vec3, Vec4, Viewport, Zero};
 use three_d_asset::{vec4, Srgba};
 
-mod chart_view;
+pub mod chart_view;
 use chart_view::*;
-mod camera;
+pub mod camera;
 use camera::*;
 mod background;
 use background::GameBackground;
 mod lua_data;
 pub use lua_data::HitWindow;
+pub mod graphics;
 
 const LASER_THRESHOLD: f64 = 1.0 / 12.0;
 const LEADIN: Duration = Duration::from_secs(3);
@@ -239,8 +240,6 @@ enum HoldState {
     Hit,
     Miss,
 }
-
-mod graphics;
 
 pub struct GameData {
     song: Arc<Song>,
@@ -574,18 +573,7 @@ impl Game {
             fx_long_shaders,
             laser_shaders,
             lane_beam_shader,
-            camera: ChartCamera {
-                fov: 90.0,
-                radius: 1.1,
-                angle: 130.0,
-                center: Vec3::zero(),
-                track_length: ChartView::TRACK_LENGTH,
-                tilt: 0.0,
-                view_size: vec2(0.0, 0.0),
-                shakes: vec![],
-                spins: vec![],
-                portrait: false,
-            },
+            camera: ChartCamera::new(),
             lua_game_state: lua_data::LuaGameState::default(),
             control_tx: None,
             results_requested: false,
@@ -1417,23 +1405,20 @@ impl Scene for Game {
             self.view.cursor = self.with_offset(time.as_secs_f64() * 1000.0) + leadin_ms;
 
             self.current_tick = self.chart.ms_to_tick(self.view.cursor);
-            self.camera.radius = 1.1
-                + 0.6
-                    * self
-                        .chart
-                        .camera
-                        .cam
-                        .body
-                        .zoom
-                        .value_at(self.current_tick as f64) as f32;
-            self.camera.angle = self
+            self.camera.kson_radius = self
+                .chart
+                .camera
+                .cam
+                .body
+                .zoom
+                .value_at(self.current_tick as f64) as f32;
+            self.camera.kson_angle = self
                 .chart
                 .camera
                 .cam
                 .body
                 .rotation_x
-                .value_at(self.current_tick as f64) as f32
-                * 30.0;
+                .value_at(self.current_tick as f64) as f32;
 
             self.camera.shakes.retain_mut(|x| {
                 x.tick(dt as _);

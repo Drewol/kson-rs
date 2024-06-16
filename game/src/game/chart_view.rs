@@ -22,7 +22,7 @@ use three_d::{
 };
 use three_d_asset::Srgba;
 impl ChartView {
-    pub const TRACK_LENGTH: f32 = 12.0;
+    pub const TRACK_LENGTH: f32 = 16.0;
     pub const UP: Vec3 = vec3(0.0, 0.0, -1.0);
     pub const TRACK_DIRECTION: Vec3 = vec3(0.0, 1.0, 0.0);
     pub const Z_NEAR: f32 = 0.01;
@@ -181,7 +181,7 @@ impl ChartView {
         let view_distance = (KSON_RESOLUTION as f32 * 8.0) / self.hispeed;
         let last_view_tick = view_distance.ceil() as i64 + view_tick;
         let first_view_tick = view_tick - view_distance as i64;
-        let y_view_div = view_distance / Self::TRACK_LENGTH;
+        let y_view_div = view_distance / -Self::TRACK_LENGTH;
         let _white_mat = Rc::new(ColorMaterial {
             color: Srgba::WHITE,
             ..Default::default()
@@ -199,7 +199,7 @@ impl ChartView {
             FxHoldActive(usize),
         }
         let mut notes = Vec::new();
-        let chip_h = 1.0;
+        let chip_h = -1.0;
 
         let _track = self.track.clone();
 
@@ -308,32 +308,32 @@ impl ChartView {
         let lane_beams = [
             (
                 Mat4::from_translation(vec3(-1.5 / 6.0, 0.0, 0.0))
-                    * Mat4::from_nonuniform_scale(1.0 / 6.0, -ChartView::TRACK_LENGTH, 1.0),
+                    * Mat4::from_nonuniform_scale(1.0 / 6.0, ChartView::TRACK_LENGTH, 1.0),
                 Srgba::from(beam_colors[0]),
             ),
             (
                 Mat4::from_translation(-vec3(0.5 / 6.0, 0.0, 0.0))
-                    * Mat4::from_nonuniform_scale(1.0 / 6.0, -ChartView::TRACK_LENGTH, 1.0),
+                    * Mat4::from_nonuniform_scale(1.0 / 6.0, ChartView::TRACK_LENGTH, 1.0),
                 Srgba::from(beam_colors[1]),
             ),
             (
                 Mat4::from_translation(vec3(0.5 / 6.0, 0.0, 0.0))
-                    * Mat4::from_nonuniform_scale(1.0 / 6.0, -ChartView::TRACK_LENGTH, 1.0),
+                    * Mat4::from_nonuniform_scale(1.0 / 6.0, ChartView::TRACK_LENGTH, 1.0),
                 Srgba::from(beam_colors[2]),
             ),
             (
                 Mat4::from_translation(vec3(1.5 / 6.0, 0.0, 0.0))
-                    * Mat4::from_nonuniform_scale(1.0 / 6.0, -ChartView::TRACK_LENGTH, 1.0),
+                    * Mat4::from_nonuniform_scale(1.0 / 6.0, ChartView::TRACK_LENGTH, 1.0),
                 Srgba::from(beam_colors[3]),
             ),
             (
                 Mat4::from_translation(-vec3(1.0 / 6.0, 0.0, 0.0))
-                    * Mat4::from_nonuniform_scale(2.0 / 6.0, -ChartView::TRACK_LENGTH, 1.0),
+                    * Mat4::from_nonuniform_scale(2.0 / 6.0, ChartView::TRACK_LENGTH, 1.0),
                 Srgba::from(beam_colors[4]),
             ),
             (
                 Mat4::from_translation(vec3(1.0 / 6.0, 0.0, 0.0))
-                    * Mat4::from_nonuniform_scale(2.0 / 6.0, -ChartView::TRACK_LENGTH, 1.0),
+                    * Mat4::from_nonuniform_scale(2.0 / 6.0, ChartView::TRACK_LENGTH, 1.0),
                 Srgba::from(beam_colors[5]),
             ),
         ];

@@ -89,26 +89,7 @@ impl Transition {
             .as_ref()
             .clone();
 
-        let prev_grab = {
-            let screen_tex = three_d::texture::CpuTexture {
-                data: three_d::TextureData::RgbaU8(back_pixels(&context, viewport)),
-                height: viewport.height,
-                width: viewport.width,
-                ..Default::default()
-            };
-
-            Some(three_d::Gm::new(
-                Rectangle::new(&context, Vec2::zero(), Rad::zero(), 1.0, 1.0),
-                three_d::ColorMaterial {
-                    texture: Some(Texture2DRef {
-                        texture: Arc::new(three_d::Texture2D::new(&context, &screen_tex)),
-                        transformation: Mat3::from_nonuniform_scale(1.0, -1.0),
-                    }),
-                    color: three_d::Srgba::WHITE,
-                    ..Default::default()
-                },
-            ))
-        };
+        let prev_grab = screen_grab(context, viewport);
 
         if let ControlMessage::Song {
             song,
@@ -150,6 +131,30 @@ impl Transition {
             service_provider,
         })
     }
+}
+
+pub fn screen_grab(
+    context: three_d::Context,
+    viewport: three_d::Viewport,
+) -> Option<Gm<Rectangle, ColorMaterial>> {
+    let screen_tex = three_d::texture::CpuTexture {
+        data: three_d::TextureData::RgbaU8(back_pixels(&context, viewport)),
+        height: viewport.height,
+        width: viewport.width,
+        ..Default::default()
+    };
+
+    Some(three_d::Gm::new(
+        Rectangle::new(&context, Vec2::zero(), Rad::zero(), 1.0, 1.0),
+        three_d::ColorMaterial {
+            texture: Some(Texture2DRef {
+                texture: Arc::new(three_d::Texture2D::new(&context, &screen_tex)),
+                transformation: Mat3::from_nonuniform_scale(1.0, -1.0),
+            }),
+            color: three_d::Srgba::WHITE,
+            ..Default::default()
+        },
+    ))
 }
 
 impl Scene for Transition {
