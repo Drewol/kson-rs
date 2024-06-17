@@ -48,8 +48,6 @@ jobs:
         with:
           path: target
           key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
-      - name: "Upgrade LLVM"
-        run: choco upgrade llvm --version=16.0.6
       - run: cargo install cargo-wix
       - run: cargo wix -p rusc --nocapture
       - name: Upload to R2
