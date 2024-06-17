@@ -3,8 +3,8 @@ use std::sync::Arc;
 
 use di::ServiceProvider;
 use three_d::{
-    vec2, Camera, ColorMaterial, CpuMaterial, CpuTexture, Deg, Gm, Mat3, Matrix4, Mesh, Rad,
-    Rectangle, Srgba, Texture2DRef, Vec2, Vec3, Zero,
+    vec2, Camera, ColorMaterial, CpuTexture, Gm, Mat3, Matrix4, Mesh, Rad, Rectangle, Srgba,
+    Texture2DRef, Vec2, Vec3, Zero,
 };
 
 use crate::game::camera::ChartCamera;
@@ -172,8 +172,8 @@ impl Scene for CameraTest {
 
     fn render(
         &mut self,
-        dt: f64,
-        td_context: &three_d::Context,
+        _dt: f64,
+        _td_context: &three_d::Context,
         target: &mut three_d::RenderTarget,
         viewport: three_d::Viewport,
     ) {

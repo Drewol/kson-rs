@@ -129,11 +129,27 @@ pub fn init_game_dir(game_dir: impl AsRef<Path>) -> anyhow::Result<()> {
                 install_dir.set_file_name("Resources");
             }
         }
+        #[cfg(target_os = "linux")]
+        {
+            //deb installs files to usr/lib/rusc/game
+            let dir_temp = install_dir.clone();
+            // assume starting at usr/bin after popping exe
+            install_dir.pop(); // usr
+            install_dir.push("lib");
+            install_dir.push("rusc");
+            install_dir.push("game");
+            install_dir.push("fonts");
+            if install_dir.exists() {
+                install_dir.pop();
+            } else {
+                install_dir = dir_temp;
+            }
+        }
 
         install_dir.push("fonts");
 
         if !install_dir.exists() {
-            bail!("Could not find installed assets.")
+            bail!("Could not find installed assets at {install_dir:?}.")
         }
     }
 

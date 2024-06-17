@@ -235,7 +235,7 @@ impl From<&Gauge> for lua_data::LuaGauge {
     }
 }
 
-enum HoldState {
+pub enum HoldState {
     Idle,
     Hit,
     Miss,

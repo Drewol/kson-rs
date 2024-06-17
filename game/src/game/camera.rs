@@ -1,6 +1,4 @@
-use log::info;
-use three_d::{vec2, vec3, Camera, Matrix4, Transform, Zero};
-use three_d::{Vec2, Vec3};
+use three_d::{vec2, Camera, Matrix4, Transform, Vec2, Vec3};
 use three_d_asset::{Deg, InnerSpace, Rad, Viewport};
 
 use super::chart_view;
@@ -101,12 +99,27 @@ impl CameraShake {
 }
 
 // Statics for easier testing of values during dev
-static mut FOV_LANDSCAPE: f32 = 40.0;
-static mut FOV_PORTRAIT: f32 = 70.0;
-static mut ANGLE_LANDSCAPE: f32 = -59.0;
-static mut ANGLE_PORTRAIT: f32 = -59.0;
-static mut RADIUS_LANDSCAPE: f32 = 2.0;
-static mut RADIUS_PORTRAIT: f32 = 1.7;
+#[cfg(target_feature = "camera_test")]
+mod camera_consts {
+    pub static mut FOV_LANDSCAPE: f32 = 40.0;
+    pub static mut FOV_PORTRAIT: f32 = 70.0;
+    pub static mut ANGLE_LANDSCAPE: f32 = -59.0;
+    pub static mut ANGLE_PORTRAIT: f32 = -59.0;
+    pub static mut RADIUS_LANDSCAPE: f32 = 2.0;
+    pub static mut RADIUS_PORTRAIT: f32 = 1.7;
+}
+
+#[cfg(not(target_feature = "camera_test"))]
+mod camera_consts {
+    pub const FOV_LANDSCAPE: f32 = 40.0;
+    pub const FOV_PORTRAIT: f32 = 70.0;
+    pub const ANGLE_LANDSCAPE: f32 = -59.0;
+    pub const ANGLE_PORTRAIT: f32 = -59.0;
+    pub const RADIUS_LANDSCAPE: f32 = 2.0;
+    pub const RADIUS_PORTRAIT: f32 = 1.7;
+}
+
+use camera_consts::*;
 
 impl ChartCamera {
     pub fn new() -> Self {
@@ -135,32 +148,35 @@ impl ChartCamera {
         egui::Grid::new("camera_widget")
             .num_columns(2)
             .show(ui, |ui| {
-                ui.label("FOV");
-                let (fov, angle, radius) = unsafe {
-                    if self.portrait {
-                        (&mut FOV_PORTRAIT, &mut ANGLE_PORTRAIT, &mut RADIUS_PORTRAIT)
-                    } else {
-                        (
-                            &mut FOV_LANDSCAPE,
-                            &mut ANGLE_LANDSCAPE,
-                            &mut RADIUS_LANDSCAPE,
-                        )
-                    }
-                };
+                #[cfg(target_feature = "camera_test")]
+                {
+                    let (fov, angle, radius) = unsafe {
+                        if self.portrait {
+                            (&mut FOV_PORTRAIT, &mut ANGLE_PORTRAIT, &mut RADIUS_PORTRAIT)
+                        } else {
+                            (
+                                &mut FOV_LANDSCAPE,
+                                &mut ANGLE_LANDSCAPE,
+                                &mut RADIUS_LANDSCAPE,
+                            )
+                        }
+                    };
 
-                ui.add(egui::Slider::new(fov, 0.1..=179.0));
-                ui.end_row();
+                    ui.label("FOV");
+                    ui.add(egui::Slider::new(fov, 0.1..=179.0));
+                    ui.end_row();
 
-                ui.label("Angle");
-                ui.add(egui::Slider::new(angle, -360.0..=360.0));
-                ui.end_row();
+                    ui.label("Angle");
+                    ui.add(egui::Slider::new(angle, -360.0..=360.0));
+                    ui.end_row();
+
+                    ui.label("Radius");
+                    ui.add(egui::Slider::new(radius, 0.0..=10.0));
+                    ui.end_row();
+                }
 
                 ui.label("Tilt");
                 ui.add(egui::Slider::new(&mut self.tilt, -360.0..=360.0));
-                ui.end_row();
-
-                ui.label("Radius");
-                ui.add(egui::Slider::new(radius, 0.0..=10.0));
                 ui.end_row();
             })
             .response
@@ -171,7 +187,7 @@ const KSON_ANGLE_FACTOR: f32 = 360.0 / 2400.0;
 
 impl From<&ChartCamera> for Camera {
     fn from(val: &ChartCamera) -> Self {
-        let (fov, angle, radius) = unsafe {
+        let (fov, angle, radius) = {
             if val.portrait {
                 (FOV_PORTRAIT, ANGLE_PORTRAIT, RADIUS_PORTRAIT)
             } else {
@@ -230,14 +246,3 @@ impl From<&ChartCamera> for Camera {
         cam
     }
 }
-
-// Begin reference https://github.com/kshootmania/ksm-v2/blob/master/kshootmania/src/music_game/camera/camera_math.hpp
-pub fn crit_line_scale_value(zoom: f32) -> f32 {
-    if zoom > 0.0 {
-        zoom / 450.0
-    } else {
-        zoom / 180.0
-    }
-}
-
-// End reference
