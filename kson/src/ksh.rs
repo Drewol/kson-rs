@@ -22,6 +22,8 @@ pub enum KshReadError {
     ParseIntError(#[from] std::num::ParseIntError),
     #[error("Encountered an empty laser section")]
     EmptyLaserSection,
+    #[error("Invalid tilt value: '{0}'")]
+    InvalidTiltValue(String),
 }
 
 #[derive(Debug, Error)]
@@ -235,6 +237,7 @@ impl Ksh for crate::Chart {
         ];
 
         let mut fx_string: [Option<String>; 2] = [None, None];
+        let mut manual_tilt: (u32, Vec<GraphSectionPoint>) = (u32::MAX, vec![]);
 
         for measure in parts {
             let measure_lines = measure.lines();
@@ -463,6 +466,12 @@ impl Ksh for crate::Chart {
                         "fx-r" => {
                             fx_string[1] = Some(line_value);
                         }
+                        "tilt" => parse_tilt(
+                            &mut new_chart.camera.tilt,
+                            y,
+                            &line_value,
+                            &mut manual_tilt,
+                        )?,
                         _ => (),
                     }
                 }
@@ -495,6 +504,15 @@ impl Ksh for crate::Chart {
                     }
                 });
             }
+        }
+
+        // push last manual tilt if chart ends with manual tilt
+        if manual_tilt.0 != u32::MAX {
+            new_chart
+                .camera
+                .tilt
+                .manual
+                .push(std::mem::take(&mut manual_tilt));
         }
 
         // set up effect events
@@ -824,6 +842,76 @@ impl Ksh for crate::Chart {
 
         Ok(())
     }
+}
+
+fn parse_tilt(
+    tilt: &mut camera::TiltInfo,
+    y: u32,
+    line_value: &str,
+    manual: &mut (u32, Vec<GraphSectionPoint>),
+) -> Result<(), KshReadError> {
+    let mut split = line_value.split('_');
+    let Some(a) = split.next() else {
+        return Err(KshReadError::InvalidTiltValue(line_value.to_owned()));
+    };
+
+    let b = split.next();
+    let factor = b.unwrap_or(a);
+
+    let factor = match factor {
+        "normal" | "keep" => 1.0,
+        "bigger" | "big" => 1.5,
+        "biggest" => 2.0,
+        "zero" => 0.0,
+        _ => f32::NAN,
+    };
+
+    if factor.is_nan() {
+        // Try to parse graph values
+        let v = line_value.parse::<f64>()?;
+
+        if manual.0 > y {
+            //Create new
+            *manual = (
+                y,
+                vec![GraphSectionPoint {
+                    ry: 0,
+                    v,
+                    vf: None,
+                    a: 0.0,
+                    b: 0.0,
+                }],
+            )
+        } else {
+            let ry = y - manual.0;
+            let Some(last) = manual.1.last_mut() else {
+                return Err(KshReadError::EmptyLaserSection);
+            };
+
+            if last.ry == ry {
+                last.vf = Some(v);
+            } else {
+                manual.1.push(GraphSectionPoint {
+                    ry,
+                    v,
+                    vf: None,
+                    a: 0.0,
+                    b: 0.0,
+                });
+            }
+        }
+    } else {
+        // Always push both, might create extra entries but shouldn't matter much
+        tilt.keep.push((y, a == "keep"));
+        tilt.scale.push((y, factor));
+
+        if manual.0 <= y {
+            tilt.manual
+                .push(std::mem::replace(manual, (u32::MAX, vec![])));
+        }
+    }
+
+    Ok(())
 }
 
 fn convert_params(effect: &AudioEffect, params: &mut Dict<String>) {

@@ -16,8 +16,9 @@ pub struct CameraInfo {
 #[derive(Serialize, Deserialize, Clone, Default)]
 #[serde(default)]
 pub struct TiltInfo {
+    pub scale: ByPulse<f32>,
     pub manual: ByPulse<Vec<GraphSectionPoint>>,
-    pub keep: Vec<ByPulse<bool>>,
+    pub keep: ByPulse<bool>,
 }
 
 impl Graph<Option<f64>> for ByPulse<Vec<GraphSectionPoint>> {
