@@ -37,6 +37,7 @@ kson-music-playback = { path = "../kson-music-playback" }
 
 [dependencies.unic-langid]
 features = ["serde"]
+version = "*"
 
 [features]
 default_features = []
