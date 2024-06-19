@@ -4982,7 +4982,7 @@ dependencies = [
  "puffin",
  "puffin_http",
  "rand 0.8.5",
- "raw-window-handle 0.5.2",
+ "raw-window-handle 0.6.0",
  "reqwest",
  "rfd",
  "rodio",
