@@ -863,7 +863,7 @@ fn parse_tilt(
         "bigger" | "big" => 1.5,
         "biggest" => 2.0,
         "zero" => 0.0,
-        _ => f32::NAN,
+        _ => f64::NAN,
     };
 
     if factor.is_nan() {

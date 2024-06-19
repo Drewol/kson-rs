@@ -108,6 +108,7 @@ pub struct Game {
     sync_delta: VecDeque<f64>,
 }
 
+#[derive(Clone, Copy)]
 enum TargetRoll {
     None,
     Laser(f64),
@@ -1105,6 +1106,23 @@ impl Scene for Game {
             self.biquad_control.send((None, Some(0.0)))
         };
 
+        let keep_laser = match self
+            .chart
+            .camera
+            .tilt
+            .keep
+            .binary_search_by_key(&self.current_tick, |x| x.0)
+        {
+            Ok(i) => self.chart.camera.tilt.keep[i].1,
+            Err(i) => {
+                if i == 0 {
+                    false
+                } else {
+                    self.chart.camera.tilt.keep[i.saturating_sub(1)].1
+                }
+            }
+        };
+
         self.target_roll = self
             .chart
             .camera
@@ -1112,11 +1130,36 @@ impl Scene for Game {
             .manual
             .value_at(self.current_tick as f64)
             .map(TargetRoll::Manual)
-            .unwrap_or_else(|| match self.laser_target {
-                [Some(l), Some(r)] => TargetRoll::Laser(r + l - 1.0),
-                [Some(l), None] => TargetRoll::Laser(l),
-                [None, Some(r)] => TargetRoll::Laser(r - 1.0),
-                _ => TargetRoll::None,
+            .unwrap_or_else(|| {
+                let current = self.target_roll;
+
+                let next = match self.laser_target {
+                    [Some(l), Some(r)] => TargetRoll::Laser(r + l - 1.0),
+                    [Some(l), None] => TargetRoll::Laser(l),
+                    [None, Some(r)] => TargetRoll::Laser(r - 1.0),
+                    _ => TargetRoll::None,
+                };
+
+                if keep_laser {
+                    match (current, next) {
+                        (TargetRoll::Laser(v), TargetRoll::None)
+                        | (TargetRoll::None, TargetRoll::Laser(v))
+                        | (TargetRoll::Manual(v), TargetRoll::None) => TargetRoll::Laser(v),
+                        (TargetRoll::Laser(cv), TargetRoll::Laser(nv))
+                        | (TargetRoll::Manual(cv), TargetRoll::Laser(nv)) => {
+                            if cv < f64::EPSILON {
+                                TargetRoll::Laser(nv)
+                            } else if cv.is_sign_negative() == nv.is_sign_negative() {
+                                TargetRoll::Laser(cv.abs().max(nv.abs()) * cv.signum())
+                            } else {
+                                TargetRoll::Laser(cv)
+                            }
+                        }
+                        _ => TargetRoll::None,
+                    }
+                } else {
+                    next
+                }
             });
 
         for (side, assist_ticks) in self.laser_assist_ticks.iter_mut().enumerate() {
@@ -1377,10 +1420,27 @@ impl Scene for Game {
             let max_roll_speed = dt / kson::beat_in_ms(self.chart.bpm_at_tick(self.current_tick));
             self.current_roll = match self.target_roll {
                 TargetRoll::Laser(target_roll) => {
+                    let scale = match self
+                        .chart
+                        .camera
+                        .tilt
+                        .scale
+                        .binary_search_by_key(&self.current_tick, |x| x.0)
+                    {
+                        Ok(i) => self.chart.camera.tilt.scale[i].1,
+                        Err(i) => {
+                            if i == 0 {
+                                1.0
+                            } else {
+                                self.chart.camera.tilt.scale[i.saturating_sub(1)].1
+                            }
+                        }
+                    };
+                    let target_roll = target_roll * scale;
                     if self.current_roll - target_roll < 0.0 {
-                        (self.current_roll + max_roll_speed * 2.0).min(target_roll)
+                        (self.current_roll + max_roll_speed * 2.0 * scale).min(target_roll)
                     } else {
-                        (self.current_roll - max_roll_speed * 2.0).max(target_roll)
+                        (self.current_roll - max_roll_speed * 2.0 * scale).max(target_roll)
                     }
                 }
                 TargetRoll::Manual(v) => v,

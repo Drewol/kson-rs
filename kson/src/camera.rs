@@ -16,7 +16,7 @@ pub struct CameraInfo {
 #[derive(Serialize, Deserialize, Clone, Default)]
 #[serde(default)]
 pub struct TiltInfo {
-    pub scale: ByPulse<f32>,
+    pub scale: ByPulse<f64>,
     pub manual: ByPulse<Vec<GraphSectionPoint>>,
     pub keep: ByPulse<bool>,
 }
