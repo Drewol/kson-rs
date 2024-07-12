@@ -193,7 +193,7 @@ impl Scene for CameraTest {
 
                 let mut new_2d = Camera::new_2d(viewport);
                 new_2d.disable_tone_and_color_mapping();
-                target.render(&new_2d, &[&self.ksm_bg], &[]);
+                target.render(&new_2d, [&self.ksm_bg], &[]);
             }
             TestBg::Sdvx => {
                 self.sdvx_bg
@@ -204,7 +204,7 @@ impl Scene for CameraTest {
                 ));
                 let mut new_2d = Camera::new_2d(viewport);
                 new_2d.disable_tone_and_color_mapping();
-                target.render(&new_2d, &[&self.sdvx_bg], &[]);
+                target.render(&new_2d, [&self.sdvx_bg], &[]);
             }
         }
 

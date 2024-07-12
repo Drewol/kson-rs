@@ -121,6 +121,12 @@ mod camera_consts {
 
 use camera_consts::*;
 
+impl Default for ChartCamera {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl ChartCamera {
     pub fn new() -> Self {
         ChartCamera {

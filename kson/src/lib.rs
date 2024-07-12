@@ -50,6 +50,9 @@ pub enum Side {
 }
 
 impl Side {
+    pub fn iter() -> std::array::IntoIter<Side, 2> {
+        [Self::Left, Self::Right].into_iter()
+    }
     pub fn opposite(&self) -> Self {
         match self {
             Side::Left => Self::Right,

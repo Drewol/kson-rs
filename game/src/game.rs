@@ -18,7 +18,7 @@ use image::GenericImageView;
 use itertools::Itertools;
 use kson::{
     score_ticks::{PlacedScoreTick, ScoreTick, ScoreTickSummary, ScoreTicker},
-    Chart, Graph,
+    Chart, Graph, Side,
 };
 use kson_rodio_sources::{
     biquad::{biquad, BiQuadState, BiQuadType, BiquadController},
@@ -91,6 +91,7 @@ pub struct Game {
     laser_wide: [u32; 2],
     laser_target: [Option<f64>; 2],
     laser_assist_ticks: [u8; 2],
+    laser_alert: [usize; 2],
     laser_latest_dir_inputs: [[SystemTime; 2]; 2], //last left/right turn timestamps for both knobs, for checking slam hits
     beam_colors: Vec<Vec4>,
     beam_colors_current: [[f32; 4]; 6],
@@ -615,7 +616,8 @@ impl Game {
                 .map(|x| x.buffered()),
             service_provider,
             sync_delta: Default::default(),
-            laser_wide: [1, 1],
+            laser_wide: [0, 0],
+            laser_alert: [0, 0],
         };
         res.set_track_uniforms();
         Ok(res)
@@ -694,7 +696,7 @@ impl Game {
                 cursors: [
                     lua_data::Cursor::new(
                         self.laser_cursors[0] as f32 * self.laser_wide[0] as f32
-                            - (0.5 * (self.laser_wide[0] - 1) as f32),
+                            - (0.5 * (self.laser_wide[0].saturating_sub(1)) as f32),
                         camera,
                         if self.laser_target[0].is_some() {
                             1.0
@@ -704,7 +706,7 @@ impl Game {
                     ),
                     lua_data::Cursor::new(
                         self.laser_cursors[1] as f32 * self.laser_wide[1] as f32
-                            - (0.5 * (self.laser_wide[1] - 1) as f32),
+                            - (0.5 * (self.laser_wide[1].saturating_sub(1)) as f32),
                         camera,
                         if self.laser_target[1].is_some() {
                             1.0
@@ -1210,6 +1212,34 @@ impl Scene for Game {
 
         self.gauge
             .update_sample(GAUGE_SAMPLES * self.current_tick as usize / self.duration as usize);
+
+        //Laser alerts
+        if self.intro_done {
+            let check_tick = (time.as_millis() + 1500) as f64;
+            let check_tick = self.chart.ms_to_tick(self.with_offset(check_tick));
+
+            //TODO: This can fire too many times
+            for side in Side::iter() {
+                let next_laser = match self.chart.note.laser[side as usize]
+                    .binary_search_by_key(&check_tick, |x| x.0)
+                {
+                    Ok(x) | Err(x) => x,
+                };
+
+                if next_laser != self.laser_alert[side as usize]
+                    && !self.chart.note.laser[side as usize].is_empty()
+                {
+                    if self.laser_target[side as usize].is_none() {
+                        if let Ok(f) = self.lua.globals().get::<_, Function>("laser_alert") {
+                            log_result!(f.call::<_, ()>(side == Side::Right));
+                        }
+                    }
+                    self.laser_alert[side as usize] = next_laser;
+                }
+            }
+        }
+
+        dbg!(self.laser_alert);
 
         Ok(())
     }
