@@ -7,6 +7,7 @@ use kson::Side;
 use tealr::mlu::mlua::{Function, IntoLua, Lua, LuaSerdeExt};
 
 use crate::{
+    async_service::AsyncService,
     button_codes::{UscButton, UscInputEvent},
     config::GameConfig,
     input_state::InputState,
@@ -157,6 +158,7 @@ pub struct SettingsDialog {
     current_tab: usize,
     lua: Rc<Lua>,
     setting_advance: f32,
+    async_service: di::RefMut<AsyncService>,
 }
 
 impl<'lua> IntoLua<'lua> for &SettingsDialog {
@@ -181,7 +183,11 @@ impl<'lua> IntoLua<'lua> for &SettingsDialog {
 }
 
 impl SettingsDialog {
-    pub fn new(tabs: Vec<SettingsDialogTab>, input_state: InputState) -> Self {
+    pub fn new(
+        tabs: Vec<SettingsDialogTab>,
+        input_state: InputState,
+        services: di::ServiceProvider,
+    ) -> Self {
         Self {
             show: false,
             current_tab: 0,
@@ -189,6 +195,7 @@ impl SettingsDialog {
             input_state,
             lua: LuaProvider::new_lua(),
             setting_advance: 0.0,
+            async_service: services.get_required(),
         }
     }
 
@@ -212,6 +219,9 @@ impl SettingsDialog {
                         .as_millis();
 
                     if detla_ms < 100 {
+                        if self.show {
+                            self.async_service.read().unwrap().save_config();
+                        }
                         self.show = !self.show;
                     }
                 } else {
@@ -313,7 +323,7 @@ impl SettingsDialog {
         Ok(())
     }
 
-    pub fn general_settings(input_state: InputState) -> Self {
+    pub fn general_settings(input_state: InputState, services: di::ServiceProvider) -> Self {
         let tx = Arc::new(AtomicU32::new(0));
         let rx = tx.clone();
 
@@ -365,6 +375,7 @@ impl SettingsDialog {
                 ),
             ],
             input_state,
+            services,
         )
     }
 

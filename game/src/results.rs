@@ -10,6 +10,7 @@ use kson::score_ticks::ScoreTick;
 use serde::Serialize;
 
 use crate::{
+    async_service::AsyncService,
     button_codes::UscButton,
     game::{Gauge, HitRating, HitWindow},
     lua_service::LuaProvider,
@@ -248,6 +249,12 @@ impl SongResultData {
 
 impl SceneData for SongResultData {
     fn make_scene(self: Box<Self>, services: ServiceProvider) -> anyhow::Result<Box<dyn Scene>> {
+        services
+            .get_required_mut::<AsyncService>()
+            .read()
+            .unwrap()
+            .save_config(); // Save config in case of changed hispeed
+
         Ok(Box::new(SongResult {
             score_service: services.get_required(),
             close: false,

@@ -188,6 +188,7 @@ pub struct SongSelectScene {
     _sample_owner: Receiver<()>,
     sample_marker: Sender<()>,
     settings_dialog: SettingsDialog,
+    settings_closed: SystemTime,
     input_state: InputState,
     services: ServiceProvider,
     song_provider: RefMut<dyn SongProvider>,
@@ -232,7 +233,7 @@ impl SongSelectScene {
             sample_marker,
             _sample_owner: sample_owner,
             input_state: input_state.clone(),
-            settings_dialog: SettingsDialog::general_settings(input_state),
+            settings_dialog: SettingsDialog::general_settings(input_state, services.create_scope()),
             song_events,
             score_events,
             song_provider,
@@ -244,6 +245,7 @@ impl SongSelectScene {
             sort_index: 0,
             filters: vec![],
             sorts: vec![],
+            settings_closed: SystemTime::UNIX_EPOCH,
         }
     }
 
@@ -773,6 +775,17 @@ impl Scene for SongSelectScene {
     fn on_button_pressed(&mut self, button: crate::button_codes::UscButton, timestamp: SystemTime) {
         if self.settings_dialog.show {
             self.settings_dialog.on_button_press(button);
+            self.settings_closed = SystemTime::now();
+            return;
+        }
+
+        // Ignore inputs for a short bit to avoid opening anything unintended
+        if SystemTime::now()
+            .duration_since(self.settings_closed)
+            .expect("Clock error")
+            .as_secs_f32()
+            < 0.25
+        {
             return;
         }
 
@@ -837,7 +850,15 @@ impl Scene for SongSelectScene {
         }
     }
     fn on_button_released(&mut self, button: UscButton, _timestamp: SystemTime) {
-        if self.settings_dialog.show {
+        // Ignore inputs for a short bit to avoid opening anything unintended
+
+        if self.settings_dialog.show
+            || SystemTime::now()
+                .duration_since(self.settings_closed)
+                .expect("Clock error")
+                .as_secs_f32()
+                < 0.25
+        {
             return;
         }
 

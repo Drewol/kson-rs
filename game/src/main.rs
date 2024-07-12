@@ -17,6 +17,7 @@ use crate::{
     vg_ui::Vgfx,
 };
 use anyhow::{anyhow, bail};
+use async_service::AsyncService;
 use button_codes::CustomBindingFilter;
 use clap::Parser;
 use directories::ProjectDirs;
@@ -45,6 +46,7 @@ use di::*;
 use glutin::prelude::*;
 
 mod animation;
+mod async_service;
 mod audio;
 mod audio_test;
 mod button_codes;
@@ -427,6 +429,8 @@ fn main() -> anyhow::Result<()> {
     let service_context = context.clone();
 
     let services = ServiceCollection::new()
+        .add(AsyncService::singleton().as_mut())
+        .add_worker::<AsyncService>()
         .add(existing_as_self(Mutex::new(canvas)))
         .add(existing_as_self(service_context.clone()))
         .add(singleton_factory(|_| {
