@@ -16,7 +16,7 @@ use tealr::{
     mlu::{mlua::ExternalError, TealData, UserData},
     mlua_create_named_parameters, ToTypename,
 };
-use three_d::{ClearState, DepthTarget, DepthTexture2D, Matrix, Viewport};
+use three_d::{ClearState, DepthTarget, DepthTexture2D, DepthTextureDataType, Matrix, Viewport};
 
 use inox2d::render::{InoxRenderer, InoxRendererCommon};
 
@@ -83,6 +83,14 @@ pub struct InoxModel {
     depth: DepthTexture2D,
 }
 
+struct f24d8;
+impl three_d::texture::DepthDataType for f24d8 {
+    fn internal_format() -> u32 {
+        three_d::context::DEPTH24_STENCIL8
+    }
+}
+impl DepthTextureDataType for f24d8 {}
+
 impl InoxModel {
     pub fn new(
         model: Model,
@@ -103,7 +111,7 @@ impl InoxModel {
             three_d::Wrapping::ClampToEdge,
         );
 
-        let depth = DepthTexture2D::new::<f32>(
+        let depth = DepthTexture2D::new::<f24d8>(
             &gl,
             width,
             height,
@@ -156,11 +164,11 @@ impl TealData for InoxModel {
                 {
                     let target = three_d::RenderTarget::new(
                         data.texture.as_color_target(None),
-                        data.depth.as_depth_target(),
+                        data.depth.as_depth_stencil_target(),
                     );
 
                     _ = target
-                        .clear(ClearState::color_and_depth(0.0, 0.0, 0.0, 0.0, 0.0))
+                        .clear(ClearState::color_and_depth(0.0, 0.0, 0.0, 0.0, 1.0))
                         .write(|| {
                             data.gl.set_viewport(Viewport {
                                 x: 0,

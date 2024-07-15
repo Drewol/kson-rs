@@ -402,8 +402,7 @@ fn main() -> anyhow::Result<()> {
 
     let _tokio = rt.enter();
 
-    let (window, surface, canvas, gl_context, eventloop, window_gl, inox_renderer) =
-        window::create_window()?;
+    let (window, surface, canvas, gl_context, eventloop, window_gl) = window::create_window()?;
 
     {
         if GameConfig::get().mouse_knobs {
@@ -412,6 +411,8 @@ fn main() -> anyhow::Result<()> {
     }
 
     let gl_context = Arc::new(gl_context);
+
+    let inox_renderer = inox2d_opengl::OpenglRenderer::new(gl_context.clone())?;
 
     let mut input = gilrs::GilrsBuilder::default()
         .add_included_mappings(false)

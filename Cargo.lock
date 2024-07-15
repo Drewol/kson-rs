@@ -3182,7 +3182,7 @@ dependencies = [
 [[package]]
 name = "inox2d"
 version = "0.3.0"
-source = "git+https://github.com/Drewol/inox2d.git#4fe2c81c5c2d7e608570f43a756e519934843624"
+source = "git+https://github.com/Drewol/inox2d.git#dbe13409e22e0954336ae1d0b65ed4ff9bbba33a"
 dependencies = [
  "glam 0.25.0",
  "image",
@@ -3196,7 +3196,7 @@ dependencies = [
 [[package]]
 name = "inox2d-opengl"
 version = "0.3.0"
-source = "git+https://github.com/Drewol/inox2d.git#4fe2c81c5c2d7e608570f43a756e519934843624"
+source = "git+https://github.com/Drewol/inox2d.git#dbe13409e22e0954336ae1d0b65ed4ff9bbba33a"
 dependencies = [
  "glam 0.25.0",
  "glow",
@@ -6169,7 +6169,7 @@ dependencies = [
 [[package]]
 name = "three-d"
 version = "0.18.0"
-source = "git+https://github.com/Drewol/three-d.git#a0aeeec710b2d16a5551de67db913ab533064ec4"
+source = "git+https://github.com/Drewol/three-d.git#c895a8607c93c2ca2a4192f966a88da8f2931c6f"
 dependencies = [
  "cgmath",
  "glow",
