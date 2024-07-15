@@ -1,15 +1,16 @@
-use std::sync::RwLock;
+use std::sync::{Arc, RwLock};
 
 use di::{transient_factory, RefMut, ServiceCollection};
 use tealr::{
     mlu::{
-        mlua::{self, FromLuaMulti, IntoLuaMulti, Lua, Result},
+        self,
+        mlua::{self, ExternalError, FromLuaMulti, IntoLuaMulti, Lua, Result},
         MaybeSend,
     },
     TealMultiValue, ToTypename,
 };
 
-use crate::worker_service::WorkerService;
+use crate::{game_data::GameData, vg_ui::Vgfx, worker_service::WorkerService};
 
 pub(crate) fn add_lua_static_method<'lua, M, A, R, F, T: 'static + Sized + ToTypename>(
     methods: &mut M,
@@ -64,5 +65,37 @@ impl ServiceHelper for ServiceCollection {
         self.add(transient_factory::<RwLock<dyn WorkerService>, _>(|sp| {
             sp.get_required_mut::<T>()
         }))
+    }
+}
+
+pub trait ToLuaResult<T> {
+    fn to_lua(self) -> std::result::Result<T, mlua::Error>;
+}
+
+impl<T, E> ToLuaResult<T> for std::result::Result<T, E>
+where
+    E: ExternalError,
+{
+    fn to_lua(self) -> std::result::Result<T, mlua::Error> {
+        self.map_err(|x| x.into_lua_err())
+    }
+}
+
+pub trait LuaHelpers {
+    fn vgfx(&self) -> mlua::Result<Arc<RwLock<Vgfx>>>;
+    fn game_data(&self) -> mlua::Result<Arc<RwLock<GameData>>>;
+}
+
+impl LuaHelpers for Lua {
+    fn vgfx(&self) -> mlua::Result<Arc<RwLock<Vgfx>>> {
+        self.app_data_ref::<Arc<RwLock<Vgfx>>>()
+            .map(|x| x.clone())
+            .ok_or(mlua::Error::external("VGFX app data not set"))
+    }
+
+    fn game_data(&self) -> mlua::Result<Arc<RwLock<GameData>>> {
+        self.app_data_ref::<Arc<RwLock<GameData>>>()
+            .map(|x| x.clone())
+            .ok_or(mlua::Error::external("VGFX app data not set"))
     }
 }

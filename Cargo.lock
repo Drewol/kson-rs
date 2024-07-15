@@ -682,7 +682,7 @@ dependencies = [
  "bitflags 2.5.0",
  "cexpr",
  "clang-sys",
- "itertools 0.10.5",
+ "itertools 0.12.1",
  "lazy_static",
  "lazycell",
  "proc-macro2",
@@ -1618,7 +1618,7 @@ version = "0.5.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "330c60081dcc4c72131f8eb70510f1ac07223e5d4163db481a04a0befcffa412"
 dependencies = [
- "libloading 0.7.4",
+ "libloading 0.8.3",
 ]
 
 [[package]]
@@ -2461,7 +2461,7 @@ dependencies = [
  "vec_map",
  "wasm-bindgen",
  "web-sys",
- "windows 0.48.0",
+ "windows 0.54.0",
 ]
 
 [[package]]
@@ -2493,6 +2493,12 @@ dependencies = [
  "log",
  "xml-rs",
 ]
+
+[[package]]
+name = "glam"
+version = "0.25.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "151665d9be52f9bb40fc7966565d39666f2d1e69233571b71b87791c7e0528b3"
 
 [[package]]
 name = "glam"
@@ -2797,7 +2803,7 @@ dependencies = [
  "bitflags 2.5.0",
  "com",
  "libc",
- "libloading 0.7.4",
+ "libloading 0.8.3",
  "thiserror",
  "widestring",
  "winapi",
@@ -3139,6 +3145,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "indextree"
+version = "4.6.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "3a6f7e29c1619ec492f411b021ac9f30649d5f522ca6f287f2467ee48c8dfe10"
+
+[[package]]
 name = "inotify"
 version = "0.10.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3165,6 +3177,32 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "a0c10553d664a4d0bcff9f4215d0aac67a639cc68ef660840afe309b807bc9f5"
 dependencies = [
  "generic-array",
+]
+
+[[package]]
+name = "inox2d"
+version = "0.3.0"
+source = "git+https://github.com/Drewol/inox2d.git#4fe2c81c5c2d7e608570f43a756e519934843624"
+dependencies = [
+ "glam 0.25.0",
+ "image",
+ "indextree",
+ "json",
+ "simple-tga-reader",
+ "thiserror",
+ "tracing",
+]
+
+[[package]]
+name = "inox2d-opengl"
+version = "0.3.0"
+source = "git+https://github.com/Drewol/inox2d.git#4fe2c81c5c2d7e608570f43a756e519934843624"
+dependencies = [
+ "glam 0.25.0",
+ "glow",
+ "inox2d",
+ "thiserror",
+ "tracing",
 ]
 
 [[package]]
@@ -3296,6 +3334,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "json"
+version = "0.12.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "078e285eafdfb6c4b434e0d31e8cfcb5115b651496faca5749b88fafd4f23bfd"
+
+[[package]]
 name = "khronos-egl"
 version = "6.0.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3336,7 +3380,7 @@ dependencies = [
  "eframe",
  "egui_glow",
  "emath",
- "glam",
+ "glam 0.27.0",
  "i18n-embed",
  "i18n-embed-fl",
  "image",
@@ -3438,7 +3482,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "0c2a198fb6b0eada2a8df47933734e6d35d350665a33a3593d7164fa52c75c19"
 dependencies = [
  "cfg-if",
- "windows-targets 0.48.5",
+ "windows-targets 0.52.4",
 ]
 
 [[package]]
@@ -4968,6 +5012,8 @@ dependencies = [
  "glutin 0.31.3",
  "glutin-winit",
  "image",
+ "inox2d",
+ "inox2d-opengl",
  "itertools 0.12.1",
  "kson",
  "kson-editor",
@@ -5302,9 +5348,9 @@ dependencies = [
 
 [[package]]
 name = "serde-wasm-bindgen"
-version = "0.5.0"
+version = "0.6.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f3b143e2833c57ab9ad3ea280d21fd34e285a42837aeb0ee301f4f41890fa00e"
+checksum = "8302e169f0eddcc139c70f139d19d6467353af16f9fce27e8c30158036a1e16b"
 dependencies = [
  "js-sys",
  "serde",
@@ -5472,6 +5518,12 @@ name = "simd-adler32"
 version = "0.3.7"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d66dc143e6b11c1eddc06d5c423cfc97062865baf299914ab64caa38182078fe"
+
+[[package]]
+name = "simple-tga-reader"
+version = "0.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "bad547583b5ef3f75a69312acb93a12c5df278de0540b76196247a313de48d89"
 
 [[package]]
 name = "simple_logger"
@@ -6116,8 +6168,8 @@ dependencies = [
 
 [[package]]
 name = "three-d"
-version = "0.17.0"
-source = "git+https://github.com/Drewol/three-d#c69a809e88462b0b92b74c1b931bfd9e7c37f81d"
+version = "0.18.0"
+source = "git+https://github.com/Drewol/three-d.git#a0aeeec710b2d16a5551de67db913ab533064ec4"
 dependencies = [
  "cgmath",
  "glow",
@@ -6135,9 +6187,9 @@ dependencies = [
 
 [[package]]
 name = "three-d-asset"
-version = "0.6.0"
+version = "0.7.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e9959d4427b63958661828008f7470d6a8d2c0945b3df0dc7377d6aca38fb694"
+checksum = "8207e9cdb58d83b02b320412d75ba6503d718f0cafa37de9cf0511839f3d86e1"
 dependencies = [
  "cgmath",
  "half 2.4.0",
@@ -7108,7 +7160,7 @@ dependencies = [
  "js-sys",
  "khronos-egl",
  "libc",
- "libloading 0.7.4",
+ "libloading 0.8.3",
  "log",
  "metal",
  "naga",

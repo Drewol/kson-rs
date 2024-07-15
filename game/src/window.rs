@@ -35,6 +35,7 @@ type WindowCreation = (
     Context,
     EventLoop<UscInputEvent>,
     PossiblyCurrentContext,
+    inox2d_opengl::OpenglRenderer,
 );
 
 /// Mostly borrowed code from femtovg/examples
@@ -154,6 +155,14 @@ pub fn create_window() -> anyhow::Result<WindowCreation> {
         })
     };
 
+    let inox_context = unsafe {
+        glow::Context::from_loader_function_cstr(|symbol| {
+            gl_display.get_proc_address(symbol) as *const _
+        })
+    };
+
+    let inox_renderer = inox2d_opengl::OpenglRenderer::new(inox_context)?;
+
     let mut canvas = Canvas::new(renderer).expect("Cannot create canvas");
     let scale_factor = window.scale_factor();
     canvas.set_size(width, height, scale_factor as f32);
@@ -166,5 +175,13 @@ pub fn create_window() -> anyhow::Result<WindowCreation> {
         },
     )?;
 
-    Ok((window, surface, canvas, context, event_loop, gl_context))
+    Ok((
+        window,
+        surface,
+        canvas,
+        context,
+        event_loop,
+        gl_context,
+        inox_renderer,
+    ))
 }

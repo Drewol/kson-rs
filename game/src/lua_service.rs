@@ -3,6 +3,7 @@ use std::rc::Rc;
 use crate::{
     config::GameConfig,
     game_data::{self, ExportGame, LuaPath},
+    inox::Inox,
     lua_http::{ExportLuaHttp, LuaHttp},
     util::lua_address,
     vg_ui::{ExportVgfx, Vgfx},
@@ -21,6 +22,7 @@ use tealr::mlu::mlua::LuaSerdeExt;
 pub struct LuaProvider {
     arena: RefMut<LuaArena>,
     vgfx: RefMut<Vgfx>,
+    inox: Ref<Inox>,
     context: Ref<three_d::core::Context>,
     mixer: Ref<InnerRuscMixer>,
     game_data: RefMut<game_data::GameData>,
@@ -48,6 +50,8 @@ impl LuaProvider {
                 "Active": false
             }))?,
         )?;
+        lua.globals().set("inox", self.inox.clone())?;
+
         arena
             .write()
             .expect("Could not get lock to lua arena")

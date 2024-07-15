@@ -28,6 +28,7 @@ use game_main::ControlMessage;
 
 use glutin_winit::GlWindow;
 use help::ServiceHelper;
+use inox::Inox;
 use kson::Ksh;
 use log::*;
 
@@ -55,6 +56,7 @@ mod game;
 mod game_data;
 mod game_main;
 mod help;
+pub mod inox;
 mod input_state;
 mod lua_http;
 mod lua_service;
@@ -400,7 +402,8 @@ fn main() -> anyhow::Result<()> {
 
     let _tokio = rt.enter();
 
-    let (window, surface, canvas, gl_context, eventloop, window_gl) = window::create_window()?;
+    let (window, surface, canvas, gl_context, eventloop, window_gl, inox_renderer) =
+        window::create_window()?;
 
     {
         if GameConfig::get().mouse_knobs {
@@ -429,6 +432,10 @@ fn main() -> anyhow::Result<()> {
     let service_context = context.clone();
 
     let services = ServiceCollection::new()
+        .add(existing_as_self(Inox::new(
+            Arc::new(RwLock::new(inox_renderer)),
+            service_context.clone(),
+        )))
         .add(AsyncService::singleton().as_mut())
         .add_worker::<AsyncService>()
         .add(existing_as_self(Mutex::new(canvas)))
