@@ -412,8 +412,6 @@ fn main() -> anyhow::Result<()> {
 
     let gl_context = Arc::new(gl_context);
 
-    let inox_renderer = inox2d_opengl::OpenglRenderer::new(gl_context.clone())?;
-
     let mut input = gilrs::GilrsBuilder::default()
         .add_included_mappings(false)
         .with_default_filters(false)
@@ -434,7 +432,7 @@ fn main() -> anyhow::Result<()> {
 
     let services = ServiceCollection::new()
         .add(existing_as_self(Inox::new(
-            Arc::new(RwLock::new(inox_renderer)),
+            gl_context.clone(),
             service_context.clone(),
         )))
         .add(AsyncService::singleton().as_mut())

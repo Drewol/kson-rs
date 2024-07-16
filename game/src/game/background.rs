@@ -1,8 +1,12 @@
-use std::path::{Path, PathBuf};
+use std::{
+    path::{Path, PathBuf},
+    sync::Arc,
+};
 
 use crate::{
     game::ChartView,
     game_data::{ExportGame, GameData, LuaPath},
+    inox::Inox,
     shaded_mesh::ShadedMesh,
     util::lua_address,
     vg_ui::{ExportVgfx, Vgfx},
@@ -212,6 +216,7 @@ impl GameBackground {
         chart: &kson::Chart,
         vgfx: RefMut<Vgfx>,
         game_data: RefMut<GameData>,
+        inox: Arc<Inox>,
     ) -> anyhow::Result<Self> {
         use mlua::StdLib;
         let mut path = path.as_ref().to_path_buf();
@@ -222,7 +227,6 @@ impl GameBackground {
         } else {
             "foreground"
         };
-
         path.push(name);
         path.set_extension("fs");
         let fs = std::io::read_to_string(std::fs::File::open(&path)?)?;
@@ -230,6 +234,7 @@ impl GameBackground {
 
         let lua = Lua::new_with(StdLib::MATH | StdLib::STRING, LuaOptions::new())?;
         lua.globals().set(full_name, GameBackgroundLua)?;
+        lua.globals().set("inox", inox)?;
 
         {
             vgfx.write()
@@ -323,6 +328,11 @@ impl GameBackground {
             }
         } else {
             warn!("No render fn");
+        }
+
+        if self.background {
+            let vgfx = self.vgfx.write().unwrap();
+            vgfx.canvas.lock().unwrap().flush();
         }
     }
 }

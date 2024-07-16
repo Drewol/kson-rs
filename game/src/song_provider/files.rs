@@ -31,7 +31,7 @@ use log::{info, warn};
 use puffin::profile_function;
 use rodio::Source;
 use rusc_database::{ChartEntry, LocalSongsDb, ScoreEntry};
-use tokio::io::AsyncRead;
+use tokio::{io::AsyncRead, task::yield_now};
 
 enum WorkerControlMessage {
     Stop,
@@ -155,12 +155,13 @@ impl FileSongProvider {
                         })
                         .filter_map(|e| e.path().parent().map(|x| x.to_path_buf()))
                         .unique()
-                        .chunks(1)
+                        .chunks(16)
                         .into_iter()
                         .map(|folders| {
                             let worker_db = worker_db.clone();
                             let sender_tx = sender_tx.clone();
                             let folders = folders.collect_vec();
+                            //TODO: Refactor
                             async move {
                                 let mut songs = vec![];
                                 for folder in folders {
@@ -387,7 +388,9 @@ impl FileSongProvider {
                 }
                 .collect_vec();
 
-                futures::future::join_all(songs).await;
+                for batch in songs {
+                    batch.await;
+                }
 
                 //send update to provider
                 info!("Finished importing");

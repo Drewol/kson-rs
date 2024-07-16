@@ -460,6 +460,7 @@ impl SceneData for GameData {
             &chart,
             service_provider.get_required(),
             service_provider.get_required(),
+            service_provider.get_required(),
         )
         .inspect_err(|e| log::warn!("Failed to load background: {e} \n {:?}", &bg_folder))
         .or_else(|_| {
@@ -468,6 +469,7 @@ impl SceneData for GameData {
                 true,
                 bg_folder.with_file_name("fallback"),
                 &chart,
+                service_provider.get_required(),
                 service_provider.get_required(),
                 service_provider.get_required(),
             )
@@ -490,6 +492,7 @@ impl SceneData for GameData {
             false,
             bg_folder,
             &chart,
+            service_provider.get_required(),
             service_provider.get_required(),
             service_provider.get_required(),
         )
@@ -1238,8 +1241,6 @@ impl Scene for Game {
                 }
             }
         }
-
-        dbg!(self.laser_alert);
 
         Ok(())
     }

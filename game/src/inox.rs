@@ -22,13 +22,13 @@ use inox2d::render::{InoxRenderer, InoxRendererCommon};
 
 #[derive(UserData, ToTypename, Clone)]
 pub struct Inox {
-    renderer: Arc<RwLock<OpenglRenderer>>,
+    raw_gl: Arc<glow::Context>,
     gl: three_d::Context,
 }
 
 impl Inox {
-    pub fn new(renderer: Arc<RwLock<OpenglRenderer>>, gl: three_d::Context) -> Self {
-        Self { renderer, gl }
+    pub fn new(raw_gl: Arc<glow::Context>, gl: three_d::Context) -> Self {
+        Self { raw_gl, gl }
     }
 }
 
@@ -46,7 +46,8 @@ impl TealData for Inox {
             model_path.push(path);
             let data = std::fs::read(model_path).to_lua()?;
             let model = inox2d::formats::inp::parse_inp(data.as_slice()).to_lua()?;
-            let opengl_renderer = &mut inox.renderer.write().unwrap();
+            let mut opengl_renderer =
+                inox2d_opengl::OpenglRenderer::new(inox.raw_gl.clone()).to_lua()?;
             opengl_renderer.resize(w, h);
             opengl_renderer.prepare(&model).to_lua()?;
 
@@ -61,7 +62,7 @@ impl TealData for Inox {
 
             Ok(InoxModel::new(
                 model,
-                Arc::downgrade(&inox.renderer),
+                opengl_renderer,
                 inox.gl.clone(),
                 w,
                 h,
@@ -75,7 +76,7 @@ impl TealData for Inox {
 #[derive(ToTypename, UserData)]
 pub struct InoxModel {
     model: Model,
-    renderer: Weak<RwLock<OpenglRenderer>>,
+    renderer: OpenglRenderer,
     params: Vec<(String, f32, f32)>,
     gl: three_d::Context,
     texture: three_d::Texture2D,
@@ -94,7 +95,7 @@ impl DepthTextureDataType for f24d8 {}
 impl InoxModel {
     pub fn new(
         model: Model,
-        renderer: Weak<RwLock<OpenglRenderer>>,
+        renderer: OpenglRenderer,
         gl: three_d::Context,
         width: u32,
         height: u32,
@@ -151,8 +152,7 @@ impl TealData for InoxModel {
         methods.add_method_mut(
             "Render",
             |lua, data, InoxRenderParams { x, y, w, h, dt }| {
-                let handle = data.renderer.upgrade().expect("Renderer dropped");
-                let mut renderer = handle.write().unwrap();
+                let renderer = &mut data.renderer;
                 renderer.clear();
                 let vgfx_handle = lua.vgfx()?;
                 let vgfx = vgfx_handle.write().unwrap();
