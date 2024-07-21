@@ -3,7 +3,6 @@ use std::sync::{Arc, RwLock};
 use di::{transient_factory, RefMut, ServiceCollection};
 use tealr::{
     mlu::{
-        self,
         mlua::{self, ExternalError, FromLuaMulti, IntoLuaMulti, Lua, Result},
         MaybeSend,
     },

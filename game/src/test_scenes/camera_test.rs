@@ -1,3 +1,4 @@
+use std::fmt::Display;
 use std::path::PathBuf;
 use std::sync::Arc;
 
@@ -19,13 +20,13 @@ enum TestBg {
     Sdvx,
 }
 
-impl ToString for TestBg {
-    fn to_string(&self) -> String {
-        match self {
-            TestBg::None => "None".to_string(),
-            TestBg::Ksm => "KSM".to_string(),
-            TestBg::Sdvx => "SDVX".to_string(),
-        }
+impl Display for TestBg {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> Result<(), std::fmt::Error> {
+        f.write_str(match self {
+            TestBg::None => "None",
+            TestBg::Ksm => "KSM",
+            TestBg::Sdvx => "SDVX",
+        })
     }
 }
 

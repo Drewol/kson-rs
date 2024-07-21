@@ -3,7 +3,7 @@ use std::rc::Rc;
 use crate::{
     config::GameConfig,
     game_data::{self, ExportGame, LuaPath},
-    inox::Inox,
+    inox::{self, Inox},
     lua_http::{ExportLuaHttp, LuaHttp},
     util::lua_address,
     vg_ui::{ExportVgfx, Vgfx},
@@ -50,7 +50,7 @@ impl LuaProvider {
                 "Active": false
             }))?,
         )?;
-        lua.globals().set("inox", self.inox.clone())?;
+        lua.globals().set(inox::LUA_NAME, self.inox.clone())?;
 
         arena
             .write()

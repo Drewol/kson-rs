@@ -234,7 +234,7 @@ impl GameBackground {
 
         let lua = Lua::new_with(StdLib::MATH | StdLib::STRING, LuaOptions::new())?;
         lua.globals().set(full_name, GameBackgroundLua)?;
-        lua.globals().set("inox", inox)?;
+        lua.globals().set(crate::inox::LUA_NAME, inox)?;
 
         {
             vgfx.write()

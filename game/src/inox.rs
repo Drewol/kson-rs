@@ -2,23 +2,17 @@ use crate::config::GameConfig;
 use crate::help::{LuaHelpers, ToLuaResult};
 use crate::vg_ui::Vgfx;
 use femtovg::{ImageFlags, ImageInfo};
-use futures::TryFutureExt;
-use inox2d::formats::inp::parse_inp;
 use inox2d::model::Model;
 use inox2d_opengl::OpenglRenderer;
-use log::info;
-use std::borrow::Borrow;
-use std::cell::Cell;
-use std::path::PathBuf;
-use std::sync::{RwLock, Weak};
-use std::{collections::HashMap, sync::Arc};
+use std::sync::Arc;
+use std::sync::RwLock;
 use tealr::{
-    mlu::{mlua::ExternalError, TealData, UserData},
+    mlu::{TealData, UserData},
     mlua_create_named_parameters, ToTypename,
 };
-use three_d::{ClearState, DepthTarget, DepthTexture2D, DepthTextureDataType, Matrix, Viewport};
+use three_d::{ClearState, DepthTexture2D, DepthTextureDataType, Viewport};
 
-use inox2d::render::{InoxRenderer, InoxRendererCommon};
+use inox2d::render::InoxRenderer;
 
 #[derive(UserData, ToTypename, Clone)]
 pub struct Inox {
@@ -31,6 +25,8 @@ impl Inox {
         Self { raw_gl, gl }
     }
 }
+
+pub const LUA_NAME: &str = "inochi2d";
 
 impl TealData for Inox {
     fn add_methods<'lua, T: tealr::mlu::TealDataMethods<'lua, Self>>(methods: &mut T) {
@@ -84,13 +80,13 @@ pub struct InoxModel {
     depth: DepthTexture2D,
 }
 
-struct f24d8;
-impl three_d::texture::DepthDataType for f24d8 {
+struct F24d8;
+impl three_d::texture::DepthDataType for F24d8 {
     fn internal_format() -> u32 {
         three_d::context::DEPTH24_STENCIL8
     }
 }
-impl DepthTextureDataType for f24d8 {}
+impl DepthTextureDataType for F24d8 {}
 
 impl InoxModel {
     pub fn new(
@@ -112,7 +108,7 @@ impl InoxModel {
             three_d::Wrapping::ClampToEdge,
         );
 
-        let depth = DepthTexture2D::new::<f24d8>(
+        let depth = DepthTexture2D::new::<F24d8>(
             &gl,
             width,
             height,
