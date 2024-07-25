@@ -7,6 +7,7 @@ use std::{
 
 use di::{RefMut, ServiceProvider};
 use kson::score_ticks::ScoreTick;
+use luals_gen::ToLuaLsType;
 use serde::Serialize;
 
 use crate::{
@@ -28,12 +29,12 @@ use tealr::{
     ToTypename,
 };
 
-#[derive(Debug, ToTypename, Clone, Serialize, Default)]
+#[derive(Debug, ToTypename, Clone, Serialize, Default, ToLuaLsType)]
 #[serde(rename_all = "camelCase")]
 struct HidSud {}
 
 #[serde_as]
-#[derive(Debug, Clone, Serialize, Default)]
+#[derive(Debug, Clone, Serialize, Default, luals_gen::ToLuaLsType)]
 #[serde(rename_all = "camelCase")]
 pub struct SongResultData {
     score: u32,
@@ -266,7 +267,7 @@ impl SceneData for SongResultData {
     }
 }
 
-#[derive(Debug, ToTypename, Clone, Serialize, Default)]
+#[derive(Debug, ToTypename, Clone, Serialize, Default, ToLuaLsType)]
 #[serde(rename_all = "camelCase")]
 struct HitStat {
     rating: i32,    // 0 for miss, 1 for near, 2 for crit
@@ -327,7 +328,7 @@ impl TryFrom<HitRating> for HitStat {
     }
 }
 
-#[derive(Debug, ToTypename, Clone, Serialize, UserData, Default)]
+#[derive(Debug, ToTypename, Clone, Serialize, UserData, Default, ToLuaLsType)]
 #[serde(rename_all = "camelCase")]
 pub struct Score {
     ///range 0.0 -> 1.0

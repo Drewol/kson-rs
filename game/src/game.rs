@@ -52,6 +52,7 @@ mod background;
 use background::GameBackground;
 mod lua_data;
 pub use lua_data::HitWindow;
+pub(crate) use lua_data::LuaGameState;
 pub mod graphics;
 
 const LASER_THRESHOLD: f64 = 1.0 / 12.0;

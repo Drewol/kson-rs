@@ -11,6 +11,7 @@ use std::{
 use egui::util::hash;
 use kson::Chart;
 use log::LevelFilter;
+use luals_gen::ToLuaLsType;
 use rodio::Source;
 use serde::{Deserialize, Serialize};
 use tealr::{
@@ -121,7 +122,9 @@ impl SongFilter {
     }
 }
 
-#[derive(Debug, ToTypename, UserData, Clone, Serialize, Hash, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(
+    Debug, ToTypename, UserData, Clone, Serialize, Hash, PartialEq, Eq, PartialOrd, Ord, ToLuaLsType,
+)]
 pub enum SongId {
     Missing,
     IntId(i64),
@@ -147,13 +150,24 @@ impl Default for SongId {
 }
 
 #[derive(
-    Debug, ToTypename, UserData, Clone, Serialize, Default, Hash, PartialEq, Eq, PartialOrd, Ord,
+    Debug,
+    ToTypename,
+    UserData,
+    Clone,
+    Serialize,
+    Default,
+    Hash,
+    PartialEq,
+    Eq,
+    PartialOrd,
+    Ord,
+    ToLuaLsType,
 )]
 pub struct DiffId(pub SongId);
 
 impl TealData for DiffId {}
 
-#[derive(Debug, ToTypename, UserData, Clone, Serialize)]
+#[derive(Debug, ToTypename, UserData, Clone, Serialize, ToLuaLsType)]
 pub enum SongDiffId {
     Missing,
     DiffOnly(DiffId),

@@ -1,3 +1,5 @@
+use luals_gen::LuaLsType;
+use luals_gen::ToLuaLsType;
 use serde::Deserialize;
 use serde::Serialize;
 use serde_with::serde_as;
@@ -13,7 +15,7 @@ use std::time::Duration;
 
 use std::path::PathBuf;
 
-#[derive(Debug, Serialize, Default, Deserialize, Clone, PartialEq)]
+#[derive(Debug, Serialize, Default, Deserialize, Clone, PartialEq, ToLuaLsType)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct LuaGameState {
     pub(crate) title: String,
@@ -43,7 +45,7 @@ pub(crate) struct LuaGameState {
     pub(crate) practice_setup: bool, // true: it's the setup, false: practicing n
 }
 
-#[derive(Debug, Serialize, Default, Deserialize, Clone, PartialEq)]
+#[derive(Debug, Serialize, Default, Deserialize, Clone, PartialEq, ToLuaLsType)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct LuaGauge {
     #[serde(rename = "type")]
@@ -69,6 +71,21 @@ pub struct HitWindow {
     pub miss: Duration,
 }
 
+impl ToLuaLsType for HitWindow {
+    fn lua_ls_type() -> luals_gen::LuaLsType {
+        LuaLsType::Named(
+            "HitWindow".into(),
+            luals_gen::LuaLsTypeDef::TableLiteral(vec![
+                ("variant".into(), LuaLsType::Primitive("integer".into())),
+                ("perfect".into(), LuaLsType::Primitive("number".into())),
+                ("good".into(), LuaLsType::Primitive("number".into())),
+                ("hold".into(), LuaLsType::Primitive("number".into())),
+                ("miss".into(), LuaLsType::Primitive("number".into())),
+            ]),
+        )
+    }
+}
+
 impl HitWindow {
     pub fn new(variant: i32, perfect_ms: u64, good_ms: u64, hold_ms: u64, miss_ms: u64) -> Self {
         Self {
@@ -81,7 +98,7 @@ impl HitWindow {
     }
 }
 
-#[derive(Debug, Serialize, Default, Deserialize, Clone, PartialEq)]
+#[derive(Debug, Serialize, Default, Deserialize, Clone, PartialEq, ToLuaLsType)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct CritLine {
     pub(crate) x: i32,
@@ -92,7 +109,7 @@ pub(crate) struct CritLine {
     pub(crate) x_offset: f32,
 }
 
-#[derive(Debug, Default, Serialize, Deserialize, Clone, PartialEq)]
+#[derive(Debug, Default, Serialize, Deserialize, Clone, PartialEq, ToLuaLsType)]
 pub(crate) struct Cursor {
     pub(crate) pos: f32,
     pub(crate) alpha: f32,
@@ -121,7 +138,7 @@ impl Cursor {
     }
 }
 
-#[derive(Debug, Serialize, Default, Deserialize, Clone, PartialEq)]
+#[derive(Debug, Serialize, Default, Deserialize, Clone, PartialEq, ToLuaLsType)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct Line {
     pub(crate) x1: f32,
@@ -130,7 +147,7 @@ pub(crate) struct Line {
     pub(crate) y2: f32,
 }
 
-#[derive(Debug, Serialize, Default, Deserialize, Clone, PartialEq)]
+#[derive(Debug, Serialize, Default, Deserialize, Clone, PartialEq, ToLuaLsType)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct ScoreReplay {
     pub(crate) max_score: i32,

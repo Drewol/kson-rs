@@ -682,7 +682,7 @@ dependencies = [
  "bitflags 2.5.0",
  "cexpr",
  "clang-sys",
- "itertools 0.10.5",
+ "itertools 0.12.1",
  "lazy_static",
  "lazycell",
  "proc-macro2",
@@ -1224,6 +1224,15 @@ name = "constant_time_eq"
 version = "0.3.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "f7144d30dcf0fafbce74250a3963025d8d52177934239851c917d29f1df280c2"
+
+[[package]]
+name = "convert_case"
+version = "0.6.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "ec182b0ca2f35d8fc196cf3404988fd8b8c739a4d270ff118a398feb0cbec1ca"
+dependencies = [
+ "unicode-segmentation",
+]
 
 [[package]]
 name = "core-foundation"
@@ -3568,6 +3577,33 @@ dependencies = [
 ]
 
 [[package]]
+name = "luals-gen"
+version = "0.1.0"
+source = "git+https://github.com/Drewol/luals-gen.git#d820cfb7741bd0c5a4858bf57ff34f07fb125f8c"
+dependencies = [
+ "luals-gen-derive",
+]
+
+[[package]]
+name = "luals-gen-derive"
+version = "0.1.0"
+source = "git+https://github.com/Drewol/luals-gen.git#d820cfb7741bd0c5a4858bf57ff34f07fb125f8c"
+dependencies = [
+ "convert_case",
+ "proc-macro2",
+ "quote",
+ "syn 2.0.60",
+]
+
+[[package]]
+name = "luals-gen-tealr"
+version = "0.1.0"
+source = "git+https://github.com/Drewol/luals-gen.git#d820cfb7741bd0c5a4858bf57ff34f07fb125f8c"
+dependencies = [
+ "tealr",
+]
+
+[[package]]
 name = "lz4_flex"
 version = "0.11.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4974,6 +5010,8 @@ dependencies = [
  "kson-music-playback",
  "kson-rodio-sources",
  "log",
+ "luals-gen",
+ "luals-gen-tealr",
  "more-di",
  "num_cpus",
  "once_cell",
@@ -6047,8 +6085,7 @@ checksum = "e1fc403891a21bcfb7c37834ba66a547a8f402146eba7265b5a6d88059c9ff2f"
 [[package]]
 name = "tealr"
 version = "0.9.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "04a79794fae9f370d087d12037d58a4c86ec8c116a6bb4ccaa1ff63f9a4fe3ce"
+source = "git+https://github.com/Drewol/tealr.git?branch=nil-option#acb9c9a627aa61e48d47c435a5d0aa5a00ba5d16"
 dependencies = [
  "bstr 0.2.17",
  "itertools 0.10.5",
@@ -6061,8 +6098,7 @@ dependencies = [
 [[package]]
 name = "tealr_derive"
 version = "0.9.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "335377874a830e8ba5edb767577367e3f9ebc30f09c67c715492372ad3364620"
+source = "git+https://github.com/Drewol/tealr.git?branch=nil-option#acb9c9a627aa61e48d47c435a5d0aa5a00ba5d16"
 dependencies = [
  "proc-macro2",
  "quote",

@@ -32,6 +32,7 @@ use kson::Ksh;
 use log::*;
 
 use lua_service::LuaProvider;
+use luals_gen::LuaLsGen;
 use puffin::profile_function;
 use rodio::{dynamic_mixer::DynamicMixerController, Source};
 use scene::Scene;
@@ -534,7 +535,8 @@ fn main() -> anyhow::Result<()> {
         }
     });
 
-    //TODO: Export tealr types, or move to some other typed lua
+    // Export luals definitions
+    export_luals_defs()?;
 
     let gui = egui_glow::EguiGlow::new(&eventloop, gl_context, None, None);
 
@@ -669,6 +671,45 @@ fn main() -> anyhow::Result<()> {
         },
         move |g, e| g.game.handle(&g.window, e),
     )?;
+    Ok(())
+}
+
+fn export_luals_defs() -> Result<(), anyhow::Error> {
+    use std::io::Write;
+    let mut path = default_game_dir();
+    path.push("luals");
+    std::fs::create_dir_all(&path)?;
+    path.push("gfx.lua");
+    let mut f = std::fs::File::create(&path)?;
+    writeln!(f, "---@meta")?;
+    luals_gen_tealr::Generator::write_type::<crate::Vgfx>("gfx", f)?;
+
+    path.set_file_name("game.lua");
+    let mut f = std::fs::File::create(&path)?;
+    writeln!(f, "---@meta")?;
+    luals_gen_tealr::Generator::write_type::<crate::game_data::GameData>("game", f)?;
+
+    path.set_file_name("shadedmesh.lua");
+    let mut f = std::fs::File::create(&path)?;
+    writeln!(f, "---@meta")?;
+    luals_gen_tealr::Generator::write_type::<crate::shaded_mesh::ShadedMesh>("ShadedMesh", f)?;
+
+    path.set_file_name("result.lua");
+    let mut f = std::fs::File::create(&path)?;
+    writeln!(f, "---@meta")?;
+    LuaLsGen::generate_types::<results::SongResultData>(&mut f)?;
+    writeln!(f)?;
+    writeln!(f, "---@type SongResultData")?;
+    writeln!(f, "result = {{}}")?;
+
+    path.set_file_name("gameplay.lua");
+    let mut f = std::fs::File::create(&path)?;
+    writeln!(f, "---@meta")?;
+    LuaLsGen::generate_types::<game::LuaGameState>(&mut f)?;
+    writeln!(f)?;
+    writeln!(f, "---@type LuaGameState")?;
+    writeln!(f, "gameplay = {{}}")?;
+
     Ok(())
 }
 
