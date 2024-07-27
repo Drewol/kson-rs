@@ -52,6 +52,10 @@ pub enum SortDir {
 pub enum SongSortType {
     #[default]
     Title,
+    Score,
+    Date,
+    Artist,
+    Effector,
 }
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, Default)]
@@ -65,6 +69,10 @@ impl From<SongSort> for (rusc_database::SortColumn, rusc_database::SortDir) {
         (
             match val.sort_type {
                 SongSortType::Title => rusc_database::SortColumn::Title,
+                SongSortType::Score => rusc_database::SortColumn::Score,
+                SongSortType::Date => rusc_database::SortColumn::Date,
+                SongSortType::Artist => rusc_database::SortColumn::Artist,
+                SongSortType::Effector => rusc_database::SortColumn::Effector,
             },
             match val.direction {
                 SortDir::Asc => rusc_database::SortDir::Asc,
@@ -85,9 +93,19 @@ impl SongSort {
 
 impl Display for SongSort {
     fn fmt(&self, formatter: &mut std::fmt::Formatter) -> std::fmt::Result {
-        match (self.sort_type, self.direction) {
-            (SongSortType::Title, SortDir::Asc) => formatter.write_str("Title ^"),
-            (SongSortType::Title, SortDir::Desc) => formatter.write_str("Title v"),
+        match self.sort_type {
+            SongSortType::Title => formatter.write_str("Title"),
+            SongSortType::Score => formatter.write_str("Score"),
+            SongSortType::Date => formatter.write_str("Date"),
+            SongSortType::Artist => formatter.write_str("Artist"),
+            SongSortType::Effector => formatter.write_str("Effector"),
+        }?;
+
+        formatter.write_str(" ")?;
+
+        match self.direction {
+            SortDir::Desc => formatter.write_str("▼"),
+            SortDir::Asc => formatter.write_str("▲"),
         }
     }
 }

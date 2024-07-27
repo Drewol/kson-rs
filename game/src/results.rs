@@ -253,7 +253,7 @@ impl SceneData for SongResultData {
         services
             .get_required_mut::<AsyncService>()
             .read()
-            .unwrap()
+            .expect("Lock error")
             .save_config(); // Save config in case of changed hispeed
 
         Ok(Box::new(SongResult {

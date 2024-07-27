@@ -86,6 +86,10 @@ pub enum SortDir {
 pub enum SortColumn {
     Title,
     Level,
+    Artist,
+    Effector,
+    Date,
+    Score,
 }
 
 impl LocalSongsDb {
@@ -181,6 +185,9 @@ impl LocalSongsDb {
     ) -> std::result::Result<Vec<i64>, sqlx::Error> {
         let base_query = "SELECT DISTINCT folderId FROM Charts";
         let mut query_builder = sqlx::query_builder::QueryBuilder::new(base_query);
+        if let (SortColumn::Score, _) = order {
+            query_builder.push(" LEFT JOIN Scores on Charts.hash = Scores.chart_hash");
+        }
         let mut binds = vec![];
         if !query.is_empty() {
             for (i, term) in query.split(' ').enumerate() {
@@ -231,6 +238,10 @@ impl LocalSongsDb {
         query_builder.push(match order.0 {
             SortColumn::Title => "title COLLATE NOCASE",
             SortColumn::Level => "level",
+            SortColumn::Artist => "artist COLLATE NOCASE",
+            SortColumn::Effector => "effector COLLATE NOCASE",
+            SortColumn::Date => "lwt",
+            SortColumn::Score => "Scores.score",
         });
 
         match order.1 {

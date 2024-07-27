@@ -12,7 +12,10 @@ pub struct AsyncService {
 
 impl WorkerService for AsyncService {
     fn update(&mut self) {
-        self.jobs.lock().unwrap().retain(|x| x.poll().is_pending())
+        self.jobs
+            .lock()
+            .expect("Lock error")
+            .retain(|x| x.poll().is_pending())
     }
 }
 
@@ -32,7 +35,7 @@ impl AsyncService {
     pub fn run(&self, job: impl std::future::Future<Output = ()> + Send + 'static) {
         self.jobs
             .lock()
-            .unwrap()
+            .expect("Lock error")
             .push(poll_promise::Promise::spawn_async(job))
     }
 }

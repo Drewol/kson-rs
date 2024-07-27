@@ -220,7 +220,7 @@ impl SettingsDialog {
 
                     if detla_ms < 100 {
                         if self.show {
-                            self.async_service.read().unwrap().save_config();
+                            self.async_service.read().expect("Lock error").save_config();
                         }
                         self.show = !self.show;
                     }

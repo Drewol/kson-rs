@@ -527,10 +527,16 @@ impl SongProvider for FileSongProvider {
         let path = PathBuf::from(block_on!(db.get_song(_diff_index as _))?.path);
 
         Ok(Box::new(move || {
-            let chart = kson::Chart::from_ksh(
-                &std::fs::read_to_string(&path).expect("Failed to read file"),
+            let data = std::fs::read(&path)?;
+            let data = encoding::decode(
+                &data,
+                encoding::DecoderTrap::Strict,
+                encoding::all::WINDOWS_31J,
             )
-            .expect("Failed to parse ksh");
+            .0
+            .map_err(|_| anyhow!("Bad encodiing"))?;
+
+            let chart = kson::Chart::from_ksh(&data)?;
 
             let audio = rodio::decoder::Decoder::new(std::fs::File::open(
                 path.with_file_name(&chart.audio.bgm.filename),
@@ -622,6 +628,38 @@ impl SongProvider for FileSongProvider {
             super::SongSort::new(
                 crate::song_provider::SongSortType::Title,
                 crate::song_provider::SortDir::Asc,
+            ),
+            super::SongSort::new(
+                crate::song_provider::SongSortType::Score,
+                crate::song_provider::SortDir::Asc,
+            ),
+            super::SongSort::new(
+                crate::song_provider::SongSortType::Score,
+                crate::song_provider::SortDir::Desc,
+            ),
+            super::SongSort::new(
+                crate::song_provider::SongSortType::Date,
+                crate::song_provider::SortDir::Asc,
+            ),
+            super::SongSort::new(
+                crate::song_provider::SongSortType::Date,
+                crate::song_provider::SortDir::Desc,
+            ),
+            super::SongSort::new(
+                crate::song_provider::SongSortType::Artist,
+                crate::song_provider::SortDir::Asc,
+            ),
+            super::SongSort::new(
+                crate::song_provider::SongSortType::Artist,
+                crate::song_provider::SortDir::Desc,
+            ),
+            super::SongSort::new(
+                crate::song_provider::SongSortType::Effector,
+                crate::song_provider::SortDir::Asc,
+            ),
+            super::SongSort::new(
+                crate::song_provider::SongSortType::Effector,
+                crate::song_provider::SortDir::Desc,
             ),
         ]
     }
