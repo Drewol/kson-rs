@@ -1,7 +1,7 @@
 use std::{
     path::{Path, PathBuf},
     rc::Rc,
-    sync::{Arc, Mutex, RwLock},
+    sync::{mpsc::channel, Arc, Mutex, RwLock},
     time::Duration,
 };
 
@@ -614,6 +614,17 @@ fn main() -> anyhow::Result<()> {
             services.create_scope(),
             GameConfig::get().skin_path(),
         )))
+    }
+    let service_scope = services.create_scope();
+
+    if GameConfig::get().args.settings {
+        scenes
+            .loaded
+            .push(Box::new(settings_screen::SettingsScreen::new(
+                service_scope,
+                channel().0,
+                &window,
+            )));
     }
 
     let game = GameMain::new(scenes, fps_paint, gui, show_debug_ui, services);

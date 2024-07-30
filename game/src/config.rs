@@ -26,6 +26,8 @@ pub struct Args {
     pub notitle: bool,
     #[arg(long)]
     pub camera_test: bool,
+    #[arg(long)]
+    pub settings: bool,
 }
 
 #[derive(Debug, Deserialize, Serialize, Clone)]

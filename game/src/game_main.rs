@@ -83,7 +83,7 @@ pub struct GameMain {
     lua_arena: di::RefMut<LuaArena>,
     lua_provider: Arc<LuaProvider>,
     scenes: Scenes,
-    control_tx: Sender<ControlMessage>,
+    pub control_tx: Sender<ControlMessage>,
     control_rx: Receiver<ControlMessage>,
     knob_state: LaserState,
     frame_times: [f64; 16],
@@ -281,7 +281,7 @@ impl GameMain {
                         scenes.clear();
                     }
                     MainMenuButton::Options => scenes.loaded.push(Box::new(SettingsScreen::new(
-                        self.input_state.clone(),
+                        service_provider.create_scope(),
                         control_tx.clone(),
                         window,
                     ))),

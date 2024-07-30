@@ -2,6 +2,7 @@ mod controller_binding;
 
 use std::{collections::HashMap, sync::mpsc::Sender};
 
+use di::ServiceProvider;
 use egui::{CollapsingResponse, InnerResponse, RichText, Separator, Slider, TextEdit, Ui};
 use gilrs::GamepadId;
 use itertools::Itertools;
@@ -34,10 +35,11 @@ pub struct SettingsScreen {
 
 impl SettingsScreen {
     pub fn new(
-        input_state: InputState,
+        services: ServiceProvider,
         tx: Sender<ControlMessage>,
         window: &winit::window::Window,
     ) -> Self {
+        let input_state = InputState::clone(&services.get_required());
         let controllers = {
             let lock_gilrs = input_state.lock_gilrs();
             lock_gilrs
@@ -291,6 +293,38 @@ impl Scene for SettingsScreen {
                         }
                     }
                     ui.end_row();
+                    ui.label("Distant button scale");
+                    let slider_width = ui
+                        .add(
+                            egui::Slider::new(
+                                &mut self.altered_settings.distant_button_scale,
+                                1.0..=5.0,
+                            )
+                            .logarithmic(true),
+                        )
+                        .rect
+                        .width();
+                    let (color_a, color_b) = self
+                        .altered_settings
+                        .laser_hues
+                        .iter()
+                        .copied()
+                        .map(|x| egui::epaint::Hsva::new(x / 360.0, 1.0, 1.0, 1.0))
+                        .collect_tuple()
+                        .expect("Invalid number of laser hues");
+                    ui.end_row();
+                    ui.label("Laser colors");
+                    ui.end_row();
+                    egui::color_picker::show_color(ui, color_a, egui::vec2(slider_width, 20.0));
+                    egui::color_picker::show_color(ui, color_b, egui::vec2(slider_width, 20.0));
+                    ui.end_row();
+                    for hue in self.altered_settings.laser_hues.iter_mut() {
+                        ui.add(egui::Slider::new(hue, 0.0..=360.0)).rect.width();
+                    }
+                    ui.end_row();
+                    if ui.button("Reset hues").clicked() {
+                        self.altered_settings.laser_hues = [200.0, 330.0];
+                    }
                 });
 
                 settings_section("Skin", ui, |ui| {
