@@ -359,7 +359,10 @@ impl GameMain {
 
                             m.map(game_loop::winit::window::Fullscreen::Exclusive)
                         }
-                    })
+                    });
+
+                    let sink = service_provider.get_required::<rodio::Sink>();
+                    sink.set_volume(settings.master_volume);
                 }
             }
         }

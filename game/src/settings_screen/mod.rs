@@ -327,6 +327,15 @@ impl Scene for SettingsScreen {
                     }
                 });
 
+                settings_section("Audio", ui, |ui| {
+                    ui.label("Master avolume");
+                    ui.add(
+                        Slider::new(&mut self.altered_settings.master_volume, 0.0..=1.0)
+                            .custom_formatter(|x, _| format!("{:.0}%", x * 100.0))
+                            .custom_parser(|x| x.trim_matches('%').trim().parse().ok()),
+                    )
+                });
+
                 settings_section("Skin", ui, |ui| {
                     for ele in &self.altered_settings.skin_definition {
                         match ele {

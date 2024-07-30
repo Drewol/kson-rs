@@ -58,6 +58,7 @@ pub struct GameConfig {
     pub song_select: SongSelectSettings,
     pub graphics: GraphicsSettings,
     pub distant_button_scale: f32,
+    pub master_volume: f32,
 }
 
 #[derive(Debug, Deserialize, Serialize, Clone)]
@@ -203,6 +204,7 @@ impl Default for GameConfig {
             song_select: SongSelectSettings::default(),
             graphics: GraphicsSettings::default(),
             distant_button_scale: 2.0,
+            master_volume: 0.8
 
         }
     }

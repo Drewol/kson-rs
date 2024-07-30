@@ -393,8 +393,13 @@ fn main() -> anyhow::Result<()> {
     let sink = rodio::Sink::try_new(&output_stream_handle)?;
     let (mixer_controls, mixer) = rodio::dynamic_mixer::mixer::<f32>(2, 44100);
     mixer_controls.add(rodio::source::Zero::new(2, 44100));
-    sink.append(mixer);
-    sink.play();
+
+    {
+        sink.append(mixer);
+        sink.play();
+        sink.set_volume(GameConfig::get().master_volume);
+    }
+
     let rt = tokio::runtime::Builder::new_multi_thread()
         .enable_all()
         .build()?;
@@ -430,6 +435,7 @@ fn main() -> anyhow::Result<()> {
     let service_context = context.clone();
 
     let services = ServiceCollection::new()
+        .add(existing_as_self(sink))
         .add(AsyncService::singleton().as_mut())
         .add_worker::<AsyncService>()
         .add(existing_as_self(Mutex::new(canvas)))
