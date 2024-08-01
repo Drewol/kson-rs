@@ -1,11 +1,13 @@
 mod controller_binding;
+pub mod skin_select;
 
-use std::{collections::HashMap, sync::mpsc::Sender};
+use std::{collections::HashMap, path::PathBuf, sync::mpsc::Sender};
 
 use di::ServiceProvider;
 use egui::{CollapsingResponse, InnerResponse, RichText, Separator, Slider, TextEdit, Ui};
 use gilrs::GamepadId;
 use itertools::Itertools;
+use skin_select::SkinMeta;
 use winit::{
     dpi::{PhysicalPosition, PhysicalSize},
     monitor::MonitorHandle,
@@ -31,6 +33,7 @@ pub struct SettingsScreen {
     monitors: Vec<MonitorHandle>,
     primary_monitor: Option<MonitorHandle>,
     tx: Sender<ControlMessage>,
+    skins: Vec<(SkinMeta, PathBuf)>,
 }
 
 impl SettingsScreen {
@@ -51,6 +54,31 @@ impl SettingsScreen {
         let monitors = window.available_monitors().collect_vec();
         let primary_monitor = window.current_monitor();
 
+        let mut skins_folder = crate::default_game_dir();
+        skins_folder.push("skins");
+        let skins = skins_folder
+            .read_dir()
+            .ok()
+            .into_iter()
+            .flatten()
+            .filter_map(|x| x.ok())
+            .filter(|x| x.file_type().is_ok_and(|x| x.is_dir()))
+            .map(|x| x.path())
+            .map(|mut p| {
+                p.push("meta.json");
+                if let Ok(Ok(m)) = std::fs::File::open(&p).map(serde_json::from_reader) {
+                    p.pop();
+                    (m, p)
+                } else {
+                    p.pop();
+                    (
+                        SkinMeta::named(p.file_name().and_then(|x| x.to_str()).unwrap_or("unk")),
+                        p,
+                    )
+                }
+            })
+            .collect();
+
         Self {
             altered_settings: GameConfig::get().clone(),
             close: false,
@@ -61,6 +89,7 @@ impl SettingsScreen {
             monitors,
             primary_monitor,
             tx,
+            skins,
         }
     }
 
@@ -337,6 +366,36 @@ impl Scene for SettingsScreen {
                 });
 
                 settings_section("Skin", ui, |ui| {
+                    let current_skin = self
+                        .skins
+                        .iter()
+                        .find(|x| x.1.ends_with(&self.altered_settings.skin))
+                        .map(|x| x.0.name.clone())
+                        .unwrap_or_default();
+
+                    egui::ComboBox::new("skin_select", "Selected skin")
+                        .selected_text(&current_skin)
+                        .show_ui(ui, |ui| {
+                            for (meta, path) in self.skins.iter() {
+                                if ui
+                                    .selectable_label(path.ends_with(&current_skin), &meta.name)
+                                    .clicked()
+                                {
+                                    if let Some(v) = path
+                                        .file_name()
+                                        .and_then(|x| x.to_str())
+                                        .map(|x| x.to_string())
+                                    {
+                                        self.altered_settings.skin = v;
+                                    }
+                                }
+                            }
+                        });
+
+                    ui.end_row();
+                    ui.separator();
+                    ui.end_row();
+
                     for ele in &self.altered_settings.skin_definition {
                         match ele {
                             crate::skin_settings::SkinSettingEntry::Label { v } => {
