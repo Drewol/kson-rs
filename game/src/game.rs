@@ -1237,8 +1237,6 @@ impl Scene for Game {
             }
         }
 
-        dbg!(self.laser_alert);
-
         Ok(())
     }
 
