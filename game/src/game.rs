@@ -72,6 +72,7 @@ pub struct Game {
     lane_beam_shader: ShadedMesh,
     camera: ChartCamera,
     lua_game_state: lua_data::LuaGameState,
+    hit_window: HitWindow,
     lua: Rc<Lua>,
     intro_done: bool,
     song: Arc<Song>,
@@ -619,6 +620,7 @@ impl Game {
             sync_delta: Default::default(),
             laser_wide: [0, 0],
             laser_alert: [0, 0],
+            hit_window: GameConfig::get().hit_window,
         };
         res.set_track_uniforms();
         Ok(res)
@@ -657,7 +659,12 @@ impl Game {
             .for_each(|rl| rl.set_param("color", Srgba::RED));
     }
 
-    fn lua_game_state(&self, viewport: Viewport, camera: &Camera) -> lua_data::LuaGameState {
+    fn lua_game_state(
+        &self,
+        viewport: Viewport,
+        camera: &Camera,
+        hit_window: HitWindow,
+    ) -> lua_data::LuaGameState {
         let screen = vec2(viewport.width as f32, viewport.height as f32);
         let track_center = graphics::camera_to_screen(camera, Vec3::zero(), screen);
 
@@ -723,13 +730,7 @@ impl Game {
                     y2: track_right.y,
                 },
             },
-            hit_window: HitWindow {
-                variant: 1,
-                perfect: Duration::from_secs_f64(2500.0 / 60_000.0),
-                good: Duration::from_secs_f64(0.1),
-                hold: Duration::from_secs_f64(0.1),
-                miss: Duration::from_secs_f64(10_000.0 / 60_000.0),
-            },
+            hit_window,
             multiplayer: false,
             user_id: "Player".into(),
             practice_setup: false,
@@ -967,7 +968,7 @@ impl Game {
                 if tick.y < slam_miss_tick {
                     self.laser_assist_ticks[lane] = 0;
                     HitRating::Miss { tick, delta, time }
-                } else if delta.abs() < (self.lua_game_state.hit_window.good.as_secs_f64() * 1000.0)
+                } else if delta.abs() < (self.hit_window.slam.as_secs_f64() * 1000.0)
                     && contains_cursor
                 {
                     self.laser_cursors[lane] = end;
@@ -1063,11 +1064,7 @@ impl Scene for Game {
             self.results_requested = true;
         }
         let missed_chip_tick = self.chart.ms_to_tick(
-            self.with_offset(
-                time.saturating_sub(self.lua_game_state.hit_window.good)
-                    .as_secs_f64()
-                    * 1000.0,
-            ),
+            self.with_offset(time.saturating_sub(self.hit_window.good).as_secs_f64() * 1000.0),
         );
 
         for (side, ((laser_active, laser_target), wide)) in self
@@ -1533,7 +1530,7 @@ impl Scene for Game {
             .iter_mut()
             .for_each(|c| c[3] = (c[3] - dt as f32 / 200.0).max(0.0));
 
-        let new_lua_state = self.lua_game_state(viewport, &td_camera);
+        let new_lua_state = self.lua_game_state(viewport, &td_camera, self.hit_window);
         if new_lua_state != self.lua_game_state {
             self.lua_game_state = new_lua_state;
             let lua_game_state = match self.lua.to_value(&self.lua_game_state) {
@@ -1784,7 +1781,8 @@ impl Scene for Game {
             good,
             hold: _,
             miss,
-        } = self.lua_game_state.hit_window;
+            slam: _,
+        } = self.hit_window;
 
         let last_tick = self.chart.ms_to_tick(
             self.with_offset(self.current_time().as_secs_f64() * 1000.0)

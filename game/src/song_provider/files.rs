@@ -71,7 +71,7 @@ impl From<ScoreEntry> for Score {
             player_name: value.user_name,
             is_local: value.local_score,
             hit_window: HitWindow::new(
-                0,
+                1,
                 value.window_perfect as _,
                 value.window_good as _,
                 value.window_hold as _,

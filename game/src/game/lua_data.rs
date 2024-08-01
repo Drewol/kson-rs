@@ -69,6 +69,8 @@ pub struct HitWindow {
     pub hold: Duration,
     #[serde_as(as = "DurationMilliSecondsWithFrac<f64>")]
     pub miss: Duration,
+    #[serde_as(as = "DurationMilliSecondsWithFrac<f64>")]
+    pub slam: Duration,
 }
 
 impl ToLuaLsType for HitWindow {
@@ -81,12 +83,31 @@ impl ToLuaLsType for HitWindow {
                 ("good".into(), LuaLsType::Primitive("number".into())),
                 ("hold".into(), LuaLsType::Primitive("number".into())),
                 ("miss".into(), LuaLsType::Primitive("number".into())),
+                ("slam".into(), LuaLsType::Primitive("number".into())),
             ]),
         )
     }
 }
 
 impl HitWindow {
+    pub const NORMAL: Self = Self {
+        variant: 1,
+        perfect: Duration::from_nanos(41_666_667),
+        good: Duration::from_millis(150),
+        hold: Duration::from_millis(150),
+        miss: Duration::from_millis(300),
+        slam: Duration::from_nanos(83_333_333),
+    };
+
+    pub const HARD: Self = Self {
+        variant: 2,
+        perfect: Duration::from_nanos(20_833_333),
+        good: HitWindow::NORMAL.perfect,
+        hold: Duration::from_millis(150),
+        miss: Duration::from_millis(300),
+        slam: Duration::from_nanos(83_333_333),
+    };
+
     pub fn new(variant: i32, perfect_ms: u64, good_ms: u64, hold_ms: u64, miss_ms: u64) -> Self {
         Self {
             variant,
@@ -94,6 +115,7 @@ impl HitWindow {
             good: Duration::from_millis(good_ms),
             hold: Duration::from_millis(hold_ms),
             miss: Duration::from_millis(miss_ms),
+            slam: Duration::from_nanos(83_333_333),
         }
     }
 }

@@ -9,6 +9,7 @@ use winit::dpi::{PhysicalPosition, PhysicalSize};
 
 use crate::{
     button_codes::{CustomBindings, UscButton},
+    game::{self, HitWindow},
     skin_settings::{SkinSettingEntry, SkinSettingValue},
     song_provider,
 };
@@ -59,6 +60,7 @@ pub struct GameConfig {
     pub graphics: GraphicsSettings,
     pub distant_button_scale: f32,
     pub master_volume: f32,
+    pub hit_window: game::HitWindow,
 }
 
 #[derive(Debug, Deserialize, Serialize, Clone)]
@@ -204,8 +206,8 @@ impl Default for GameConfig {
             song_select: SongSelectSettings::default(),
             graphics: GraphicsSettings::default(),
             distant_button_scale: 2.0,
-            master_volume: 0.8
-
+            master_volume: 0.8,
+            hit_window: HitWindow::NORMAL
         }
     }
 }

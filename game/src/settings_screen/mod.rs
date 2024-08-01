@@ -1,7 +1,7 @@
 mod controller_binding;
 pub mod skin_select;
 
-use std::{collections::HashMap, path::PathBuf, sync::mpsc::Sender};
+use std::{collections::HashMap, path::PathBuf, sync::mpsc::Sender, time::Duration};
 
 use di::ServiceProvider;
 use egui::{CollapsingResponse, InnerResponse, RichText, Separator, Slider, TextEdit, Ui};
@@ -15,6 +15,7 @@ use winit::{
 
 use crate::{
     config::{Fullscreen, GameConfig},
+    game::HitWindow,
     game_main::ControlMessage,
     input_state::InputState,
     scene::Scene,
@@ -97,6 +98,19 @@ impl SettingsScreen {
         let mut c = GameConfig::get_mut();
         *c = self.altered_settings.clone();
         _ = self.tx.send(ControlMessage::ApplySettings);
+    }
+}
+
+pub struct HitFrames(pub f64);
+
+impl Into<Duration> for HitFrames {
+    fn into(self) -> Duration {
+        Duration::from_secs_f64(self.0 / 120.0)
+    }
+}
+impl From<Duration> for HitFrames {
+    fn from(value: Duration) -> Self {
+        Self(120.0 * value.as_secs_f64())
     }
 }
 
@@ -199,6 +213,64 @@ impl Scene for SettingsScreen {
                     ui.end_row();
                     if let Some(binding_ui) = self.binding_ui.as_mut() {
                         binding_ui.ui(ui, &mut self.altered_settings);
+                    }
+                });
+
+                settings_section("Game", ui, |ui| {
+                    let mut crit_frames: HitFrames =
+                        self.altered_settings.hit_window.perfect.into();
+                    let mut near_frames: HitFrames = self.altered_settings.hit_window.good.into();
+                    let mut hold_frames: HitFrames = self.altered_settings.hit_window.hold.into();
+
+                    ui.label("Hit windows (in frames @ 60fps)");
+                    ui.end_row();
+                    egui::Grid::new("hit_windows")
+                        .num_columns(3)
+                        .show(ui, |ui| {
+                            ui.label("Crit");
+                            ui.label("Near");
+                            ui.label("Hold");
+                            ui.end_row();
+
+                            if ui
+                                .add(
+                                    egui::DragValue::new(&mut crit_frames.0)
+                                        .max_decimals(1)
+                                        .clamp_range(0.01..=100.0),
+                                )
+                                .changed()
+                            {
+                                self.altered_settings.hit_window.perfect = crit_frames.into();
+                            }
+
+                            if ui
+                                .add(
+                                    egui::DragValue::new(&mut near_frames.0)
+                                        .max_decimals(1)
+                                        .clamp_range(0.01..=100.0),
+                                )
+                                .changed()
+                            {
+                                self.altered_settings.hit_window.good = near_frames.into();
+                            }
+
+                            if ui
+                                .add(
+                                    egui::DragValue::new(&mut hold_frames.0)
+                                        .max_decimals(1)
+                                        .clamp_range(0.01..=100.0),
+                                )
+                                .changed()
+                            {
+                                self.altered_settings.hit_window.hold = hold_frames.into();
+                            }
+                        });
+                    ui.end_row();
+                    if ui.button("Set Normal").clicked() {
+                        self.altered_settings.hit_window = HitWindow::NORMAL;
+                    }
+                    if ui.button("Set Hard").clicked() {
+                        self.altered_settings.hit_window = HitWindow::HARD;
                     }
                 });
 
