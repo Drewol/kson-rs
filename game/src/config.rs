@@ -85,6 +85,7 @@ pub struct GraphicsSettings {
     pub vsync: bool,
     pub anti_alias: u8,
     pub target_fps: u32,
+    pub show_fps: bool,
 }
 
 impl Default for GraphicsSettings {
@@ -97,6 +98,7 @@ impl Default for GraphicsSettings {
             vsync: true,
             anti_alias: 4,
             target_fps: 120,
+            show_fps: false,
         }
     }
 }

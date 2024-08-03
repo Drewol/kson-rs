@@ -277,6 +277,8 @@ impl Scene for SettingsScreen {
                 settings_section("Graphics", ui, |ui| {
                     ui.checkbox(&mut self.altered_settings.graphics.vsync, "VSync");
                     ui.end_row();
+                    ui.checkbox(&mut self.altered_settings.graphics.show_fps, "Show FPS");
+                    ui.end_row();
                     egui::ComboBox::from_label("Anti Aliasing")
                         .selected_text(aa_text(self.altered_settings.graphics.anti_alias))
                         .show_ui(ui, |ui| {

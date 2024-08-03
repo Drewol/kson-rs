@@ -102,6 +102,7 @@ pub struct GameMain {
     mixer: RuscMixer,
     modifiers: Modifiers,
     service_provider: ServiceProvider,
+    show_fps: bool,
 }
 
 impl GameMain {
@@ -136,6 +137,7 @@ impl GameMain {
             mixer: service_provider.get_required(),
             modifiers: Modifiers::default(),
             service_provider,
+            show_fps: GameConfig::get().graphics.show_fps,
         }
     }
 
@@ -205,6 +207,7 @@ impl GameMain {
             modifiers: _,
             service_provider,
             lua_provider,
+            show_fps,
         } = self;
 
         knob_state.zero_deltas();
@@ -340,6 +343,8 @@ impl GameMain {
                         },
                     );
 
+                    *show_fps = settings.graphics.show_fps;
+
                     window.set_fullscreen(match settings.graphics.fullscreen {
                         Fullscreen::Windowed { .. } => None,
                         Fullscreen::Borderless { monitor } => {
@@ -380,7 +385,7 @@ impl GameMain {
         );
 
         scenes.render(frame_input.clone(), vgfx);
-        Self::render_overlays(vgfx, &frame_input, fps, fps_paint);
+        Self::render_overlays(vgfx, &frame_input, fps, fps_paint, *show_fps);
 
         gui.run(window, |ctx| {
             scenes.render_egui(ctx);
@@ -658,6 +663,7 @@ impl GameMain {
         frame_input: &td::FrameInput,
         fps: f64,
         fps_paint: &vg::Paint,
+        show_fps: bool,
     ) {
         profile_function!();
         let vgfx_lock = vgfx.write();
@@ -665,12 +671,14 @@ impl GameMain {
             let mut canvas_lock = vgfx.canvas.try_lock();
             if let Ok(ref mut canvas) = canvas_lock {
                 canvas.reset();
-                _ = canvas.fill_text(
-                    frame_input.viewport.width as f32 - 5.0,
-                    frame_input.viewport.height as f32 - 5.0,
-                    format!("{:.1} FPS", fps),
-                    fps_paint,
-                );
+                if show_fps {
+                    _ = canvas.fill_text(
+                        frame_input.viewport.width as f32 - 5.0,
+                        frame_input.viewport.height as f32 - 5.0,
+                        format!("{:.1} FPS", fps),
+                        fps_paint,
+                    );
+                }
 
                 {
                     profile_scope!("Flush Canvas");
