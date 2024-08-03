@@ -10,7 +10,6 @@ pub struct ChartView {
     laser_meshes: [Vec<Vec<graphics::GlVertex>>; 2],
     track: CpuMesh,
     distant_button_scale: f32,
-    pub state: i32,
 }
 
 use anyhow::anyhow;
@@ -79,7 +78,6 @@ impl ChartView {
             hispeed: 1.0,
             laser_meshes: [Vec::new(), Vec::new()],
             track,
-            state: 0,
         })
     }
 
