@@ -353,13 +353,13 @@ impl SettingsDialog {
                             mult: 1.0,
                             set: Box::new(move |v| {
                                 tx.store(
-                                    (v * std::u32::MAX as f32) as u32,
+                                    (v * u32::MAX as f32) as u32,
                                     std::sync::atomic::Ordering::Relaxed,
                                 )
                             }),
                             get: Box::new(move || {
                                 rx.load(std::sync::atomic::Ordering::Relaxed) as f32
-                                    / std::u32::MAX as f32
+                                    / u32::MAX as f32
                             }),
                         },
                     )],

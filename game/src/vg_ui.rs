@@ -1011,7 +1011,7 @@ impl TealData for Vgfx {
         add_lua_static_method(methods, "LineCap", |_lua_index, _vgfx, p: LineCapParams| {
             _vgfx
                 .stroke_paint
-                .set_line_cap(unsafe { std::mem::transmute(p.cap) });
+                .set_line_cap(unsafe { std::mem::transmute::<u8, femtovg::LineCap>(p.cap) });
             Ok(())
         });
 
@@ -1026,7 +1026,7 @@ impl TealData for Vgfx {
             |_lua_index, _vgfx, p: LineJoinParams| {
                 _vgfx
                     .stroke_paint
-                    .set_line_join(unsafe { std::mem::transmute(p.join) });
+                    .set_line_join(unsafe { std::mem::transmute::<u8, femtovg::LineJoin>(p.join) });
                 Ok(())
             },
         );
@@ -1878,7 +1878,10 @@ impl TealData for Vgfx {
                 if p.op <= femtovg::CompositeOperation::Xor as u8 {
                     unsafe {
                         _vgfx.with_canvas(|canvas| {
-                            canvas.global_composite_operation(std::mem::transmute(p.op))
+                            canvas.global_composite_operation(std::mem::transmute::<
+                                u8,
+                                femtovg::CompositeOperation,
+                            >(p.op))
                         })?
                     }
                 }
@@ -1902,8 +1905,8 @@ impl TealData for Vgfx {
                     unsafe {
                         _vgfx.with_canvas(|canvas| {
                             canvas.global_composite_blend_func(
-                                std::mem::transmute(p.sfactor),
-                                std::mem::transmute(p.dfactor),
+                                std::mem::transmute::<u8, femtovg::BlendFactor>(p.sfactor),
+                                std::mem::transmute::<u8, femtovg::BlendFactor>(p.dfactor),
                             )
                         })?
                     }

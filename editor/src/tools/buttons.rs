@@ -46,7 +46,7 @@ impl CursorObject for ButtonInterval {
         if self.fx {
             self.lane = if lane < 3.0 { 0 } else { 1 };
         } else {
-            self.lane = (lane as usize).max(1).min(4) - 1;
+            self.lane = (lane as usize).clamp(1, 4) - 1;
         }
         self.interval.y = tick;
     }
@@ -72,7 +72,7 @@ impl CursorObject for ButtonInterval {
                 1
             }
         } else {
-            (lane as usize).max(1).min(4) - 1
+            (lane as usize).clamp(1, 4) - 1
         };
 
         //hit test
@@ -171,7 +171,7 @@ impl CursorObject for ButtonInterval {
             if self.fx {
                 self.lane = if lane < 3.0 { 0 } else { 1 };
             } else {
-                self.lane = (lane as usize).max(1).min(4) - 1;
+                self.lane = (lane as usize).clamp(1, 4) - 1;
             }
         }
         if self.interval.y >= tick {

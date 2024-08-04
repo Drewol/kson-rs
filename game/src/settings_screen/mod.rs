@@ -103,9 +103,9 @@ impl SettingsScreen {
 
 pub struct HitFrames(pub f64);
 
-impl Into<Duration> for HitFrames {
-    fn into(self) -> Duration {
-        Duration::from_secs_f64(self.0 / 120.0)
+impl From<HitFrames> for Duration {
+    fn from(val: HitFrames) -> Self {
+        Duration::from_secs_f64(val.0 / 120.0)
     }
 }
 impl From<Duration> for HitFrames {

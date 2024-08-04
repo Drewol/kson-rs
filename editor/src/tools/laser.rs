@@ -284,15 +284,13 @@ impl CursorObject for LaserTool {
                     let point = &mut self.section.1[curving_index];
                     let start_tick = (self.section.0 + point.ry) as f64;
                     let end_tick = (self.section.0 + end_point.ry) as f64;
-                    point.a = ((tick_f - start_tick) / (end_tick - start_tick))
-                        .max(0.0)
-                        .min(1.0);
+                    point.a = ((tick_f - start_tick) / (end_tick - start_tick)).clamp(0.0, 1.0);
 
                     let start_value = point.vf.unwrap_or(point.v);
                     let in_value = lane as f64 / 5.0 - 0.5 / 6.0;
                     let value = (in_value - start_value) / (end_point.v - start_value);
 
-                    self.section.1[curving_index].b = value.min(1.0).max(0.0);
+                    self.section.1[curving_index].b = value.clamp(0.0, 1.0);
                 }
             }
         }

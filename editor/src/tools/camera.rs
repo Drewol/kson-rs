@@ -6,7 +6,7 @@ use eframe::{
 use crate::i18n;
 use glam::vec3;
 use kson::{Chart, Graph, GraphPoint, GraphSectionPoint};
-use std::{default::Default, f32::EPSILON, fmt::Display, ops::Sub};
+use std::{default::Default, fmt::Display, ops::Sub};
 
 use crate::camera_widget::CameraView;
 use crate::chart_camera::ChartCamera;
@@ -69,7 +69,7 @@ impl CursorObject for CameraTool {
                 let in_value = lane as f64 / 6.0;
                 let value = (in_value - start_value) / (transform_value(end_point.v) - start_value);
 
-                self.curving_index = Some((c_idx, a.max(0.0).min(1.0), value.max(0.0).min(1.0)));
+                self.curving_index = Some((c_idx, a.clamp(0.0, 1.0), value.clamp(0.0, 1.0)));
             }
         }
     }
@@ -257,11 +257,11 @@ impl CursorObject for CameraTool {
                 ui.add(Slider::new(&mut self.radius, -3.0..=3.0).text(i18n::fl!("radius")));
                 ui.add(Slider::new(&mut self.angle, -3.0..=3.0).text(i18n::fl!("angle")));
 
-                if old_angle.sub(self.angle).abs() > EPSILON {
+                if old_angle.sub(self.angle).abs() > f32::EPSILON {
                     self.angle_dirty = true;
                 }
 
-                if old_rad.sub(self.radius).abs() > EPSILON {
+                if old_rad.sub(self.radius).abs() > f32::EPSILON {
                     self.radius_dirty = true;
                 }
 
