@@ -86,6 +86,7 @@ pub struct GraphicsSettings {
     pub anti_alias: u8,
     pub target_fps: u32,
     pub show_fps: bool,
+    pub disable_bg: bool,
 }
 
 impl Default for GraphicsSettings {
@@ -99,6 +100,7 @@ impl Default for GraphicsSettings {
             anti_alias: 4,
             target_fps: 120,
             show_fps: false,
+            disable_bg: false,
         }
     }
 }

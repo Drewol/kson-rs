@@ -279,6 +279,11 @@ impl Scene for SettingsScreen {
                     ui.end_row();
                     ui.checkbox(&mut self.altered_settings.graphics.show_fps, "Show FPS");
                     ui.end_row();
+                    ui.checkbox(
+                        &mut self.altered_settings.graphics.disable_bg,
+                        "Disable Backgrounds",
+                    );
+                    ui.end_row();
                     egui::ComboBox::from_label("Anti Aliasing")
                         .selected_text(aa_text(self.altered_settings.graphics.anti_alias))
                         .show_ui(ui, |ui| {

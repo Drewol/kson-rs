@@ -455,47 +455,57 @@ impl SceneData for GameData {
         bg_folder.push("backgrounds");
         bg_folder.push(bg);
 
-        let background = match GameBackground::new(
-            &context,
-            true,
-            &bg_folder,
-            &chart,
-            service_provider.get_required(),
-            service_provider.get_required(),
-        )
-        .inspect_err(|e| log::warn!("Failed to load background: {e} \n {:?}", &bg_folder))
-        .or_else(|_| {
-            GameBackground::new(
-                &context,
-                true,
-                bg_folder.with_file_name("fallback"),
-                &chart,
-                service_provider.get_required(),
-                service_provider.get_required(),
-            )
-        }) {
-            Ok(bg) => {
-                log::info!("Background loaded");
-                Some(bg)
-            }
-            Err(e) => {
-                log::warn!(
-                    "Failed to load fallback background: {e} \n {:?}",
-                    &bg_folder.with_file_name("fallback")
-                );
-                None
-            }
-        };
+        let bg_enabled = !GameConfig::get().graphics.disable_bg;
 
-        let foreground = GameBackground::new(
-            &context,
-            false,
-            bg_folder,
-            &chart,
-            service_provider.get_required(),
-            service_provider.get_required(),
-        )
-        .ok();
+        let background = bg_enabled
+            .then(|| {
+                match GameBackground::new(
+                    &context,
+                    true,
+                    &bg_folder,
+                    &chart,
+                    service_provider.get_required(),
+                    service_provider.get_required(),
+                )
+                .inspect_err(|e| log::warn!("Failed to load background: {e} \n {:?}", &bg_folder))
+                .or_else(|_| {
+                    GameBackground::new(
+                        &context,
+                        true,
+                        bg_folder.with_file_name("fallback"),
+                        &chart,
+                        service_provider.get_required(),
+                        service_provider.get_required(),
+                    )
+                }) {
+                    Ok(bg) => {
+                        log::info!("Background loaded");
+                        Some(bg)
+                    }
+                    Err(e) => {
+                        log::warn!(
+                            "Failed to load fallback background: {e} \n {:?}",
+                            &bg_folder.with_file_name("fallback")
+                        );
+                        None
+                    }
+                }
+            })
+            .flatten();
+
+        let foreground = bg_enabled
+            .then(|| {
+                GameBackground::new(
+                    &context,
+                    false,
+                    bg_folder,
+                    &chart,
+                    service_provider.get_required(),
+                    service_provider.get_required(),
+                )
+                .ok()
+            })
+            .flatten();
 
         Ok(Box::new(Game::new(
             chart,

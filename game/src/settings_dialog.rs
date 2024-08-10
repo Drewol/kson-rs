@@ -50,6 +50,67 @@ pub enum SettingsDialogSetting {
     },
 }
 
+impl SettingsDialogSetting {
+    fn button(action: impl Fn() + Send + 'static) -> Self {
+        Self::Button {
+            action: Box::new(action),
+        }
+    }
+
+    fn bool(get: impl Fn() -> bool + Send + 'static, set: impl Fn(bool) + Send + 'static) -> Self {
+        Self::Bool {
+            get: Box::new(get),
+            set: Box::new(set),
+        }
+    }
+
+    fn options(
+        get: impl Fn() -> usize + Send + 'static,
+        set: impl Fn(usize) + Send + 'static,
+        options: Vec<String>,
+    ) -> Self {
+        Self::Enum {
+            options,
+            get: Box::new(get),
+            set: Box::new(set),
+        }
+    }
+
+    fn float(
+        get: impl Fn() -> f32 + Send + 'static,
+        set: impl Fn(f32) + Send + 'static,
+        min: f32,
+        max: f32,
+        mult: f32,
+    ) -> Self {
+        Self::Float {
+            min,
+            max,
+            mult,
+            get: Box::new(get),
+            set: Box::new(set),
+        }
+    }
+
+    fn int(
+        get: impl Fn() -> i32 + Send + 'static,
+        set: impl Fn(i32) + Send + 'static,
+        min: i32,
+        max: i32,
+        step: i32,
+        div: i32,
+    ) -> Self {
+        Self::Int {
+            min,
+            max,
+            step,
+            div,
+            get: Box::new(get),
+            set: Box::new(set),
+        }
+    }
+}
+
 pub struct SettingsDialogTab {
     name: String,
     settings: Vec<(String, SettingsDialogSetting)>,
@@ -341,6 +402,16 @@ impl SettingsDialog {
                             set: Box::new(|x| GameConfig::get_mut().global_offset = x),
                             get: Box::new(|| GameConfig::get().global_offset),
                         },
+                    )],
+                ),
+                SettingsDialogTab::new(
+                    "Game",
+                    vec![(
+                        "Hide Background".into(),
+                        SettingsDialogSetting::bool(
+                            || GameConfig::get().graphics.disable_bg,
+                            |x| GameConfig::get_mut().graphics.disable_bg = x,
+                        ),
                     )],
                 ),
                 SettingsDialogTab::new(
