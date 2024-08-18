@@ -1,15 +1,19 @@
 use std::{
     rc::Rc,
-    sync::{atomic::AtomicU32, Arc},
+    sync::{
+        atomic::{AtomicI32, AtomicU32},
+        Arc,
+    },
 };
 
 use kson::Side;
+use log::info;
 use tealr::mlu::mlua::{Function, IntoLua, Lua, LuaSerdeExt};
 
 use crate::{
     async_service::AsyncService,
     button_codes::{UscButton, UscInputEvent},
-    config::GameConfig,
+    config::{GameConfig, ScoreDisplayMode},
     input_state::InputState,
     lua_service::LuaProvider,
     songselect::KNOB_NAV_THRESHOLD,
@@ -161,8 +165,8 @@ impl<'lua> IntoLua<'lua> for &SettingsDialogTab {
                     get,
                 } => {
                     setting_table.set("type", "enum")?;
-                    setting_table.set("value", get())?;
-                    settings_table.set("options", lua.to_value(options)?)?;
+                    setting_table.set("value", get() + 1)?; // lua 1 indexed
+                    setting_table.set("options", lua.to_value(options)?)?;
                 }
                 SettingsDialogSetting::Bool { get, set: _ } => {
                     setting_table.set("type", "bool")?;
@@ -388,6 +392,9 @@ impl SettingsDialog {
         let tx = Arc::new(AtomicU32::new(0));
         let rx = tx.clone();
 
+        let itx = Arc::new(AtomicI32::new(0));
+        let irx = itx.clone();
+
         Self::new(
             vec![
                 SettingsDialogTab::new(
@@ -406,43 +413,76 @@ impl SettingsDialog {
                 ),
                 SettingsDialogTab::new(
                     "Game",
-                    vec![(
-                        "Hide Background".into(),
-                        SettingsDialogSetting::bool(
-                            || GameConfig::get().graphics.disable_bg,
-                            |x| GameConfig::get_mut().graphics.disable_bg = x,
+                    vec![
+                        (
+                            "Hide Background".into(),
+                            SettingsDialogSetting::bool(
+                                || GameConfig::get().graphics.disable_bg,
+                                |x| GameConfig::get_mut().graphics.disable_bg = x,
+                            ),
                         ),
-                    )],
+                        (
+                            "Score Display".into(),
+                            SettingsDialogSetting::options(
+                                || match GameConfig::get().score_display {
+                                    ScoreDisplayMode::Additive => 0,
+                                    ScoreDisplayMode::Subtractive => 1,
+                                    ScoreDisplayMode::Average => 2,
+                                },
+                                |x| {
+                                    GameConfig::get_mut().score_display = match x {
+                                        0 => ScoreDisplayMode::Additive,
+                                        1 => ScoreDisplayMode::Subtractive,
+                                        2 => ScoreDisplayMode::Average,
+                                        _ => ScoreDisplayMode::default(),
+                                    }
+                                },
+                                vec![
+                                    ScoreDisplayMode::Additive.to_string(),
+                                    ScoreDisplayMode::Subtractive.to_string(),
+                                    ScoreDisplayMode::Average.to_string(),
+                                ],
+                            ),
+                        ),
+                    ],
                 ),
                 SettingsDialogTab::new(
                     "Test",
-                    vec![(
-                        "Float Test".into(),
-                        SettingsDialogSetting::Float {
-                            min: 0.0,
-                            max: 1.0,
-                            mult: 1.0,
-                            set: Box::new(move |v| {
-                                tx.store(
-                                    (v * u32::MAX as f32) as u32,
-                                    std::sync::atomic::Ordering::Relaxed,
-                                )
-                            }),
-                            get: Box::new(move || {
-                                rx.load(std::sync::atomic::Ordering::Relaxed) as f32
-                                    / u32::MAX as f32
-                            }),
-                        },
-                    )],
-                ),
-                SettingsDialogTab::new(
-                    "Test",
-                    vec![(
-                        "Button Test".into(),
-                        SettingsDialogSetting::Button {
-                            action: Box::new(|| log::info!("SettingsDialog button pressed")),
-                        },
-                    )],
+                    vec![
+                        (
+                            "Float Test".into(),
+                            SettingsDialogSetting::float(
+                                move || {
+                                    rx.load(std::sync::atomic::Ordering::Relaxed) as f32
+                                        / u32::MAX as f32
+                                },
+                                move |v| {
+                                    tx.store(
+                                        (v * u32::MAX as f32) as u32,
+                                        std::sync::atomic::Ordering::Relaxed,
+                                    )
+                                },
+                                0.0,
+                                1.0,
+                                1.0,
+                            ),
+                        ),
+                        (
+                            "Int Test".into(),
+                            SettingsDialogSetting::int(
+                                move || irx.load(std::sync::atomic::Ordering::Relaxed),
+                                move |x| itx.store(x, std::sync::atomic::Ordering::Relaxed),
+                                -100,
+                                100,
+                                5,
+                                1,
+                            ),
+                        ),
+                        (
+                            "Button Test".into(),
+                            SettingsDialogSetting::button(|| info!("Test button pressed")),
+                        ),
+                    ],
                 ),
             ],
             input_state,
