@@ -14,7 +14,7 @@ use winit::{
 };
 
 use crate::{
-    config::{Fullscreen, GameConfig},
+    config::{Fullscreen, GameConfig, ScoreDisplayMode},
     game::HitWindow,
     game_main::ControlMessage,
     input_state::InputState,
@@ -272,6 +272,27 @@ impl Scene for SettingsScreen {
                     if ui.button("Set Hard").clicked() {
                         self.altered_settings.hit_window = HitWindow::HARD;
                     }
+
+                    ui.end_row();
+                    egui::ComboBox::new("score_display_mode", "Score display mode")
+                        .selected_text(self.altered_settings.score_display.to_string())
+                        .show_ui(ui, |ui| {
+                            ui.selectable_value(
+                                &mut self.altered_settings.score_display,
+                                ScoreDisplayMode::Additive,
+                                ScoreDisplayMode::Additive.to_string(),
+                            );
+                            ui.selectable_value(
+                                &mut self.altered_settings.score_display,
+                                ScoreDisplayMode::Subtractive,
+                                ScoreDisplayMode::Subtractive.to_string(),
+                            );
+                            ui.selectable_value(
+                                &mut self.altered_settings.score_display,
+                                ScoreDisplayMode::Average,
+                                ScoreDisplayMode::Average.to_string(),
+                            );
+                        })
                 });
 
                 settings_section("Graphics", ui, |ui| {

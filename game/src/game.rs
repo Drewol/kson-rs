@@ -1,6 +1,6 @@
 use crate::{
     button_codes::{UscButton, UscInputEvent},
-    config::GameConfig,
+    config::{GameConfig, ScoreDisplayMode},
     input_state::InputState,
     log_result,
     lua_service::LuaProvider,
@@ -83,8 +83,11 @@ pub struct Game {
     closed: bool,
     playback: kson_music_playback::AudioPlayback,
     score_ticks: Vec<PlacedScoreTick>,
+    score_current_max: u64,
     score_summary: ScoreTickSummary,
+    score_display: ScoreDisplayMode,
     real_score: u64,
+    display_score: u64,
     combo: u64,
     current_tick: u32,
     input_state: InputState,
@@ -594,9 +597,12 @@ impl Game {
             closed: false,
             playback,
             score_summary: score_ticks.summary(),
+            score_current_max: 0,
+            score_display: GameConfig::get().score_display,
             score_ticks,
             gauge: Gauge::default(),
             real_score: 0,
+            display_score: u64::MAX,
             combo: 0,
             current_tick: 0,
             input_state,
@@ -764,7 +770,6 @@ impl Game {
     fn on_hit(&mut self, hit_rating: HitRating) {
         self.hit_ratings.push(hit_rating);
 
-        let last_score = self.real_score;
         self.real_score += match hit_rating {
             HitRating::Crit { .. } => 2,
             HitRating::Good { .. } => 1,
@@ -788,14 +793,8 @@ impl Game {
         };
 
         if combo_updated {
-            if let Ok(update_score) = self.lua.globals().get::<_, Function>("update_combo") {
-                crate::log_result!(update_score.call::<_, ()>(self.combo));
-            }
-        }
-
-        if last_score != self.real_score {
-            if let Ok(update_score) = self.lua.globals().get::<_, Function>("update_score") {
-                crate::log_result!(update_score.call::<_, ()>(self.calculate_display_score()));
+            if let Ok(update_combo) = self.lua.globals().get::<_, Function>("update_combo") {
+                crate::log_result!(update_combo.call::<_, ()>(self.combo));
             }
         }
 
@@ -910,10 +909,22 @@ impl Game {
         self.gauge.on_hit(hit_rating);
     }
 
+    pub const MAX_SCORE: u64 = 10_000_000_u64;
+    fn actual_display_score(&self) -> u64 {
+        let max = self.score_summary.total as u64 * 2;
+        Self::MAX_SCORE * self.real_score / max
+    }
     fn calculate_display_score(&self) -> u64 {
         let max = self.score_summary.total as u64 * 2;
-
-        10_000_000_u64 * self.real_score / max
+        match self.score_display {
+            ScoreDisplayMode::Additive => self.actual_display_score(),
+            ScoreDisplayMode::Subtractive => {
+                Self::MAX_SCORE * (max - (self.score_current_max - self.real_score)) / max
+            }
+            ScoreDisplayMode::Average => {
+                Self::MAX_SCORE * self.real_score / self.score_current_max.max(1)
+            }
+        }
     }
 
     fn process_tick(
@@ -1066,7 +1077,7 @@ impl Scene for Game {
                 .send(ControlMessage::Result {
                     song: self.song.clone(),
                     diff_idx: self.diff_idx,
-                    score: self.calculate_display_score() as u32,
+                    score: self.actual_display_score() as u32,
                     gauge: std::mem::take(&mut self.gauge),
                     hit_ratings: std::mem::take(&mut self.hit_ratings),
                 })
@@ -1203,6 +1214,7 @@ impl Scene for Game {
                 r => {
                     self.on_hit(r);
                     self.score_ticks.remove(i);
+                    self.score_current_max += 2;
                 }
             }
         }
@@ -1244,6 +1256,15 @@ impl Scene for Game {
                     }
                     self.laser_alert[side as usize] = next_laser;
                 }
+            }
+        }
+
+        //Score display
+        let display_score = self.calculate_display_score();
+        if display_score != self.display_score {
+            self.display_score = display_score;
+            if let Ok(update_score) = self.lua.globals().get::<_, Function>("update_score") {
+                crate::log_result!(update_score.call::<_, ()>(display_score));
             }
         }
 
@@ -1838,6 +1859,7 @@ impl Scene for Game {
                         _ => {
                             self.on_hit(hit_rating);
                             self.score_ticks.remove(index);
+                            self.score_current_max += 2;
                         }
                     }
                 }

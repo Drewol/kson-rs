@@ -1,4 +1,4 @@
-use std::{collections::HashMap, fs::File, io::Read, path::PathBuf, sync::RwLock};
+use std::{collections::HashMap, fmt::Display, fs::File, io::Read, path::PathBuf, sync::RwLock};
 
 use clap::Parser;
 use game_loop::winit::keyboard::PhysicalKey;
@@ -31,6 +31,24 @@ pub struct Args {
     pub settings: bool,
 }
 
+#[derive(Debug, Serialize, Deserialize, Clone, Copy, Default, PartialEq, Eq)]
+pub enum ScoreDisplayMode {
+    #[default]
+    Additive,
+    Subtractive,
+    Average,
+}
+
+impl Display for ScoreDisplayMode {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(match self {
+            ScoreDisplayMode::Additive => "Additive",
+            ScoreDisplayMode::Subtractive => "Subtractive",
+            ScoreDisplayMode::Average => "Average",
+        })
+    }
+}
+
 #[derive(Debug, Deserialize, Serialize, Clone)]
 #[serde(default)]
 pub struct GameConfig {
@@ -61,6 +79,7 @@ pub struct GameConfig {
     pub distant_button_scale: f32,
     pub master_volume: f32,
     pub hit_window: game::HitWindow,
+    pub score_display: ScoreDisplayMode,
 }
 
 #[derive(Debug, Deserialize, Serialize, Clone)]
@@ -211,7 +230,8 @@ impl Default for GameConfig {
             graphics: GraphicsSettings::default(),
             distant_button_scale: 2.0,
             master_volume: 0.8,
-            hit_window: HitWindow::NORMAL
+            hit_window: HitWindow::NORMAL,
+            score_display: ScoreDisplayMode::default()
         }
     }
 }
