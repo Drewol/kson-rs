@@ -11,7 +11,7 @@ use self::camera::CamPatternInvokeSwing;
 use self::camera::CamPatternInvokeSwingValue;
 
 #[derive(Debug, Error)]
-pub enum KshReadError {
+pub enum KshReadErrorDetails {
     #[error("Laser value out of range: '{0}'")]
     OutOfRangeLaserValue(char),
     #[error("Failed to parse value: '{0}'")]
@@ -24,6 +24,41 @@ pub enum KshReadError {
     EmptyLaserSection,
     #[error("Invalid tilt value: '{0}'")]
     InvalidTiltValue(String),
+}
+
+#[derive(Debug, Error)]
+pub struct KshReadError {
+    error: KshReadErrorDetails,
+    line: usize,
+}
+
+impl std::fmt::Display for KshReadError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        if self.line == usize::MAX {
+            self.error.fmt(f)
+        } else {
+            f.write_fmt(format_args!("Error on line {}: {}", self.line, self.error))
+        }
+    }
+}
+
+impl KshReadErrorDetails {
+    fn at_line(self, line: usize) -> KshReadError {
+        KshReadError { error: self, line }
+    }
+}
+
+trait WithLine<T> {
+    fn with_line(self, line: usize) -> Result<T, KshReadError>;
+}
+
+impl<T, E> WithLine<T> for Result<T, E>
+where
+    E: Into<KshReadErrorDetails>,
+{
+    fn with_line(self, line: usize) -> Result<T, KshReadError> {
+        self.map_err(|x| x.into().at_line(line))
+    }
 }
 
 #[derive(Debug, Error)]
@@ -79,16 +114,16 @@ const fn legacy_effect_map(value: u8) -> &'static str {
 }
 
 #[inline]
-fn laser_char_to_value(value: u8) -> Result<f64, KshReadError> {
+fn laser_char_to_value(value: u8) -> Result<f64, KshReadErrorDetails> {
     let v = find_laser_char(value);
     if v == u8::MAX {
-        Err(KshReadError::OutOfRangeLaserValue(v as char))
+        Err(KshReadErrorDetails::OutOfRangeLaserValue(v as char))
     } else {
         Ok(v as f64 / 50.0)
     }
 }
 
-fn parse_ksh_zoom_values(data: &str) -> Result<(f64, Option<f64>), KshReadError> {
+fn parse_ksh_zoom_values(data: &str) -> Result<(f64, Option<f64>), KshReadErrorDetails> {
     let (v, vf): (f64, Option<f64>) = {
         if data.contains(';') {
             let mut values = data.split(';');
@@ -162,13 +197,14 @@ impl Ksh for crate::Chart {
         }];
 
         let mut legacy_bg: Option<LegacyBgInfo> = None;
-
-        for line in meta {
+        let mut file_line = 0;
+        for (line_idx, line) in meta.enumerate() {
+            file_line = line_idx + 1;
             let line_data: Vec<&str> = line.split('=').collect();
             if line_data.len() < 2 {
                 continue;
             }
-            let value = String::from(line_data[1]);
+            let value = String::from(line_data[1].trim());
             match line_data[0] {
                 "title" => new_chart.meta.title = value,
                 "artist" => new_chart.meta.artist = value,
@@ -182,7 +218,7 @@ impl Ksh for crate::Chart {
                     new_chart.meta.disp_bpm.clone_from(&value);
                 }
                 "beat" => {}
-                "o" => bgm.offset = value.parse()?,
+                "o" => bgm.offset = value.parse::<i32>().with_line(file_line)?,
                 "m" => {
                     let mut filenames = value.split(';').map(String::from);
                     bgm.filename = filenames.next().unwrap_or_default();
@@ -202,9 +238,9 @@ impl Ksh for crate::Chart {
                         _ => 0,
                     };
                 }
-                "plength" => bgm.preview.duration = value.parse()?,
-                "po" => bgm.preview.offset = value.parse()?,
-                "mvol" => bgm.vol = value.parse::<f64>()? / 100.0,
+                "plength" => bgm.preview.duration = value.parse().with_line(file_line)?,
+                "po" => bgm.preview.offset = value.parse().with_line(file_line)?,
+                "mvol" => bgm.vol = value.parse::<f64>().with_line(file_line)? / 100.0,
                 "layer" => {
                     //TODO: parse properly
                     legacy_bg = Some(LegacyBgInfo {
@@ -243,11 +279,14 @@ impl Ksh for crate::Chart {
             let measure_lines = measure.lines();
             let line_count = measure.lines().filter(is_beat_line).count() as u32;
             if line_count == 0 {
+                file_line += 1;
                 continue;
             }
             let mut ticks_per_line = (KSON_RESOLUTION * 4 * num / den) / line_count;
             let mut has_read_notes = false;
             for line in measure_lines {
+                file_line += 1;
+
                 if is_beat_line(&line) {
                     //read bt
                     has_read_notes = true;
@@ -340,13 +379,13 @@ impl Ksh for crate::Chart {
                             laser_builder[i].0 = y;
                             laser_builder[i].1.push(GraphSectionPoint::new(
                                 0,
-                                laser_char_to_value(chars[i + 8])?,
+                                laser_char_to_value(chars[i + 8]).with_line(file_line)?,
                             ));
                         } else if chars[i + 8] != b':' && chars[i + 8] != b'-' {
                             // new point
                             laser_builder[i].1.push(GraphSectionPoint::new(
                                 y - laser_builder[i].0,
-                                laser_char_to_value(chars[i + 8])?,
+                                laser_char_to_value(chars[i + 8]).with_line(file_line)?,
                             ));
                         }
 
@@ -424,17 +463,21 @@ impl Ksh for crate::Chart {
                             }
                             new_chart.beat.time_sig.push((sig_idx, new_sig));
                         }
-                        "t" => new_chart.beat.bpm.push((y, line_value.parse()?)),
+                        "t" => new_chart
+                            .beat
+                            .bpm
+                            .push((y, line_value.parse().with_line(file_line)?)),
                         "laserrange_l" => {
                             line_value.truncate(1);
-                            laser_builder[0].2 = line_value.parse()?;
+                            laser_builder[0].2 = line_value.parse().with_line(file_line)?;
                         }
                         "laserrange_r" => {
                             line_value.truncate(1);
-                            laser_builder[1].2 = line_value.parse()?;
+                            laser_builder[1].2 = line_value.parse().with_line(file_line)?;
                         }
                         "zoom_bottom" => {
-                            let (v, vf) = parse_ksh_zoom_values(&line_value)?;
+                            let (v, vf) =
+                                parse_ksh_zoom_values(&line_value).with_line(file_line)?;
                             new_chart.camera.cam.body.zoom.push(GraphPoint {
                                 y,
                                 v,
@@ -443,7 +486,8 @@ impl Ksh for crate::Chart {
                             })
                         }
                         "zoom_top" => {
-                            let (v, vf) = parse_ksh_zoom_values(&line_value)?;
+                            let (v, vf) =
+                                parse_ksh_zoom_values(&line_value).with_line(file_line)?;
                             new_chart.camera.cam.body.rotation_x.push(GraphPoint {
                                 y,
                                 v,
@@ -452,7 +496,8 @@ impl Ksh for crate::Chart {
                             })
                         }
                         "zoom_side" => {
-                            let (v, vf) = parse_ksh_zoom_values(&line_value)?;
+                            let (v, vf) =
+                                parse_ksh_zoom_values(&line_value).with_line(file_line)?;
                             new_chart.camera.cam.body.shift_x.push(GraphPoint {
                                 y,
                                 v,
@@ -466,12 +511,10 @@ impl Ksh for crate::Chart {
                         "fx-r" => {
                             fx_string[1] = Some(line_value);
                         }
-                        "tilt" => parse_tilt(
-                            &mut new_chart.camera.tilt,
-                            y,
-                            &line_value,
-                            &mut manual_tilt,
-                        )?,
+                        "tilt" => {
+                            parse_tilt(&mut new_chart.camera.tilt, y, &line_value, &mut manual_tilt)
+                                .with_line(file_line)?
+                        }
                         _ => (),
                     }
                 }
@@ -483,7 +526,10 @@ impl Ksh for crate::Chart {
             for section in &mut new_chart.note.laser[i] {
                 let mut iter = section.1.iter_mut();
                 let mut for_removal: HashSet<u32> = HashSet::new();
-                let mut prev = iter.next().ok_or(KshReadError::EmptyLaserSection)?;
+                let mut prev = iter
+                    .next()
+                    .ok_or(KshReadErrorDetails::EmptyLaserSection)
+                    .with_line(usize::MAX)?;
                 for next in iter {
                     if (next.ry - prev.ry) <= (KSON_RESOLUTION / 8) {
                         prev.vf = Some(next.v);
@@ -849,10 +895,10 @@ fn parse_tilt(
     y: u32,
     line_value: &str,
     manual: &mut (u32, Vec<GraphSectionPoint>),
-) -> Result<(), KshReadError> {
+) -> Result<(), KshReadErrorDetails> {
     let mut split = line_value.split('_');
     let Some(a) = split.next() else {
-        return Err(KshReadError::InvalidTiltValue(line_value.to_owned()));
+        return Err(KshReadErrorDetails::InvalidTiltValue(line_value.to_owned()));
     };
 
     let b = split.next();
@@ -885,7 +931,7 @@ fn parse_tilt(
         } else {
             let ry = y - manual.0;
             let Some(last) = manual.1.last_mut() else {
-                return Err(KshReadError::EmptyLaserSection);
+                return Err(KshReadErrorDetails::EmptyLaserSection);
             };
 
             if last.ry == ry {
