@@ -17,6 +17,7 @@ use crate::{
     config::{Fullscreen, GameConfig, ScoreDisplayMode},
     game::HitWindow,
     game_main::ControlMessage,
+    help::AsyncPicker,
     input_state::InputState,
     scene::Scene,
     skin_settings::SkinSettingValue,
@@ -272,6 +273,22 @@ impl Scene for SettingsScreen {
                     if ui.button("Set Hard").clicked() {
                         self.altered_settings.hit_window = HitWindow::HARD;
                     }
+
+                    ui.end_row();
+
+                    let mut songs_path = self
+                        .altered_settings
+                        .songs_path
+                        .to_str()
+                        .unwrap_or("")
+                        .to_string();
+
+                    ui.label("Songs path");
+                    AsyncPicker::new()
+                        .folder()
+                        .show("song_folder".into(), &mut songs_path, ui);
+
+                    self.altered_settings.songs_path = PathBuf::from(songs_path);
 
                     ui.end_row();
                     egui::ComboBox::new("score_display_mode", "Score display mode")
