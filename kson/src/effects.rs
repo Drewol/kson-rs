@@ -13,7 +13,7 @@ use std::{f32, str::FromStr};
 #[cfg(feature = "schema")]
 use schemars::JsonSchema;
 
-trait Effect {
+pub(crate) trait Effect {
     fn derive(&self, key: &str, param: &str) -> Self;
     fn param_list() -> &'static [&'static str];
 }
@@ -230,7 +230,7 @@ impl Default for ReTrigger {
     fn default() -> Self {
         Self {
             update_period: default_param("1/2"),
-            wave_length: default_param("0"),
+            wave_length: default_param("1/4"),
             rate: default_param("70%"),
             update_trigger: default_param("off"),
             mix: default_param("0%>100%"),
@@ -240,7 +240,7 @@ impl Default for ReTrigger {
 impl Default for Gate {
     fn default() -> Self {
         Self {
-            wave_length: default_param("0"),
+            wave_length: default_param("1/4"),
             rate: default_param("70%"),
             mix: default_param("0%>90%"),
         }
@@ -373,11 +373,7 @@ impl Default for PeakingFilter {
 
 impl Chart {
     pub fn get_effect_tracks(&self) -> Vec<EffectInterval> {
-        let audio_effect = if let Some(a) = &self.audio.audio_effect {
-            a
-        } else {
-            return vec![];
-        };
+        let audio_effect = &self.audio.audio_effect;
         let sides = [Side::Left, Side::Right];
         let mut result = vec![];
         for (name, root_effect) in &audio_effect.fx.def {

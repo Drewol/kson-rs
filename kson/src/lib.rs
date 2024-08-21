@@ -467,7 +467,7 @@ impl MetaInfo {
 }
 
 pub type ByPulse<T> = Vec<(u32, T)>;
-#[derive(Copy, Clone, Default)]
+#[derive(Copy, Clone, Default, PartialEq)]
 pub struct ByPulseOption<T>(u32, Option<T>);
 
 impl<T> ByPulseOption<T> {
@@ -714,18 +714,18 @@ impl BgmInfo {
     }
 }
 
-#[derive(Serialize, Deserialize, Clone)]
+#[derive(Serialize, Deserialize, Clone, Default)]
 pub struct KeySoundInfo {
     pub fx: KeySoundFXInfo,
     pub laser: KeySoundLaserInfo,
 }
 
-#[derive(Serialize, Deserialize, Clone)]
+#[derive(Serialize, Deserialize, Clone, Default)]
 pub struct KeySoundLaserInfo {
     pub vol: ByPulse<f64>,
 }
 
-#[derive(Serialize, Deserialize, Clone)]
+#[derive(Serialize, Deserialize, Clone, Default)]
 pub struct KeySoundFXInfo {
     pub chip_event: HashMap<String, [Vec<ByPulse<KeySoundInvokeFX>>; 2]>,
 }
@@ -737,7 +737,7 @@ pub struct KeySoundInvokeFX {
 
 type NoteParamChange = ByPulseOption<Dict<String>>;
 
-#[derive(Serialize, Deserialize, Clone, Default)]
+#[derive(Serialize, Deserialize, Clone, Default, PartialEq)]
 pub struct AudioEffectFXInfo {
     #[serde(default, skip_serializing_if = "HashMap::is_empty")]
     pub def: Dict<AudioEffect>,
@@ -747,7 +747,7 @@ pub struct AudioEffectFXInfo {
     pub long_event: Dict<[Vec<NoteParamChange>; 2]>,
 }
 
-#[derive(Serialize, Deserialize, Clone, Default)]
+#[derive(Serialize, Deserialize, Clone, Default, PartialEq)]
 pub struct AudioEffectLaserInfo {
     #[serde(default, skip_serializing_if = "HashMap::is_empty")]
     def: Dict<AudioEffect>,
@@ -759,27 +759,25 @@ pub struct AudioEffectLaserInfo {
     pub peaking_filter_delay: i32,
 }
 
-#[derive(Serialize, Deserialize, Clone, Default)]
+#[derive(Serialize, Deserialize, Clone, Default, PartialEq)]
 pub struct AudioEffectInfo {
     pub fx: AudioEffectFXInfo,
     pub laser: AudioEffectLaserInfo,
 }
 
-#[derive(Serialize, Deserialize, Clone)]
+#[derive(Serialize, Deserialize, Clone, Default)]
+#[serde(default)]
 pub struct AudioInfo {
     pub bgm: BgmInfo,
-    pub audio_effect: Option<AudioEffectInfo>,
+    #[serde(default, skip_serializing_if = "crate::IsDefault::is_default")]
+    pub audio_effect: AudioEffectInfo,
     #[serde(skip_deserializing)]
-    pub key_sound: Option<KeySoundInfo>,
+    pub key_sound: KeySoundInfo,
 }
 
 impl AudioInfo {
     fn new() -> Self {
-        AudioInfo {
-            key_sound: None,
-            audio_effect: None,
-            bgm: BgmInfo::default(),
-        }
+        Self::default()
     }
 }
 
@@ -1084,6 +1082,19 @@ impl Chart {
             }
         }
         last_tick
+    }
+}
+
+pub trait IsDefault {
+    fn is_default(&self) -> bool;
+}
+
+impl<T> IsDefault for T
+where
+    T: Default + PartialEq,
+{
+    fn is_default(&self) -> bool {
+        self.eq(&T::default())
     }
 }
 

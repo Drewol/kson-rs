@@ -25,9 +25,7 @@ pub fn effect_panel(state: &mut MainState) -> impl egui::Widget + '_ {
     move |ui: &mut egui::Ui| {
         ui.heading(i18n::fl!("effect_definitions"));
 
-        let mut effects = state.chart.audio.audio_effect.take().unwrap_or_default();
-
-        let mut keys: Vec<_> = effects.fx.def.iter_mut().collect();
+        let mut keys: Vec<_> = state.chart.audio.audio_effect.fx.def.iter_mut().collect();
         keys.sort_by_key(|x| x.0);
 
         for (key, effect) in keys {
@@ -43,11 +41,7 @@ pub fn effect_panel(state: &mut MainState) -> impl egui::Widget + '_ {
                 state
                     .actions
                     .new_action(fl!("alter_effect", name = key.clone()), move |c| {
-                        let Some(effects) = c.audio.audio_effect.as_mut() else {
-                            bail!("No effects defined")
-                        };
-
-                        let Some(original) = effects.fx.def.get_mut(&key) else {
+                        let Some(original) = c.audio.audio_effect.fx.def.get_mut(&key) else {
                             bail!("Effect not defined")
                         };
                         *original = effect.clone();
@@ -77,15 +71,23 @@ pub fn effect_panel(state: &mut MainState) -> impl egui::Widget + '_ {
 
         if ui.button(fl!("new")).clicked()
             && !new_name.is_empty()
-            && !effects.fx.def.contains_key(&new_name)
+            && !state
+                .chart
+                .audio
+                .audio_effect
+                .fx
+                .def
+                .contains_key(&new_name)
         {
             if let Ok(effect) = kson::effects::AudioEffect::try_from(effect_type.as_str()) {
                 state.actions.new_action(
                     fl!("new_effect_definition", name = new_name.clone()),
                     move |c| {
-                        let mut effects = c.audio.audio_effect.take().unwrap_or_default();
-                        effects.fx.def.insert(new_name.clone(), effect.clone());
-                        c.audio.audio_effect = Some(effects);
+                        c.audio
+                            .audio_effect
+                            .fx
+                            .def
+                            .insert(new_name.clone(), effect.clone());
                         Ok(())
                     },
                 );
@@ -95,7 +97,6 @@ pub fn effect_panel(state: &mut MainState) -> impl egui::Widget + '_ {
         } else {
             ui.data_mut(|x| x.insert_temp(id, (new_name, effect_type)));
         }
-        state.chart.audio.audio_effect = Some(effects);
         ui.separator()
     }
 }

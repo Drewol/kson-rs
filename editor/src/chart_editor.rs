@@ -1407,9 +1407,7 @@ impl MainState {
         let mut fx = self.chart.note.fx[index].iter();
 
         if let Some(fx) = fx.find(|x| x.contains(tick)) {
-            let Some(effects) = self.chart.audio.audio_effect.as_ref() else {
-                return;
-            };
+            let effects = &self.chart.audio.audio_effect;
             let mut effect_keys: Vec<&String> = effects.fx.def.keys().collect();
             effect_keys.sort();
 
@@ -1428,12 +1426,13 @@ impl MainState {
                         self.actions.new_action(
                             fl!("insert_fx_effect", effect = effect_key.clone()),
                             move |c| {
-                                let Some(effects) = c.audio.audio_effect.as_mut() else {
-                                    bail!("No effects")
-                                };
-
-                                let events =
-                                    effects.fx.long_event.entry(effect_key.clone()).or_default();
+                                let events = c
+                                    .audio
+                                    .audio_effect
+                                    .fx
+                                    .long_event
+                                    .entry(effect_key.clone())
+                                    .or_default();
 
                                 events[index].push(ByPulseOption::new(y, None));
 
@@ -1444,11 +1443,8 @@ impl MainState {
                         self.actions.new_action(
                             fl!("remove_fx_effect", effect = effect_key.clone()),
                             move |c| {
-                                let Some(effects) = c.audio.audio_effect.as_mut() else {
-                                    bail!("No effects")
-                                };
-
-                                let Some(events) = effects.fx.long_event.get_mut(&effect_key)
+                                let Some(events) =
+                                    c.audio.audio_effect.fx.long_event.get_mut(&effect_key)
                                 else {
                                     bail!("No events")
                                 };

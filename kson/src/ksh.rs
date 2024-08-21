@@ -4,6 +4,7 @@ use std::io::Write;
 
 use crate::*;
 
+use effects::Effect;
 use thiserror::Error;
 
 use self::camera::CamPatternInvokeSpin;
@@ -278,15 +279,11 @@ impl Ksh for crate::Chart {
         for measure in parts {
             let measure_lines = measure.lines();
             let line_count = measure.lines().filter(is_beat_line).count() as u32;
-            if line_count == 0 {
-                file_line += 1;
-                continue;
-            }
-            let mut ticks_per_line = (KSON_RESOLUTION * 4 * num / den) / line_count;
+            let mut ticks_per_line = (KSON_RESOLUTION * 4 * num / den) / line_count.max(1);
             let mut has_read_notes = false;
             for line in measure_lines {
+                let line = line.trim();
                 file_line += 1;
-
                 if is_beat_line(&line) {
                     //read bt
                     has_read_notes = true;
@@ -330,7 +327,6 @@ impl Ksh for crate::Chart {
                                 let v = new_chart
                                     .audio
                                     .audio_effect
-                                    .get_or_insert(Default::default())
                                     .fx
                                     .long_event
                                     .entry(name)
@@ -441,6 +437,43 @@ impl Ksh for crate::Chart {
                     }
 
                     y += ticks_per_line;
+                } else if line.starts_with('#') {
+                    // Parse custom effect definitions
+                    let data = dbg!(line.splitn(3, ' ').collect::<Vec<_>>());
+                    if data.len() != 3 {
+                        continue;
+                    }
+
+                    let defined = data[0];
+                    let name = data[1];
+                    let data = data[2];
+
+                    let mut data = data
+                        .split(';')
+                        .filter_map(|x| x.split_once('='))
+                        .collect::<HashMap<_, _>>();
+
+                    if let Some(Ok(mut t)) = data.remove("type").map(AudioEffect::try_from) {
+                        for (key, param) in data.into_iter() {
+                            t = t.derive(key, param)
+                        }
+
+                        match defined {
+                            "#define_fx" => new_chart
+                                .audio
+                                .audio_effect
+                                .fx
+                                .def
+                                .insert(name.to_owned(), t),
+                            "#define_filter" => new_chart
+                                .audio
+                                .audio_effect
+                                .laser
+                                .def
+                                .insert(name.to_owned(), t),
+                            _ => None,
+                        };
+                    }
                 } else if line.contains('=') {
                     let mut line_data = line.split('=');
 
@@ -562,7 +595,8 @@ impl Ksh for crate::Chart {
         }
 
         // set up effect events
-        if let Some(effects) = new_chart.audio.audio_effect.as_mut() {
+        {
+            let effects = &mut new_chart.audio.audio_effect;
             for key in effects.fx.long_event.keys().cloned() {
                 let Ok(effect) = AudioEffect::try_from(key.as_str()) else {
                     continue;

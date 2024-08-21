@@ -119,7 +119,8 @@ pub struct CamPatternInvokeSwing(
     pub u32,
     pub i32,
     pub u32,
-    #[serde(default, skip_serializing_if = "IsDefault::is_default")] pub CamPatternInvokeSwingValue,
+    #[serde(default, skip_serializing_if = "crate::IsDefault::is_default")]
+    pub  CamPatternInvokeSwingValue,
 );
 
 #[derive(Debug, Serialize, Deserialize, Copy, Clone, PartialEq)]
@@ -156,17 +157,4 @@ pub struct CamGraphs {
     #[serde(rename = "rotation_z.jdgline")]
     pub rotation_z_jdgline: GraphVec,
     pub split: GraphVec,
-}
-
-pub trait IsDefault {
-    fn is_default(&self) -> bool;
-}
-
-impl<T> IsDefault for T
-where
-    T: Default + PartialEq,
-{
-    fn is_default(&self) -> bool {
-        self.eq(&T::default())
-    }
 }
