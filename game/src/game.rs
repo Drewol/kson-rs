@@ -823,11 +823,12 @@ impl Game {
                     ));
 
                     {
-                        let events = &self.chart.camera.cam.pattern.laser.slam_event;
+                        let events = &mut self.chart.camera.cam.pattern.laser.slam_event;
 
                         if let Ok(i) = events.half_spin.binary_search_by_key(&tick.y, |x| x.0) {
                             let cam_pattern_invoke_spin = events.half_spin[i];
                             if events.half_spin[i].1 == signum {
+                                events.half_spin.remove(i);
                                 self.camera
                                     .spins
                                     .push(camera::CameraSpin::Half(cam_pattern_invoke_spin));
@@ -836,6 +837,7 @@ impl Game {
                         if let Ok(i) = events.spin.binary_search_by_key(&tick.y, |x| x.0) {
                             let cam_pattern_invoke_spin = events.spin[i];
                             if cam_pattern_invoke_spin.1 == signum {
+                                events.spin.remove(i);
                                 self.camera
                                     .spins
                                     .push(camera::CameraSpin::Full(cam_pattern_invoke_spin));
@@ -844,6 +846,7 @@ impl Game {
                         if let Ok(i) = events.swing.binary_search_by_key(&tick.y, |x| x.0) {
                             let cam_pattern_invoke_swing = events.swing[i];
                             if cam_pattern_invoke_swing.1 == signum {
+                                events.swing.remove(i);
                                 self.camera
                                     .spins
                                     .push(camera::CameraSpin::Swing(cam_pattern_invoke_swing));
