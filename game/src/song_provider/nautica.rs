@@ -17,11 +17,12 @@ use rodio::Source;
 use crate::{
     project_dirs,
     results::Score,
+    song_provider::SongFilterType,
     songselect::{Difficulty, Song},
     worker_service::WorkerService,
 };
 
-use super::{DiffId, LoadSongFn, SongDiffId, SongId, SongProvider, SongProviderEvent};
+use super::{DiffId, LoadSongFn, SongDiffId, SongFilter, SongId, SongProvider, SongProviderEvent};
 use anyhow::{anyhow, bail, ensure, Result};
 use kson::Ksh;
 use poll_promise::Promise;
@@ -204,6 +205,8 @@ pub struct NauticaSongProvider {
     all_songs: Vec<Arc<Song>>,
     next_url: String,
     bus: bus::Bus<SongProviderEvent>,
+    filter: SongFilter,
+    query: HashMap<&'static str, String>,
 }
 
 impl Debug for NauticaSongProvider {
@@ -267,7 +270,28 @@ impl NauticaSongProvider {
             all_songs: vec![],
             next_url: "https://ksm.dev/app/songs".into(),
             bus: bus::Bus::new(32),
+            filter: SongFilter::new(SongFilterType::None, 0),
+            query: HashMap::new(),
         }
+    }
+
+    fn query_changed(&mut self) {
+        let old_songs = std::mem::take(&mut self.all_songs);
+        self.events.push_back(SongProviderEvent::SongsRemoved(
+            old_songs.into_iter().map(|x| x.id.clone()).collect(),
+        ));
+
+        let query = self
+            .query
+            .iter()
+            .map(|x| format!("{}={}", x.0, x.1))
+            .join("&");
+        self.next_url = if query.is_empty() {
+            "https://ksm.dev/app/songs".to_owned()
+        } else {
+            format!("https://ksm.dev/app/songs?{}", query)
+        };
+        self.next = Some(Promise::spawn_async(next_songs(self.next_url.clone())));
     }
 }
 
@@ -304,19 +328,29 @@ impl WorkerService for NauticaSongProvider {
 
 impl SongProvider for NauticaSongProvider {
     fn get_available_filters(&self) -> Vec<super::SongFilterType> {
-        vec![]
+        vec![SongFilterType::None]
     }
 
-    fn set_search(&mut self, _query: &str) {
-        todo!()
+    fn set_search(&mut self, query: &str) {
+        if query.is_empty() {
+            self.query.remove("q");
+        } else {
+            self.query.insert("q", query.to_owned());
+        }
+        self.query_changed();
     }
 
     fn set_sort(&mut self, _sort: super::SongSort) {
         todo!()
     }
 
-    fn set_filter(&mut self, _filter: super::SongFilter) {
-        todo!()
+    fn set_filter(&mut self, filter: super::SongFilter) {
+        if filter.level > 0 {
+            self.query.insert("levels", filter.level.to_string());
+        } else {
+            self.query.remove("levels");
+        }
+        self.query_changed();
     }
 
     fn add_score(&self, id: SongDiffId, score: Score) {
