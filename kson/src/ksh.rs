@@ -548,6 +548,17 @@ impl Ksh for crate::Chart {
                             parse_tilt(&mut new_chart.camera.tilt, y, &line_value, &mut manual_tilt)
                                 .with_line(file_line)?
                         }
+                        "filtertype" => {
+                            let laser = &mut new_chart.audio.audio_effect.laser;
+                            if let Ok(e) = AudioEffect::try_from(line_value.as_ref()) {
+                                laser.def.entry(line_value.clone()).or_insert(e);
+                            }
+                            laser
+                                .pulse_event
+                                .entry(line_value)
+                                .or_default()
+                                .push((y, ()));
+                        }
                         _ => (),
                     }
                 }

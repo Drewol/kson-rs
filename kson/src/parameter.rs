@@ -86,6 +86,12 @@ trait EffectParam {
 }
 
 impl EffectParameterValue {
+    pub fn default_shape(&self) -> InterpolationShape {
+        match self {
+            EffectParameterValue::Freq(_) => InterpolationShape::Logarithmic,
+            _ => InterpolationShape::Linear,
+        }
+    }
     pub fn to_duration(&self, bpm: f32, v: f32) -> Duration {
         match self {
             EffectParameterValue::Length(l, tempo) => {
@@ -247,10 +253,11 @@ impl<T: Default> FromStr for EffectParameter<T> {
                 Err("Missing value")
             }
         }?;
+        let off: EffectParameterValue = a.parse()?;
 
         Ok(Self {
             v: T::default(),
-            off: a.parse()?,
+            off,
             on: b.and_then(|o| EffectParameterValue::from_str(&o).ok()),
             shape: InterpolationShape::Linear,
         })

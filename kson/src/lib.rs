@@ -251,7 +251,7 @@ impl GraphSectionPoint {
     }
 }
 
-#[derive(Copy, Clone)]
+#[derive(Copy, Clone, Debug)]
 pub struct Interval {
     pub y: u32,
     pub l: u32,

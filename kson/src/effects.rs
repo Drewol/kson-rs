@@ -8,7 +8,7 @@ use kson_effect_param_macro::Effect;
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
-use std::{f32, str::FromStr};
+use std::{borrow::Cow, collections::BTreeMap, f32, str::FromStr};
 
 #[cfg(feature = "schema")]
 use schemars::JsonSchema;
@@ -18,7 +18,7 @@ pub(crate) trait Effect {
     fn param_list() -> &'static [&'static str];
 }
 
-#[derive(Deserialize, Serialize, Clone, Effect, PartialEq)]
+#[derive(Deserialize, Serialize, Clone, Effect, PartialEq, Debug)]
 #[serde(tag = "type", content = "v")]
 #[serde(rename_all = "snake_case")]
 pub enum AudioEffect {
@@ -75,6 +75,10 @@ impl TryFrom<&str> for AudioEffect {
             "Echo" => Ok(AudioEffect::Echo(Echo::default())),
             "SideChain" => Ok(AudioEffect::SideChain(SideChain::default())),
             "SwitchAudio" => Ok(AudioEffect::AudioSwap("".to_owned())),
+            "peak" => Ok(AudioEffect::PeakingFilter(PeakingFilter::default())),
+            "hpf1" => Ok(AudioEffect::HighPassFilter(HighPassFilter::default())),
+            "lpf1" => Ok(AudioEffect::LowPassFilter(LowPassFilter::default())),
+            "bitc" => Ok(AudioEffect::BitCrusher(BitCrusher::default())),
             _ => Err(()),
         }
     }
@@ -96,7 +100,7 @@ impl Effect for String {
     }
 }
 
-#[derive(Deserialize, Serialize, Clone, Effect, PartialEq)]
+#[derive(Deserialize, Serialize, Clone, Effect, PartialEq, Debug)]
 pub struct ReTrigger {
     pub update_period: EffectParameter<f32>,
     pub wave_length: EffectParameter<f32>,
@@ -105,14 +109,14 @@ pub struct ReTrigger {
     pub mix: EffectParameter<f32>,
 }
 
-#[derive(Deserialize, Serialize, Clone, Effect, PartialEq)]
+#[derive(Deserialize, Serialize, Clone, Effect, PartialEq, Debug)]
 pub struct Gate {
     pub wave_length: EffectParameter<f32>,
     pub rate: EffectParameter<f32>,
     pub mix: EffectParameter<f32>,
 }
 
-#[derive(Deserialize, Serialize, Clone, Effect, PartialEq)]
+#[derive(Deserialize, Serialize, Clone, Effect, PartialEq, Debug)]
 pub struct Flanger {
     pub period: EffectParameter<f32>,
     pub delay: EffectParameter<i64>,
@@ -123,7 +127,7 @@ pub struct Flanger {
     pub mix: EffectParameter<f32>,
 }
 
-#[derive(Deserialize, Serialize, Clone, Effect, PartialEq)]
+#[derive(Deserialize, Serialize, Clone, Effect, PartialEq, Debug)]
 pub struct PitchShift {
     pub pitch: EffectParameter<f32>,
     pub pitch_quantize: BoolParameter,
@@ -132,13 +136,13 @@ pub struct PitchShift {
     pub mix: EffectParameter<f32>,
 }
 
-#[derive(Deserialize, Serialize, Clone, Effect, PartialEq)]
+#[derive(Deserialize, Serialize, Clone, Effect, PartialEq, Debug)]
 pub struct BitCrusher {
     pub reduction: EffectParameter<i64>,
     pub mix: EffectParameter<f32>,
 }
 
-#[derive(Deserialize, Serialize, Clone, Effect, PartialEq)]
+#[derive(Deserialize, Serialize, Clone, Effect, PartialEq, Debug)]
 pub struct Phaser {
     pub period: EffectParameter<f32>,
     pub stage: EffectParameter<i64>,
@@ -150,7 +154,7 @@ pub struct Phaser {
     pub mix: EffectParameter<f32>,
 }
 
-#[derive(Deserialize, Serialize, Clone, Effect, PartialEq)]
+#[derive(Deserialize, Serialize, Clone, Effect, PartialEq, Debug)]
 pub struct Wobble {
     pub wave_length: EffectParameter<f32>,
     pub lo_freq: EffectParameter<f32>,
@@ -159,14 +163,14 @@ pub struct Wobble {
     pub mix: EffectParameter<f32>,
 }
 
-#[derive(Deserialize, Serialize, Clone, Effect, PartialEq)]
+#[derive(Deserialize, Serialize, Clone, Effect, PartialEq, Debug)]
 pub struct TapeStop {
     pub speed: EffectParameter<f32>,
     pub trigger: BoolParameter,
     pub mix: EffectParameter<f32>,
 }
 
-#[derive(Deserialize, Serialize, Clone, Effect, PartialEq)]
+#[derive(Deserialize, Serialize, Clone, Effect, PartialEq, Debug)]
 pub struct Echo {
     pub update_period: EffectParameter<f32>,
     pub wave_length: EffectParameter<f32>,
@@ -175,7 +179,7 @@ pub struct Echo {
     pub mix: EffectParameter<f32>,
 }
 
-#[derive(Deserialize, Serialize, Clone, Effect, PartialEq)]
+#[derive(Deserialize, Serialize, Clone, Effect, PartialEq, Debug)]
 pub struct SideChain {
     pub period: EffectParameter<f32>,
     pub hold_time: EffectParameter<f32>,
@@ -184,37 +188,35 @@ pub struct SideChain {
     pub ratio: EffectParameter<f32>,
 }
 
-#[derive(Deserialize, Serialize, Clone, Effect, PartialEq)]
+#[derive(Deserialize, Serialize, Clone, Effect, PartialEq, Debug)]
 pub struct HighPassFilter {
     pub v: EffectParameter<f32>,
     pub freq: EffectParameter<f32>,
-    pub freq_max: EffectParameter<f32>,
     pub q: EffectParameter<f32>,
     pub delay: EffectParameter<f32>,
     pub mix: EffectParameter<f32>,
 }
 
-#[derive(Deserialize, Serialize, Clone, Effect, PartialEq)]
+#[derive(Deserialize, Serialize, Clone, Effect, PartialEq, Debug)]
 pub struct LowPassFilter {
     pub v: EffectParameter<f32>,
     pub freq: EffectParameter<f32>,
-    pub freq_max: EffectParameter<f32>,
     pub q: EffectParameter<f32>,
     pub delay: EffectParameter<f32>,
     pub mix: EffectParameter<f32>,
 }
 
-#[derive(Deserialize, Serialize, Clone, Effect, PartialEq)]
+#[derive(Deserialize, Serialize, Clone, Effect, PartialEq, Debug)]
 pub struct PeakingFilter {
     pub v: EffectParameter<f32>,
     pub freq: EffectParameter<f32>,
-    pub freq_max: EffectParameter<f32>,
     pub q: EffectParameter<f32>,
+    pub gain: EffectParameter<f32>,
     pub delay: EffectParameter<f32>,
     pub mix: EffectParameter<f32>,
 }
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct EffectInterval {
     pub interval: Interval,
     pub effect: AudioEffect,
@@ -338,11 +340,10 @@ impl Default for HighPassFilter {
     fn default() -> Self {
         Self {
             v: default_param("0"),
-            freq: default_param("0"),
-            freq_max: default_param("0"),
-            q: default_param("0"),
+            freq: default_param("80hz-2khz"),
+            q: default_param("1.414"),
             delay: default_param("0"),
-            mix: default_param("0"),
+            mix: default_param("50%"),
         }
     }
 }
@@ -350,11 +351,10 @@ impl Default for LowPassFilter {
     fn default() -> Self {
         Self {
             v: default_param("0"),
-            freq: default_param("0"),
-            freq_max: default_param("0"),
-            q: default_param("0"),
+            freq: default_param("700hz-10khz"),
+            q: default_param("1.414"),
             delay: default_param("0"),
-            mix: default_param("0"),
+            mix: default_param("50%"),
         }
     }
 }
@@ -362,11 +362,11 @@ impl Default for PeakingFilter {
     fn default() -> Self {
         Self {
             v: default_param("0"),
-            freq: default_param("0"),
-            freq_max: default_param("0"),
-            q: default_param("0"),
+            freq: default_param("80hz-8khz"),
+            q: default_param("1.414"),
+            gain: default_param("50%"),
             delay: default_param("0"),
-            mix: default_param("0"),
+            mix: default_param("50%"),
         }
     }
 }
@@ -464,6 +464,47 @@ impl Chart {
         }
 
         result.sort_by_key(|e| e.interval.y);
+        result
+    }
+
+    pub fn laser_effect_queue(&self) -> std::collections::BTreeMap<u32, AudioEffect> {
+        let laser = &self.audio.audio_effect.laser;
+
+        let mut events = laser
+            .pulse_event
+            .iter()
+            .flat_map(|(a, b)| {
+                let a = Cow::from(a.clone());
+                b.iter().copied().map(move |x| (a.clone(), x.0))
+            })
+            .collect::<Vec<_>>();
+
+        events.sort_by_key(|x| x.1);
+
+        let mut result = BTreeMap::new();
+
+        for (key, y) in events.into_iter() {
+            let Some(effect) = laser.def.get(key.as_ref()) else {
+                continue;
+            };
+            let effect = laser
+                .param_change
+                .get(key.as_ref())
+                .map(|a| {
+                    a.iter()
+                        .flat_map(|(param_name, changes)| {
+                            changes
+                                .iter()
+                                .map(move |(tick, param)| (*tick, param_name, param))
+                        })
+                        .take_while(|(tick, _, _)| *tick <= y)
+                        .fold(effect.clone(), |e, (_, key, param)| e.derive(key, param))
+                })
+                .unwrap_or_else(|| effect.clone());
+
+            result.insert(y, effect);
+        }
+
         result
     }
 }
