@@ -280,7 +280,6 @@ impl EffectEditor for kson::effects::AudioEffect {
             kson::effects::AudioEffect::HighPassFilter(kson::effects::HighPassFilter {
                 v,
                 freq,
-                freq_max,
                 q,
                 delay,
                 mix,
@@ -293,8 +292,6 @@ impl EffectEditor for kson::effects::AudioEffect {
                 ui.add(param_editor(freq, false));
                 ui.end_row();
 
-                ui.label("freq_max");
-                ui.add(param_editor(freq_max, false));
                 ui.end_row();
 
                 ui.label("q");
@@ -312,7 +309,6 @@ impl EffectEditor for kson::effects::AudioEffect {
             kson::effects::AudioEffect::LowPassFilter(kson::effects::LowPassFilter {
                 v,
                 freq,
-                freq_max,
                 q,
                 delay,
                 mix,
@@ -325,8 +321,6 @@ impl EffectEditor for kson::effects::AudioEffect {
                 ui.add(param_editor(freq, false));
                 ui.end_row();
 
-                ui.label("freq_max");
-                ui.add(param_editor(freq_max, false));
                 ui.end_row();
 
                 ui.label("q");
@@ -344,10 +338,10 @@ impl EffectEditor for kson::effects::AudioEffect {
             kson::effects::AudioEffect::PeakingFilter(kson::effects::PeakingFilter {
                 v,
                 freq,
-                freq_max,
                 q,
                 delay,
                 mix,
+                gain,
             }) => {
                 ui.label("v");
                 ui.add(param_editor(v, false));
@@ -357,8 +351,8 @@ impl EffectEditor for kson::effects::AudioEffect {
                 ui.add(param_editor(freq, false));
                 ui.end_row();
 
-                ui.label("freq_max");
-                ui.add(param_editor(freq_max, false));
+                ui.label("gain");
+                ui.add(param_editor(gain, false));
                 ui.end_row();
 
                 ui.label("q");

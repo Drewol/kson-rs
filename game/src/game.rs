@@ -17,9 +17,11 @@ use egui_plot::{Line, PlotPoints};
 use image::GenericImageView;
 use itertools::Itertools;
 use kson::{
+    effects::AudioEffect,
     score_ticks::{PlacedScoreTick, ScoreTick, ScoreTickSummary, ScoreTicker},
     Chart, Graph, Side,
 };
+use kson_music_playback::GetBiQuadState;
 use kson_rodio_sources::{
     biquad::{biquad, BiQuadState, BiQuadType, BiquadController},
     owned_source::owned_source,
@@ -29,7 +31,7 @@ use puffin::{profile_function, profile_scope};
 use rodio::{dynamic_mixer::DynamicMixerController, source::Buffered, Decoder, Source};
 use std::{
     cmp::Ordering,
-    collections::VecDeque,
+    collections::{BTreeMap, VecDeque},
     f32::consts::SQRT_2,
     ops::Sub,
     path::PathBuf,
@@ -112,6 +114,8 @@ pub struct Game {
     foreground: Option<GameBackground>,
     service_provider: ServiceProvider,
     sync_delta: VecDeque<f64>,
+    laser_effects: BTreeMap<u32, AudioEffect>,
+    default_laser_effect: AudioEffect,
 }
 
 #[derive(Clone, Copy)]
@@ -442,6 +446,7 @@ impl SceneData for GameData {
             .expect("Failed to load audio");
         playback.build_effects(&chart);
         playback.stop();
+        let laser_effects = chart.laser_effect_queue();
 
         //TODO: No need to set leadin if first tick is beyond the leadin time.
         playback.set_leadin(LEADIN);
@@ -533,6 +538,7 @@ impl SceneData for GameData {
             background,
             foreground,
             service_provider,
+            laser_effects,
         )?))
     }
 }
@@ -560,6 +566,7 @@ impl Game {
         background: Option<GameBackground>,
         foreground: Option<GameBackground>,
         service_provider: ServiceProvider,
+        laser_effects: BTreeMap<u32, AudioEffect>,
     ) -> Result<Self> {
         let mut view = ChartView::new(skin_root, td)?;
         view.build_laser_meshes(&chart);
@@ -637,6 +644,10 @@ impl Game {
             laser_wide: [0, 0],
             laser_alert: [0, 0],
             hit_window: GameConfig::get().hit_window,
+            laser_effects,
+            default_laser_effect: AudioEffect::PeakingFilter(
+                kson::effects::PeakingFilter::default(),
+            ),
         };
         res.set_track_uniforms();
         Ok(res)
@@ -1120,10 +1131,19 @@ impl Scene for Game {
             _ => None,
         };
 
-        _ = if let Some(f) = laser_freq {
-            let freq = 80.0f32 * (8000.0f32 / 80.0f32).powf(f as f32);
+        let laser_effect = self
+            .laser_effects
+            .range(0..=self.current_tick)
+            .rev()
+            .map(|x| x.1)
+            .next()
+            .unwrap_or(&self.default_laser_effect);
+
+        _ = if let Some((f, s)) =
+            laser_freq.and_then(|x| laser_effect.get_biquad_state(x as _).map(|v| (x, v)))
+        {
             self.biquad_control.send((
-                Some(BiQuadState::new(BiQuadType::Peaking(10.0), SQRT_2, freq)),
+                Some(dbg!(s)),
                 Some((1.0 - (f - 0.5).abs() * 1.99).powf(0.1) as f32),
             ))
         } else {

@@ -503,3 +503,32 @@ impl Default for AudioPlayback {
         Self::new()
     }
 }
+
+pub trait GetBiQuadState {
+    fn get_biquad_state(&self, v: f32) -> Option<kson_rodio_sources::biquad::BiQuadState>;
+}
+
+impl GetBiQuadState for kson::effects::AudioEffect {
+    fn get_biquad_state(&self, p: f32) -> Option<kson_rodio_sources::biquad::BiQuadState> {
+        use kson_rodio_sources::biquad::BiQuadState;
+        use kson_rodio_sources::biquad::BiQuadType;
+        match self {
+            kson::effects::AudioEffect::HighPassFilter(v) => Some(BiQuadState::new(
+                BiQuadType::HighPass,
+                v.q.interpolate(p, true),
+                v.freq.interpolate(p, true),
+            )),
+            kson::effects::AudioEffect::LowPassFilter(v) => Some(BiQuadState::new(
+                BiQuadType::LowPass,
+                v.q.interpolate(p, true),
+                v.freq.interpolate(p, true),
+            )),
+            kson::effects::AudioEffect::PeakingFilter(v) => Some(BiQuadState::new(
+                BiQuadType::Peaking(v.gain.interpolate(p, true) * 20.0),
+                v.q.interpolate(p, true),
+                v.freq.interpolate(p, true),
+            )),
+            _ => None,
+        }
+    }
+}
