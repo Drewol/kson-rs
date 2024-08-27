@@ -257,9 +257,9 @@ impl<T: Default> FromStr for EffectParameter<T> {
 
         Ok(Self {
             v: T::default(),
-            off,
             on: b.and_then(|o| EffectParameterValue::from_str(&o).ok()),
-            shape: InterpolationShape::Linear,
+            shape: off.default_shape(),
+            off,
         })
     }
 }

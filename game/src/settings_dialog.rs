@@ -415,6 +415,29 @@ impl SettingsDialog {
                     "Game",
                     vec![
                         (
+                            "Gauge".into(),
+                            SettingsDialogSetting::options(
+                                || match GameConfig::get().start_gauge {
+                                    crate::game::gauge::GaugeType::Normal => 0,
+                                    crate::game::gauge::GaugeType::Hard => 1,
+                                },
+                                |x| {
+                                    GameConfig::get_mut().start_gauge = match x {
+                                        1 => crate::game::gauge::GaugeType::Hard,
+                                        _ => crate::game::gauge::GaugeType::Normal,
+                                    }
+                                },
+                                vec!["Normal".into(), "Hard".into()],
+                            ),
+                        ),
+                        (
+                            "Backup Gauge".into(),
+                            SettingsDialogSetting::bool(
+                                || GameConfig::get().fallback_gauge,
+                                |x| GameConfig::get_mut().fallback_gauge = x,
+                            ),
+                        ),
+                        (
                             "Hide Background".into(),
                             SettingsDialogSetting::bool(
                                 || GameConfig::get().graphics.disable_bg,

@@ -80,6 +80,8 @@ pub struct GameConfig {
     pub master_volume: f32,
     pub hit_window: game::HitWindow,
     pub score_display: ScoreDisplayMode,
+    pub fallback_gauge: bool,
+    pub start_gauge: game::gauge::GaugeType,
 }
 
 #[derive(Debug, Deserialize, Serialize, Clone)]
@@ -231,7 +233,9 @@ impl Default for GameConfig {
             distant_button_scale: 2.0,
             master_volume: 0.8,
             hit_window: HitWindow::NORMAL,
-            score_display: ScoreDisplayMode::default()
+            score_display: ScoreDisplayMode::default(),
+            fallback_gauge: false,
+            start_gauge: game::gauge::GaugeType::Normal
         }
     }
 }

@@ -80,7 +80,7 @@ pub struct Game {
     song: Arc<Song>,
     diff_idx: usize,
     control_tx: Option<Sender<ControlMessage>>,
-    gauge: Gauge,
+    gauge: Gauges,
     results_requested: bool,
     closed: bool,
     playback: kson_music_playback::AudioPlayback,
@@ -124,89 +124,8 @@ enum TargetRoll {
     Laser(f64),
     Manual(f64),
 }
-
-pub const GAUGE_SAMPLES: usize = 128;
-
-#[derive(Debug, Default)]
-pub enum Gauge {
-    #[default]
-    None,
-    Normal {
-        chip_gain: f32,
-        tick_gain: f32,
-        value: f32,
-        samples: Box<[f32; GAUGE_SAMPLES]>,
-    },
-}
-
-fn tick_is_short(score_tick: PlacedScoreTick) -> bool {
-    match score_tick.tick {
-        ScoreTick::Laser { lane: _, pos: _ } => false,
-        ScoreTick::Slam {
-            lane: _,
-            start: _,
-            end: _,
-        } => true,
-        ScoreTick::Chip { lane: _ } => true,
-        ScoreTick::Hold { lane: _ } => false,
-    }
-}
-
-impl Gauge {
-    pub fn on_hit(&mut self, rating: HitRating) {
-        match self {
-            Gauge::None => {}
-            Gauge::Normal {
-                chip_gain,
-                tick_gain,
-                value,
-                ..
-            } => match rating {
-                HitRating::Crit { tick: t, .. } if tick_is_short(t) => *value += *chip_gain,
-                HitRating::Crit { .. } => *value += *tick_gain,
-                HitRating::Good { .. } => *value += *chip_gain / 3.0, //Only chips can have a "good" rating
-                HitRating::Miss { tick: t, .. } if tick_is_short(t) => *value -= 0.02,
-                HitRating::Miss { .. } => *value -= 0.02 / 4.0,
-                HitRating::None => {}
-            },
-        }
-
-        //Clamp
-        match self {
-            Gauge::None => todo!(),
-            Gauge::Normal { value, .. } => *value = value.clamp(0.0, 1.0),
-        }
-    }
-
-    pub fn is_cleared(&self) -> bool {
-        match self {
-            Gauge::Normal { value, .. } => *value >= 0.7,
-            Gauge::None => false,
-        }
-    }
-
-    pub fn value(&self) -> f32 {
-        match self {
-            Gauge::None => 0.0,
-            Gauge::Normal { value, .. } => *value,
-        }
-    }
-
-    pub fn update_sample(&mut self, sample: usize) {
-        match self {
-            Gauge::None => {}
-            Gauge::Normal { value, samples, .. } => samples[sample.min(GAUGE_SAMPLES)] = *value,
-        }
-    }
-
-    pub fn get_samples(&self) -> &[f32] {
-        match self {
-            Gauge::None => &[],
-            Gauge::Normal { samples, .. } => samples.as_ref(),
-        }
-    }
-}
-
+pub mod gauge;
+use gauge::*;
 #[derive(Debug, Clone, Copy)]
 pub enum HitRating {
     None,
@@ -235,6 +154,12 @@ impl From<&Gauge> for lua_data::LuaGauge {
                 options: 0,
                 value: *value,
                 name: "Normal".into(),
+            },
+            Gauge::Hard { value, .. } => lua_data::LuaGauge {
+                gauge_type: 1,
+                options: 0,
+                value: *value,
+                name: "Hard".into(),
             },
             Gauge::None => lua_data::LuaGauge {
                 gauge_type: 0,
@@ -607,7 +532,7 @@ impl Game {
             score_current_max: 0,
             score_display: GameConfig::get().score_display,
             score_ticks,
-            gauge: Gauge::default(),
+            gauge: Gauges::default(),
             real_score: 0,
             display_score: u64::MAX,
             combo: 0,
@@ -713,7 +638,7 @@ impl Game {
             hispeed: self.view.hispeed,
             hispeed_adjust: 0,
             bpm: self.chart.bpm_at_tick(self.current_tick) as f32,
-            gauge: lua_data::LuaGauge::from(&self.gauge),
+            gauge: lua_data::LuaGauge::from(&self.gauge.active),
             hidden_cutoff: 0.0,
             sudden_cutoff: 0.0,
             hidden_fade: 0.0,
@@ -1039,6 +964,27 @@ impl Game {
     fn with_offset(&self, time_ms: f64) -> f64 {
         time_ms - self.chart.audio.bgm.offset as f64
     }
+
+    fn fail_song(&mut self) -> anyhow::Result<()> {
+        //TODO: Enter fail transition state
+        self.transition_to_results()?;
+        Ok(())
+    }
+
+    fn transition_to_results(&mut self) -> Result<(), anyhow::Error> {
+        self.control_tx
+            .as_ref()
+            .ok_or(anyhow!("control_tx not set"))?
+            .send(ControlMessage::Result {
+                song: self.song.clone(),
+                diff_idx: self.diff_idx,
+                score: self.actual_display_score() as u32,
+                gauge: std::mem::take(&mut self.gauge.active),
+                hit_ratings: std::mem::take(&mut self.hit_ratings),
+            })
+            .expect("Main loop messaging error");
+        Ok(())
+    }
 }
 
 impl Scene for Game {
@@ -1085,17 +1031,7 @@ impl Scene for Game {
         }
 
         if self.current_tick >= self.duration && !self.results_requested {
-            self.control_tx
-                .as_ref()
-                .ok_or(anyhow!("control_tx not set"))?
-                .send(ControlMessage::Result {
-                    song: self.song.clone(),
-                    diff_idx: self.diff_idx,
-                    score: self.actual_display_score() as u32,
-                    gauge: std::mem::take(&mut self.gauge),
-                    hit_ratings: std::mem::take(&mut self.hit_ratings),
-                })
-                .expect("Main loop messaging error");
+            self.transition_to_results()?;
             self.results_requested = true;
         }
         let missed_chip_tick = self.chart.ms_to_tick(
@@ -1291,6 +1227,10 @@ impl Scene for Game {
             }
         }
 
+        if self.gauge.is_dead() {
+            self.fail_song()?;
+        }
+
         Ok(())
     }
 
@@ -1314,13 +1254,15 @@ impl Scene for Game {
             (gain, gain / 4.0)
         };
 
-        self.gauge = Gauge::Normal {
-            chip_gain,
-            tick_gain,
-            value: 0.0,
-            samples: Box::new([0.0; GAUGE_SAMPLES]),
-        };
-
+        let config = GameConfig::get();
+        let fallbacks = (config.start_gauge.fallback_supported() && config.fallback_gauge)
+            .then(|| GaugeType::Normal.get_gauge(chip_gain, tick_gain))
+            .into_iter()
+            .collect();
+        self.gauge = Gauges::new(
+            config.start_gauge.get_gauge(chip_gain, tick_gain),
+            fallbacks,
+        );
         self.control_tx = Some(app_control_tx);
         lua_provider.register_libraries(self.lua.clone(), "gameplay.lua")?;
         Ok(())

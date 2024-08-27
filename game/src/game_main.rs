@@ -36,7 +36,7 @@ use three_d as td;
 use crate::{
     button_codes::{LaserState, UscInputEvent},
     config::{Fullscreen, GameConfig},
-    game::{Gauge, HitRating},
+    game::{gauge::Gauge, HitRating},
     game_data::GameData,
     input_state::InputState,
     lua_http::LuaHttp,

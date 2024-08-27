@@ -13,7 +13,7 @@ use serde::Serialize;
 use crate::{
     async_service::AsyncService,
     button_codes::UscButton,
-    game::{Gauge, HitRating, HitWindow},
+    game::{gauge::Gauge, HitRating, HitWindow},
     lua_service::LuaProvider,
     scene::{Scene, SceneData},
     song_provider::{DiffId, ScoreProvider, SongDiffId, SongId},
