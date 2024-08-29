@@ -14,8 +14,10 @@ use crate::{
     async_service::AsyncService,
     button_codes::{UscButton, UscInputEvent},
     config::{GameConfig, ScoreDisplayMode},
+    game::HitWindow,
     input_state::InputState,
     lua_service::LuaProvider,
+    settings_screen::HitFrames,
     songselect::KNOB_NAV_THRESHOLD,
 };
 
@@ -466,6 +468,73 @@ impl SettingsDialog {
                                     ScoreDisplayMode::Average.to_string(),
                                 ],
                             ),
+                        ),
+                    ],
+                ),
+                SettingsDialogTab::new(
+                    "Judgement",
+                    vec![
+                        (
+                            "Crit window".into(),
+                            SettingsDialogSetting::int(
+                                || {
+                                    HitFrames::from(GameConfig::get().hit_window.perfect)
+                                        .0
+                                        .round() as i32
+                                },
+                                |x| {
+                                    GameConfig::get_mut().hit_window.perfect =
+                                        HitFrames(x as _).into()
+                                },
+                                1,
+                                20,
+                                1,
+                                1,
+                            ),
+                        ),
+                        (
+                            "Near window".into(),
+                            SettingsDialogSetting::int(
+                                || {
+                                    HitFrames::from(GameConfig::get().hit_window.good).0.round()
+                                        as i32
+                                },
+                                |x| {
+                                    GameConfig::get_mut().hit_window.good = HitFrames(x as _).into()
+                                },
+                                1,
+                                20,
+                                1,
+                                1,
+                            ),
+                        ),
+                        (
+                            "Crit window".into(),
+                            SettingsDialogSetting::int(
+                                || {
+                                    HitFrames::from(GameConfig::get().hit_window.hold).0.round()
+                                        as i32
+                                },
+                                |x| {
+                                    GameConfig::get_mut().hit_window.hold = HitFrames(x as _).into()
+                                },
+                                1,
+                                20,
+                                1,
+                                1,
+                            ),
+                        ),
+                        (
+                            "Set Normal".into(),
+                            SettingsDialogSetting::button(|| {
+                                GameConfig::get_mut().hit_window = HitWindow::NORMAL
+                            }),
+                        ),
+                        (
+                            "Set Hard".into(),
+                            SettingsDialogSetting::button(|| {
+                                GameConfig::get_mut().hit_window = HitWindow::HARD
+                            }),
                         ),
                     ],
                 ),
