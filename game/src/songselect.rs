@@ -4,7 +4,7 @@ use game_loop::winit::event::{ElementState, Event, Ime, WindowEvent};
 use itertools::Itertools;
 use kson_rodio_sources::owned_source::owned_source;
 use log::warn;
-use puffin::{profile_function, profile_scope};
+use puffin::profile_function;
 use rodio::Source;
 use serde::Serialize;
 use serde_json::json;
@@ -33,7 +33,9 @@ use winit::{
 };
 
 use crate::{
+    async_service::AsyncService,
     button_codes::{LaserAxis, LaserState, UscButton, UscInputEvent},
+    help::await_task,
     input_state::InputState,
     lua_service::LuaProvider,
     results::Score,
@@ -195,6 +197,7 @@ pub struct SongSelectScene {
     song_events: bus::BusReader<SongProviderEvent>,
     score_events: bus::BusReader<ScoreProviderEvent>,
     score_provider: RefMut<dyn ScoreProvider>,
+    async_worker: RefMut<AsyncService>,
     sort_lua: Rc<Lua>,
     filter_lua: Rc<Lua>,
     level_filter: u8,
@@ -234,6 +237,7 @@ impl SongSelectScene {
             _sample_owner: sample_owner,
             input_state: input_state.clone(),
             settings_dialog: SettingsDialog::general_settings(input_state, services.create_scope()),
+            async_worker: services.get_required(),
             song_events,
             score_events,
             song_provider,
@@ -275,6 +279,96 @@ impl SongSelectScene {
     )?;
         Ok((filters, sorts))
     }
+
+    fn start_preview(&mut self) {
+        let song_id = self.state.songs[self.state.selected_index as usize]
+            .id
+            .clone();
+        let services = self.services.create_scope();
+
+        let suspended = self.suspended.clone();
+        let preview_playing = self.state.preview_playing.clone();
+        let preview_finished = self.state.preview_finished.clone();
+        let owner = self.sample_marker.clone();
+        let mixer = self.mixer.clone();
+
+        self.async_worker.read().unwrap().run(async move {
+            let preview = {
+                let song_provider = services.get_required_mut::<dyn SongProvider>();
+                let preview = song_provider.read().unwrap().get_preview(&song_id);
+                preview
+            };
+
+            let (preview, skip, duration) = match await_task(preview).await {
+                Ok(e) => e,
+                Err(e) => {
+                    warn!("Could not load preview: {e}");
+                    return;
+                }
+            };
+
+            add_preview_source(
+                preview,
+                skip,
+                duration,
+                suspended,
+                preview_playing,
+                preview_finished,
+                owner,
+                song_id.as_u64(),
+                mixer,
+            );
+        });
+    }
+}
+
+fn add_preview_source<T: Source<Item = f32> + Send + 'static>(
+    preview: T,
+    skip: Duration,
+    duration: Duration,
+    suspended: Arc<AtomicBool>,
+    preview_playing: Arc<AtomicU64>,
+    preview_finished: Arc<AtomicUsize>,
+    owner: Sender<()>,
+    song_id_u64: u64,
+    mixer: RuscMixer,
+) {
+    let mut amp = 1.0f32;
+    preview_playing.store(song_id_u64, std::sync::atomic::Ordering::Relaxed);
+    preview_finished.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+
+    let source = take_duration_fade(
+        rodio::source::Source::skip_duration(preview, skip)
+            .pausable(false)
+            .stoppable(),
+        duration,
+        Duration::from_millis(500),
+        preview_finished,
+    )
+    .fade_in(Duration::from_millis(500))
+    .amplify(1.0)
+    .periodic_access(Duration::from_millis(10), move |state| {
+        state
+            .inner_mut()
+            .inner_mut()
+            .inner_mut()
+            .inner_mut()
+            .set_paused(suspended.load(std::sync::atomic::Ordering::Relaxed));
+
+        let amp = &mut amp;
+        let current_preview = preview_playing.load(std::sync::atomic::Ordering::Relaxed);
+        if current_preview != song_id_u64 {
+            *amp -= 1.0 / 50.0;
+            if *amp < 0.0 {
+                state.inner_mut().inner_mut().inner_mut().stop();
+            }
+        } else if *amp < 1.0 {
+            *amp += 1.0 / 50.0;
+        }
+        state.set_factor(amp.clamp(0.0, 1.0));
+    });
+
+    mixer.as_ref().add(owned_source(source, owner));
 }
 
 impl Scene for SongSelectScene {
@@ -432,79 +526,7 @@ impl Scene for SongSelectScene {
         {
             if self.state.preview_countdown < _dt {
                 //Start playing preview
-                //TODO: Reduce nesting
-                let song_id = &self.state.songs[self.state.selected_index as usize].id;
-                let song_id_u64 = song_id.as_u64();
-                if self
-                    .state
-                    .preview_playing
-                    .load(std::sync::atomic::Ordering::SeqCst)
-                    != song_id_u64
-                {
-                    match self
-                        .song_provider
-                        .read()
-                        .expect("Lock error")
-                        .get_preview(song_id)
-                    {
-                        Ok((preview, skip, duration)) => {
-                            profile_scope!("Start Preview");
-                            self.state
-                                .preview_finished
-                                .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-
-                            self.state
-                                .preview_playing
-                                .store(song_id_u64, std::sync::atomic::Ordering::Relaxed);
-                            let current_preview = self.state.preview_playing.clone();
-                            let mut amp = 1_f32;
-                            let mixer = self.mixer.clone();
-                            let owner = self.sample_marker.clone();
-                            let preview_finish_signal = self.state.preview_finished.clone();
-                            let suspended = self.suspended.clone();
-                            _ =
-                                poll_promise::Promise::spawn_thread("queue preview", move || {
-                                    let source = take_duration_fade(
-                                        rodio::source::Source::skip_duration(preview, skip)
-                                            .pausable(false)
-                                            .stoppable(),
-                                        duration,
-                                        Duration::from_millis(500),
-                                        preview_finish_signal,
-                                    )
-                                    .fade_in(Duration::from_millis(500))
-                                    .amplify(1.0)
-                                    .periodic_access(Duration::from_millis(10), move |state| {
-                                        state
-                                            .inner_mut()
-                                            .inner_mut()
-                                            .inner_mut()
-                                            .inner_mut()
-                                            .set_paused(
-                                                suspended
-                                                    .load(std::sync::atomic::Ordering::Relaxed),
-                                            );
-
-                                        let amp = &mut amp;
-                                        let current_preview = current_preview
-                                            .load(std::sync::atomic::Ordering::Relaxed);
-                                        if current_preview != song_id_u64 {
-                                            *amp -= 1.0 / 50.0;
-                                            if *amp < 0.0 {
-                                                state.inner_mut().inner_mut().inner_mut().stop();
-                                            }
-                                        } else if *amp < 1.0 {
-                                            *amp += 1.0 / 50.0;
-                                        }
-                                        state.set_factor(amp.clamp(0.0, 1.0));
-                                    });
-
-                                    mixer.as_ref().add(owned_source(source, owner));
-                                });
-                        }
-                        Err(e) => warn!("Could not load preview: {e:?}"),
-                    }
-                }
+                self.start_preview();
             }
             self.state.preview_countdown -= _dt;
         } else if song_advance_steps != 0 {

@@ -12,6 +12,18 @@ use tealr::{
 
 use crate::worker_service::WorkerService;
 
+pub async fn await_task<T: Send + 'static>(mut t: poll_promise::Promise<T>) -> T {
+    loop {
+        t = match t.try_take() {
+            Ok(t) => break t,
+            Err(t) => {
+                tokio::task::yield_now().await;
+                t
+            }
+        };
+    }
+}
+
 pub(crate) fn add_lua_static_method<'lua, M, A, R, F, T: 'static + Sized + ToTypename>(
     methods: &mut M,
     name: &'static str,

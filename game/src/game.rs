@@ -1079,7 +1079,7 @@ impl Scene for Game {
             laser_freq.and_then(|x| laser_effect.get_biquad_state(x as _).map(|v| (x, v)))
         {
             self.biquad_control.send((
-                Some(dbg!(s)),
+                Some(s),
                 Some((1.0 - (f - 0.5).abs() * 1.99).powf(0.1) as f32),
             ))
         } else {

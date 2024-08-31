@@ -426,46 +426,57 @@ impl SongProvider for NauticaSongProvider {
     fn get_preview(
         &self,
         id: &SongId,
-    ) -> anyhow::Result<(
-        Box<dyn Source<Item = f32> + Send>,
-        std::time::Duration,
-        std::time::Duration,
-    )> {
-        let SongId::StringId(song_id) = id else {
-            bail!("Unsupported id type")
-        };
-
-        let song_uuid = Uuid::parse_str(song_id)?;
-
-        let mut song_path = project_dirs().cache_dir().to_path_buf();
-
-        song_path.push(song_uuid.hyphenated().to_string());
-        log::info!("Writing song cache {:?}", &song_path);
-        std::fs::create_dir_all(&song_path)?;
-        song_path.push("preview");
-
-        let source: Box<dyn Source<Item = f32> + Send> = if song_path.exists() {
-            Box::new(rodio::Decoder::new(std::fs::File::open(song_path)?)?.convert_samples())
-        } else {
-            let NauticaSong { data: nautica } = reqwest::blocking::get(format!(
-                "https://ksm.dev/app/songs/{}",
-                song_uuid.as_hyphenated()
-            ))
-            .expect("Failed to get song")
-            .json()
-            .expect("Failed to parse nautica song");
-
-            let Some(preview_url) = nautica.preview_url else {
-                bail!("No preview url")
+    ) -> poll_promise::Promise<
+        anyhow::Result<(
+            Box<dyn Source<Item = f32> + Send>,
+            std::time::Duration,
+            std::time::Duration,
+        )>,
+    > {
+        let id = id.clone();
+        poll_promise::Promise::spawn_async(async move {
+            let SongId::StringId(song_id) = id else {
+                bail!("Unsupported id type")
             };
 
-            let mut bytes = reqwest::blocking::get(preview_url)?.bytes()?;
+            let song_uuid = Uuid::parse_str(&song_id)?;
 
-            std::fs::write(song_path, &bytes)?;
+            let mut song_path = project_dirs().cache_dir().to_path_buf();
 
-            Box::new(rodio::Decoder::new(std::io::Cursor::new(bytes))?.convert_samples())
-        };
-        Ok((source, Duration::ZERO, Duration::MAX))
+            song_path.push(song_uuid.hyphenated().to_string());
+            log::info!("Writing song cache {:?}", &song_path);
+            std::fs::create_dir_all(&song_path)?;
+            song_path.push("preview");
+
+            let source: Box<dyn Source<Item = f32> + Send> = if song_path.exists() {
+                Box::new(rodio::Decoder::new(std::fs::File::open(song_path)?)?.convert_samples())
+            } else {
+                let NauticaSong { data: nautica } = reqwest::get(format!(
+                    "https://ksm.dev/app/songs/{}",
+                    song_uuid.as_hyphenated()
+                ))
+                .await
+                .expect("Failed to get song")
+                .json()
+                .await
+                .expect("Failed to parse nautica song");
+
+                let Some(preview_url) = nautica.preview_url else {
+                    bail!("No preview url")
+                };
+
+                let mut bytes = reqwest::get(preview_url).await?.bytes().await?;
+
+                std::fs::write(song_path, &bytes)?;
+
+                Box::new(rodio::Decoder::new(std::io::Cursor::new(bytes))?.convert_samples())
+            };
+            Ok((
+                source as Box<dyn Source<Item = f32> + Send>,
+                Duration::ZERO,
+                Duration::MAX,
+            ))
+        })
     }
 
     fn subscribe(&mut self) -> bus::BusReader<SongProviderEvent> {

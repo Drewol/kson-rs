@@ -549,36 +549,40 @@ impl SongProvider for FileSongProvider {
     fn get_preview(
         &self,
         id: &SongId,
-    ) -> anyhow::Result<(
-        Box<dyn Source<Item = f32> + Send>,
-        std::time::Duration,
-        std::time::Duration,
-    )> {
-        profile_function!();
-        let SongId::IntId(id) = id else {
-            bail!("Unsupported id type")
-        };
-        let id = *id;
+    ) -> poll_promise::Promise<
+        anyhow::Result<(
+            Box<dyn Source<Item = f32> + Send>,
+            std::time::Duration,
+            std::time::Duration,
+        )>,
+    > {
         let db = self.database.clone();
-        let mut charts = block_on!(db.get_charts_for_folder(id))?;
-        let Some(mut chart) = charts.pop() else {
-            bail!("No chart found")
-        };
+        let id = id.clone();
+        poll_promise::Promise::spawn_async(async move {
+            profile_function!();
+            let SongId::IntId(id) = id else {
+                bail!("Unsupported id type")
+            };
+            let mut charts = block_on(db.get_charts_for_folder(id))?;
+            let Some(mut chart) = charts.pop() else {
+                bail!("No chart found")
+            };
 
-        info!("Got chart: {:?}", &chart.preview_file);
-        let Some(path) = chart.preview_file.take() else {
-            bail!("No preview file")
-        };
+            info!("Got chart: {:?}", &chart.preview_file);
+            let Some(path) = chart.preview_file.take() else {
+                bail!("No preview file")
+            };
 
-        let source = rodio::Decoder::new(std::fs::File::open(
-            PathBuf::from(&chart.path).with_file_name(path),
-        )?)?
-        .convert_samples();
-        Ok((
-            Box::new(source),
-            Duration::from_millis(chart.preview_offset as u64),
-            Duration::from_millis(chart.preview_length as u64),
-        ))
+            let source = rodio::Decoder::new(std::fs::File::open(
+                PathBuf::from(&chart.path).with_file_name(path),
+            )?)?
+            .convert_samples();
+            Ok((
+                Box::new(source) as Box<dyn Source<Item = f32> + Send>,
+                Duration::from_millis(chart.preview_offset as u64),
+                Duration::from_millis(chart.preview_length as u64),
+            ))
+        })
     }
 
     fn subscribe(&mut self) -> bus::BusReader<SongProviderEvent> {

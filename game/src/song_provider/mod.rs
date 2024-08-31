@@ -12,6 +12,7 @@ use egui::util::hash;
 use kson::Chart;
 use log::LevelFilter;
 use luals_gen::ToLuaLsType;
+use poll_promise::Promise;
 use rodio::Source;
 use serde::{Deserialize, Serialize};
 use tealr::{
@@ -217,11 +218,11 @@ impl SongDiffId {
 }
 
 impl TealData for SongDiffId {}
-
+pub type PreviewResult = anyhow::Result<(Box<dyn Source<Item = f32> + Send>, Duration, Duration)>;
 pub type LoadSongFn =
     Box<dyn FnOnce() -> anyhow::Result<(Chart, Box<dyn rodio::Source<Item = f32> + Send>)> + Send>;
 
-pub trait SongProvider {
+pub trait SongProvider: Send {
     fn subscribe(&mut self) -> bus::BusReader<SongProviderEvent>;
     fn set_search(&mut self, query: &str);
     fn get_available_sorts(&self) -> Vec<SongSort>;
@@ -232,10 +233,7 @@ pub trait SongProvider {
     fn load_song(&self, id: &SongDiffId) -> anyhow::Result<LoadSongFn>;
     fn add_score(&self, id: SongDiffId, score: Score);
     /// Returns: `(music, skip, duration)`
-    fn get_preview(
-        &self,
-        id: &SongId,
-    ) -> anyhow::Result<(Box<dyn Source<Item = f32> + Send>, Duration, Duration)>;
+    fn get_preview(&self, id: &SongId) -> Promise<PreviewResult>;
     fn get_all(&self) -> Vec<Arc<Song>>;
 }
 
