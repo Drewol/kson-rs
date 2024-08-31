@@ -219,8 +219,8 @@ impl Gauge {
     pub fn update_sample(&mut self, sample: usize) {
         match self {
             Gauge::None => {}
-            Gauge::Normal { value, samples, .. } => samples[sample.min(GAUGE_SAMPLES)] = *value,
-            Gauge::Hard { value, samples, .. } => samples[sample.min(GAUGE_SAMPLES)] = *value,
+            Gauge::Normal { value, samples, .. } => samples[sample.min(GAUGE_SAMPLES - 1)] = *value,
+            Gauge::Hard { value, samples, .. } => samples[sample.min(GAUGE_SAMPLES - 1)] = *value,
         }
     }
 
