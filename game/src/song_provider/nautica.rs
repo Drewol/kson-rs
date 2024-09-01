@@ -5,16 +5,18 @@ use std::{
     io::{BufReader, BufWriter, Read},
     path::PathBuf,
     str::FromStr,
-    sync::Arc,
+    sync::{mpsc::Sender, Arc},
     time::Duration,
 };
 
+use di::RefMut;
 use futures::AsyncWriteExt;
 use itertools::Itertools;
 use log::warn;
 use rodio::Source;
 
 use crate::{
+    async_service::AsyncService,
     project_dirs,
     results::Score,
     song_provider::SongFilterType,
@@ -34,6 +36,11 @@ pub struct NauticaSongs {
     pub(crate) data: Vec<Datum>,
     pub(crate) links: Links,
     pub(crate) meta: Meta,
+}
+
+#[derive(Default, Serialize, Deserialize)]
+struct LocalData {
+    songs: HashMap<Uuid, Datum>,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -207,6 +214,12 @@ pub struct NauticaSongProvider {
     bus: bus::Bus<SongProviderEvent>,
     filter: SongFilter,
     query: HashMap<&'static str, String>,
+    local_data: LocalData,
+    song_loaded: (
+        std::sync::mpsc::Sender<Datum>,
+        std::sync::mpsc::Receiver<Datum>,
+    ),
+    async_worker: Arc<std::sync::RwLock<AsyncService>>,
 }
 
 impl Debug for NauticaSongProvider {
@@ -263,7 +276,12 @@ async fn next_songs(path: String) -> Result<NauticaSongs> {
 }
 
 impl NauticaSongProvider {
-    pub fn new() -> Self {
+    pub fn new(async_worker: RefMut<AsyncService>) -> Self {
+        let local_data = std::fs::read_to_string(cache_path())
+            .ok()
+            .and_then(|x| serde_json::from_str(&x).ok())
+            .unwrap_or_default();
+
         Self {
             next: None,
             events: VecDeque::new(),
@@ -272,6 +290,9 @@ impl NauticaSongProvider {
             bus: bus::Bus::new(32),
             filter: SongFilter::new(SongFilterType::None, 0),
             query: HashMap::new(),
+            local_data,
+            song_loaded: std::sync::mpsc::channel(),
+            async_worker,
         }
     }
 
@@ -280,18 +301,28 @@ impl NauticaSongProvider {
         self.events.push_back(SongProviderEvent::SongsRemoved(
             old_songs.into_iter().map(|x| x.id.clone()).collect(),
         ));
-
-        let query = self
-            .query
-            .iter()
-            .map(|x| format!("{}={}", x.0, x.1))
-            .join("&");
-        self.next_url = if query.is_empty() {
-            "https://ksm.dev/app/songs".to_owned()
+        if let SongFilterType::Collection(c) = &self.filter.filter_type {
+            self.all_songs = self
+                .local_data
+                .songs
+                .iter()
+                .map(|x| Arc::new(x.1.as_song()))
+                .collect();
+            self.events
+                .push_back(SongProviderEvent::SongsAdded(self.all_songs.clone()));
         } else {
-            format!("https://ksm.dev/app/songs?{}", query)
-        };
-        self.next = Some(Promise::spawn_async(next_songs(self.next_url.clone())));
+            let query = self
+                .query
+                .iter()
+                .map(|x| format!("{}={}", x.0, x.1))
+                .join("&");
+            self.next_url = if query.is_empty() {
+                "https://ksm.dev/app/songs".to_owned()
+            } else {
+                format!("https://ksm.dev/app/songs?{}", query)
+            };
+            self.next = Some(Promise::spawn_async(next_songs(self.next_url.clone())));
+        }
     }
 }
 
@@ -323,12 +354,40 @@ impl WorkerService for NauticaSongProvider {
                 self.bus.broadcast(ele);
             }
         }
+
+        if let Ok(loaded) = self.song_loaded.1.try_recv() {
+            self.local_data.songs.insert(loaded.id, loaded);
+
+            if let Ok(local_data_json) = serde_json::to_string(&self.local_data) {
+                self.async_worker.read().unwrap().run(async move {
+                    use tokio::io::*;
+                    let path = cache_path();
+                    let Ok(mut file) = tokio::fs::File::create(&path).await else {
+                        warn!("Could not create nautica cache file");
+                        return;
+                    };
+
+                    if let Some(e) = file.write_all(local_data_json.as_bytes()).await.err() {
+                        warn!("Could not write nautica cache file: {e}");
+                    }
+                })
+            }
+        }
     }
+}
+
+fn cache_path() -> PathBuf {
+    let mut path = project_dirs().cache_dir().to_path_buf();
+    path.push("nautica_cache.json");
+    path
 }
 
 impl SongProvider for NauticaSongProvider {
     fn get_available_filters(&self) -> Vec<super::SongFilterType> {
-        vec![SongFilterType::None]
+        vec![
+            SongFilterType::None,
+            SongFilterType::Collection("Played".into()),
+        ]
     }
 
     fn set_search(&mut self, query: &str) {
@@ -350,6 +409,8 @@ impl SongProvider for NauticaSongProvider {
         } else {
             self.query.remove("levels");
         }
+        self.filter = filter;
+
         self.query_changed();
     }
 
@@ -420,7 +481,7 @@ impl SongProvider for NauticaSongProvider {
             .find(|x| x.id == *diff_id)
             .ok_or(anyhow!("diff id not in songs difficulties"))?;
 
-        download_song(song_uuid, diff.difficulty)
+        download_song(song_uuid, diff.difficulty, self.song_loaded.0.clone())
     }
 
     fn get_preview(
@@ -496,7 +557,7 @@ impl SongProvider for NauticaSongProvider {
     }
 }
 
-fn download_song(id: Uuid, diff: u8) -> anyhow::Result<LoadSongFn> {
+fn download_song(id: Uuid, diff: u8, on_loaded: Sender<Datum>) -> anyhow::Result<LoadSongFn> {
     Ok(Box::new(move || {
         let mut song_path = project_dirs().cache_dir().to_path_buf();
 
@@ -512,10 +573,11 @@ fn download_song(id: Uuid, diff: u8) -> anyhow::Result<LoadSongFn> {
         let NauticaSong { data: nautica } =
             reqwest::blocking::get(format!("https://ksm.dev/app/songs/{}", id.as_hyphenated()))?
                 .json()?;
-        let mut data = reqwest::blocking::get(nautica.cdn_download_url)?.bytes()?;
+        let mut data = reqwest::blocking::get(&nautica.cdn_download_url)?.bytes()?;
         std::fs::write(&song_path, data)?;
 
         let file = File::open(song_path)?;
+        on_loaded.send(nautica);
         song_from_zip(BufReader::new(file), diff)
     }))
 }

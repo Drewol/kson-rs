@@ -443,8 +443,8 @@ fn main() -> anyhow::Result<()> {
         .add(singleton_factory(|_| {
             RefMut::new(block_on!(song_provider::FileSongProvider::new()).into())
         }))
-        .add(singleton_factory(|_| {
-            RefMut::new(song_provider::NauticaSongProvider::new().into())
+        .add(singleton_factory(|x| {
+            RefMut::new(song_provider::NauticaSongProvider::new(x.get_required_mut()).into())
         }))
         .add(transient_factory::<
             RwLock<dyn song_provider::SongProvider>,
