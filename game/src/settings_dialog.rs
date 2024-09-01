@@ -8,6 +8,7 @@ use std::{
 
 use kson::Side;
 use log::info;
+use std::sync::mpsc::Sender;
 use tealr::mlu::mlua::{Function, IntoLua, Lua, LuaSerdeExt};
 
 use crate::{
@@ -15,6 +16,7 @@ use crate::{
     button_codes::{UscButton, UscInputEvent},
     config::{GameConfig, ScoreDisplayMode},
     game::HitWindow,
+    game_main::AutoPlay,
     input_state::InputState,
     lua_service::LuaProvider,
     settings_screen::HitFrames,
@@ -390,7 +392,11 @@ impl SettingsDialog {
         Ok(())
     }
 
-    pub fn general_settings(input_state: InputState, services: di::ServiceProvider) -> Self {
+    pub fn general_settings(
+        input_state: InputState,
+        services: di::ServiceProvider,
+        autoplay_tx: Sender<AutoPlay>,
+    ) -> Self {
         let tx = Arc::new(AtomicU32::new(0));
         let rx = tx.clone();
 
@@ -468,6 +474,12 @@ impl SettingsDialog {
                                     ScoreDisplayMode::Average.to_string(),
                                 ],
                             ),
+                        ),
+                        (
+                            "Autoplay".into(),
+                            SettingsDialogSetting::button(move || {
+                                autoplay_tx.send(AutoPlay::All).unwrap()
+                            }),
                         ),
                     ],
                 ),

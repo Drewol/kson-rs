@@ -1,6 +1,7 @@
 use crate::{
     button_codes::{UscButton, UscInputEvent},
     config::{GameConfig, ScoreDisplayMode},
+    game_main::AutoPlay,
     input_state::InputState,
     log_result,
     lua_service::LuaProvider,
@@ -116,6 +117,7 @@ pub struct Game {
     sync_delta: VecDeque<f64>,
     laser_effects: BTreeMap<u32, AudioEffect>,
     default_laser_effect: AudioEffect,
+    autoplay: AutoPlay,
 }
 
 #[derive(Clone, Copy)]
@@ -183,6 +185,7 @@ pub struct GameData {
     chart: kson::Chart,
     skin_folder: PathBuf,
     audio: std::boxed::Box<(dyn rodio::source::Source<Item = f32> + std::marker::Send + 'static)>,
+    autoplay: AutoPlay,
 }
 
 impl GameData {
@@ -192,6 +195,7 @@ impl GameData {
         chart: kson::Chart,
         skin_folder: PathBuf,
         audio: Box<dyn Source<Item = f32> + Send>,
+        autoplay: AutoPlay,
     ) -> anyhow::Result<Self> {
         //TODO: Does not belong in game crate
         //TODO: Sort effects for proper overlapping sounds
@@ -203,6 +207,7 @@ impl GameData {
             diff_idx,
             song,
             audio: Box::new(audio),
+            autoplay,
         })
     }
 }
@@ -218,6 +223,7 @@ impl SceneData for GameData {
             diff_idx,
             song,
             audio,
+            autoplay,
         } = *self;
         profile_function!();
 
@@ -464,6 +470,7 @@ impl SceneData for GameData {
             foreground,
             service_provider,
             laser_effects,
+            autoplay,
         )?))
     }
 }
@@ -492,6 +499,7 @@ impl Game {
         foreground: Option<GameBackground>,
         service_provider: ServiceProvider,
         laser_effects: BTreeMap<u32, AudioEffect>,
+        autoplay: AutoPlay,
     ) -> Result<Self> {
         let mut view = ChartView::new(skin_root, td)?;
         view.build_laser_meshes(&chart);
@@ -573,6 +581,7 @@ impl Game {
             default_laser_effect: AudioEffect::PeakingFilter(
                 kson::effects::PeakingFilter::default(),
             ),
+            autoplay,
         };
         res.set_track_uniforms();
         Ok(res)
@@ -873,12 +882,14 @@ impl Game {
         slam_miss_tick: u32,
     ) -> HitRating {
         let time = self.current_time().as_secs_f64() * 1000.0;
+
         match tick.tick {
             ScoreTick::Hold { lane } => {
                 if self
                     .input_state
                     .is_button_held((lane as u8).into())
                     .is_some()
+                    || self.auto_buttons()
                 {
                     HitRating::Crit {
                         tick,
@@ -894,7 +905,7 @@ impl Game {
                 }
             }
             ScoreTick::Laser { lane, pos } => {
-                if (self.laser_cursors[lane] - pos).abs() < LASER_THRESHOLD {
+                if (self.laser_cursors[lane] - pos).abs() < LASER_THRESHOLD || self.auto_lasers() {
                     HitRating::Crit {
                         tick,
                         delta: 0.0,
@@ -928,8 +939,9 @@ impl Game {
                 if tick.y < slam_miss_tick {
                     self.laser_assist_ticks[lane] = 0;
                     HitRating::Miss { tick, delta, time }
-                } else if delta.abs() < (self.hit_window.slam.as_secs_f64() * 1000.0)
-                    && contains_cursor
+                } else if self.auto_lasers()
+                    || (delta.abs() < (self.hit_window.slam.as_secs_f64() * 1000.0)
+                        && contains_cursor)
                 {
                     self.laser_cursors[lane] = end;
                     self.laser_assist_ticks[lane] = 24;
@@ -941,6 +953,12 @@ impl Game {
             ScoreTick::Chip { lane: _ } => {
                 if tick.y < chip_miss_tick {
                     HitRating::Miss {
+                        tick,
+                        delta: 0.0,
+                        time,
+                    }
+                } else if self.auto_buttons() {
+                    HitRating::Crit {
                         tick,
                         delta: 0.0,
                         time,
@@ -972,18 +990,30 @@ impl Game {
     }
 
     fn transition_to_results(&mut self) -> Result<(), anyhow::Error> {
-        self.control_tx
-            .as_ref()
-            .ok_or(anyhow!("control_tx not set"))?
-            .send(ControlMessage::Result {
-                song: self.song.clone(),
-                diff_idx: self.diff_idx,
-                score: self.actual_display_score() as u32,
-                gauge: std::mem::take(&mut self.gauge.active),
-                hit_ratings: std::mem::take(&mut self.hit_ratings),
-            })
-            .expect("Main loop messaging error");
+        if let AutoPlay::None = self.autoplay {
+            self.control_tx
+                .as_ref()
+                .ok_or(anyhow!("control_tx not set"))?
+                .send(ControlMessage::Result {
+                    song: self.song.clone(),
+                    diff_idx: self.diff_idx,
+                    score: self.actual_display_score() as u32,
+                    gauge: std::mem::take(&mut self.gauge.active),
+                    hit_ratings: std::mem::take(&mut self.hit_ratings),
+                })
+                .expect("Main loop messaging error");
+        } else {
+            self.closed = true;
+        }
         Ok(())
+    }
+
+    fn auto_buttons(&self) -> bool {
+        matches!(self.autoplay, AutoPlay::All | AutoPlay::Buttons)
+    }
+
+    fn auto_lasers(&self) -> bool {
+        matches!(self.autoplay, AutoPlay::All | AutoPlay::Lasers)
     }
 }
 
@@ -1038,6 +1068,8 @@ impl Scene for Game {
             self.with_offset(time.saturating_sub(self.hit_window.good).as_secs_f64() * 1000.0),
         );
 
+        let auto_lasers = self.auto_lasers();
+
         for (side, ((laser_active, laser_target), wide)) in self
             .laser_active
             .iter_mut()
@@ -1054,7 +1086,7 @@ impl Scene for Game {
                 false
             };
 
-            if was_none && laser_target.is_some() {
+            if (was_none && laser_target.is_some()) || auto_lasers {
                 self.laser_assist_ticks[side] = 10;
             }
             //TODO: Also check ahead
@@ -1181,10 +1213,12 @@ impl Scene for Game {
         self.playback.set_fx_enable(
             self.input_state
                 .is_button_held(UscButton::FX(kson::Side::Left))
-                .is_some(),
+                .is_some()
+                || self.auto_buttons(),
             self.input_state
                 .is_button_held(UscButton::FX(kson::Side::Right))
-                .is_some(),
+                .is_some()
+                || self.auto_buttons(),
         );
 
         self.camera.check_spins(self.current_tick);
@@ -1564,9 +1598,11 @@ impl Scene for Game {
 
         let buttons_held: std::collections::HashSet<_> = (0..6usize)
             .filter(|x| {
-                self.input_state
-                    .is_button_held(UscButton::from(*x as u8))
-                    .is_some()
+                self.auto_buttons()
+                    || self
+                        .input_state
+                        .is_button_held(UscButton::from(*x as u8))
+                        .is_some()
             })
             .collect();
 
@@ -1787,7 +1823,9 @@ impl Scene for Game {
         let button_num = Into::<u8>::into(button);
 
         match button {
-            crate::button_codes::UscButton::BT(_) | crate::button_codes::UscButton::FX(_) => {
+            crate::button_codes::UscButton::BT(_) | crate::button_codes::UscButton::FX(_)
+                if !self.auto_buttons() =>
+            {
                 if let Some((index, score_tick)) = hittable_ticks.find_position(|x| {
                     if let ScoreTick::Chip { lane } = x.tick {
                         lane == button_num as usize

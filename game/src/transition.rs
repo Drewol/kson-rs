@@ -15,6 +15,7 @@ use tealr::mlu::mlua::{Function, Lua, LuaSerdeExt};
 use three_d::{ColorMaterial, Gm, Mat3, Rad, Rectangle, Texture2DRef, Vec2, Zero};
 
 use crate::{
+    game_main::AutoPlay,
     log_result,
     main_menu::MainMenuButton,
     results::SongResultData,
@@ -54,6 +55,7 @@ fn load_chart(
     diff_idx: usize,
     skin_folder: PathBuf,
     audio: Box<dyn Source<Item = f32> + Send>,
+    autoplay: AutoPlay,
 ) -> anyhow::Result<Box<dyn SceneData + Send>> {
     Ok(Box::new(crate::game::GameData::new(
         song,
@@ -61,6 +63,7 @@ fn load_chart(
         chart,
         skin_folder,
         audio,
+        autoplay,
     )?))
 }
 
@@ -91,12 +94,7 @@ impl Transition {
 
         let prev_grab = screen_grab(context, viewport);
 
-        if let ControlMessage::Song {
-            song,
-            diff,
-            loader: _,
-        } = &target
-        {
+        if let ControlMessage::Song { song, diff, .. } = &target {
             let mut vgfx = vgfx.write().expect("Failed to lock VG");
             let diff = song
                 .difficulties
@@ -225,11 +223,16 @@ impl Scene for Transition {
                                 load_songs()
                             }))
                         }
-                        ControlMessage::Song { song, diff, loader } => {
+                        ControlMessage::Song {
+                            song,
+                            diff,
+                            loader,
+                            autoplay,
+                        } => {
                             let skin_folder = self.vgfx.read().expect("Lock error").skin_folder();
                             Some(Promise::spawn_thread("Load song", move || {
                                 let (chart, audio) = loader()?;
-                                load_chart(chart, song, diff, skin_folder, audio)
+                                load_chart(chart, song, diff, skin_folder, audio, autoplay)
                             }))
                         }
                         ControlMessage::Result {

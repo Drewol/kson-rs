@@ -15,7 +15,7 @@ use std::{
     rc::Rc,
     sync::{
         atomic::{AtomicBool, AtomicU64, AtomicUsize},
-        mpsc::{channel, Receiver, Sender},
+        mpsc::{self, channel, Receiver, Sender},
         Arc, RwLock,
     },
     time::{Duration, SystemTime},
@@ -35,6 +35,7 @@ use winit::{
 use crate::{
     async_service::AsyncService,
     button_codes::{LaserAxis, LaserState, UscButton, UscInputEvent},
+    game_main::AutoPlay,
     help::await_task,
     input_state::InputState,
     lua_service::LuaProvider,
@@ -205,6 +206,7 @@ pub struct SongSelectScene {
     sort_index: usize,
     filters: Vec<song_provider::SongFilterType>,
     sorts: Vec<song_provider::SongSort>,
+    auto_rx: Receiver<crate::game_main::AutoPlay>,
 }
 
 impl SongSelectScene {
@@ -221,6 +223,7 @@ impl SongSelectScene {
             .expect("Lock error")
             .init_scores(&mut initial_songs.iter());
         song_select.songs.add(initial_songs, vec![]);
+        let (auto_tx, auto_rx) = mpsc::channel();
         Self {
             filter_lua: LuaProvider::new_lua(),
             sort_lua: LuaProvider::new_lua(),
@@ -236,7 +239,11 @@ impl SongSelectScene {
             sample_marker,
             _sample_owner: sample_owner,
             input_state: input_state.clone(),
-            settings_dialog: SettingsDialog::general_settings(input_state, services.create_scope()),
+            settings_dialog: SettingsDialog::general_settings(
+                input_state,
+                services.create_scope(),
+                auto_tx,
+            ),
             async_worker: services.get_required(),
             song_events,
             score_events,
@@ -250,6 +257,7 @@ impl SongSelectScene {
             filters: vec![],
             sorts: vec![],
             settings_closed: SystemTime::UNIX_EPOCH,
+            auto_rx,
         }
     }
 
@@ -319,6 +327,36 @@ impl SongSelectScene {
                 mixer,
             );
         });
+    }
+
+    fn start_song(&mut self, autoplay: AutoPlay) {
+        let state = &self.state;
+        let song = self.state.songs.get(state.selected_index as usize).cloned();
+
+        if let (Some(pc), Some(song)) = (&self.program_control, song) {
+            let diff = state.selected_diff_index as usize;
+            match self
+                .song_provider
+                .read()
+                .expect("Lock error")
+                .load_song(&SongDiffId::SongDiff(song.id.clone(), {
+                    song.difficulties.read().expect("Lock error")[diff]
+                        .id
+                        .clone()
+                })) {
+                Ok(loader) => {
+                    _ = pc.send(ControlMessage::Song {
+                        diff,
+                        loader,
+                        song: song.clone(),
+                        autoplay,
+                    });
+                }
+                Err(err) => {
+                    log::warn!("Failed to load song: {err}");
+                }
+            };
+        }
     }
 }
 
@@ -451,7 +489,12 @@ impl Scene for SongSelectScene {
                                 .program_control
                                 .as_ref()
                                 .ok_or(anyhow!("Program control not set"))?
-                                .send(ControlMessage::Song { diff, song, loader })
+                                .send(ControlMessage::Song {
+                                    diff,
+                                    song,
+                                    loader,
+                                    autoplay: crate::game_main::AutoPlay::None
+                                })
                                 .is_ok());
                         }
                         ui.end_row();
@@ -703,6 +746,10 @@ impl Scene for SongSelectScene {
             }
         }
 
+        if let Ok(autoplay) = self.auto_rx.try_recv() {
+            self.start_song(autoplay);
+        }
+
         Ok(())
     }
 
@@ -815,30 +862,7 @@ impl Scene for SongSelectScene {
             UscButton::Start => {
                 match self.menu_state {
                     MenuState::Songs => {
-                        let state = &self.state;
-                        let song = self.state.songs.get(state.selected_index as usize).cloned();
-
-                        if let (Some(pc), Some(song)) = (&self.program_control, song) {
-                            let diff = state.selected_diff_index as usize;
-                            match self.song_provider.read().expect("Lock error").load_song(
-                                &SongDiffId::SongDiff(song.id.clone(), {
-                                    song.difficulties.read().expect("Lock error")[diff]
-                                        .id
-                                        .clone()
-                                }),
-                            ) {
-                                Ok(loader) => {
-                                    _ = pc.send(ControlMessage::Song {
-                                        diff,
-                                        loader,
-                                        song: song.clone(),
-                                    });
-                                }
-                                Err(err) => {
-                                    log::warn!("Failed to load song: {err}");
-                                }
-                            };
-                        }
+                        self.start_song(AutoPlay::None);
                     }
                     MenuState::Levels => {
                         self.menu_state = MenuState::Folders;

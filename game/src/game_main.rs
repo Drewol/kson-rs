@@ -53,6 +53,13 @@ use crate::{
     LuaArena, RuscMixer, Scenes, FRAME_ACC_SIZE,
 };
 
+pub enum AutoPlay {
+    None,
+    Buttons,
+    Lasers,
+    All,
+}
+
 pub enum ControlMessage {
     None,
     MainMenu(MainMenuButton),
@@ -60,6 +67,7 @@ pub enum ControlMessage {
         song: Arc<songselect::Song>,
         diff: usize,
         loader: song_provider::LoadSongFn,
+        autoplay: AutoPlay,
     },
     TransitionComplete(Box<dyn scene::Scene>),
     Result {
@@ -290,12 +298,22 @@ impl GameMain {
                     ))),
                     _ => {}
                 },
-                ControlMessage::Song { diff, loader, song } => {
+                ControlMessage::Song {
+                    diff,
+                    loader,
+                    song,
+                    autoplay,
+                } => {
                     if let Ok(_arena) = lua_arena.read() {
                         let transition_lua = transition_song_lua.clone();
                         scenes.transition = Transition::new(
                             transition_lua,
-                            ControlMessage::Song { diff, loader, song },
+                            ControlMessage::Song {
+                                diff,
+                                loader,
+                                song,
+                                autoplay,
+                            },
                             control_tx.clone(),
                             vgfx.clone(),
                             frame_input.viewport,

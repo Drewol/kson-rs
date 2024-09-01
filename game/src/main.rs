@@ -604,6 +604,7 @@ fn main() -> anyhow::Result<()> {
                 chart,
                 skin_folder,
                 Box::new(audio.convert_samples()),
+                game_main::AutoPlay::None,
             )?)
             .make_scene(services.create_scope())?,
         );
