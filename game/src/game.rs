@@ -875,6 +875,16 @@ impl Game {
         }
     }
 
+    fn hold_ok(&self, lane: usize, start_tick: u32) -> bool {
+        let is_button_held = &self.input_state.is_button_held((lane as u8).into());
+        let start_ms = self.without_offset(self.chart.tick_to_ms(start_tick));
+        let hold_start = self.zero_time + Duration::from_secs_f64(start_ms / 1000.0);
+        let hold_start_thres = hold_start
+            .checked_sub(self.hit_window.hold)
+            .unwrap_or(hold_start);
+        is_button_held.is_some_and(|t| t > hold_start_thres)
+    }
+
     fn process_tick(
         &mut self,
         tick: PlacedScoreTick,
@@ -884,13 +894,8 @@ impl Game {
         let time = self.current_time().as_secs_f64() * 1000.0;
 
         match tick.tick {
-            ScoreTick::Hold { lane } => {
-                if self
-                    .input_state
-                    .is_button_held((lane as u8).into())
-                    .is_some()
-                    || self.auto_buttons()
-                {
+            ScoreTick::Hold { lane, start_tick } => {
+                if self.hold_ok(lane, start_tick) || self.auto_buttons() {
                     HitRating::Crit {
                         tick,
                         delta: 0.0,
@@ -981,6 +986,10 @@ impl Game {
 
     fn with_offset(&self, time_ms: f64) -> f64 {
         time_ms - self.chart.audio.bgm.offset as f64
+    }
+
+    fn without_offset(&self, time_ms: f64) -> f64 {
+        time_ms + self.chart.audio.bgm.offset as f64
     }
 
     fn fail_song(&mut self) -> anyhow::Result<()> {
@@ -1184,9 +1193,13 @@ impl Scene for Game {
                         ScoreTick::Slam { lane, .. } => lane == side,
                         _ => false,
                     })
-                    .map(|x| matches!(x.tick, ScoreTick::Slam { .. }))
+                    .map(|x| match x.tick {
+                        ScoreTick::Slam { .. } => x.y,
+                        _ => u32::MAX,
+                    })
+                    .unwrap_or(u32::MAX)
             };
-            if *assist_ticks > 0 && !next_laser_is_slam().unwrap_or_default() {
+            if *assist_ticks > 0 && self.current_tick < next_laser_is_slam() {
                 self.laser_cursors[side] = self.chart.note.laser[side]
                     .value_at(self.current_tick as f64)
                     .unwrap_or(self.laser_cursors[side]);
@@ -1358,7 +1371,7 @@ impl Scene for Game {
                                 .iter()
                                 .filter(|x| x.y > self.current_tick)
                                 .find(|x| match x.tick {
-                                    ScoreTick::Chip { lane } | ScoreTick::Hold { lane } => {
+                                    ScoreTick::Chip { lane } | ScoreTick::Hold { lane, .. } => {
                                         lane == i
                                     }
                                     _ => false,
@@ -1594,23 +1607,11 @@ impl Scene for Game {
             );
         }
 
-        //TODO: Set hold glow state
-
-        let buttons_held: std::collections::HashSet<_> = (0..6usize)
-            .filter(|x| {
-                self.auto_buttons()
-                    || self
-                        .input_state
-                        .is_button_held(UscButton::from(*x as u8))
-                        .is_some()
-            })
-            .collect();
-
         target.render(&td_camera, [&self.track_shader], &[]);
         let render_data = match self.view.render(
             &self.chart,
             td_context,
-            buttons_held,
+            |lane, tick| self.hold_ok(lane, tick),
             self.beam_colors_current,
         ) {
             Ok(d) => d,

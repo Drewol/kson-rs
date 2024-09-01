@@ -5,7 +5,7 @@ pub enum ScoreTick {
     Laser { lane: usize, pos: f64 },
     Slam { lane: usize, start: f64, end: f64 },
     Chip { lane: usize },
-    Hold { lane: usize },
+    Hold { lane: usize, start_tick: u32 },
 }
 
 impl ScoreTick {
@@ -18,7 +18,7 @@ impl ScoreTick {
                 end: _,
             } => *lane,
             ScoreTick::Chip { lane } => *lane,
-            ScoreTick::Hold { lane } => *lane,
+            ScoreTick::Hold { lane, .. } => *lane,
         }
     }
 }
@@ -67,7 +67,10 @@ fn ticks_from_interval(interval: &Interval, lane: usize, chart: &Chart) -> Vec<P
         while y <= interval.y + interval.l - step {
             res.push(PlacedScoreTick {
                 y,
-                tick: ScoreTick::Hold { lane },
+                tick: ScoreTick::Hold {
+                    lane,
+                    start_tick: interval.y,
+                },
             });
             step = get_hold_step_at(y, chart);
             y += step;
@@ -77,7 +80,10 @@ fn ticks_from_interval(interval: &Interval, lane: usize, chart: &Chart) -> Vec<P
         if res.is_empty() {
             res.push(PlacedScoreTick {
                 y: interval.y + interval.l / 2,
-                tick: ScoreTick::Hold { lane },
+                tick: ScoreTick::Hold {
+                    lane,
+                    start_tick: interval.y,
+                },
             })
         }
 
@@ -219,14 +225,10 @@ impl ScoreTicker for ScoreTicks {
         for t in self {
             res.total += 1;
             match t.tick {
-                ScoreTick::Laser { lane: _, pos: _ } => res.laser_count += 1,
-                ScoreTick::Slam {
-                    lane: _,
-                    start: _,
-                    end: _,
-                } => res.slam_count += 1,
-                ScoreTick::Chip { lane: _ } => res.chip_count += 1,
-                ScoreTick::Hold { lane: _ } => res.hold_count += 1,
+                ScoreTick::Laser { .. } => res.laser_count += 1,
+                ScoreTick::Slam { .. } => res.slam_count += 1,
+                ScoreTick::Chip { .. } => res.chip_count += 1,
+                ScoreTick::Hold { .. } => res.hold_count += 1,
             }
         }
 

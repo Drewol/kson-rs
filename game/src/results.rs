@@ -156,8 +156,8 @@ impl SongResultData {
                             end: _,
                         } => laser.push(rating),
 
-                        ScoreTick::Chip { lane: _ } => note.push(rating),
-                        ScoreTick::Hold { lane: _ } => hold.push(rating),
+                        ScoreTick::Chip { .. } => note.push(rating),
+                        ScoreTick::Hold { .. } => hold.push(rating),
                     },
                 }
                 Ok((laser, note, hold))
@@ -299,8 +299,8 @@ impl TryFrom<HitRating> for HitStat {
                         start: _,
                         end: _,
                     } => 0,
-                    kson::score_ticks::ScoreTick::Chip { lane: _ } => 0,
-                    kson::score_ticks::ScoreTick::Hold { lane: _ } => 1,
+                    kson::score_ticks::ScoreTick::Chip { .. } => 0,
+                    kson::score_ticks::ScoreTick::Hold { .. } => 1,
                 },
             },
         };

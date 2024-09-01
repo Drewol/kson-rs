@@ -28,7 +28,7 @@ pub fn main() -> Result<()> {
         .iter()
         .fold((0, 0, 0, 0), |acc, tick| match tick.tick {
             kson::score_ticks::ScoreTick::Chip { lane: _ } => (acc.0 + 1, acc.1, acc.2, acc.3),
-            kson::score_ticks::ScoreTick::Hold { lane: _ } => (acc.0, acc.1 + 1, acc.2, acc.3),
+            kson::score_ticks::ScoreTick::Hold { .. } => (acc.0, acc.1 + 1, acc.2, acc.3),
             kson::score_ticks::ScoreTick::Laser { lane: _, pos: _ } => {
                 (acc.0, acc.1, acc.2 + 1, acc.3)
             }

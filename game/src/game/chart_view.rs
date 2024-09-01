@@ -1,4 +1,4 @@
-use std::{collections::HashSet, path::Path, rc::Rc, sync::Arc};
+use std::{path::Path, rc::Rc, sync::Arc};
 
 use crate::{config::GameConfig, game::HoldState};
 
@@ -157,10 +157,10 @@ impl ChartView {
     }
 
     pub fn render(
-        &mut self,
+        &self,
         chart: &kson::Chart,
         td: &three_d::Context,
-        buttons_held: HashSet<usize>,
+        hold_ok: impl Fn(usize, u32) -> bool,
         mut beam_colors: [[f32; 4]; 6],
     ) -> anyhow::Result<graphics::TrackRenderMeshes> {
         use three_d::prelude::*;
@@ -190,11 +190,11 @@ impl ChartView {
         enum NoteType {
             BtChip,
             BtHold,
-            BtHoldActive(usize),
+            BtHoldActive(usize, u32),
             FxChip,
             FxChipSample,
             FxHold,
-            FxHoldActive(usize),
+            FxHoldActive(usize, u32),
         }
         let mut notes = Vec::new();
         let chip_h = -1.0;
@@ -226,7 +226,7 @@ impl ChartView {
                         vec2(w, h),
                         if n.l > 0 {
                             if (n.y as i64) < view_tick && ((n.y + n.l) as i64) > view_tick {
-                                NoteType::BtHoldActive(i)
+                                NoteType::BtHoldActive(i, n.y)
                             } else {
                                 NoteType::BtHold
                             }
@@ -258,7 +258,7 @@ impl ChartView {
                         vec2(w, h),
                         if n.l > 0 {
                             if (n.y as i64) < view_tick && ((n.y + n.l) as i64) > view_tick {
-                                NoteType::FxHoldActive(i)
+                                NoteType::FxHoldActive(i, n.y)
                             } else {
                                 NoteType::FxHold
                             }
@@ -342,9 +342,9 @@ impl ChartView {
                 match n.1 {
                     NoteType::BtChip => bt_chip.push(n.0),
                     NoteType::BtHold => bt_hold.push((n.0, HoldState::Idle)),
-                    NoteType::BtHoldActive(lane) => bt_hold.push((
+                    NoteType::BtHoldActive(lane, y) => bt_hold.push((
                         n.0,
-                        if buttons_held.contains(&lane) {
+                        if hold_ok(lane, y) {
                             HoldState::Hit
                         } else {
                             HoldState::Miss
@@ -353,9 +353,9 @@ impl ChartView {
                     NoteType::FxChip => fx_chip.push((n.0, false)),
                     NoteType::FxChipSample => fx_chip.push((n.0, true)),
                     NoteType::FxHold => fx_hold.push((n.0, HoldState::Idle)),
-                    NoteType::FxHoldActive(side) => fx_hold.push((
+                    NoteType::FxHoldActive(side, y) => fx_hold.push((
                         n.0,
-                        if buttons_held.contains(&(side + 4)) {
+                        if hold_ok(side + 4, y) {
                             HoldState::Hit
                         } else {
                             HoldState::Miss
