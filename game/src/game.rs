@@ -25,7 +25,7 @@ use kson::{
 use kson_music_playback::GetBiQuadState;
 use kson_rodio_sources::{
     biquad::{biquad, BiQuadState, BiQuadType, BiquadController},
-    owned_source::owned_source,
+    owned_source::{self, owned_source},
 };
 
 use puffin::{profile_function, profile_scope};
@@ -37,10 +37,7 @@ use std::{
     ops::Sub,
     path::PathBuf,
     rc::Rc,
-    sync::{
-        mpsc::{Receiver, Sender},
-        Arc,
-    },
+    sync::{mpsc::Sender, Arc},
     time::{Duration, SystemTime},
 };
 use tealr::mlu::mlua::{Function, Lua, LuaSerdeExt};
@@ -109,8 +106,9 @@ pub struct Game {
     hit_ratings: Vec<HitRating>,
     mixer: Arc<DynamicMixerController<f32>>,
     biquad_control: BiquadController,
-    source_owner: (Sender<()>, Receiver<()>),
+    source_owner: owned_source::Marker,
     slam_sample: Option<Buffered<Decoder<std::fs::File>>>,
+    slam_marker: owned_source::Marker,
     background: Option<GameBackground>,
     foreground: Option<GameBackground>,
     service_provider: ServiceProvider,
@@ -567,11 +565,12 @@ impl Game {
             biquad_control,
             background,
             foreground,
-            source_owner: std::sync::mpsc::channel(),
+            source_owner: Default::default(),
             slam_sample: std::fs::File::open(slam_path)
                 .ok()
                 .and_then(|x| Decoder::new(x).ok())
                 .map(|x| x.buffered()),
+            slam_marker: Default::default(),
             service_provider,
             sync_delta: Default::default(),
             laser_wide: [0, 0],
@@ -800,7 +799,11 @@ impl Game {
                     }
 
                     if let Some(slam_sample) = self.slam_sample.clone() {
-                        self.mixer.add(slam_sample.convert_samples()); //TODO: Amplyfy with slam volume
+                        drop(std::mem::take(&mut self.slam_marker));
+                        self.mixer.add(owned_source(
+                            slam_sample.convert_samples(),
+                            &self.slam_marker,
+                        )); //TODO: Amplyfy with slam volume
                     }
 
                     if let Ok(laser_slam_hit) = laser_slam_hit {
@@ -1474,7 +1477,7 @@ impl Scene for Game {
                     BiQuadState::new(BiQuadType::AllPass, SQRT_2, 100.0),
                     Some(biquad_events),
                 ),
-                self.source_owner.0.clone(),
+                &self.source_owner,
             ));
         }
 

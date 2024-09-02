@@ -1,9 +1,6 @@
 use std::{
     f32::consts::SQRT_2,
-    sync::{
-        mpsc::{channel, Receiver},
-        Arc, RwLock,
-    },
+    sync::{mpsc::channel, Arc, RwLock},
     time::Duration,
 };
 
@@ -16,10 +13,9 @@ use rodio::{
 };
 
 use kson_rodio_sources::{
-    biquad::biquad,
-    biquad::{BiQuadState, BiquadController},
+    biquad::{biquad, BiQuadState, BiquadController},
     noise::NoiseSource,
-    owned_source::owned_source,
+    owned_source::{self, owned_source},
     takeable_source::TakeableSource,
 };
 
@@ -27,8 +23,8 @@ use crate::{scene::Scene, InnerRuscMixer, RuscMixer};
 
 pub struct AudioTest {
     mixer: RuscMixer,
-    source_owner: Receiver<()>,
-    _master_owner: Receiver<()>,
+    source_owner: owned_source::Marker,
+    _master_owner: owned_source::Marker,
     real_source: Option<Arc<RwLock<Option<LoopedDecoder<std::fs::File>>>>>,
     effects: EnabledEffects,
     biquad_controllers: [BiquadController; 3],
@@ -43,12 +39,12 @@ impl AudioTest {
         let mixer_source = biquad(mixer_source, Default::default(), Some(a.1));
         let mixer_source = biquad(mixer_source, Default::default(), Some(b.1));
         let mixer_source = biquad(mixer_source, Default::default(), Some(c.1));
-        let (master_source, master_owner) = channel();
-        let (_, source_owner) = channel();
+        let master_owner = owned_source::Marker::new();
+        let source_owner = owned_source::Marker::new();
 
         services
             .get_required::<InnerRuscMixer>()
-            .add(owned_source(mixer_source, master_source));
+            .add(owned_source(mixer_source, &master_owner));
         let mixer = inner_mixer;
 
         let source = if let Ok(a) = std::fs::File::open("sound_test.wav") {
@@ -187,8 +183,7 @@ impl Scene for AudioTest {
         // TODO: egui::Window::new("Audio Test").show(ctx, |ui|  self.effects.inspect_mut("Effects", ui));
 
         if old_effects != self.effects {
-            let (marker, owner) = channel();
-            self.source_owner = owner;
+            self.source_owner = owned_source::Marker::new();
             let source: Box<dyn Source<Item = f32> + Send> =
                 if let Some(takeable) = self.real_source.take() {
                     if let Some(source) = takeable.write().expect("Lock error").take() {
@@ -204,7 +199,7 @@ impl Scene for AudioTest {
                 };
 
             self.mixer
-                .add(owned_source(self.apply_effects(source), marker))
+                .add(owned_source(self.apply_effects(source), &self.source_owner))
         }
 
         Ok(())

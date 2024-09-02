@@ -2,7 +2,7 @@ use anyhow::{anyhow, ensure, Result};
 use di::{RefMut, ServiceProvider};
 use game_loop::winit::event::{ElementState, Event, Ime, WindowEvent};
 use itertools::Itertools;
-use kson_rodio_sources::owned_source::owned_source;
+use kson_rodio_sources::owned_source::{self, owned_source};
 use log::warn;
 use puffin::profile_function;
 use rodio::Source;
@@ -15,7 +15,7 @@ use std::{
     rc::Rc,
     sync::{
         atomic::{AtomicBool, AtomicU64, AtomicUsize},
-        mpsc::{self, channel, Receiver, Sender},
+        mpsc::{self, Receiver, Sender},
         Arc, RwLock,
     },
     time::{Duration, SystemTime},
@@ -188,8 +188,7 @@ pub struct SongSelectScene {
     suspended: Arc<AtomicBool>,
     closed: bool,
     mixer: RuscMixer,
-    _sample_owner: Receiver<()>,
-    sample_marker: Sender<()>,
+    sample_owner: owned_source::Marker,
     settings_dialog: SettingsDialog,
     settings_closed: SystemTime,
     input_state: InputState,
@@ -211,7 +210,7 @@ pub struct SongSelectScene {
 
 impl SongSelectScene {
     pub fn new(mut song_select: Box<SongSelect>, services: ServiceProvider) -> Self {
-        let (sample_marker, sample_owner) = channel();
+        let sample_owner = owned_source::Marker::new();
         let input_state = InputState::clone(&services.get_required());
         let song_provider: RefMut<dyn SongProvider> = services.get_required();
         let score_provider: RefMut<dyn ScoreProvider> = services.get_required();
@@ -236,8 +235,7 @@ impl SongSelectScene {
             suspended: Arc::new(AtomicBool::new(false)),
             closed: false,
             mixer: services.get_required(),
-            sample_marker,
-            _sample_owner: sample_owner,
+            sample_owner,
             input_state: input_state.clone(),
             settings_dialog: SettingsDialog::general_settings(
                 input_state,
@@ -297,7 +295,7 @@ impl SongSelectScene {
         let suspended = self.suspended.clone();
         let preview_playing = self.state.preview_playing.clone();
         let preview_finished = self.state.preview_finished.clone();
-        let owner = self.sample_marker.clone();
+        let owner = self.sample_owner.clone();
         let mixer = self.mixer.clone();
 
         self.async_worker.read().unwrap().run(async move {
@@ -322,7 +320,7 @@ impl SongSelectScene {
                 suspended,
                 preview_playing,
                 preview_finished,
-                owner,
+                &owner,
                 song_id.as_u64(),
                 mixer,
             );
@@ -367,7 +365,7 @@ fn add_preview_source<T: Source<Item = f32> + Send + 'static>(
     suspended: Arc<AtomicBool>,
     preview_playing: Arc<AtomicU64>,
     preview_finished: Arc<AtomicUsize>,
-    owner: Sender<()>,
+    owner: &owned_source::Marker,
     song_id_u64: u64,
     mixer: RuscMixer,
 ) {
@@ -546,7 +544,7 @@ impl Scene for SongSelectScene {
                     *amp = amp.clamp(0.0, 1.0);
                     state.set_factor(*amp);
                 }),
-            self.sample_marker.clone(),
+            &self.sample_owner,
         ));
 
         Ok(())
