@@ -1689,6 +1689,7 @@ impl Scene for Game {
 
         if !self.intro_done {
             if let Ok(func) = self.lua.globals().get::<_, Function>("render_intro") {
+                profile_scope!("lua render_intro");
                 match func.call::<_, bool>(dt / 1000.0) {
                     Err(e) => {
                         log::error!("{}", e);
@@ -1699,6 +1700,7 @@ impl Scene for Game {
         }
 
         if let Ok(func) = self.lua.globals().get::<_, Function>("render_crit_base") {
+            profile_scope!("lua render_crit_base");
             if let Err(e) = func.call::<_, ()>(dt / 1000.0) {
                 log::error!("{}", e);
             };
@@ -1718,6 +1720,7 @@ impl Scene for Game {
         }
 
         if let Ok(func) = self.lua.globals().get::<_, Function>("render_crit_overlay") {
+            profile_scope!("lua render_crit_overlay");
             if let Err(e) = func.call::<_, ()>(dt / 1000.0) {
                 log::error!("{}", e);
             };
@@ -1725,6 +1728,7 @@ impl Scene for Game {
         self.reset_canvas();
 
         if let Ok(func) = self.lua.globals().get::<_, Function>("render") {
+            profile_scope!("lua render");
             if let Err(e) = func.call::<_, ()>(dt / 1000.0) {
                 log::error!("{}", e);
             };

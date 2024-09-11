@@ -27,7 +27,7 @@ egui = { workspace = true }
 rand = { workspace = true }
 
 egui_plot = "0.27"
-femtovg = { git = 'https://github.com/Drewol/femtovg', branch = "VerbVisibility", default-features = false, features = [
+femtovg = { git = 'https://github.com/Drewol/femtovg', branch = "cache-experiment-1", default-features = false, features = [
     "image",
     "image-loading",
 ] }

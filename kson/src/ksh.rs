@@ -439,7 +439,7 @@ impl Ksh for crate::Chart {
                     y += ticks_per_line;
                 } else if line.starts_with('#') {
                     // Parse custom effect definitions
-                    let data = dbg!(line.splitn(3, ' ').collect::<Vec<_>>());
+                    let data = line.splitn(3, ' ').collect::<Vec<_>>();
                     if data.len() != 3 {
                         continue;
                     }
