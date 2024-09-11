@@ -479,6 +479,13 @@ impl Scene for SettingsScreen {
                         Slider::new(&mut self.altered_settings.master_volume, 0.0..=1.0)
                             .custom_formatter(|x, _| format!("{:.0}%", x * 100.0))
                             .custom_parser(|x| x.trim_matches('%').trim().parse().ok()),
+                    );
+
+                    ui.label("Slam volume");
+                    ui.add(
+                        Slider::new(&mut self.altered_settings.slam_volume, 0.0..=1.0)
+                            .custom_formatter(|x, _| format!("{:.0}%", x * 100.0))
+                            .custom_parser(|x| x.trim_matches('%').trim().parse().ok()),
                     )
                 });
 

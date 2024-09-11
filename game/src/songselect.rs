@@ -576,6 +576,12 @@ impl Scene for SongSelectScene {
 
         let mut songs_dirty = false;
         let mut index_dirty = false;
+        let selected_index: SongId = self
+            .state
+            .songs
+            .get(self.state.selected_index as _)
+            .map(|x| x.id.clone())
+            .unwrap_or_default();
 
         while let Ok(provider_event) = self.song_events.try_recv() {
             songs_dirty = true;
@@ -588,6 +594,10 @@ impl Scene for SongSelectScene {
                     self.state.songs.append(new_songs)
                 }
                 SongProviderEvent::SongsRemoved(removed_ids) => {
+                    if removed_ids.contains(&selected_index) {
+                        self.state.selected_index = 0;
+                        index_dirty = true;
+                    }
                     self.state.songs.remove(removed_ids)
                 }
                 SongProviderEvent::OrderChanged(order) => {

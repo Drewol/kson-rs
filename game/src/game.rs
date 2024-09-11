@@ -116,6 +116,7 @@ pub struct Game {
     laser_effects: BTreeMap<u32, AudioEffect>,
     default_laser_effect: AudioEffect,
     autoplay: AutoPlay,
+    slam_volume: f32,
 }
 
 #[derive(Clone, Copy)]
@@ -581,6 +582,7 @@ impl Game {
                 kson::effects::PeakingFilter::default(),
             ),
             autoplay,
+            slam_volume: GameConfig::get().slam_volume,
         };
         res.set_track_uniforms();
         Ok(res)
@@ -801,7 +803,7 @@ impl Game {
                     if let Some(slam_sample) = self.slam_sample.clone() {
                         drop(std::mem::take(&mut self.slam_marker));
                         self.mixer.add(owned_source(
-                            slam_sample.convert_samples(),
+                            slam_sample.convert_samples().amplify(self.slam_volume),
                             &self.slam_marker,
                         )); //TODO: Amplyfy with slam volume
                     }

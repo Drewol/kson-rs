@@ -82,6 +82,7 @@ pub struct GameConfig {
     pub score_display: ScoreDisplayMode,
     pub fallback_gauge: bool,
     pub start_gauge: game::gauge::GaugeType,
+    pub slam_volume: f32,
 }
 
 #[derive(Debug, Deserialize, Serialize, Clone)]
@@ -235,7 +236,8 @@ impl Default for GameConfig {
             hit_window: HitWindow::NORMAL,
             score_display: ScoreDisplayMode::default(),
             fallback_gauge: false,
-            start_gauge: game::gauge::GaugeType::Normal
+            start_gauge: game::gauge::GaugeType::Normal,
+            slam_volume: 0.75
         }
     }
 }
