@@ -162,9 +162,11 @@ impl ChartView {
         td: &three_d::Context,
         hold_ok: impl Fn(usize, u32) -> bool,
         mut beam_colors: [[f32; 4]; 6],
+        chip_h: f32,
     ) -> anyhow::Result<graphics::TrackRenderMeshes> {
         use three_d::prelude::*;
         profile_function!();
+        let chip_h = chip_h.copysign(-1.0);
         let view_time = self.cursor;
         let view_offset = if view_time < 0.0 {
             chart.ms_to_tick(view_time.abs()) as i64 //will be weird with early bpm changes
@@ -197,7 +199,6 @@ impl ChartView {
             FxHoldActive(usize, u32),
         }
         let mut notes = Vec::new();
-        let chip_h = -1.0;
 
         let _track = self.track.clone();
 

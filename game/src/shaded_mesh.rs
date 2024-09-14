@@ -264,13 +264,13 @@ impl ShadedMesh {
         name: impl Into<String>,
         path: impl AsRef<Path>,
         wrap_xy: (bool, bool),
-    ) -> anyhow::Result<()> {
+    ) -> anyhow::Result<CpuTexture> {
         profile_function!();
         let name = name.into();
-        let mut texture: CpuTexture = three_d_asset::io::load_and_deserialize(path)?;
+        let mut cpu_texture: CpuTexture = three_d_asset::io::load_and_deserialize(path)?;
 
-        log::info!("{}", &texture.name);
-        texture.data = match texture.data {
+        log::info!("{}", &cpu_texture.name);
+        cpu_texture.data = match cpu_texture.data {
             three_d::TextureData::RU8(luma) => {
                 three_d::TextureData::RgbaU8(luma.into_iter().map(|v| [v, v, v, 255u8]).collect())
             }
@@ -286,29 +286,29 @@ impl ShadedMesh {
 
         match wrap_xy {
             (true, true) => {
-                texture.wrap_s = Wrapping::Repeat;
-                texture.wrap_t = Wrapping::Repeat;
+                cpu_texture.wrap_s = Wrapping::Repeat;
+                cpu_texture.wrap_t = Wrapping::Repeat;
             }
             (true, false) => {
-                texture.wrap_s = Wrapping::Repeat;
-                texture.wrap_t = Wrapping::ClampToEdge;
+                cpu_texture.wrap_s = Wrapping::Repeat;
+                cpu_texture.wrap_t = Wrapping::ClampToEdge;
             }
             (false, true) => {
-                texture.wrap_s = Wrapping::ClampToEdge;
-                texture.wrap_t = Wrapping::Repeat;
+                cpu_texture.wrap_s = Wrapping::ClampToEdge;
+                cpu_texture.wrap_t = Wrapping::Repeat;
             }
             (false, false) => {
-                texture.wrap_s = Wrapping::ClampToEdge;
-                texture.wrap_t = Wrapping::ClampToEdge;
+                cpu_texture.wrap_s = Wrapping::ClampToEdge;
+                cpu_texture.wrap_t = Wrapping::ClampToEdge;
             }
         }
 
-        let texture = three_d::Texture2D::new(&self.context, &texture);
+        let texture = three_d::Texture2D::new(&self.context, &cpu_texture);
         if self.material.requires_uniform(&name) {
             self.material.use_texture(&name, &texture);
             self.params.insert(name, ShaderParam::Texture(texture));
         }
-        Ok(())
+        Ok(cpu_texture)
     }
 
     #[inline]
@@ -656,6 +656,7 @@ impl TealData for ShadedMesh {
         });
         methods.add_method_mut("AddTexture", |_lua, this, params: (String, String)| {
             this.use_texture(params.0, params.1, (false, false))
+                .map(|_| ())
                 .map_err(tealr::mlu::mlua::Error::external)
         });
         methods.add_method_mut("AddSkinTexture", |_lua, this, params: (String, String)| {
@@ -667,12 +668,14 @@ impl TealData for ShadedMesh {
             path.push(params.1);
 
             this.use_texture(params.0, path, (false, false))
+                .map(|_| ())
                 .map_err(tealr::mlu::mlua::Error::external)
         });
         methods.add_method_mut(
             "AddSharedTexture",
             |_lua, this, params: (String, String)| {
                 this.use_texture(params.0, params.1, (false, false))
+                    .map(|_| ())
                     .map_err(tealr::mlu::mlua::Error::external)
             },
         );

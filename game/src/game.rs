@@ -117,6 +117,7 @@ pub struct Game {
     default_laser_effect: AudioEffect,
     autoplay: AutoPlay,
     slam_volume: f32,
+    chip_h: f32,
 }
 
 #[derive(Clone, Copy)]
@@ -289,7 +290,7 @@ impl SceneData for GameData {
             texture_folder.with_file_name("fxbutton.png"),
             (false, false),
         )?;
-        let fx_height = 1.0 / 12.0;
+        let fx_height = 1.0;
 
         fx_chip_shader.set_data_mesh(&graphics::xy_rect(
             vec3(0.0, fx_height / 2.0, 0.0),
@@ -299,17 +300,20 @@ impl SceneData for GameData {
         let mut bt_chip_shader = ShadedMesh::new(&context, "button", &shader_folder)
             .expect("Failed to load shader:")
             .with_transform(Matrix4::from_translation(vec3(-0.5, 0.0, 0.0)));
-        let bt_height = 1.0 / 12.0;
+        let bt_height = 1.0;
+
+        let bt_tex = bt_chip_shader.use_texture(
+            "mainTex",
+            texture_folder.with_file_name("button.png"),
+            (false, false),
+        )?;
+
         bt_chip_shader.set_data_mesh(&graphics::xy_rect(
             vec3(0.0, bt_height / 2.0, 0.0),
             vec2(1.0 / 6.0, bt_height),
         ));
 
-        bt_chip_shader.use_texture(
-            "mainTex",
-            texture_folder.with_file_name("button.png"),
-            (false, false),
-        )?;
+        let chip_h = (1.0 / 6.0) * (bt_tex.height as f32 / bt_tex.width as f32);
 
         let mut track_shader =
             ShadedMesh::new(&context, "track", &shader_folder).expect("Failed to load shader:");
@@ -470,6 +474,7 @@ impl SceneData for GameData {
             service_provider,
             laser_effects,
             autoplay,
+            chip_h,
         )?))
     }
 }
@@ -499,6 +504,7 @@ impl Game {
         service_provider: ServiceProvider,
         laser_effects: BTreeMap<u32, AudioEffect>,
         autoplay: AutoPlay,
+        chip_h: f32,
     ) -> Result<Self> {
         let mut view = ChartView::new(skin_root, td)?;
         view.build_laser_meshes(&chart);
@@ -583,6 +589,7 @@ impl Game {
             ),
             autoplay,
             slam_volume: GameConfig::get().slam_volume,
+            chip_h,
         };
         res.set_track_uniforms();
         Ok(res)
@@ -1618,6 +1625,7 @@ impl Scene for Game {
             td_context,
             |lane, tick| self.hold_ok(lane, tick),
             self.beam_colors_current,
+            self.chip_h,
         ) {
             Ok(d) => d,
             Err(e) => {
