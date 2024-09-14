@@ -35,6 +35,7 @@ use winit::{
 use crate::{
     async_service::AsyncService,
     button_codes::{LaserAxis, LaserState, UscButton, UscInputEvent},
+    config::GameConfig,
     game_main::AutoPlay,
     help::await_task,
     input_state::InputState,
@@ -333,16 +334,20 @@ impl SongSelectScene {
 
         if let (Some(pc), Some(song)) = (&self.program_control, song) {
             let diff = state.selected_diff_index as usize;
+            let song_diff = SongDiffId::SongDiff(song.id.clone(), {
+                song.difficulties.read().expect("Lock error")[diff]
+                    .id
+                    .clone()
+            });
             match self
                 .song_provider
                 .read()
                 .expect("Lock error")
-                .load_song(&SongDiffId::SongDiff(song.id.clone(), {
-                    song.difficulties.read().expect("Lock error")[diff]
-                        .id
-                        .clone()
-                })) {
+                .load_song(&song_diff)
+            {
                 Ok(loader) => {
+                    GameConfig::get_mut().song_select.last_played = song_diff;
+                    self.async_worker.read().unwrap().save_config();
                     _ = pc.send(ControlMessage::Song {
                         diff,
                         loader,
@@ -576,6 +581,7 @@ impl Scene for SongSelectScene {
 
         let mut songs_dirty = false;
         let mut index_dirty = false;
+        let had_no_songs = self.state.songs.is_empty();
         let selected_index: SongId = self
             .state
             .songs
@@ -612,7 +618,7 @@ impl Scene for SongSelectScene {
 
                     self.state.songs.set_order(order);
                     self.state.selected_index =
-                        self.state.songs.find_index(id).unwrap_or_default() as _;
+                        self.state.songs.find_index(&id).unwrap_or_default() as _;
 
                     index_dirty = self.state.selected_index != current_index;
                 }
@@ -633,6 +639,15 @@ impl Scene for SongSelectScene {
 
         if songs_dirty {
             self.update_lua()?;
+
+            if had_no_songs {
+                if let Some(id) = GameConfig::get().song_select.last_played.get_song() {
+                    self.state.selected_index =
+                        self.state.songs.find_index(id).unwrap_or_default() as _;
+
+                    index_dirty = true;
+                }
+            }
 
             if index_dirty {
                 let set_song_idx: Function = self.lua.globals().get("set_index")?;

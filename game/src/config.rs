@@ -128,9 +128,11 @@ impl Default for GraphicsSettings {
 }
 
 #[derive(Debug, Deserialize, Serialize, Clone, Default)]
+#[serde(default)]
 pub struct SongSelectSettings {
     pub sorting: song_provider::SongSort,
     pub filter: song_provider::SongFilter,
+    pub last_played: song_provider::SongDiffId,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone, Copy)]

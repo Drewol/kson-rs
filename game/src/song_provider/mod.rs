@@ -142,7 +142,18 @@ impl SongFilter {
 }
 
 #[derive(
-    Debug, ToTypename, UserData, Clone, Serialize, Hash, PartialEq, Eq, PartialOrd, Ord, ToLuaLsType,
+    Debug,
+    ToTypename,
+    UserData,
+    Clone,
+    Serialize,
+    Hash,
+    PartialEq,
+    Eq,
+    PartialOrd,
+    Ord,
+    ToLuaLsType,
+    Deserialize,
 )]
 pub enum SongId {
     Missing,
@@ -174,6 +185,7 @@ impl Default for SongId {
     UserData,
     Clone,
     Serialize,
+    Deserialize,
     Default,
     Hash,
     PartialEq,
@@ -186,7 +198,7 @@ pub struct DiffId(pub SongId);
 
 impl TealData for DiffId {}
 
-#[derive(Debug, ToTypename, UserData, Clone, Serialize, ToLuaLsType)]
+#[derive(Debug, ToTypename, UserData, Clone, Serialize, Deserialize, ToLuaLsType)]
 pub enum SongDiffId {
     Missing,
     DiffOnly(DiffId),

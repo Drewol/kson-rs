@@ -430,7 +430,9 @@ impl FileSongProvider {
             }
         });
 
-        let SongSelectSettings { sorting, filter } = &GameConfig::get().song_select;
+        let SongSelectSettings {
+            sorting, filter, ..
+        } = &GameConfig::get().song_select;
 
         FileSongProvider {
             all_songs,
