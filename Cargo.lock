@@ -2185,7 +2185,7 @@ dependencies = [
 [[package]]
 name = "femtovg"
 version = "0.9.2"
-source = "git+https://github.com/Drewol/femtovg?branch=cache-experiment-1#a0f632ac4a001dcc459f124873efaf6abcfd9b7f"
+source = "git+https://github.com/Drewol/femtovg?branch=cache-experiment-1#81b31dfc7b200c3d11a36a0647f7b16bc02107d6"
 dependencies = [
  "bitflags 2.6.0",
  "fnv",
@@ -2194,6 +2194,7 @@ dependencies = [
  "imgref",
  "log",
  "lru",
+ "puffin",
  "rgb",
  "rustybuzz",
  "slotmap",
