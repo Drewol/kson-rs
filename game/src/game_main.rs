@@ -156,6 +156,8 @@ impl GameMain {
                 ele.write().expect("Worker service closed").update()
             }
         }
+        self.scenes
+            .tick(1000.0 / 240.0, self.knob_state, self.control_tx.clone());
 
         if GameConfig::get().keyboard_knobs {
             let mut ls = LaserState::default();
@@ -263,9 +265,6 @@ impl GameMain {
                 .expect("Failed to register lua libraries");
             *frame_count += 1;
         }
-
-        //Initialize loaded scenes
-        scenes.tick(frame_input.elapsed_time, *knob_state, control_tx.clone());
 
         while let Ok(control_msg) = control_rx.try_recv() {
             match control_msg {
