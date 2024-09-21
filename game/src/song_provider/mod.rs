@@ -42,14 +42,14 @@ pub enum ScoreFilter {
     Mixed,
 }
 
-#[derive(Debug, Clone, Copy, Serialize, Deserialize, Default)]
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, Default, schemars::JsonSchema, PartialEq)]
 pub enum SortDir {
     #[default]
     Asc,
     Desc,
 }
 
-#[derive(Debug, Clone, Copy, Serialize, Deserialize, Default)]
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, Default, schemars::JsonSchema, PartialEq)]
 pub enum SongSortType {
     #[default]
     Title,
@@ -59,7 +59,7 @@ pub enum SongSortType {
     Effector,
 }
 
-#[derive(Debug, Clone, Copy, Serialize, Deserialize, Default)]
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, Default, schemars::JsonSchema, PartialEq)]
 pub struct SongSort {
     pub sort_type: SongSortType,
     pub direction: SortDir,
@@ -111,7 +111,7 @@ impl Display for SongSort {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default, schemars::JsonSchema, PartialEq)]
 pub enum SongFilterType {
     #[default]
     None,

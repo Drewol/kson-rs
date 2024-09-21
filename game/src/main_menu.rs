@@ -17,6 +17,7 @@ use tealr::{
 
 use crate::{
     button_codes::{LaserState, UscInputEvent},
+    companion_interface::GameState,
     lua_service::LuaProvider,
     scene::Scene,
     ControlMessage,
@@ -146,6 +147,10 @@ impl Scene for MainMenu {
             .register_libraries(self.lua.clone(), "titlescreen.lua")?;
         self.control_tx = Some(app_control_tx);
         Ok(())
+    }
+
+    fn game_state(&self) -> crate::companion_interface::GameState {
+        GameState::TitleScreen
     }
 
     fn tick(&mut self, _dt: f64, _knob_state: LaserState) -> Result<()> {

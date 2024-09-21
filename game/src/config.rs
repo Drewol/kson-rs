@@ -29,6 +29,8 @@ pub struct Args {
     pub camera_test: bool,
     #[arg(long)]
     pub settings: bool,
+    #[arg(long)]
+    pub companion_schema: Option<PathBuf>,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone, Copy, Default, PartialEq, Eq)]

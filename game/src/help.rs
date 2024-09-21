@@ -1,4 +1,7 @@
-use std::sync::{Arc, Mutex, RwLock};
+use std::{
+    sync::{Arc, Mutex, RwLock},
+    time::{Duration, SystemTime},
+};
 
 use di::{transient_factory, RefMut, ServiceCollection};
 use rfd::AsyncFileDialog;
@@ -9,8 +12,12 @@ use tealr::{
     },
     TealMultiValue, ToTypename,
 };
+use winit::event::ElementState;
 
-use crate::worker_service::WorkerService;
+use crate::{
+    button_codes::{UscButton, UscInputEvent},
+    worker_service::WorkerService,
+};
 
 pub async fn await_task<T: Send + 'static>(mut t: poll_promise::Promise<T>) -> T {
     loop {
@@ -66,6 +73,21 @@ pub(crate) fn add_lua_static_method<'lua, M, A, R, F, T: 'static + Sized + ToTyp
             Err(mlua::Error::external("App data not set"))
         }
     })
+}
+
+pub fn button_click_event(b: UscButton) -> Vec<UscInputEvent> {
+    vec![
+        UscInputEvent::Button(
+            b,
+            ElementState::Pressed,
+            SystemTime::now() - Duration::from_millis(10),
+        ),
+        UscInputEvent::Button(
+            b,
+            ElementState::Released,
+            SystemTime::now() - Duration::from_millis(10),
+        ),
+    ]
 }
 
 pub trait ServiceHelper {

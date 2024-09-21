@@ -7,6 +7,7 @@ use three_d::{RenderTarget, Viewport};
 
 use crate::{
     button_codes::{LaserState, UscButton, UscInputEvent},
+    companion_interface::GameState,
     ControlMessage,
 };
 
@@ -42,6 +43,9 @@ pub trait Scene {
     fn debug_ui(&mut self, ctx: &egui::Context) -> Result<()>;
     fn closed(&self) -> bool;
     fn name(&self) -> &str;
+    fn game_state(&self) -> GameState {
+        GameState::None
+    }
 }
 
 pub trait SceneData: Send {

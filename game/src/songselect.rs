@@ -260,6 +260,14 @@ impl SongSelectScene {
         }
     }
 
+    fn on_search(&mut self) {
+        _ = self.update_lua();
+        self.song_provider
+            .write()
+            .expect("Lock error")
+            .set_search(&self.state.search_text);
+    }
+
     fn update_lua(&self) -> anyhow::Result<()> {
         Ok(self
             .lua
@@ -570,7 +578,7 @@ impl Scene for SongSelectScene {
             && self.state.preview_countdown > 0.0
             && !self.state.songs.is_empty()
         {
-            if self.state.preview_countdown < _dt {
+            if self.state.preview_countdown <= _dt {
                 //Start playing preview
                 self.start_preview();
             }
@@ -806,6 +814,54 @@ impl Scene for SongSelectScene {
             return;
         }
 
+        if let Event::UserEvent(UscInputEvent::ClientEvent(e)) = event {
+            match e {
+                crate::companion_interface::ClientEvent::SetSearch(s) => {
+                    self.state.search_text = s.clone();
+                    self.on_search();
+                }
+                crate::companion_interface::ClientEvent::SetLevelFilter(x) => {
+                    self.level_filter = *x;
+                    self.song_provider
+                        .write()
+                        .unwrap()
+                        .set_filter(SongFilter::new(
+                            self.filters[self.folder_filter_index].clone(),
+                            self.level_filter,
+                        ));
+                    _ = self.update_lua();
+                }
+                crate::companion_interface::ClientEvent::SetSongFilterType(song_filter_type) => {
+                    if let Some(pos) = self
+                        .filters
+                        .iter()
+                        .find_position(|x| **x == *song_filter_type)
+                    {
+                        self.folder_filter_index = pos.0;
+                        self.song_provider
+                            .write()
+                            .unwrap()
+                            .set_filter(SongFilter::new(
+                                song_filter_type.clone(),
+                                self.level_filter,
+                            ));
+                        _ = self.update_lua();
+                    }
+                }
+                crate::companion_interface::ClientEvent::SetSongSort(song_sort) => {
+                    if let Some(pos) = self.sorts.iter().find_position(|x| **x == *song_sort) {
+                        self.sort_index = pos.0;
+                        self.song_provider
+                            .write()
+                            .unwrap()
+                            .set_sort(song_sort.clone());
+                        _ = self.update_lua();
+                    }
+                }
+                _ => {}
+            }
+        }
+
         if self.state.search_input_active {
             //Text input handling
             let mut updated = true;
@@ -850,11 +906,7 @@ impl Scene for SongSelectScene {
             }
 
             if updated {
-                _ = self.update_lua();
-                self.song_provider
-                    .write()
-                    .expect("Lock error")
-                    .set_search(&self.state.search_text);
+                self.on_search();
             }
         }
 
@@ -966,5 +1018,16 @@ impl Scene for SongSelectScene {
 
     fn name(&self) -> &str {
         "Song Select"
+    }
+
+    fn game_state(&self) -> crate::companion_interface::GameState {
+        crate::companion_interface::GameState::SongSelect {
+            search_string: self.state.search_text.clone(),
+            level_filter: self.level_filter,
+            folder_filter_index: self.folder_filter_index,
+            sort_index: self.sort_index,
+            filters: self.filters.clone(),
+            sorts: self.sorts.clone(),
+        }
     }
 }

@@ -32,6 +32,7 @@ impl InputState {
             match e {
                 UscInputEvent::Laser(s, _) => *laser_state = *s,
                 UscInputEvent::Button(_, _, _) => {}
+                UscInputEvent::ClientEvent(_) => {}
             }
         }
 
@@ -45,6 +46,7 @@ impl InputState {
                     buttons_held.remove(b);
                 }
                 UscInputEvent::Laser(_, _) => {}
+                UscInputEvent::ClientEvent(_) => {}
             }
         }
     }
