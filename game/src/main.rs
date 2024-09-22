@@ -381,6 +381,9 @@ fn main() -> anyhow::Result<()> {
             _ = std::fs::write(&p, contents);
             p.pop();
         }
+
+        p.push("types.ts");
+        companion_interface::print_ts(p.to_str().unwrap());
         return Ok(());
     }
 

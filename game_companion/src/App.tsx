@@ -16,7 +16,7 @@ import {
   createWS,
   createWSState,
 } from "@solid-primitives/websocket";
-import { ClientMessage, GameState } from "./schemas/types";
+import { ClientEvent, GameState } from "./schemas/types";
 import { SongSelect } from "./SongSelect";
 
 const App: Component = () => {
@@ -34,7 +34,7 @@ const App: Component = () => {
     }
   });
 
-  function Send(m: ClientMessage) {
+  function Send(m: ClientEvent) {
     hostConn.send(JSON.stringify(m));
   }
 

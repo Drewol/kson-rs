@@ -1,5 +1,5 @@
 import { Accessor, Component, createEffect, For, Signal } from "solid-js";
-import { ClientMessage, GameState } from "./schemas/types";
+import { ClientEvent, GameState } from "./schemas/types";
 
 function range(s: number, e: number, v: number) {
   const r = [];
@@ -12,7 +12,7 @@ function range(s: number, e: number, v: number) {
 
 export const SongSelect: Component<{
   state: Accessor<GameState & { variant: "SongSelect" }>;
-  send: (m: ClientMessage) => void;
+  send: (m: ClientEvent) => void;
 }> = (p) => {
   return (
     <div class="flex flex-col overflow-auto">

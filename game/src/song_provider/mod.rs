@@ -21,6 +21,7 @@ use tealr::{
 };
 
 use crate::{results::Score, songselect::Song};
+use specta::Type;
 mod files;
 mod nautica;
 
@@ -42,14 +43,34 @@ pub enum ScoreFilter {
     Mixed,
 }
 
-#[derive(Debug, Clone, Copy, Serialize, Deserialize, Default, schemars::JsonSchema, PartialEq)]
+#[derive(
+    Debug,
+    Clone,
+    Copy,
+    Serialize,
+    Deserialize,
+    Default,
+    schemars::JsonSchema,
+    PartialEq,
+    specta::Type,
+)]
 pub enum SortDir {
     #[default]
     Asc,
     Desc,
 }
 
-#[derive(Debug, Clone, Copy, Serialize, Deserialize, Default, schemars::JsonSchema, PartialEq)]
+#[derive(
+    Debug,
+    Clone,
+    Copy,
+    Serialize,
+    Deserialize,
+    Default,
+    schemars::JsonSchema,
+    PartialEq,
+    specta::Type,
+)]
 pub enum SongSortType {
     #[default]
     Title,
@@ -59,7 +80,17 @@ pub enum SongSortType {
     Effector,
 }
 
-#[derive(Debug, Clone, Copy, Serialize, Deserialize, Default, schemars::JsonSchema, PartialEq)]
+#[derive(
+    Debug,
+    Clone,
+    Copy,
+    Serialize,
+    Deserialize,
+    Default,
+    schemars::JsonSchema,
+    PartialEq,
+    specta::Type,
+)]
 pub struct SongSort {
     pub sort_type: SongSortType,
     pub direction: SortDir,
@@ -111,7 +142,9 @@ impl Display for SongSort {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, Default, schemars::JsonSchema, PartialEq)]
+#[derive(
+    Debug, Clone, Serialize, Deserialize, Default, schemars::JsonSchema, PartialEq, specta::Type,
+)]
 pub enum SongFilterType {
     #[default]
     None,

@@ -9,11 +9,13 @@ use futures_util::SinkExt;
 use log::{error, info, warn};
 use schemars::{schema_for, JsonSchema};
 use serde::{Deserialize, Serialize};
+use specta::ts::ExportConfiguration;
+use specta::{ts, Type};
 use std::net::SocketAddr;
 use tokio::net::TcpListener;
 use tokio::net::TcpStream;
 
-#[derive(Debug, Deserialize, Serialize, JsonSchema, Clone)]
+#[derive(Debug, Deserialize, Serialize, JsonSchema, Clone, Type)]
 #[serde(tag = "variant")]
 pub enum GameState {
     None,
@@ -28,7 +30,7 @@ pub enum GameState {
     },
 }
 
-#[derive(Debug, Deserialize, Serialize, JsonSchema, Clone)]
+#[derive(Debug, Deserialize, Serialize, JsonSchema, Clone, Type)]
 #[serde(tag = "variant", content = "v")]
 pub enum ClientEvent {
     Invalid(Cow<'static, str>),
@@ -179,4 +181,11 @@ pub fn print_schema() -> Vec<(&'static str, String)> {
             serde_json::to_string_pretty(&client).unwrap(),
         ),
     ]
+}
+
+pub fn print_ts(p: &str) {
+    let config = ExportConfiguration::default()
+        .bigint(ts::BigIntExportBehavior::Number)
+        .export_by_default(Some(true));
+    specta::export::ts_with_cfg(p, &config);
 }

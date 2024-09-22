@@ -92,6 +92,7 @@ luals-gen = { git = "https://github.com/Drewol/luals-gen.git" }
 tokio-tungstenite = "0.24.0"
 schemars = "0.8.21"
 futures-util = "0.3.30"
+specta = { version = "1.0.5", features = ["export"] }
 
 [dependencies.winit]
 version = "0.29"
