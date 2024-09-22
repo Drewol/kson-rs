@@ -11,14 +11,18 @@ import {
 
 import logo from "./logo.svg";
 import styles from "./App.module.css";
-import { createWS, createWSState } from "@solid-primitives/websocket";
+import {
+  createReconnectingWS,
+  createWS,
+  createWSState,
+} from "@solid-primitives/websocket";
 import { ClientMessage, GameState } from "./schemas/types";
 import { SongSelect } from "./SongSelect";
 
 const App: Component = () => {
   const [state, setState] = createSignal<GameState>();
   const hostaddr = window.location.pathname.substring(1);
-  const hostConn = createWS("ws://" + hostaddr);
+  const hostConn = createReconnectingWS("ws://" + hostaddr);
   const connState = createWSState(hostConn);
   const states = ["Connecting", "Connected", "Disconnecting", "Disconnected"];
   hostConn.addEventListener("message", (e) => {
