@@ -286,12 +286,17 @@ impl SongSelectScene {
             .set("sorts", sorts.iter().map(ToString::to_string).collect_vec())?;
 
         self.filter_lua.globals().set(
-        "filters",
-        self.filter_lua.to_value(&json!({
-            "folder": filters.iter().map(|x| x.to_string()).collect_vec(),
-            "level": (0..=20).map(|x| if x == 0 {"None".to_owned()} else {format!("Level: {x}")}).collect_vec(),
-        }))?,
-    )?;
+            "filters",
+            self.filter_lua.to_value(&json!({
+                "folder": filters.iter().map(|x| x.to_string()).collect_vec(),
+                "level": (0..=20).map(|x| if x == 0 {"None".to_owned()} else {format!("Level: {x}")}).collect_vec(),
+            }))?,
+        )?;
+
+        let set_selection: Function = self.filter_lua.globals().get("set_selection")?;
+        set_selection.call((self.level_filter + 1, false))?;
+        set_selection.call((self.folder_filter_index + 1, true))?;
+
         Ok((filters, sorts))
     }
 
@@ -817,7 +822,7 @@ impl Scene for SongSelectScene {
         if let Event::UserEvent(UscInputEvent::ClientEvent(e)) = event {
             match e {
                 crate::companion_interface::ClientEvent::SetSearch(s) => {
-                    self.state.search_text = s.clone();
+                    self.state.search_text = s.to_string();
                     self.on_search();
                 }
                 crate::companion_interface::ClientEvent::SetLevelFilter(x) => {
@@ -830,6 +835,7 @@ impl Scene for SongSelectScene {
                             self.level_filter,
                         ));
                     _ = self.update_lua();
+                    _ = self.update_filter_sort_lua();
                 }
                 crate::companion_interface::ClientEvent::SetSongFilterType(song_filter_type) => {
                     if let Some(pos) = self
@@ -846,6 +852,7 @@ impl Scene for SongSelectScene {
                                 self.level_filter,
                             ));
                         _ = self.update_lua();
+                        _ = self.update_filter_sort_lua();
                     }
                 }
                 crate::companion_interface::ClientEvent::SetSongSort(song_sort) => {
@@ -856,6 +863,7 @@ impl Scene for SongSelectScene {
                             .unwrap()
                             .set_sort(song_sort.clone());
                         _ = self.update_lua();
+                        _ = self.update_filter_sort_lua();
                     }
                 }
                 _ => {}
@@ -1022,7 +1030,7 @@ impl Scene for SongSelectScene {
 
     fn game_state(&self) -> crate::companion_interface::GameState {
         crate::companion_interface::GameState::SongSelect {
-            search_string: self.state.search_text.clone(),
+            search_string: self.state.search_text.clone().into(),
             level_filter: self.level_filter,
             folder_filter_index: self.folder_filter_index,
             sort_index: self.sort_index,

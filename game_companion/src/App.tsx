@@ -4,6 +4,7 @@ import {
   createSignal,
   Match,
   on,
+  Show,
   Switch,
   type Component,
 } from "solid-js";
@@ -12,6 +13,7 @@ import logo from "./logo.svg";
 import styles from "./App.module.css";
 import { createWS, createWSState } from "@solid-primitives/websocket";
 import { ClientMessage, GameState } from "./schemas/types";
+import { SongSelect } from "./SongSelect";
 
 const App: Component = () => {
   const [state, setState] = createSignal<GameState>();
@@ -19,30 +21,37 @@ const App: Component = () => {
   const hostConn = createWS("ws://" + hostaddr);
   const connState = createWSState(hostConn);
   const states = ["Connecting", "Connected", "Disconnecting", "Disconnected"];
-  hostConn.addEventListener("message", (e) => setState(JSON.parse(e.data)));
+  hostConn.addEventListener("message", (e) => {
+    const current = JSON.stringify(state());
+    const newState: GameState = JSON.parse(e.data);
+
+    if (current != JSON.stringify(newState)) {
+      setState(newState);
+    }
+  });
 
   function Send(m: ClientMessage) {
     hostConn.send(JSON.stringify(m));
   }
 
   return (
-    <div>
-      <Switch fallback={<>Disconnected</>}>
-        <Match when={state()?.variant == "SongSelect"}>
-          <input
-            type="text"
-            onchange={(x) =>
-              Send({ variant: "SetSearch", v: x.currentTarget.value })
-            }
-          ></input>
-        </Match>
-        <Match when={state()?.variant == "None"}>
-          <div></div>
-        </Match>
-        <Match when={state()?.variant == "TitleScreen"}>
-          <button onclick={() => Send({ variant: "Start" })}>Start</button>
-        </Match>
-      </Switch>
+    <div class="bg-slate-900 h-screen w-screen p-5 text-zinc-100 max-h-screen flex flex-col">
+      <Show
+        when={connState() == 1}
+        fallback={<div class="text-3xl text-amber-500">Disconnected</div>}
+      >
+        <Switch fallback={<>Disconnected</>}>
+          <Match when={state()?.variant == "SongSelect"}>
+            <SongSelect state={state as any} send={Send}></SongSelect>
+          </Match>
+          <Match when={state()?.variant == "None"}>
+            <div></div>
+          </Match>
+          <Match when={state()?.variant == "TitleScreen"}>
+            <button onclick={() => Send({ variant: "Start" })}>Start</button>
+          </Match>
+        </Switch>
+      </Show>
     </div>
   );
 };

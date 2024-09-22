@@ -1,3 +1,4 @@
+use std::borrow::Cow;
 use std::sync::{atomic::AtomicBool, Arc};
 
 use crate::button_codes::UscButton;
@@ -18,7 +19,7 @@ pub enum GameState {
     None,
     TitleScreen,
     SongSelect {
-        search_string: String,
+        search_string: Cow<'static, str>,
         level_filter: u8,
         folder_filter_index: usize,
         sort_index: usize,
@@ -30,10 +31,10 @@ pub enum GameState {
 #[derive(Debug, Deserialize, Serialize, JsonSchema, Clone)]
 #[serde(tag = "variant", content = "v")]
 pub enum ClientEvent {
-    Invalid(String),
+    Invalid(Cow<'static, str>),
     Start,
     Back,
-    SetSearch(String),
+    SetSearch(Cow<'static, str>),
     SetLevelFilter(u8),
     SetSongFilterType(song_provider::SongFilterType),
     SetSongSort(song_provider::SongSort),
@@ -91,7 +92,8 @@ async fn handle_connection(
             let tokio_tungstenite::tungstenite::Message::Text(data) = e else {
                 continue;
             };
-            let e: ClientEvent = serde_json::from_str(&data).unwrap_or(ClientEvent::Invalid(data));
+            let e: ClientEvent =
+                serde_json::from_str(&data).unwrap_or(ClientEvent::Invalid(data.into()));
             if let ClientEvent::Invalid(m) = &e {
                 warn!("Companion server got an invalid message: {}", m);
             }

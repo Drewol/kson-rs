@@ -24,7 +24,6 @@ use glutin::{
     context::PossiblyCurrentContext,
     surface::{GlSurface, SwapInterval},
 };
-use log::info;
 use puffin::{profile_function, profile_scope};
 
 use td::{FrameOutput, Modifiers};
