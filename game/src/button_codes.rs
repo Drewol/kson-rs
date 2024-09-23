@@ -257,10 +257,11 @@ impl From<UscButton> for u8 {
     }
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone)]
 pub enum UscInputEvent {
     Laser(LaserState, SystemTime),
     Button(UscButton, ElementState, SystemTime),
+    ClientEvent(ClientEvent),
 }
 
 impl From<Button> for UscButton {
@@ -360,7 +361,7 @@ impl LaserState {
     }
 }
 
-use crate::config::GameConfig;
+use crate::{companion_interface::ClientEvent, config::GameConfig};
 #[derive(Debug, Serialize, Deserialize, Default, Clone)]
 pub struct CustomControlleMap {
     pub buttons: HashMap<Button, Code>,

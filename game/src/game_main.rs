@@ -35,6 +35,7 @@ use three_d as td;
 
 use crate::{
     button_codes::{LaserState, UscInputEvent},
+    companion_interface,
     config::{Fullscreen, GameConfig},
     game::{gauge::Gauge, HitRating},
     game_data::GameData,
@@ -90,6 +91,8 @@ impl Default for ControlMessage {
 pub struct GameMain {
     lua_arena: di::RefMut<LuaArena>,
     lua_provider: Arc<LuaProvider>,
+    companion_server: di::RefMut<companion_interface::CompanionServer>,
+    companion_update: u8,
     scenes: Scenes,
     pub control_tx: Sender<ControlMessage>,
     control_rx: Receiver<ControlMessage>,
@@ -125,6 +128,7 @@ impl GameMain {
         Self {
             lua_arena: service_provider.get_required(),
             lua_provider: service_provider.get_required(),
+            companion_server: service_provider.get_required(),
             scenes,
             control_tx,
             control_rx,
@@ -146,11 +150,15 @@ impl GameMain {
             modifiers: Modifiers::default(),
             service_provider,
             show_fps: GameConfig::get().graphics.show_fps,
+            companion_update: 0,
         }
     }
 
     const KEYBOARD_LASER_SENS: f32 = 1.0 / 240.0;
     pub fn update(&mut self) {
+        self.scenes
+            .tick(1000.0 / 240.0, self.knob_state, self.control_tx.clone());
+
         {
             for ele in self.service_provider.get_all_mut::<dyn WorkerService>() {
                 ele.write().expect("Worker service closed").update()
@@ -158,6 +166,24 @@ impl GameMain {
         }
         self.scenes
             .tick(1000.0 / 240.0, self.knob_state, self.control_tx.clone());
+
+        if self.companion_update == 0 {
+            let server = self.companion_server.read().unwrap();
+
+            if server.active.load(std::sync::atomic::Ordering::Relaxed) {
+                let state = self
+                    .scenes
+                    .active
+                    .last()
+                    .map(|x| x.game_state())
+                    .unwrap_or(companion_interface::GameState::None);
+                server.send_state(state);
+            }
+
+            self.companion_update = 30; // every 125ms
+        }
+
+        self.companion_update -= 1;
 
         if GameConfig::get().keyboard_knobs {
             let mut ls = LaserState::default();
@@ -218,6 +244,8 @@ impl GameMain {
             service_provider,
             lua_provider,
             show_fps,
+            companion_server: _,
+            companion_update: _,
         } = self;
 
         knob_state.zero_deltas();
@@ -474,6 +502,7 @@ impl GameMain {
                             .scenes
                             .for_each_active_mut(|x| x.on_button_released(*b, *time)),
                     },
+                    UscInputEvent::ClientEvent(_) => {}
                 }
             }
             Event::WindowEvent {
@@ -602,16 +631,17 @@ impl GameMain {
             _ => (),
         }
 
-        if let Some(Event::UserEvent(e)) = transformed_event {
+        if let Some(Event::UserEvent(e)) = transformed_event.as_ref() {
             self.input_state.update(&e);
             match e {
                 UscInputEvent::Button(b, ElementState::Pressed, time) => self
                     .scenes
-                    .for_each_active_mut(|x| x.on_button_pressed(b, time)),
+                    .for_each_active_mut(|x| x.on_button_pressed(*b, *time)),
                 UscInputEvent::Button(b, ElementState::Released, time) => self
                     .scenes
-                    .for_each_active_mut(|x| x.on_button_released(b, time)),
+                    .for_each_active_mut(|x| x.on_button_released(*b, *time)),
                 UscInputEvent::Laser(_, _) => {}
+                UscInputEvent::ClientEvent(_) => {}
             }
         }
 

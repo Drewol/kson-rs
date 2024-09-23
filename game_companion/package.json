@@ -1,0 +1,27 @@
+{
+  "name": "vite-template-solid",
+  "version": "0.0.0",
+  "description": "",
+  "scripts": {
+    "schema": "cargo run --manifest-path ../Cargo.toml --bin rusc -- --companion-schema ./src/schemas",
+    "start": "vite",
+    "dev": "vite",
+    "build": "vite build",
+    "serve": "vite preview"
+  },
+  "license": "MIT",
+  "devDependencies": {
+    "autoprefixer": "^10.4.20",
+    "postcss": "^8.4.47",
+    "solid-devtools": "^0.29.2",
+    "tailwindcss": "^3.4.12",
+    "typescript": "^5.3.3",
+    "vite": "^5.0.11",
+    "vite-plugin-solid": "^2.8.2"
+  },
+  "dependencies": {
+    "@solid-primitives/websocket": "^1.2.2",
+    "json-schema-to-ts": "^3.1.1",
+    "solid-js": "^1.8.11"
+  }
+}

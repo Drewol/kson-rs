@@ -1,0 +1,194 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "ClientEvent",
+  "oneOf": [
+    {
+      "type": "object",
+      "required": [
+        "v",
+        "variant"
+      ],
+      "properties": {
+        "v": {
+          "type": "string"
+        },
+        "variant": {
+          "type": "string",
+          "enum": [
+            "Invalid"
+          ]
+        }
+      }
+    },
+    {
+      "type": "object",
+      "required": [
+        "variant"
+      ],
+      "properties": {
+        "variant": {
+          "type": "string",
+          "enum": [
+            "Start"
+          ]
+        }
+      }
+    },
+    {
+      "type": "object",
+      "required": [
+        "variant"
+      ],
+      "properties": {
+        "variant": {
+          "type": "string",
+          "enum": [
+            "Back"
+          ]
+        }
+      }
+    },
+    {
+      "type": "object",
+      "required": [
+        "v",
+        "variant"
+      ],
+      "properties": {
+        "v": {
+          "type": "string"
+        },
+        "variant": {
+          "type": "string",
+          "enum": [
+            "SetSearch"
+          ]
+        }
+      }
+    },
+    {
+      "type": "object",
+      "required": [
+        "v",
+        "variant"
+      ],
+      "properties": {
+        "v": {
+          "type": "integer",
+          "format": "uint8",
+          "minimum": 0.0
+        },
+        "variant": {
+          "type": "string",
+          "enum": [
+            "SetLevelFilter"
+          ]
+        }
+      }
+    },
+    {
+      "type": "object",
+      "required": [
+        "v",
+        "variant"
+      ],
+      "properties": {
+        "v": {
+          "$ref": "#/definitions/SongFilterType"
+        },
+        "variant": {
+          "type": "string",
+          "enum": [
+            "SetSongFilterType"
+          ]
+        }
+      }
+    },
+    {
+      "type": "object",
+      "required": [
+        "v",
+        "variant"
+      ],
+      "properties": {
+        "v": {
+          "$ref": "#/definitions/SongSort"
+        },
+        "variant": {
+          "type": "string",
+          "enum": [
+            "SetSongSort"
+          ]
+        }
+      }
+    }
+  ],
+  "definitions": {
+    "SongFilterType": {
+      "oneOf": [
+        {
+          "type": "string",
+          "enum": [
+            "None"
+          ]
+        },
+        {
+          "type": "object",
+          "required": [
+            "Folder"
+          ],
+          "properties": {
+            "Folder": {
+              "type": "string"
+            }
+          },
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "required": [
+            "Collection"
+          ],
+          "properties": {
+            "Collection": {
+              "type": "string"
+            }
+          },
+          "additionalProperties": false
+        }
+      ]
+    },
+    "SongSort": {
+      "type": "object",
+      "required": [
+        "direction",
+        "sort_type"
+      ],
+      "properties": {
+        "direction": {
+          "$ref": "#/definitions/SortDir"
+        },
+        "sort_type": {
+          "$ref": "#/definitions/SongSortType"
+        }
+      }
+    },
+    "SongSortType": {
+      "type": "string",
+      "enum": [
+        "Title",
+        "Score",
+        "Date",
+        "Artist",
+        "Effector"
+      ]
+    },
+    "SortDir": {
+      "type": "string",
+      "enum": [
+        "Asc",
+        "Desc"
+      ]
+    }
+  }
+}

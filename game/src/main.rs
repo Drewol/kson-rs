@@ -37,7 +37,7 @@ use puffin::profile_function;
 use rodio::{dynamic_mixer::DynamicMixerController, Source};
 use scene::Scene;
 
-use song_provider::{DiffId, FileSongProvider, NauticaSongProvider, SongId};
+pub(crate) use song_provider::{DiffId, FileSongProvider, NauticaSongProvider, SongId};
 use td::{FrameInput, Viewport};
 use tealr::mlu::mlua::Lua;
 use test_scenes::camera_test;
@@ -51,6 +51,7 @@ mod async_service;
 mod audio;
 mod audio_test;
 mod button_codes;
+mod companion_interface;
 mod config;
 mod game;
 mod game_data;
@@ -374,6 +375,18 @@ fn main() -> anyhow::Result<()> {
     config_path.push("Main.cfg");
     let args = Args::parse();
 
+    if let Some(mut p) = args.companion_schema {
+        for (path, contents) in companion_interface::print_schema() {
+            p.push(path);
+            _ = std::fs::write(&p, contents);
+            p.pop();
+        }
+
+        p.push("types.ts");
+        companion_interface::print_ts(p.to_str().unwrap());
+        return Ok(());
+    }
+
     let _puffin_server = if args.profiling {
         let server_addr = format!("127.0.0.1:{}", puffin_http::DEFAULT_PORT);
         Some(puffin_http::Server::new(&server_addr)?)
@@ -433,8 +446,12 @@ fn main() -> anyhow::Result<()> {
     let input = Arc::new(Mutex::new(input));
     let gilrs_state = input.clone();
     let service_context = context.clone();
+    let companion_service = RwLock::new(companion_interface::CompanionServer::new(
+        eventloop.create_proxy(),
+    ));
 
     let services = ServiceCollection::new()
+        .add(existing_as_self(companion_service))
         .add(existing_as_self(sink))
         .add(AsyncService::singleton().as_mut())
         .add_worker::<AsyncService>()
@@ -464,6 +481,7 @@ fn main() -> anyhow::Result<()> {
         }))
         .add_worker::<FileSongProvider>()
         .add_worker::<NauticaSongProvider>()
+        .add_worker::<companion_interface::CompanionServer>()
         .add(singleton_factory(move |_| mixer_controls.clone()))
         .add(Vgfx::singleton().as_mut())
         .add(singleton_factory(|_| {
