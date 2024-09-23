@@ -164,8 +164,6 @@ impl GameMain {
                 ele.write().expect("Worker service closed").update()
             }
         }
-        self.scenes
-            .tick(1000.0 / 240.0, self.knob_state, self.control_tx.clone());
 
         if self.companion_update == 0 {
             let server = self.companion_server.read().unwrap();
