@@ -2,6 +2,7 @@ use std::borrow::Cow;
 use std::sync::{atomic::AtomicBool, Arc};
 
 use crate::button_codes::UscButton;
+use crate::config::GameConfig;
 use crate::help::button_click_event;
 use crate::{button_codes::UscInputEvent, song_provider, worker_service::WorkerService};
 use futures::StreamExt;
@@ -126,26 +127,30 @@ impl CompanionServer {
         let (event_bus, _) = tokio::sync::broadcast::channel(8);
         let client_bus = event_bus.clone();
 
-        let _listener = poll_promise::Promise::spawn_async(async move {
-            let addr = "127.0.0.1:9002";
-            let listener = TcpListener::bind(&addr)
-                .await
-                .expect("Can't start companion server");
+        let _listener = if let Some(addr) = GameConfig::get().companion_address.as_ref() {
+            let addr = addr.clone();
+            poll_promise::Promise::spawn_async(async move {
+                let listener = TcpListener::bind(&addr)
+                    .await
+                    .expect("Can't start companion server");
 
-            while let Ok((stream, _)) = listener.accept().await {
-                let peer = stream
-                    .peer_addr()
-                    .expect("connected streams should have a peer address");
-                info!("Peer address: {}", peer);
+                while let Ok((stream, _)) = listener.accept().await {
+                    let peer = stream
+                        .peer_addr()
+                        .expect("connected streams should have a peer address");
+                    info!("Peer address: {}", peer);
 
-                tokio::spawn(accept_connection(
-                    peer,
-                    stream,
-                    event_proxy.clone(),
-                    client_bus.subscribe(),
-                ));
-            }
-        });
+                    tokio::spawn(accept_connection(
+                        peer,
+                        stream,
+                        event_proxy.clone(),
+                        client_bus.subscribe(),
+                    ));
+                }
+            })
+        } else {
+            poll_promise::Promise::from_ready(())
+        };
 
         Self {
             event_bus,

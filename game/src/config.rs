@@ -93,6 +93,7 @@ pub struct GameConfig {
     pub fallback_gauge: bool,
     pub start_gauge: game::gauge::GaugeType,
     pub slam_volume: f32,
+    pub companion_address: Option<String>,
 }
 
 #[derive(Debug, Deserialize, Serialize, Clone)]
@@ -250,7 +251,8 @@ impl Default for GameConfig {
             fallback_gauge: false,
             start_gauge: game::gauge::GaugeType::Normal,
             slam_volume: 0.75,
-            laser_input_delay: Duration::from_millis(50)
+            laser_input_delay: Duration::from_millis(50),
+            companion_address: Some("127.0.0.1:9002".to_string())
         }
     }
 }
