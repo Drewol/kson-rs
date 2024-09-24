@@ -154,7 +154,7 @@ impl GameMain {
         }
     }
 
-    const KEYBOARD_LASER_SENS: f32 = 1.0 / 240.0;
+    const KEYBOARD_LASER_SENS: f32 = 2.0 / 240.0;
     pub fn update(&mut self) {
         self.scenes
             .tick(1000.0 / 240.0, self.knob_state, self.control_tx.clone());

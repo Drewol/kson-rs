@@ -118,6 +118,8 @@ pub struct Game {
     autoplay: AutoPlay,
     slam_volume: f32,
     chip_h: f32,
+    laser_buffer: [VecDeque<(SystemTime, f64)>; 2],
+    laser_input_delay: Duration,
 }
 
 #[derive(Clone, Copy)]
@@ -590,6 +592,8 @@ impl Game {
             autoplay,
             slam_volume: GameConfig::get().slam_volume,
             chip_h,
+            laser_buffer: [VecDeque::new(), VecDeque::new()],
+            laser_input_delay: GameConfig::get().laser_input_delay,
         };
         res.set_track_uniforms();
         Ok(res)
@@ -806,6 +810,9 @@ impl Game {
                             }
                         }
                     }
+
+                    //TODO: Does this actually help?
+                    self.laser_buffer[lane].clear();
 
                     if let Some(slam_sample) = self.slam_sample.clone() {
                         drop(std::mem::take(&mut self.slam_marker));
@@ -1036,6 +1043,69 @@ impl Game {
     fn auto_lasers(&self) -> bool {
         matches!(self.autoplay, AutoPlay::All | AutoPlay::Lasers)
     }
+
+    fn take_laser_input(&mut self, index: usize, now: SystemTime) -> bool {
+        let Some((time_stamp, delta)) = self.laser_buffer[index].pop_front() else {
+            return false;
+        };
+
+        let Ok(delay) = now.duration_since(time_stamp) else {
+            return false;
+        };
+
+        if delay < self.laser_input_delay {
+            self.laser_buffer[index].push_front((time_stamp, delta));
+            return false;
+        }
+
+        let input_dir = delta.total_cmp(&0.0);
+        let delta = delta * 0.45;
+
+        self.laser_cursors[index] = if self.laser_target[index].is_some() {
+            let new_pos = (self.laser_cursors[index] + delta).clamp(0.0, 1.0);
+            let target_value = self.chart.note.laser[index].value_at(self.current_tick as f64);
+
+            let target_dir = self.chart.note.laser[index]
+                .direction_at(self.current_tick as f64)
+                .map(|x| x.total_cmp(&0.0))
+                .unwrap_or(std::cmp::Ordering::Equal);
+
+            // overshooting logic
+            let new_pos = if let Some(target_value) = target_value {
+                match (
+                    self.laser_cursors[index].total_cmp(&target_value),
+                    new_pos.total_cmp(&target_value),
+                    target_dir,
+                ) {
+                    (a, Ordering::Equal, b) if a != b => target_value,
+                    (a, b, Ordering::Equal) if a != b => target_value,
+                    (Ordering::Equal, a, b) if a == b => target_value,
+                    (Ordering::Less, Ordering::Greater, Ordering::Less) => new_pos, // old \ new
+                    (Ordering::Less, Ordering::Greater, Ordering::Greater) => target_value, // old / new
+                    (Ordering::Greater, Ordering::Less, Ordering::Less) => target_value, // new \ old
+                    (Ordering::Greater, Ordering::Less, Ordering::Greater) => new_pos, // new / old
+                    (a, b, _) if a == b => new_pos,
+                    _ => new_pos,
+                }
+            } else {
+                new_pos
+            };
+
+            let on_laser = target_value
+                .map(|v| (v - new_pos).abs() < LASER_THRESHOLD)
+                .unwrap_or(false);
+
+            if on_laser && input_dir == target_dir {
+                self.laser_assist_ticks[index] = 20;
+            }
+
+            new_pos
+        } else {
+            0.0
+        };
+
+        true
+    }
 }
 
 impl Scene for Game {
@@ -1054,6 +1124,7 @@ impl Scene for Game {
         profile_function!();
         const AVG_DELTA_LEN: usize = 32;
         let mut time = self.current_time();
+        let sys_time = SystemTime::now();
 
         let playback_ms = self.playback.get_ms();
         let timing_delta = playback_ms.sub(time.as_secs_f64() * 1000.0);
@@ -1090,6 +1161,9 @@ impl Scene for Game {
         );
 
         let auto_lasers = self.auto_lasers();
+
+        while self.take_laser_input(0, sys_time) {}
+        while self.take_laser_input(1, sys_time) {}
 
         for (side, ((laser_active, laser_target), wide)) in self
             .laser_active
@@ -1775,49 +1849,9 @@ impl Scene for Game {
                     Ordering::Greater => self.laser_latest_dir_inputs[index][1] = *timestamp,
                 }
 
-                self.laser_cursors[index] = if self.laser_target[index].is_some() {
-                    let new_pos = (self.laser_cursors[index] + delta).clamp(0.0, 1.0);
-                    let target_value =
-                        self.chart.note.laser[index].value_at(self.current_tick as f64);
-
-                    let target_dir = self.chart.note.laser[index]
-                        .direction_at(self.current_tick as f64)
-                        .map(|x| x.total_cmp(&0.0))
-                        .unwrap_or(std::cmp::Ordering::Equal);
-
-                    // overshooting logic
-                    let new_pos = if let Some(target_value) = target_value {
-                        match (
-                            self.laser_cursors[index].total_cmp(&target_value),
-                            new_pos.total_cmp(&target_value),
-                            target_dir,
-                        ) {
-                            (a, Ordering::Equal, b) if a != b => target_value,
-                            (a, b, Ordering::Equal) if a != b => target_value,
-                            (Ordering::Equal, a, b) if a == b => target_value,
-                            (Ordering::Less, Ordering::Greater, Ordering::Less) => new_pos, // old \ new
-                            (Ordering::Less, Ordering::Greater, Ordering::Greater) => target_value, // old / new
-                            (Ordering::Greater, Ordering::Less, Ordering::Less) => target_value, // new \ old
-                            (Ordering::Greater, Ordering::Less, Ordering::Greater) => new_pos, // new / old
-                            (a, b, _) if a == b => new_pos,
-                            _ => new_pos,
-                        }
-                    } else {
-                        new_pos
-                    };
-
-                    let on_laser = target_value
-                        .map(|v| (v - new_pos).abs() < LASER_THRESHOLD)
-                        .unwrap_or(false);
-
-                    if on_laser && input_dir == target_dir {
-                        self.laser_assist_ticks[index] = 20;
-                    }
-
-                    new_pos
-                } else {
-                    0.0
-                };
+                if delta.abs() > 0.0 {
+                    self.laser_buffer[index].push_back((*timestamp, delta));
+                }
             }
         }
     }

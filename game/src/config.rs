@@ -1,4 +1,7 @@
-use std::{collections::HashMap, fmt::Display, fs::File, io::Read, path::PathBuf, sync::RwLock};
+use std::{
+    collections::HashMap, fmt::Display, fs::File, io::Read, path::PathBuf, sync::RwLock,
+    time::Duration,
+};
 
 use clap::Parser;
 use game_loop::winit::keyboard::PhysicalKey;
@@ -13,6 +16,8 @@ use crate::{
     skin_settings::{SkinSettingEntry, SkinSettingValue},
     song_provider,
 };
+use serde_with::serde_as;
+use serde_with::DurationMilliSecondsWithFrac;
 
 #[derive(Debug, Default, Parser, Clone)]
 pub struct Args {
@@ -52,6 +57,7 @@ impl Display for ScoreDisplayMode {
 }
 
 #[derive(Debug, Deserialize, Serialize, Clone)]
+#[serde_as]
 #[serde(default)]
 pub struct GameConfig {
     #[serde(skip_serializing, skip_deserializing)]
@@ -78,6 +84,8 @@ pub struct GameConfig {
     pub controller_binds: CustomBindings,
     pub song_select: SongSelectSettings,
     pub graphics: GraphicsSettings,
+    #[serde_as(as = "DurationMilliSecondsWithFrac<f64>")]
+    pub laser_input_delay: Duration,
     pub distant_button_scale: f32,
     pub master_volume: f32,
     pub hit_window: game::HitWindow,
@@ -241,7 +249,8 @@ impl Default for GameConfig {
             score_display: ScoreDisplayMode::default(),
             fallback_gauge: false,
             start_gauge: game::gauge::GaugeType::Normal,
-            slam_volume: 0.75
+            slam_volume: 0.75,
+            laser_input_delay: Duration::from_millis(50)
         }
     }
 }

@@ -10,3 +10,5 @@ profiling.json
 /tlout
 Main.cfg
 maps.db
+game/rusc_database/maps.db-shm
+game/rusc_database/maps.db-wal

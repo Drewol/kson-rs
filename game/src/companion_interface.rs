@@ -131,6 +131,7 @@ impl CompanionServer {
             let listener = TcpListener::bind(&addr)
                 .await
                 .expect("Can't start companion server");
+
             while let Ok((stream, _)) = listener.accept().await {
                 let peer = stream
                     .peer_addr()
