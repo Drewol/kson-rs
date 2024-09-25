@@ -91,24 +91,12 @@ macro_rules! block_on {
 pub type InnerRuscMixer = DynamicMixerController<f32>;
 pub type RuscMixer = Arc<InnerRuscMixer>;
 
-//TODO: Move to platform files
-#[cfg(target_os = "windows")]
 pub fn default_game_dir() -> PathBuf {
-    let mut game_dir = directories::UserDirs::new()
+    let mut game_dir = directories::BaseDirs::new()
         .expect("Failed to get directories")
-        .document_dir()
-        .expect("Failed to get documents directory")
+        .config_dir()
         .to_path_buf();
-    game_dir.push("USC");
-    game_dir
-}
-#[cfg(not(target_os = "windows"))]
-pub fn default_game_dir() -> PathBuf {
-    let mut game_dir = directories::UserDirs::new()
-        .expect("Failed to get directories")
-        .home_dir()
-        .to_path_buf();
-    game_dir.push(".usc");
+    game_dir.push("usc");
     game_dir
 }
 
