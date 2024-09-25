@@ -312,6 +312,10 @@ impl SongSelectScene {
         let owner = self.sample_owner.clone();
         let mixer = self.mixer.clone();
 
+        if preview_playing.load(std::sync::atomic::Ordering::Relaxed) == song_id.as_u64() {
+            return;
+        }
+
         self.async_worker.read().unwrap().run(async move {
             let preview = {
                 let song_provider = services.get_required_mut::<dyn SongProvider>();
