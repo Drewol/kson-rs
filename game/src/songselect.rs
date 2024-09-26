@@ -946,6 +946,9 @@ impl Scene for SongSelectScene {
         }
 
         match button {
+            UscButton::Back if MenuState::Songs == self.menu_state => {
+                self.closed = true;
+            }
             UscButton::Start => {
                 match self.menu_state {
                     MenuState::Songs => {
