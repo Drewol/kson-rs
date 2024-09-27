@@ -140,12 +140,15 @@ impl CompanionServer {
                         .expect("connected streams should have a peer address");
                     info!("Peer address: {}", peer);
 
-                    tokio::spawn(accept_connection(
-                        peer,
-                        stream,
-                        event_proxy.clone(),
-                        client_bus.subscribe(),
-                    ));
+                    #[cfg(not(target_os = "macos"))]
+                    {
+                        tokio::spawn(accept_connection(
+                            peer,
+                            stream,
+                            event_proxy.clone(),
+                            client_bus.subscribe(),
+                        ));
+                    }
                 }
             })
         } else {
