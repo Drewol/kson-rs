@@ -202,6 +202,7 @@ impl Chart {
             top_badge: 0,
             scores: vec![],
             hash: None,
+            illustrator: String::new(),
         }
     }
 }
@@ -308,6 +309,7 @@ impl NauticaSongProvider {
                 .iter()
                 .map(|x| Arc::new(x.1.as_song()))
                 .collect();
+
             self.events
                 .push_back(SongProviderEvent::SongsAdded(self.all_songs.clone()));
         } else {

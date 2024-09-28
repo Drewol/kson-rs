@@ -22,7 +22,7 @@ use three_d::{
 };
 use three_d_asset::{Srgba, Vector2, Vector3, Vector4};
 
-use crate::{config::GameConfig, game_data, vg_ui::Vgfx};
+use crate::{config::GameConfig, game_data, help::transform_shader, vg_ui::Vgfx};
 
 pub enum ShaderParam {
     Int(i32),
@@ -119,6 +119,14 @@ pub struct ShadedMesh {
     requires_in_color: bool,
 }
 
+fn flip_image_data<T>(d: &mut [T], width: usize, height: usize) {
+    for y in 0..(height / 2) {
+        for x in 0..width {
+            d.swap(y * width + x, (height - y - 1) * width + x);
+        }
+    }
+}
+
 impl ShadedMesh {
     pub fn new(
         context: &three_d::Context,
@@ -130,17 +138,10 @@ impl ShadedMesh {
         shader_path.set_extension("vs");
         profile_function!();
 
-        let vertex_shader_source: String = std::fs::read_to_string(&shader_path)?
-            .lines()
-            .filter(|x| !x.to_lowercase().contains("#version"))
-            .collect::<Vec<_>>()
-            .join("\n");
-        let fragment_shader_source: String =
-            std::fs::read_to_string(shader_path.with_extension("fs"))?
-                .lines()
-                .filter(|x| !x.to_lowercase().contains("#version"))
-                .collect::<Vec<_>>()
-                .join("\n");
+        let vertex_shader_source = transform_shader(std::fs::read_to_string(&shader_path)?);
+
+        let fragment_shader_source =
+            transform_shader(std::fs::read_to_string(shader_path.with_extension("fs"))?);
 
         let mut params = HashMap::new();
 
@@ -239,7 +240,17 @@ impl ShadedMesh {
 
         let indecies = match self.draw_mode {
             DrawingMode::Triangles => index_list,
-            DrawingMode::Strip => index_list.windows(3).flatten().copied().collect(),
+            DrawingMode::Strip => index_list
+                .windows(3)
+                .enumerate()
+                .flat_map(|(i, ids)| {
+                    if i % 2 == 0 {
+                        [ids[0], ids[1], ids[2]]
+                    } else {
+                        [ids[1], ids[0], ids[2]]
+                    }
+                })
+                .collect(),
             DrawingMode::Fan => index_list
                 .windows(2)
                 .skip(1)
@@ -264,6 +275,7 @@ impl ShadedMesh {
         name: impl Into<String>,
         path: impl AsRef<Path>,
         wrap_xy: (bool, bool),
+        flip_y: bool,
     ) -> anyhow::Result<CpuTexture> {
         profile_function!();
         let name = name.into();
@@ -283,6 +295,25 @@ impl ShadedMesh {
 
             data => data,
         };
+
+        if flip_y {
+            let width = cpu_texture.width as usize;
+            let height = cpu_texture.height as usize;
+            match &mut cpu_texture.data {
+                three_d::TextureData::RU8(vec) => flip_image_data(vec, width, height),
+                three_d::TextureData::RgU8(vec) => flip_image_data(vec, width, height),
+                three_d::TextureData::RgbU8(vec) => flip_image_data(vec, width, height),
+                three_d::TextureData::RgbaU8(vec) => flip_image_data(vec, width, height),
+                three_d::TextureData::RF16(vec) => flip_image_data(vec, width, height),
+                three_d::TextureData::RgF16(vec) => flip_image_data(vec, width, height),
+                three_d::TextureData::RgbF16(vec) => flip_image_data(vec, width, height),
+                three_d::TextureData::RgbaF16(vec) => flip_image_data(vec, width, height),
+                three_d::TextureData::RF32(vec) => flip_image_data(vec, width, height),
+                three_d::TextureData::RgF32(vec) => flip_image_data(vec, width, height),
+                three_d::TextureData::RgbF32(vec) => flip_image_data(vec, width, height),
+                three_d::TextureData::RgbaF32(vec) => flip_image_data(vec, width, height),
+            }
+        }
 
         match wrap_xy {
             (true, true) => {
@@ -304,6 +335,7 @@ impl ShadedMesh {
         }
 
         let texture = three_d::Texture2D::new(&self.context, &cpu_texture);
+
         if self.material.requires_uniform(&name) {
             self.material.use_texture(&name, &texture);
             self.params.insert(name, ShaderParam::Texture(texture));
@@ -484,6 +516,7 @@ impl ShadedMesh {
 
             transform.0
         };
+
         self.use_params();
         self.material.use_uniform(
             "proj",
@@ -496,10 +529,11 @@ impl ShadedMesh {
                 100.0,
             ),
         );
+
         self.material.use_uniform(
             "world",
             Mat4::new(
-                c0r0, c0r1, 0.0, 0.0, c1r0, c1r1, 0.0, 0.0, c2r0, c2r1, 1.0, 0.0, 0.0, 0.0, 0.0,
+                c0r0, c0r1, 0.0, 0.0, c1r0, c1r1, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, c2r0, c2r1, 0.0,
                 1.0,
             ),
         );
@@ -655,7 +689,7 @@ impl TealData for ShadedMesh {
             this.draw_lua_skin(frame, vgfx)
         });
         methods.add_method_mut("AddTexture", |_lua, this, params: (String, String)| {
-            this.use_texture(params.0, params.1, (false, false))
+            this.use_texture(params.0, params.1, (false, false), false)
                 .map(|_| ())
                 .map_err(tealr::mlu::mlua::Error::external)
         });
@@ -667,14 +701,14 @@ impl TealData for ShadedMesh {
             path.push("textures");
             path.push(params.1);
 
-            this.use_texture(params.0, path, (false, false))
+            this.use_texture(params.0, path, (false, false), false)
                 .map(|_| ())
                 .map_err(tealr::mlu::mlua::Error::external)
         });
         methods.add_method_mut(
             "AddSharedTexture",
             |_lua, this, params: (String, String)| {
-                this.use_texture(params.0, params.1, (false, false))
+                this.use_texture(params.0, params.1, (false, false), false)
                     .map(|_| ())
                     .map_err(tealr::mlu::mlua::Error::external)
             },
@@ -731,7 +765,7 @@ impl TealData for ShadedMesh {
         });
         methods.add_method_mut("SetBlendMode", |_, this, params: u8| {
             match params {
-                0 => this.state.blend = Blend::STANDARD_TRANSPARENCY,
+                0 => this.state.blend = Blend::TRANSPARENCY,
                 1 => this.state.blend = Blend::ADD,
                 2 => todo!(), //Multiply
                 _ => {
@@ -754,8 +788,8 @@ impl TealData for ShadedMesh {
         methods.add_method_mut("SetPrimitiveType", |_, this, params: u8| {
             match params {
                 0 => this.draw_mode = DrawingMode::Triangles,
-                1 => this.draw_mode = DrawingMode::Fan,
-                2 => this.draw_mode = DrawingMode::Strip,
+                1 => this.draw_mode = DrawingMode::Strip,
+                2 => this.draw_mode = DrawingMode::Fan,
                 _ => {
                     return Err(tealr::mlu::mlua::Error::RuntimeError(format!(
                         "{params} is not a valid drawing mode."
@@ -770,8 +804,8 @@ impl TealData for ShadedMesh {
 
     fn add_fields<'lua, F: tealr::mlu::TealDataFields<'lua, Self>>(fields: &mut F) {
         fields.add_field_function_get("PRIM_TRILIST", |_, _| Ok(0));
-        fields.add_field_function_get("PRIM_TRIFAN", |_, _| Ok(1));
-        fields.add_field_function_get("PRIM_TRISTRIP", |_, _| Ok(2));
+        fields.add_field_function_get("PRIM_TRISTRIP", |_, _| Ok(1));
+        fields.add_field_function_get("PRIM_TRIFAN", |_, _| Ok(2));
 
         fields.add_field_function_get::<_, u8, _>("PRIM_LINELIST", |_, _| lua_todo());
         fields.add_field_function_get::<_, u8, _>("PRIM_LINESTRIP", |_, _| lua_todo());

@@ -539,13 +539,15 @@ impl Scene for SettingsScreen {
                                 else {
                                     continue;
                                 };
-                                egui::containers::ComboBox::from_label(label)
-                                    .selected_text(t.clone())
-                                    .show_ui(ui, |ui| {
-                                        for ele in values {
-                                            ui.selectable_value(t, ele.clone(), ele);
-                                        }
-                                    });
+                                egui::containers::ComboBox::from_label(
+                                    label.as_ref().unwrap_or(name),
+                                )
+                                .selected_text(t.clone())
+                                .show_ui(ui, |ui| {
+                                    for ele in values {
+                                        ui.selectable_value(t, ele.clone(), ele);
+                                    }
+                                });
                             }
                             crate::skin_settings::SkinSettingEntry::Text {
                                 default: _,
@@ -558,7 +560,7 @@ impl Scene for SettingsScreen {
                                 else {
                                     continue;
                                 };
-                                ui.label(label);
+                                ui.label(label.as_ref().unwrap_or(name));
                                 ui.add(TextEdit::singleline(t).password(*secret));
                             }
                             crate::skin_settings::SkinSettingEntry::Color {
@@ -571,7 +573,7 @@ impl Scene for SettingsScreen {
                                 else {
                                     continue;
                                 };
-                                ui.label(label);
+                                ui.label(label.as_ref().unwrap_or(name));
                                 ui.color_edit_button_srgba(&mut col.0);
                             }
                             crate::skin_settings::SkinSettingEntry::Bool {
@@ -584,7 +586,7 @@ impl Scene for SettingsScreen {
                                 else {
                                     continue;
                                 };
-                                ui.checkbox(v, label);
+                                ui.checkbox(v, label.as_ref().unwrap_or(name));
                             }
                             crate::skin_settings::SkinSettingEntry::Float {
                                 default: _,
@@ -598,7 +600,7 @@ impl Scene for SettingsScreen {
                                 else {
                                     continue;
                                 };
-                                ui.label(label);
+                                ui.label(label.as_ref().unwrap_or(name));
                                 ui.add(egui::Slider::new(v, *min..=*max));
                             }
                             crate::skin_settings::SkinSettingEntry::Integer {
@@ -613,7 +615,7 @@ impl Scene for SettingsScreen {
                                 else {
                                     continue;
                                 };
-                                ui.label(label);
+                                ui.label(label.as_ref().unwrap_or(name));
                                 ui.add(egui::Slider::new(v, *min..=*max));
                             }
                         }

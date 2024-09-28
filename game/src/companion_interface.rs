@@ -196,5 +196,5 @@ pub fn print_ts(p: &str) {
     let config = ExportConfiguration::default()
         .bigint(ts::BigIntExportBehavior::Number)
         .export_by_default(Some(true));
-    specta::export::ts_with_cfg(p, &config);
+    _ = specta::export::ts_with_cfg(p, &config);
 }

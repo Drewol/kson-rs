@@ -61,6 +61,12 @@ pub enum AutoPlay {
     All,
 }
 
+impl AutoPlay {
+    pub fn any(&self) -> bool {
+        !matches!(self, AutoPlay::None)
+    }
+}
+
 pub enum ControlMessage {
     None,
     MainMenu(MainMenuButton),
@@ -257,9 +263,7 @@ impl GameMain {
         let _lua_mixer = mixer.clone();
 
         if frame_input.first_frame {
-            frame_input
-                .screen()
-                .clear(td::ClearState::color(0.0, 0.0, 0.0, 1.0));
+            frame_input.screen().clear(td::ClearState::default());
             let vgfx = vgfx.write().expect("Lock error");
             let mut canvas = vgfx.canvas.lock().expect("Lock error");
             canvas.reset();
@@ -630,7 +634,7 @@ impl GameMain {
         }
 
         if let Some(Event::UserEvent(e)) = transformed_event.as_ref() {
-            self.input_state.update(&e);
+            self.input_state.update(e);
             match e {
                 UscInputEvent::Button(b, ElementState::Pressed, time) => self
                     .scenes

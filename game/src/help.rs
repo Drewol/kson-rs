@@ -4,6 +4,7 @@ use std::{
 };
 
 use di::{transient_factory, RefMut, ServiceCollection};
+use itertools::Itertools;
 use rfd::AsyncFileDialog;
 use tealr::{
     mlu::{
@@ -190,4 +191,22 @@ impl AsyncPicker {
     pub fn add_filter(mut self, name: impl Into<String>, extensions: &[impl ToString]) -> Self {
         Self(self.0.add_filter(name, extensions), self.1)
     }
+}
+
+pub fn transform_shader(s: String) -> String {
+    s.lines()
+        .filter(|x| !x.starts_with("#version"))
+        .filter(|x| !x.starts_with("#extension"))
+        .map(|x| {
+            if x.starts_with("layout") {
+                let i = x[5..]
+                    .find(" in ")
+                    .or_else(|| x[5..].find(" out "))
+                    .unwrap_or(0);
+                x[(i + 5)..].trim()
+            } else {
+                x
+            }
+        })
+        .join("\n")
 }

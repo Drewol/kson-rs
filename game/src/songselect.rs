@@ -1,3 +1,21 @@
+use crate::{
+    async_service::AsyncService,
+    button_codes::{LaserAxis, LaserState, UscButton, UscInputEvent},
+    config::GameConfig,
+    game_main::AutoPlay,
+    help::await_task,
+    input_state::InputState,
+    lua_service::LuaProvider,
+    results::Score,
+    scene::{Scene, SceneData},
+    settings_dialog::SettingsDialog,
+    song_provider::{
+        self, DiffId, ScoreProvider, ScoreProviderEvent, SongDiffId, SongFilter, SongFilterType,
+        SongId, SongProvider, SongProviderEvent, SongSort,
+    },
+    take_duration_fade::take_duration_fade,
+    ControlMessage, RuscMixer,
+};
 use anyhow::{anyhow, ensure, Result};
 use di::{RefMut, ServiceProvider};
 use game_loop::winit::event::{ElementState, Event, Ime, WindowEvent};
@@ -32,25 +50,6 @@ use winit::{
     keyboard::{Key, NamedKey},
 };
 
-use crate::{
-    async_service::AsyncService,
-    button_codes::{LaserAxis, LaserState, UscButton, UscInputEvent},
-    config::GameConfig,
-    game_main::AutoPlay,
-    help::await_task,
-    input_state::InputState,
-    lua_service::LuaProvider,
-    results::Score,
-    scene::{Scene, SceneData},
-    settings_dialog::SettingsDialog,
-    song_provider::{
-        self, DiffId, ScoreProvider, ScoreProviderEvent, SongDiffId, SongFilter, SongFilterType,
-        SongId, SongProvider, SongProviderEvent, SongSort,
-    },
-    take_duration_fade::take_duration_fade,
-    ControlMessage, RuscMixer,
-};
-
 mod song_collection;
 use song_collection::*;
 
@@ -65,6 +64,7 @@ pub struct Difficulty {
     pub top_badge: i32,     //top badge for this difficulty
     pub scores: Vec<Score>, //array of all scores on this diff
     pub hash: Option<String>,
+    pub illustrator: String,
 }
 
 impl TealData for Difficulty {
@@ -289,7 +289,7 @@ impl SongSelectScene {
             "filters",
             self.filter_lua.to_value(&json!({
                 "folder": filters.iter().map(|x| x.to_string()).collect_vec(),
-                "level": (0..=20).map(|x| if x == 0 {"None".to_owned()} else {format!("Level: {x}")}).collect_vec(),
+                "level": (0..=20).map(|x| if x == 0 {"All".to_owned()} else {format!("Level: {x}")}).collect_vec(),
             }))?,
         )?;
 
@@ -862,10 +862,7 @@ impl Scene for SongSelectScene {
                 crate::companion_interface::ClientEvent::SetSongSort(song_sort) => {
                     if let Some(pos) = self.sorts.iter().find_position(|x| **x == *song_sort) {
                         self.sort_index = pos.0;
-                        self.song_provider
-                            .write()
-                            .unwrap()
-                            .set_sort(song_sort.clone());
+                        self.song_provider.write().unwrap().set_sort(*song_sort);
                         _ = self.update_lua();
                         _ = self.update_filter_sort_lua();
                     }

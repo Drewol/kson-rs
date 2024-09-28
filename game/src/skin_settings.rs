@@ -69,40 +69,41 @@ pub enum SkinSettingEntry {
     Separator,
     Selection {
         default: String,
-        label: String,
+        label: Option<String>,
         name: String,
         values: Vec<String>,
     },
     Text {
         default: String,
-        label: String,
+        label: Option<String>,
         name: String,
         #[serde(default)]
         secret: bool,
     },
     Color {
         default: SettingsColor,
-        label: String,
+        label: Option<String>,
         name: String,
     },
 
     Bool {
         default: bool,
-        label: String,
+        label: Option<String>,
         name: String,
     },
 
     Float {
         default: f64,
-        label: String,
+        label: Option<String>,
         name: String,
         min: f64,
         max: f64,
     },
 
+    #[serde(alias = "int")]
     Integer {
         default: i64,
-        label: String,
+        label: Option<String>,
         name: String,
         min: i64,
         max: i64,

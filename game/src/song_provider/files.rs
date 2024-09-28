@@ -125,6 +125,7 @@ impl FileSongProvider {
                     top_badge: 0,           //TODO
                     scores: Vec::default(), //TODO
                     hash: Some(diff.hash),
+                    illustrator: diff.illustrator,
                 });
                 drop(difficulties);
                 song
@@ -346,6 +347,7 @@ impl FileSongProvider {
                                                             .unwrap_or_default(),
                                                         scores,
                                                         hash: Some(hash),
+                                                        illustrator: c.meta.jacket_author,
                                                     });
                                             }
 

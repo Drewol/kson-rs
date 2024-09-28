@@ -4,10 +4,12 @@ use std::{
     collections::HashSet,
     default,
     fmt::{format, Debug, Display, Write},
+    str::FromStr,
     sync::Arc,
     time::Duration,
 };
 
+use anyhow::ensure;
 use egui::util::hash;
 use kson::Chart;
 use log::LevelFilter;
@@ -15,6 +17,7 @@ use luals_gen::ToLuaLsType;
 use poll_promise::Promise;
 use rodio::Source;
 use serde::{Deserialize, Serialize};
+use serde_with::{DeserializeFromStr, SerializeDisplay};
 use tealr::{
     mlu::{mlua::UserData, TealData, UserData},
     ToTypename, TypeName,
@@ -136,8 +139,8 @@ impl Display for SongSort {
         formatter.write_str(" ")?;
 
         match self.direction {
-            SortDir::Desc => formatter.write_str("▼"),
-            SortDir::Asc => formatter.write_str("▲"),
+            SortDir::Desc => formatter.write_str("v"),
+            SortDir::Asc => formatter.write_str("^"),
         }
     }
 }
@@ -155,7 +158,7 @@ pub enum SongFilterType {
 impl Display for SongFilterType {
     fn fmt(&self, formatter: &mut std::fmt::Formatter) -> std::fmt::Result {
         match self {
-            SongFilterType::None => formatter.write_str("None"),
+            SongFilterType::None => formatter.write_str("All"),
             SongFilterType::Folder(f) => formatter.write_fmt(format_args!("Folder: {f}")),
             SongFilterType::Collection(c) => formatter.write_fmt(format_args!("Collection: {c}")),
         }
@@ -179,19 +182,48 @@ impl SongFilter {
     ToTypename,
     UserData,
     Clone,
-    Serialize,
     Hash,
     PartialEq,
     Eq,
     PartialOrd,
     Ord,
     ToLuaLsType,
-    Deserialize,
+    SerializeDisplay,
+    DeserializeFromStr,
 )]
 pub enum SongId {
     Missing,
     IntId(i64),
     StringId(String),
+}
+
+impl FromStr for SongId {
+    type Err = anyhow::Error;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s {
+            "Missing" => Ok(SongId::Missing),
+            s => {
+                if s.starts_with("IntId") {
+                    Ok(SongId::IntId(s[6..s.len() - 1].parse()?))
+                } else {
+                    ensure!(s.len() > 8);
+                    Ok(SongId::StringId(s[8..s.len() - 1].to_string()))
+                }
+            }
+        }
+    }
+}
+
+impl Display for SongId {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        use std::fmt::*;
+        match self {
+            SongId::Missing => f.write_str("Missing"),
+            SongId::IntId(v) => f.write_fmt(format_args!("IntId({v})")),
+            SongId::StringId(v) => f.write_fmt(format_args!("StringId({v})")),
+        }
+    }
 }
 
 impl SongId {
@@ -217,8 +249,8 @@ impl Default for SongId {
     ToTypename,
     UserData,
     Clone,
-    Serialize,
-    Deserialize,
+    DeserializeFromStr,
+    SerializeDisplay,
     Default,
     Hash,
     PartialEq,
@@ -229,9 +261,23 @@ impl Default for SongId {
 )]
 pub struct DiffId(pub SongId);
 
+impl Display for DiffId {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        <SongId as Display>::fmt(&self.0, f)
+    }
+}
+
+impl FromStr for DiffId {
+    type Err = anyhow::Error;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        Ok(Self(SongId::from_str(s)?))
+    }
+}
+
 impl TealData for DiffId {}
 
-#[derive(Debug, ToTypename, UserData, Clone, Serialize, Deserialize, ToLuaLsType)]
+#[derive(Debug, ToTypename, UserData, Clone, ToLuaLsType, Serialize, Deserialize)]
 pub enum SongDiffId {
     Missing,
     DiffOnly(DiffId),

@@ -14,6 +14,7 @@ use crate::{
 
 use anyhow::{anyhow, ensure, Result};
 use di::{RefMut, ServiceProvider};
+use egui::epaint::Hsva;
 use egui_plot::{Line, PlotPoints};
 use image::GenericImageView;
 use itertools::Itertools;
@@ -28,6 +29,7 @@ use kson_rodio_sources::{
     owned_source::{self, owned_source},
 };
 
+use log::warn;
 use puffin::{profile_function, profile_scope};
 use rodio::{dynamic_mixer::DynamicMixerController, source::Buffered, Decoder, Source};
 use std::{
@@ -42,7 +44,7 @@ use std::{
 };
 use tealr::mlu::mlua::{Function, Lua, LuaSerdeExt};
 use three_d::{vec2, vec3, Blend, Camera, Mat4, Matrix4, Vec3, Vec4, Viewport, Zero};
-use three_d_asset::{vec4, Srgba};
+use three_d_asset::vec4;
 
 pub mod chart_view;
 use chart_view::*;
@@ -98,6 +100,7 @@ pub struct Game {
     laser_assist_ticks: [u8; 2],
     laser_alert: [usize; 2],
     laser_latest_dir_inputs: [[SystemTime; 2]; 2], //last left/right turn timestamps for both knobs, for checking slam hits
+    laser_colors: [Vec4; 2],
     beam_colors: Vec<Vec4>,
     beam_colors_current: [[f32; 4]; 6],
     draw_axis_guides: bool,
@@ -254,6 +257,7 @@ impl SceneData for GameData {
             "mainTex",
             texture_folder.with_file_name("scorehit.png"),
             (false, false),
+            false,
         )?;
 
         beam_shader.set_data_mesh(&graphics::xy_rect(Vec3::zero(), vec2(1.0, 1.0)));
@@ -262,6 +266,7 @@ impl SceneData for GameData {
             "mainTex",
             texture_folder.with_file_name("fxbuttonhold.png"),
             (false, false),
+            true,
         )?;
 
         fx_long_shader.set_data_mesh(&graphics::xy_rect(
@@ -277,6 +282,7 @@ impl SceneData for GameData {
             "mainTex",
             texture_folder.with_file_name("buttonhold.png"),
             (false, false),
+            true,
         )?;
 
         bt_long_shader.set_data_mesh(&graphics::xy_rect(
@@ -291,6 +297,7 @@ impl SceneData for GameData {
             "mainTex",
             texture_folder.with_file_name("fxbutton.png"),
             (false, false),
+            true,
         )?;
         let fx_height = 1.0;
 
@@ -308,6 +315,7 @@ impl SceneData for GameData {
             "mainTex",
             texture_folder.with_file_name("button.png"),
             (false, false),
+            true,
         )?;
 
         bt_chip_shader.set_data_mesh(&graphics::xy_rect(
@@ -324,13 +332,23 @@ impl SceneData for GameData {
             vec2(1.0, ChartView::TRACK_LENGTH * 2.0),
         ));
 
-        track_shader.set_param("lCol", Srgba::BLUE);
-        track_shader.set_param("rCol", Srgba::RED);
+        let laser_colors: [three_d::Vector4<f32>; 2] = [
+            Hsva::new(GameConfig::get().laser_hues[0] / 360.0, 1.0, 1.0, 1.0)
+                .to_rgba_unmultiplied()
+                .into(),
+            Hsva::new(GameConfig::get().laser_hues[1] / 360.0, 1.0, 1.0, 1.0)
+                .to_rgba_unmultiplied()
+                .into(),
+        ];
+
+        track_shader.set_param("lCol", laser_colors[0]);
+        track_shader.set_param("rCol", laser_colors[1]);
 
         track_shader.use_texture(
             "mainTex",
             texture_folder.with_file_name("track.png"),
             (false, false),
+            true,
         )?;
 
         let mut laser_left =
@@ -347,21 +365,25 @@ impl SceneData for GameData {
             "mainTex",
             texture_folder.with_file_name("laser_l.png"),
             (false, true),
+            true,
         )?;
         laser_left_active.use_texture(
             "mainTex",
             texture_folder.with_file_name("laser_l.png"),
             (false, true),
+            true,
         )?;
         laser_right.use_texture(
             "mainTex",
             texture_folder.with_file_name("laser_r.png"),
             (false, true),
+            true,
         )?;
         laser_right_active.use_texture(
             "mainTex",
             texture_folder.with_file_name("laser_r.png"),
             (false, true),
+            true,
         )?;
 
         let beam_colors: Vec<_> = image::open(texture_folder.with_file_name("hitcolors.png"))
@@ -477,6 +499,7 @@ impl SceneData for GameData {
             laser_effects,
             autoplay,
             chip_h,
+            laser_colors,
         )?))
     }
 }
@@ -507,6 +530,7 @@ impl Game {
         laser_effects: BTreeMap<u32, AudioEffect>,
         autoplay: AutoPlay,
         chip_h: f32,
+        laser_colors: [three_d::Vector4<f32>; 2],
     ) -> Result<Self> {
         let mut view = ChartView::new(skin_root, td)?;
         view.build_laser_meshes(&chart);
@@ -566,6 +590,7 @@ impl Game {
                 })
                 .collect(),
             beam_colors_current: [[0.0; 4]; 6],
+            laser_colors,
             draw_axis_guides: false,
             current_roll: 0.0,
             target_roll: TargetRoll::None,
@@ -626,10 +651,10 @@ impl Game {
         });
         self.laser_shaders[0]
             .iter_mut()
-            .for_each(|ll| ll.set_param("color", Srgba::BLUE));
+            .for_each(|ll| ll.set_param("color", self.laser_colors[0]));
         self.laser_shaders[1]
             .iter_mut()
-            .for_each(|rl| rl.set_param("color", Srgba::RED));
+            .for_each(|rl| rl.set_param("color", self.laser_colors[1]));
     }
 
     fn lua_game_state(
@@ -664,10 +689,10 @@ impl Game {
             sudden_cutoff: 0.0,
             hidden_fade: 0.0,
             sudden_fade: 0.0,
-            autoplay: false,
+            autoplay: self.autoplay.any(),
             combo_state: 0,
             note_held: [false; 6],
-            laser_active: [false; 2],
+            laser_active: [self.laser_active[0], self.laser_active[1]],
             score_replays: Vec::new(),
             crit_line: lua_data::CritLine {
                 x: track_center.x as i32,
@@ -755,9 +780,6 @@ impl Game {
             }
         }
 
-        let button_hit = self.lua.globals().get::<_, Function>("button_hit");
-        let laser_slam_hit = self.lua.globals().get::<_, Function>("laser_slam_hit");
-
         match hit_rating {
             HitRating::Crit {
                 tick,
@@ -765,12 +787,11 @@ impl Game {
                 time: _,
             } => match tick.tick {
                 ScoreTick::Chip { lane } => {
-                    self.beam_colors_current[lane] = (self.beam_colors[2] / 255.0).into();
-                    if let Ok(button_hit) = button_hit {
-                        crate::log_result!(button_hit.call::<_, ()>((lane, 2, delta)));
-                    }
+                    self.beam_colors_current[lane] = self.get_beam_color(lane, 2, delta);
                 }
                 ScoreTick::Slam { lane, start, end } => {
+                    let laser_slam_hit = self.lua.globals().get::<_, Function>("laser_slam_hit");
+
                     let signum = (end - start).signum() as i32;
                     self.camera.shakes.push(CameraShake::new(
                         ((start - end).abs() * 2.0).to_radians() as _,
@@ -823,7 +844,12 @@ impl Game {
                     }
 
                     if let Ok(laser_slam_hit) = laser_slam_hit {
-                        log_result!(laser_slam_hit.call::<_, ()>((end - start, start, end, lane)));
+                        log_result!(laser_slam_hit.call::<_, ()>((
+                            end - start,
+                            start - 0.5,
+                            end - 0.5,
+                            lane
+                        )));
                     }
                 }
                 _ => (),
@@ -834,13 +860,10 @@ impl Game {
                 time: _,
             } => {
                 if let ScoreTick::Chip { lane } = tick.tick {
+                    self.beam_colors_current[lane] = self.get_beam_color(lane, 1, delta);
                     if let Ok(near_hit) = self.lua.globals().get::<_, Function>("near_hit") {
                         log_result!(near_hit.call::<_, ()>(delta < 0.0));
                     }
-                    if let Ok(button_hit) = button_hit {
-                        log_result!(button_hit.call::<_, ()>((lane, 1, delta)));
-                    }
-                    self.beam_colors_current[lane] = (self.beam_colors[1] / 255.0).into()
                 }
             }
             HitRating::Miss {
@@ -849,10 +872,7 @@ impl Game {
                 time: _,
             } if tick.y > self.current_tick => {
                 if let ScoreTick::Chip { lane } = tick.tick {
-                    self.beam_colors_current[lane] = (self.beam_colors[0] / 255.0).into();
-                    if let Ok(button_hit) = button_hit {
-                        log_result!(button_hit.call::<_, ()>((lane, 0, 0)));
-                    }
+                    self.beam_colors_current[lane] = self.get_beam_color(lane, 0, 0.0);
                 }
             }
             HitRating::Miss {
@@ -862,18 +882,34 @@ impl Game {
             } => {
                 if let ScoreTick::Chip { lane } = tick.tick {
                     if delta.abs() > f64::EPSILON {
-                        //Button press miss, not idle miss
-                        self.beam_colors_current[lane] = (self.beam_colors[3] / 255.0).into();
-                    }
-                    if let Ok(button_hit) = button_hit {
-                        log_result!(button_hit.call::<_, ()>((lane, 0, 0)));
+                        self.beam_colors_current[lane] = self.get_beam_color(lane, 0, 0.0);
                     }
                 }
             }
+
             _ => {}
         }
 
         self.gauge.on_hit(hit_rating);
+    }
+
+    fn get_beam_color(&mut self, lane: usize, rating: usize, delta: f64) -> [f32; 4] {
+        let button_hit = self.lua.globals().get::<_, Function>("button_hit");
+
+        let mut beam_color: [f32; 4] = (self.beam_colors[rating] / 255.0).into();
+        if let Ok(button_hit) = &button_hit {
+            let (r, g, b) = button_hit
+                .call::<_, (Option<u8>, Option<u8>, Option<u8>)>((lane, rating, delta))
+                .inspect_err(|e| warn!("{e}"))
+                .unwrap_or_default();
+
+            if let (Some(r), Some(g), Some(b)) = (r, g, b) {
+                beam_color[0] = r as f32 / 255.0;
+                beam_color[1] = g as f32 / 255.0;
+                beam_color[2] = b as f32 / 255.0;
+            }
+        }
+        beam_color
     }
 
     pub const MAX_SCORE: u64 = 10_000_000_u64;
@@ -1672,7 +1708,7 @@ impl Scene for Game {
 
         //Set glow/hit states
         let object_glow = ((time_ms as f32 % 100.0) / 50.0 - 1.0).abs() * 0.5 + 0.5;
-        let hit_state = ((time_ms / 50.0) % 2.0) as i32 + 2;
+        let hit_state = (time_ms / 50.0).rem_euclid(2.0) as i32 + 2;
         for (side, [_, shader]) in self.laser_shaders.iter_mut().enumerate() {
             shader.set_param(
                 "hitState",
@@ -1715,7 +1751,7 @@ impl Scene for Game {
                 material.use_uniform("world", transform * hold);
                 let (glow, state) = match active {
                     HoldState::Idle => (0.6, 1),
-                    HoldState::Hit => (object_glow, hit_state),
+                    HoldState::Hit => (object_glow, hit_state), //FLIP_Y?
                     HoldState::Miss => (0.3, 0),
                 };
                 material.use_uniform_if_required("objectGlow", glow);
@@ -1925,7 +1961,7 @@ impl Scene for Game {
         if let HitRating::None = hit_rating {
             if (button_num as usize) < self.beam_colors_current.len() {
                 self.beam_colors_current[button_num as usize] =
-                    (self.beam_colors[3] / 255.0).into();
+                    self.get_beam_color(button_num as usize, 3, 0.0);
             }
         }
     }

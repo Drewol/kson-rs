@@ -105,6 +105,7 @@ impl SongResultData {
             top_badge: _,
             scores,
             hash: _,
+            illustrator: _,
         } = song.difficulties.read().expect("Lock error")[diff_idx].clone();
 
         let Song {

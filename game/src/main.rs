@@ -604,6 +604,7 @@ fn main() -> anyhow::Result<()> {
                     top_badge: 0,
                     hash: None,
                     scores: vec![],
+                    illustrator: String::new(),
                 }]
                 .into(),
             ),
@@ -751,9 +752,10 @@ fn export_luals_defs() -> Result<(), anyhow::Error> {
 
 #[macro_export]
 macro_rules! log_result {
-    ($expression:expr) => {
-        if let Err(e) = $expression {
+    ($expression:expr) => {{
+        let _result_ = $expression;
+        if let Err(e) = &_result_ {
             log::warn!("{e}");
         }
-    };
+    }};
 }

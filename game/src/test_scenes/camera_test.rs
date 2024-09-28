@@ -102,6 +102,7 @@ impl CameraTest {
                 "mainTex",
                 texture_folder.with_file_name("track.png"),
                 (false, false),
+                true,
             )
             .expect("Failed to set texture uniform");
         let mat = three_d::ColorMaterial::new_opaque(

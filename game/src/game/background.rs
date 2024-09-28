@@ -3,6 +3,7 @@ use std::path::{Path, PathBuf};
 use crate::{
     game::ChartView,
     game_data::{ExportGame, GameData, LuaPath},
+    help::transform_shader,
     shaded_mesh::ShadedMesh,
     util::lua_address,
     vg_ui::{ExportVgfx, Vgfx},
@@ -87,7 +88,7 @@ impl TealData for GameBackgroundLua {
 
                 path.push(filename);
 
-                bg.use_texture(shadername, path, (true, true))
+                bg.use_texture(shadername, path, (true, true), false)
                     .map_err(mlua::Error::external)?;
 
                 Ok(())
@@ -225,7 +226,8 @@ impl GameBackground {
 
         path.push(name);
         path.set_extension("fs");
-        let fs = std::io::read_to_string(std::fs::File::open(&path)?)?;
+        let fs = transform_shader(std::io::read_to_string(std::fs::File::open(&path)?)?);
+
         let mesh = ShadedMesh::new_fullscreen(context, &fs)?;
 
         let lua = Lua::new_with(StdLib::MATH | StdLib::STRING, LuaOptions::new())?;
