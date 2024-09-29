@@ -1,6 +1,7 @@
 use std::{
     collections::HashMap,
     hash::{Hash, Hasher},
+    io::BufReader,
     path::PathBuf,
     sync::{Arc, Mutex, RwLock},
 };
@@ -23,7 +24,7 @@ use tealr::mlu::mlua;
 
 use crate::{
     animation::VgAnimation, config::GameConfig, default_game_dir, help::add_lua_static_method,
-    log_result, shaded_mesh::ShadedMesh, util::lua_address,
+    log_result, settings_screen::skin_select::SkinMeta, shaded_mesh::ShadedMesh, util::lua_address,
 };
 
 const FALLBACK_ID: u32 = u32::MAX;
@@ -122,6 +123,7 @@ struct VgfxPoint {
 pub struct Vgfx {
     pub canvas: Arc<Mutex<Canvas<OpenGl>>>,
     skin: String,
+    skin_meta: SkinMeta,
     restore_stack: Vec<VgfxPoint>,
     path: Option<Path>,
     fill_paint: Option<Paint>,
@@ -138,6 +140,7 @@ pub struct Vgfx {
     scoped_assets: HashMap<usize, ScopedAssets>,
     fonts: HashMap<String, FontId>,
     image_jobs: HashMap<String, Promise<image::DynamicImage>>,
+    label_align: (femtovg::Align, femtovg::Baseline),
 }
 
 impl Injectable for Vgfx {
@@ -188,6 +191,13 @@ impl Vgfx {
         };
 
         let config = &GameConfig::get();
+        let mut meta_file = config.skin_path();
+        meta_file.push("meta.json");
+        let skin_meta = std::fs::File::open(&meta_file)
+            .map(BufReader::new)
+            .ok()
+            .and_then(|r| serde_json::from_reader::<_, SkinMeta>(r).ok())
+            .unwrap_or_default();
 
         Self {
             path_cache: Default::default(),
@@ -208,6 +218,8 @@ impl Vgfx {
             image_tint: None,
             label_color: Color::white(),
             label_font: *default_fonts.first().expect("No default font loaded"),
+            label_align: (femtovg::Align::Left, femtovg::Baseline::Alphabetic),
+            skin_meta,
         }
     }
 
@@ -596,6 +608,7 @@ impl TealData for Vgfx {
                 _ => femtovg::Align::Left,
             };
 
+            _vgfx.label_align = (horizontal, vertical);
             _vgfx.stroke_paint.set_text_align(horizontal);
             _vgfx.stroke_paint.set_text_baseline(vertical);
             if let Some(text_paint) = _vgfx.fill_paint.as_mut() {
@@ -838,7 +851,9 @@ impl TealData for Vgfx {
                     .unwrap_or_else(|| _vgfx.stroke_paint.clone())
                     .with_font(&[label.font])
                     .with_font_size(label.size as f32)
-                    .with_color(_vgfx.label_color);
+                    .with_color(_vgfx.label_color)
+                    .with_text_align(_vgfx.label_align.0)
+                    .with_text_baseline(_vgfx.label_align.1);
 
                 let text_measure = canvas
                     .measure_text(x, y, &label.text, &paint)
@@ -1738,7 +1753,12 @@ impl TealData for Vgfx {
                     let bounds = canvas
                         .measure_text(x, y, s, paint)
                         .map_err(mlua::Error::external)?;
-                    Ok((x, y, x + bounds.width(), y + bounds.height()))
+                    Ok((
+                        bounds.x,
+                        bounds.y,
+                        bounds.x + bounds.width(),
+                        bounds.y + bounds.height(),
+                    ))
                 } else {
                     Err(mlua::Error::external("No text paint set".to_string()))
                 }
@@ -1760,6 +1780,8 @@ impl TealData for Vgfx {
             if let Some(label) = _vgfx.scoped_assets[&lua_address(lua)].labels.get(&p.label) {
                 paint.set_font(&[label.font]);
                 paint.set_font_size(label.size as f32);
+                paint.set_text_align(_vgfx.label_align.0);
+                paint.set_text_baseline(_vgfx.label_align.1);
                 let size = canvas
                     .measure_text(0.0, 0.0, &label.text, &paint)
                     .map_err(mlua::Error::external)?;

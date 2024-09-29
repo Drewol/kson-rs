@@ -88,7 +88,7 @@ impl TealData for GameBackgroundLua {
 
                 path.push(filename);
 
-                bg.use_texture(shadername, path, (true, true), false)
+                bg.use_texture(shadername, path, (true, true), true)
                     .map_err(mlua::Error::external)?;
 
                 Ok(())

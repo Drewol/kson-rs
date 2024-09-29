@@ -689,7 +689,7 @@ impl TealData for ShadedMesh {
             this.draw_lua_skin(frame, vgfx)
         });
         methods.add_method_mut("AddTexture", |_lua, this, params: (String, String)| {
-            this.use_texture(params.0, params.1, (false, false), false)
+            this.use_texture(params.0, params.1, (false, false), true)
                 .map(|_| ())
                 .map_err(tealr::mlu::mlua::Error::external)
         });
@@ -701,14 +701,14 @@ impl TealData for ShadedMesh {
             path.push("textures");
             path.push(params.1);
 
-            this.use_texture(params.0, path, (false, false), false)
+            this.use_texture(params.0, path, (false, false), true)
                 .map(|_| ())
                 .map_err(tealr::mlu::mlua::Error::external)
         });
         methods.add_method_mut(
             "AddSharedTexture",
             |_lua, this, params: (String, String)| {
-                this.use_texture(params.0, params.1, (false, false), false)
+                this.use_texture(params.0, params.1, (false, false), true)
                     .map(|_| ())
                     .map_err(tealr::mlu::mlua::Error::external)
             },
