@@ -117,6 +117,7 @@ struct VgfxPoint {
     path: Option<Path>,
     fill_paint: Option<Paint>,
     stroke_paint: Paint,
+    image_tint: Option<Color>,
 }
 
 #[derive(UserData)]
@@ -1534,6 +1535,7 @@ impl TealData for Vgfx {
         add_lua_static_method(methods, "Save", |_, _vgfx, _: ()| {
             _vgfx.with_canvas(|canvas| canvas.save())?;
             _vgfx.restore_stack.push(VgfxPoint {
+                image_tint: _vgfx.image_tint,
                 path: _vgfx.path.clone(),
                 fill_paint: _vgfx.fill_paint.clone(),
                 stroke_paint: _vgfx.stroke_paint.clone(),
@@ -1551,8 +1553,9 @@ impl TealData for Vgfx {
                     path,
                     fill_paint,
                     stroke_paint,
+                    image_tint,
                 } = restore;
-
+                _vgfx.image_tint = image_tint;
                 _vgfx.path = path;
                 _vgfx.fill_paint = fill_paint;
                 _vgfx.stroke_paint = stroke_paint;
@@ -1565,6 +1568,7 @@ impl TealData for Vgfx {
         //Reset
         add_lua_static_method(methods, "Reset", |_lua_index, _vgfx, _: ()| {
             _vgfx.restore_stack.clear();
+            _vgfx.image_tint = None;
             _vgfx.with_canvas(|canvas| canvas.reset())
         });
 
