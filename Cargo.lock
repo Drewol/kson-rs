@@ -1794,7 +1794,7 @@ dependencies = [
  "egui-wgpu",
  "egui-winit",
  "egui_glow",
- "glow",
+ "glow 0.13.1",
  "glutin 0.31.3",
  "glutin-winit",
  "image 0.24.9",
@@ -1893,7 +1893,7 @@ dependencies = [
  "bytemuck",
  "egui 0.27.2",
  "egui-winit",
- "glow",
+ "glow 0.13.1",
  "log",
  "memoffset 0.9.1",
  "puffin",
@@ -2217,7 +2217,7 @@ source = "git+https://github.com/Drewol/femtovg?branch=cache-experiment-1#81b31d
 dependencies = [
  "bitflags 2.6.0",
  "fnv",
- "glow",
+ "glow 0.13.1",
  "image 0.25.2",
  "imgref",
  "log",
@@ -2608,6 +2608,18 @@ name = "glow"
 version = "0.13.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "bd348e04c43b32574f2de31c8bb397d96c9fcfa1371bd4ca6d8bdc464ab121b1"
+dependencies = [
+ "js-sys",
+ "slotmap",
+ "wasm-bindgen",
+ "web-sys",
+]
+
+[[package]]
+name = "glow"
+version = "0.14.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "2f4a888dbe8181a7535853469c21c67ca9a1cea9460b16808fc018ea9e55d248"
 dependencies = [
  "js-sys",
  "slotmap",
@@ -5247,7 +5259,7 @@ dependencies = [
  "futures-util",
  "game-loop",
  "gilrs",
- "glow",
+ "glow 0.14.1",
  "glutin 0.31.3",
  "glutin-winit",
  "image 0.25.2",
@@ -6481,7 +6493,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "9978647e84d37d5e06b3540583483fb8ced91e3c8ad0e2a6dae936cc4fe00807"
 dependencies = [
  "cgmath",
- "glow",
+ "glow 0.13.1",
  "glutin 0.30.10",
  "instant",
  "raw-window-handle 0.5.2",
@@ -7520,7 +7532,7 @@ dependencies = [
  "bitflags 2.6.0",
  "cfg_aliases 0.1.1",
  "core-graphics-types",
- "glow",
+ "glow 0.13.1",
  "glutin_wgl_sys 0.5.0",
  "gpu-alloc",
  "gpu-allocator",
