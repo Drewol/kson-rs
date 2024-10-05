@@ -156,7 +156,7 @@ impl FileSongProvider {
                         })
                         .filter_map(|e| e.path().parent().map(|x| x.to_path_buf()))
                         .unique()
-                        .chunks(1)
+                        .chunks(16)
                         .into_iter()
                         .map(|folders| {
                             let worker_db = worker_db.clone();
@@ -389,7 +389,10 @@ impl FileSongProvider {
                 }
                 .collect_vec();
 
-                futures::future::join_all(songs).await;
+                for batch in songs.into_iter() {
+                    info!("Processing song batch");
+                    batch.await;
+                }
 
                 //send update to provider
                 info!("Finished importing");
