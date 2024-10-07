@@ -120,6 +120,16 @@ pub struct GameMain {
     modifiers: Modifiers,
     service_provider: ServiceProvider,
     show_fps: bool,
+    fps_limiter: tokio::time::Interval,
+}
+
+fn get_frame_duration(settings: &GameConfig) -> Duration {
+    let target_fps = settings.graphics.target_fps as u64;
+    if target_fps == 0 {
+        Duration::from_nanos(1)
+    } else {
+        Duration::from_nanos(1_000_000_000 / target_fps.max(30))
+    }
 }
 
 impl GameMain {
@@ -131,6 +141,8 @@ impl GameMain {
         service_provider: ServiceProvider,
     ) -> Self {
         let (control_tx, control_rx) = channel();
+        let mut fps_limiter = tokio::time::interval(get_frame_duration(&GameConfig::get()));
+        fps_limiter.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
         Self {
             lua_arena: service_provider.get_required(),
             lua_provider: service_provider.get_required(),
@@ -157,6 +169,7 @@ impl GameMain {
             service_provider,
             show_fps: GameConfig::get().graphics.show_fps,
             companion_update: 0,
+            fps_limiter,
         }
     }
 
@@ -250,6 +263,7 @@ impl GameMain {
             show_fps,
             companion_server: _,
             companion_update: _,
+            fps_limiter,
         } = self;
 
         knob_state.zero_deltas();
@@ -392,6 +406,9 @@ impl GameMain {
 
                     *show_fps = settings.graphics.show_fps;
 
+                    *fps_limiter = tokio::time::interval(get_frame_duration(&settings));
+                    fps_limiter.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
+
                     window.set_fullscreen(match settings.graphics.fullscreen {
                         Fullscreen::Windowed { .. } => None,
                         Fullscreen::Borderless { monitor } => {
@@ -454,6 +471,10 @@ impl GameMain {
             GameConfig::get().save()
         }
 
+        {
+            profile_scope!("Wait on FPS limiter");
+            tokio::runtime::Handle::current().block_on(fps_limiter.tick());
+        }
         FrameOutput {
             exit,
             swap_buffers: true,

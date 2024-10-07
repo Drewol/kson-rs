@@ -317,6 +317,14 @@ impl Scene for SettingsScreen {
                     ui.end_row();
                     ui.checkbox(&mut self.altered_settings.graphics.show_fps, "Show FPS");
                     ui.end_row();
+                    ui.label("Target FPS");
+                    ui.add(
+                        egui::DragValue::new(&mut self.altered_settings.graphics.target_fps)
+                            .clamp_range(0..=1000),
+                    );
+
+                    ui.end_row();
+
                     ui.checkbox(
                         &mut self.altered_settings.graphics.disable_bg,
                         "Disable Backgrounds",
