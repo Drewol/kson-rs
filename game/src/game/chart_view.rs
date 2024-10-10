@@ -155,7 +155,7 @@ impl ChartView {
             }
         }
     }
-
+    const LASER_SPEED_OFFSET: f32 = 0.9;
     pub fn render(
         &self,
         chart: &kson::Chart,
@@ -182,6 +182,7 @@ impl ChartView {
         let last_view_tick = view_distance.ceil() as i64 + view_tick;
         let first_view_tick = view_tick - view_distance as i64;
         let y_view_div = view_distance / -Self::TRACK_LENGTH;
+        let laser_y_view_div = y_view_div * Self::LASER_SPEED_OFFSET;
         let _white_mat = Rc::new(ColorMaterial {
             color: Srgba::WHITE,
             ..Default::default()
@@ -389,7 +390,9 @@ impl ChartView {
                         positions: three_d::Positions::F32(
                             vertices
                                 .iter()
-                                .map(|v| vec3(v.pos.z, (yoff - v.pos.x) / y_view_div, v.pos.y))
+                                .map(|v| {
+                                    vec3(v.pos.z, (yoff - v.pos.x) / laser_y_view_div, v.pos.y)
+                                })
                                 .collect(),
                         ),
                         uvs: Some(vertices.iter().map(|v| vec2(v.uv.x, v.uv.y)).collect()),
