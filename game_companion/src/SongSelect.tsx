@@ -20,7 +20,8 @@ export const SongSelect: Component<{
         placeholder="Search..."
         type="text"
         class="h-16 bg-slate-700 text-3xl w-full mb-5 px-2"
-        onchange={(x) =>
+        value={p.state().search_string}
+        oninput={(x) =>
           p.send({ variant: "SetSearch", v: x.currentTarget.value })
         }
       ></input>
@@ -87,7 +88,7 @@ const ListItem: Component<{
     <div
       onclick={p.onClick}
       class={
-        "p-2 data-[sel=true]:bg-slate-700 data-[sel=true]:outline-2 data-[sel=true]:outline-amber-600 data-[sel=true]:outline bg-slate-800 w-full"
+        "p-2 data-[sel=true]:bg-slate-700 data-[sel=true]:outline-2 data-[sel=true]:outline-amber-600 data-[sel=true]:outline bg-slate-800 w-full select-none"
       }
       data-sel={p.selected}
     >

@@ -38,6 +38,11 @@ const App: Component = () => {
     hostConn.send(JSON.stringify(m));
   }
 
+  const [fs, setFs] = createSignal(false);
+  document.addEventListener("fullscreenchange", (e) =>
+    setFs(!!document.fullscreenElement)
+  );
+
   return (
     <div class="bg-slate-900 h-screen w-screen p-5 text-zinc-100 max-h-screen flex flex-col">
       <Show
@@ -56,6 +61,13 @@ const App: Component = () => {
           </Match>
         </Switch>
       </Show>
+      <div
+        onclick={() => document.documentElement.requestFullscreen()}
+        class="absolute right-2 bottom-2 text-4xl select-none"
+        hidden={fs()}
+      >
+        ↗️
+      </div>
     </div>
   );
 };
