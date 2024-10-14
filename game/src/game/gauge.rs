@@ -1,5 +1,6 @@
 use std::collections::VecDeque;
 
+use anyhow::bail;
 use kson::score_ticks::{PlacedScoreTick, ScoreTick};
 
 use super::HitRating;
@@ -7,10 +8,23 @@ use super::HitRating;
 pub const GAUGE_SAMPLES: usize = 128;
 
 #[derive(Debug, Default, serde::Serialize, serde::Deserialize, Clone, Copy)]
+#[repr(u8)]
 pub enum GaugeType {
     #[default]
     Normal,
     Hard,
+}
+
+impl TryFrom<Gauge> for GaugeType {
+    type Error = anyhow::Error;
+
+    fn try_from(value: Gauge) -> Result<Self, Self::Error> {
+        match value {
+            Gauge::None => bail!("Invalid gauge type"),
+            Gauge::Normal { .. } => Ok(Self::Normal),
+            Gauge::Hard { .. } => Ok(Self::Hard),
+        }
+    }
 }
 
 impl GaugeType {

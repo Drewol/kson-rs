@@ -57,7 +57,7 @@ impl From<ScoreEntry> for Score {
     fn from(value: ScoreEntry) -> Self {
         Score {
             gauge: value.gauge as f32,
-            gauge_type: value.gauge_type as i32,
+            gauge_type: value.gauge_type as u8,
             gauge_option: value.gauge_opt as i32,
             mirror: value.mirror,
             random: value.random,

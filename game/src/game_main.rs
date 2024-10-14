@@ -54,6 +54,7 @@ use crate::{
     LuaArena, RuscMixer, Scenes, FRAME_ACC_SIZE,
 };
 
+#[derive(Debug, Clone, Copy, PartialEq)]
 pub enum AutoPlay {
     None,
     Buttons,
@@ -83,6 +84,11 @@ pub enum ControlMessage {
         score: u32,
         gauge: Gauge,
         hit_ratings: Vec<HitRating>,
+        hit_window: crate::game::HitWindow,
+        autoplay: AutoPlay,
+        max_combo: i32,
+        duration: i32,
+        manual_exit: bool,
     },
 
     ApplySettings,
@@ -372,6 +378,11 @@ impl GameMain {
                     score,
                     gauge,
                     hit_ratings,
+                    hit_window,
+                    autoplay,
+                    max_combo,
+                    duration,
+                    manual_exit,
                 } => {
                     if let Ok(_arena) = lua_arena.read() {
                         let transition_lua = transition_lua.clone();
@@ -383,6 +394,11 @@ impl GameMain {
                                 score,
                                 gauge,
                                 hit_ratings,
+                                hit_window,
+                                autoplay,
+                                max_combo,
+                                duration,
+                                manual_exit,
                             },
                             control_tx.clone(),
                             vgfx.clone(),

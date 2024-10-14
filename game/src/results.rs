@@ -13,7 +13,12 @@ use serde::Serialize;
 use crate::{
     async_service::AsyncService,
     button_codes::UscButton,
-    game::{gauge::Gauge, HitRating, HitWindow},
+    config::GameConfig,
+    game::{
+        gauge::{Gauge, GaugeType},
+        HitRating, HitWindow,
+    },
+    game_main::AutoPlay,
     lua_service::LuaProvider,
     scene::{Scene, SceneData},
     song_provider::{DiffId, ScoreProvider, SongDiffId, SongId},
@@ -38,7 +43,7 @@ struct HidSud {}
 #[serde(rename_all = "camelCase")]
 pub struct SongResultData {
     score: u32,
-    gauge_type: i32, // 0 = normal, 1 = hard. Should be defined in constants sometime
+    gauge_type: u8,    // 0 = normal, 1 = hard. Should be defined in constants sometime
     gauge_option: i32, // type specific, such as difficulty level for the same gauge type if available
     mirror: bool,
     random: bool,
@@ -58,13 +63,13 @@ pub struct SongResultData {
     bpm: String,
     duration: i32, // Length of the chart in milliseconds
     jacket_path: PathBuf,
-    median_hit_delta: i32,
-    mean_hit_delta: f32,
-    median_hit_delta_abs: i32,
-    mean_hit_delta_abs: f32,
+    median_hit_delta: f64,
+    mean_hit_delta: f64,
+    median_hit_delta_abs: f64,
+    mean_hit_delta_abs: f64,
     earlies: i32,
     lates: i32,
-    badge: i32, // same as song wheel badge (except 0 which means the user manually exited)
+    badge: u8, // same as song wheel badge (except 0 which means the user manually exited)
     gauge_samples: Vec<f32>, // gauge values sampled throughout the song
     grade: String, // "S", "AAA+", "AAA", etc.
     high_scores: Vec<Score>, // Same as song wheel scores
@@ -79,13 +84,47 @@ pub struct SongResultData {
     retry_count: i32,              // Only on practice mode
     is_self: bool, // Whether this score is viewer's in multiplayer; always true for singleplayer
     speed_mod_type: i32, // Only when isSelf is true; 0 for XMOD, 1 for MMOD, 2 for CMOD
-    speed_mod_value: i32, // Only when isSelf is true; HiSpeed for XMOD, ModSpeed for MMOD and CMOD
+    speed_mod_value: f64, // Only when isSelf is true; HiSpeed for XMOD, ModSpeed for MMOD and CMOD
     hidsud: HidSud, // Only when isSelf is true
     note_hit_stats: Vec<HitStat>, // Only when isSelf is true; contains HitStat for notes (excluding hold notes and lasers)
     hold_hit_stats: Vec<HitStat>, // Only when isSelf is true; contains HitStat for holds
     laser_hit_stats: Vec<HitStat>, // Only when isSelf is true; contains HitStat for lasers
     is_local: bool,               // Whether this score was set locally
     song_id: SongDiffId,
+}
+
+#[repr(u8)]
+pub enum ClearMark {
+    None = 0,
+    Played,
+    Cleared,
+    HardCleared,
+    FullCombo,
+    Perfect,
+}
+
+pub fn calculate_clear_mark(hits: &[HitRating], manual: bool, gauge: &Gauge) -> ClearMark {
+    if manual {
+        return ClearMark::None;
+    }
+
+    if !gauge.is_cleared() || gauge.is_dead() {
+        return ClearMark::Played;
+    }
+
+    if hits.iter().all(|x| x.crit()) {
+        return ClearMark::Perfect;
+    }
+
+    if hits.iter().all(|x| x.hit()) {
+        return ClearMark::FullCombo;
+    }
+
+    match gauge {
+        Gauge::None => ClearMark::None,
+        Gauge::Normal { .. } => ClearMark::Cleared,
+        Gauge::Hard { .. } => ClearMark::HardCleared,
+    }
 }
 
 impl SongResultData {
@@ -95,7 +134,14 @@ impl SongResultData {
         score: u32,
         hit_ratings: Vec<HitRating>,
         gauge: Gauge,
+        hit_window: HitWindow,
+        autoplay: AutoPlay,
+        max_combo: i32,
+        duration: i32,
+        manual_exit: bool,
     ) -> anyhow::Result<Self> {
+        use itertools::Itertools;
+        use statrs::statistics::{Data, Median, Statistics};
         let Difficulty {
             jacket_path,
             level,
@@ -105,7 +151,7 @@ impl SongResultData {
             top_badge: _,
             scores,
             hash: _,
-            illustrator: _,
+            illustrator,
         } = song.difficulties.read().expect("Lock error")[diff_idx].clone();
 
         let Song {
@@ -129,7 +175,25 @@ impl SongResultData {
             0.. => "D",
         }
         .to_string();
-        let (laser_hit_stats, note_hit_stats, hold_hit_stats) = hit_ratings.iter().try_fold(
+
+        let badge = calculate_clear_mark(&hit_ratings, manual_exit, &gauge);
+
+        let stat_times = hit_ratings
+            .iter()
+            .filter(|x| x.for_stats())
+            .map(|x| x.delta())
+            .collect_vec();
+        let mean_hit_delta = stat_times.clone().mean();
+
+        let stat_times = Data::new(stat_times);
+
+        let median_hit_delta = stat_times.median();
+
+        let (laser_hit_stats, note_hit_stats, hold_hit_stats): (
+            Vec<HitStat>,
+            Vec<HitStat>,
+            Vec<HitStat>,
+        ) = hit_ratings.iter().try_fold(
             (vec![], vec![], vec![]),
             |(mut laser, mut note, mut hold), x| -> anyhow::Result<_> {
                 let rating = (*x).try_into()?;
@@ -164,6 +228,7 @@ impl SongResultData {
                 Ok((laser, note, hold))
             },
         )?;
+
         Ok(Self {
             score,
             jacket_path,
@@ -244,7 +309,40 @@ impl SongResultData {
                             .clone()
                     }),
             ),
-            ..Default::default()
+            gauge_type: GaugeType::try_from(gauge)
+                .map(|x| x as u8)
+                .unwrap_or_default(),
+            hit_window,
+            playback_speed: 1.0,
+            auto_flags: match autoplay {
+                AutoPlay::None => 0,
+                AutoPlay::Buttons => 1,
+                AutoPlay::Lasers => 2,
+                AutoPlay::All => 3,
+            },
+            autoplay: autoplay.any(),
+            gauge_option: 0,
+            mirror: false,
+            random: false,
+            max_combo,
+            real_title: String::new(),
+            illustrator,
+            duration,
+            median_hit_delta,
+            mean_hit_delta,
+            median_hit_delta_abs: median_hit_delta.abs(),
+            mean_hit_delta_abs: mean_hit_delta.abs(),
+            badge: badge as u8,
+            player_name: String::new(),
+            display_index: 0,
+            uid: None,
+            mission: String::new(),
+            retry_count: 0,
+            is_self: true,
+            speed_mod_type: 0,
+            speed_mod_value: GameConfig::get().mod_speed,
+            hidsud: HidSud::default(),
+            is_local: true,
         })
     }
 }
@@ -335,7 +433,7 @@ pub struct Score {
     ///range 0.0 -> 1.0
     pub gauge: f32,
     /// 0 = normal, 1 = hard. Should be defined in constants sometime
-    pub gauge_type: i32,
+    pub gauge_type: u8,
     /// type specific, such as difficulty level for the same gauge type if available
     pub gauge_option: i32,
     pub mirror: bool,
@@ -346,7 +444,7 @@ pub struct Score {
     pub perfects: i32,
     pub goods: i32,
     pub misses: i32,
-    pub badge: i32,
+    pub badge: u8,
     ///timestamp in POSIX time (seconds since Jan 1 1970 00:00:00 UTC)
     pub timestamp: i32,
     pub player_name: String,

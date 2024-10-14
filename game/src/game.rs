@@ -91,6 +91,7 @@ pub struct Game {
     real_score: u64,
     display_score: u64,
     combo: u64,
+    max_combo: u64,
     current_tick: u32,
     input_state: InputState,
     laser_cursors: [f64; 2],
@@ -151,6 +152,50 @@ pub enum HitRating {
         delta: f64,
         time: f64,
     },
+}
+
+impl HitRating {
+    pub fn delta(self) -> f64 {
+        match self {
+            HitRating::None => f64::NAN,
+            HitRating::Crit { delta, .. }
+            | HitRating::Good { delta, .. }
+            | HitRating::Miss { delta, .. } => delta,
+        }
+    }
+
+    pub fn time(self) -> f64 {
+        match self {
+            HitRating::None => f64::NAN,
+            HitRating::Crit { time, .. }
+            | HitRating::Good { time, .. }
+            | HitRating::Miss { time, .. } => time,
+        }
+    }
+
+    pub fn for_stats(self) -> bool {
+        match self {
+            HitRating::None => false,
+            HitRating::Miss { tick, delta, .. } => {
+                matches!(tick.tick, ScoreTick::Chip { .. }) && delta > 1.0
+            }
+            HitRating::Crit { tick, .. } | HitRating::Good { tick, .. } => {
+                matches!(tick.tick, ScoreTick::Chip { .. })
+            }
+        }
+    }
+
+    pub fn crit(self) -> bool {
+        match self {
+            HitRating::None => true,
+            HitRating::Crit { .. } => true,
+            _ => false,
+        }
+    }
+
+    pub fn hit(self) -> bool {
+        !matches!(self, HitRating::Miss { .. })
+    }
 }
 
 impl From<&Gauge> for lua_data::LuaGauge {
@@ -575,6 +620,7 @@ impl Game {
             real_score: 0,
             display_score: u64::MAX,
             combo: 0,
+            max_combo: 0,
             current_tick: 0,
             input_state,
             laser_cursors: [0.0, 1.0],
@@ -761,6 +807,7 @@ impl Game {
         let combo_updated = match hit_rating {
             HitRating::Crit { .. } | HitRating::Good { .. } => {
                 self.combo += 1;
+                self.max_combo = self.max_combo.max(self.combo);
                 true
             }
             HitRating::Miss { .. } => {
@@ -1064,6 +1111,11 @@ impl Game {
                     score: self.actual_display_score() as u32,
                     gauge: std::mem::take(&mut self.gauge.active),
                     hit_ratings: std::mem::take(&mut self.hit_ratings),
+                    autoplay: self.autoplay,
+                    duration: self.duration as i32,
+                    hit_window: self.hit_window,
+                    manual_exit: false,
+                    max_combo: self.max_combo as _,
                 })
                 .expect("Main loop messaging error");
         } else {

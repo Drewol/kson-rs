@@ -241,6 +241,11 @@ impl Scene for Transition {
                             score,
                             gauge,
                             hit_ratings,
+                            hit_window,
+                            autoplay,
+                            max_combo,
+                            duration,
+                            manual_exit,
                         } => Some(Promise::spawn_thread(
                             "Load song",
                             move || -> anyhow::Result<Box<dyn SceneData + Send>> {
@@ -250,6 +255,11 @@ impl Scene for Transition {
                                     score,
                                     hit_ratings,
                                     gauge,
+                                    hit_window,
+                                    autoplay,
+                                    max_combo,
+                                    duration,
+                                    manual_exit,
                                 )?))
                             },
                         )),

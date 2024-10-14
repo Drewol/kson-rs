@@ -61,7 +61,7 @@ pub struct Difficulty {
     pub difficulty: u8, // 0 = nov, 1 = adv, etc.
     pub id: DiffId,     //unique static identifier
     pub effector: String,
-    pub top_badge: i32,     //top badge for this difficulty
+    pub top_badge: u8,      //top badge for this difficulty
     pub scores: Vec<Score>, //array of all scores on this diff
     pub hash: Option<String>,
     pub illustrator: String,
