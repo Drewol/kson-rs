@@ -1,9 +1,12 @@
 use std::{
+    path::PathBuf,
     sync::{Arc, Mutex, RwLock},
     time::{Duration, SystemTime},
 };
 
+use anyhow::anyhow;
 use di::{transient_factory, RefMut, ServiceCollection};
+use femtovg::rgb::ComponentSlice;
 use itertools::Itertools;
 use rfd::AsyncFileDialog;
 use tealr::{
@@ -17,6 +20,8 @@ use winit::event::ElementState;
 
 use crate::{
     button_codes::{UscButton, UscInputEvent},
+    config::GameConfig,
+    vg_ui::Vgfx,
     worker_service::WorkerService,
 };
 
@@ -209,4 +214,51 @@ pub fn transform_shader(s: String) -> String {
             }
         })
         .join("\n")
+}
+
+pub fn take_screenshot(
+    vgfx: &Vgfx,
+    area: Option<((usize, usize), (usize, usize))>,
+) -> anyhow::Result<PathBuf> {
+    let img = vgfx
+        .canvas
+        .try_lock()
+        .map_err(|_| anyhow!("Failed to lock vgfx"))?
+        .screenshot()?;
+
+    let img = if let Some(((x, y), (w, h))) = area {
+        img.sub_image(x, y, w, h).to_owned()
+    } else {
+        img.as_ref()
+    };
+
+    let (buf, width, height) = img.to_contiguous_buf();
+
+    let config = GameConfig::get();
+    let mut path = config.game_folder.clone();
+
+    if config.screenshot_path.is_absolute() {
+        path = config.screenshot_path.clone();
+    } else {
+        path.push(&config.screenshot_path);
+    }
+
+    std::fs::create_dir_all(&path)?;
+
+    let timestamp = chrono::Local::now();
+
+    path.push(timestamp.format("%Y-%m-%d_%H-%M-%S.png").to_string());
+
+    image::save_buffer(
+        &path,
+        buf.as_slice(),
+        width as _,
+        height as _,
+        image::ColorType::Rgba8,
+    )?;
+
+    Ok(path
+        .strip_prefix(&config.game_folder)
+        .map(|x| x.to_path_buf())
+        .unwrap_or(path))
 }

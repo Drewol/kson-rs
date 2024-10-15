@@ -55,6 +55,24 @@ impl Display for ScoreDisplayMode {
     }
 }
 
+#[derive(Debug, Deserialize, Serialize, Clone, Copy, Default, PartialEq)]
+pub enum ScoreScreenshot {
+    #[default]
+    Never,
+    Highscores,
+    Always,
+}
+
+impl Display for ScoreScreenshot {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            ScoreScreenshot::Never => f.write_str("Never"),
+            ScoreScreenshot::Highscores => f.write_str("Highscores"),
+            ScoreScreenshot::Always => f.write_str("Always"),
+        }
+    }
+}
+
 #[derive(Debug, Deserialize, Serialize, Clone)]
 #[serde_as]
 #[serde(default)]
@@ -93,6 +111,8 @@ pub struct GameConfig {
     pub start_gauge: game::gauge::GaugeType,
     pub slam_volume: f32,
     pub companion_address: Option<String>,
+    pub score_screenshots: ScoreScreenshot,
+    pub screenshot_path: PathBuf,
 }
 
 #[derive(Debug, Deserialize, Serialize, Clone)]
@@ -251,7 +271,9 @@ impl Default for GameConfig {
             start_gauge: game::gauge::GaugeType::Normal,
             slam_volume: 0.75,
             laser_input_delay: Duration::from_millis(50),
-            companion_address: Some("127.0.0.1:9002".to_string())
+            companion_address: Some("127.0.0.1:9002".to_string()),
+            score_screenshots: ScoreScreenshot::default(),
+            screenshot_path: PathBuf::from_iter([".", "screenshots"]),
         }
     }
 }

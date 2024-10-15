@@ -19,10 +19,12 @@ use crate::{
         HitRating, HitWindow,
     },
     game_main::AutoPlay,
+    help,
     lua_service::LuaProvider,
     scene::{Scene, SceneData},
     song_provider::{DiffId, ScoreProvider, SongDiffId, SongId},
     songselect::{Difficulty, Song},
+    vg_ui::Vgfx,
     ControlMessage,
 };
 use serde_with::*;
@@ -85,7 +87,6 @@ pub struct SongResultData {
     is_self: bool, // Whether this score is viewer's in multiplayer; always true for singleplayer
     speed_mod_type: i32, // Only when isSelf is true; 0 for XMOD, 1 for MMOD, 2 for CMOD
     speed_mod_value: f64, // Only when isSelf is true; HiSpeed for XMOD, ModSpeed for MMOD and CMOD
-    hidsud: HidSud, // Only when isSelf is true
     note_hit_stats: Vec<HitStat>, // Only when isSelf is true; contains HitStat for notes (excluding hold notes and lasers)
     hold_hit_stats: Vec<HitStat>, // Only when isSelf is true; contains HitStat for holds
     laser_hit_stats: Vec<HitStat>, // Only when isSelf is true; contains HitStat for lasers
@@ -341,7 +342,6 @@ impl SongResultData {
             is_self: true,
             speed_mod_type: 0,
             speed_mod_value: GameConfig::get().mod_speed,
-            hidsud: HidSud::default(),
             is_local: true,
         })
     }
@@ -362,6 +362,7 @@ impl SceneData for SongResultData {
             data: *self,
             lua: LuaProvider::new_lua(),
             services,
+            screenshot_state: ScreenshotState::NotRendered,
         }))
     }
 }
@@ -506,6 +507,12 @@ impl From<&SongResultData> for Score {
 
 impl TealData for Score {}
 
+enum ScreenshotState {
+    NotRendered,
+    Rendered,
+    Finished,
+}
+
 pub struct SongResult {
     data: SongResultData,
     lua: Rc<Lua>,
@@ -513,6 +520,7 @@ pub struct SongResult {
     control_tx: Option<Sender<ControlMessage>>,
     close: bool,
     score_service: RefMut<dyn ScoreProvider>,
+    screenshot_state: ScreenshotState,
 }
 
 impl Scene for SongResult {
@@ -540,6 +548,53 @@ impl Scene for SongResult {
     fn render_ui(&mut self, dt: f64) -> anyhow::Result<()> {
         let render_fn: Function = self.lua.globals().get("render")?;
         render_fn.call(dt / 1000.0)?;
+
+        self.screenshot_state = match self.screenshot_state {
+            ScreenshotState::NotRendered => ScreenshotState::Rendered,
+            ScreenshotState::Rendered => {
+                let screenshot_logic = GameConfig::get().score_screenshots;
+                let is_top_score = !self
+                    .data
+                    .high_scores
+                    .iter()
+                    .any(|s| s.score > self.data.score as i32);
+
+                let take_screenshot = match screenshot_logic {
+                    crate::config::ScoreScreenshot::Always => true,
+                    crate::config::ScoreScreenshot::Never => false,
+                    crate::config::ScoreScreenshot::Highscores => is_top_score,
+                };
+
+                if take_screenshot {
+                    let get_capture_rect: Option<Function> =
+                        self.lua.globals().get("get_capture_rect").ok();
+
+                    let capture_rect = get_capture_rect
+                        .map(|f| f.call::<_, (usize, usize, usize, usize)>(()).ok())
+                        .flatten()
+                        .map(|(x, y, w, h)| ((x, y), (w, h)));
+
+                    let vgfx = self.lua.app_data_ref::<RefMut<Vgfx>>().unwrap();
+                    let screenshot = help::take_screenshot(&vgfx.read().unwrap(), capture_rect);
+                    match screenshot {
+                        Ok(p) => {
+                            log::info!("Saved screenshot to: {:?}", &p);
+                            let screenshot_captured: Option<Function> =
+                                self.lua.globals().get("screenshot_captured").ok();
+
+                            screenshot_captured.and_then(|x| {
+                                x.call::<_, ()>(p.as_os_str().to_string_lossy()).ok()
+                            });
+                        }
+                        Err(e) => log::warn!("Failed to save screenshot: {e}"),
+                    }
+                }
+
+                ScreenshotState::Finished
+            }
+            ScreenshotState::Finished => ScreenshotState::Finished,
+        };
+
         Ok(())
     }
 

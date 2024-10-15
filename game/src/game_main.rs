@@ -35,10 +35,11 @@ use three_d as td;
 
 use crate::{
     button_codes::{LaserState, UscInputEvent},
-    companion_interface,
+    companion_interface::{self},
     config::{Fullscreen, GameConfig},
     game::{gauge::Gauge, HitRating},
     game_data::GameData,
+    help,
     input_state::InputState,
     lua_http::LuaHttp,
     lua_service::LuaProvider,
@@ -471,7 +472,7 @@ impl GameMain {
             scenes.render_egui(ctx);
 
             if *show_debug_ui {
-                Self::debug_ui(ctx, scenes);
+                Self::debug_ui(ctx, scenes, &vgfx);
             }
         });
         gui.paint(window);
@@ -705,7 +706,7 @@ impl GameMain {
         });
     }
 
-    fn debug_ui(gui_context: &egui::Context, scenes: &mut Scenes) {
+    fn debug_ui(gui_context: &egui::Context, scenes: &mut Scenes, vgfx: &Arc<RwLock<Vgfx>>) {
         profile_function!();
         if let Some(s) = scenes.active.last_mut() {
             crate::log_result!(s.debug_ui(gui_context));
@@ -740,6 +741,17 @@ impl GameMain {
 
             if scenes.transition.is_some() {
                 ui.label("Transitioning");
+            }
+
+            if ui.button("Take screenshot").clicked() {
+                match help::take_screenshot(&vgfx.read().unwrap(), None) {
+                    Ok(p) => {
+                        log::info!("Saved screenshot to: {p:?}")
+                    }
+                    Err(e) => {
+                        log::warn!("Failed to save screenshot: {e}")
+                    }
+                }
             }
         });
     }

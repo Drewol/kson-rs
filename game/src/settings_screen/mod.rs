@@ -14,7 +14,7 @@ use winit::{
 };
 
 use crate::{
-    config::{Fullscreen, GameConfig, ScoreDisplayMode},
+    config::{Fullscreen, GameConfig, ScoreDisplayMode, ScoreScreenshot},
     game::HitWindow,
     game_main::ControlMessage,
     help::AsyncPicker,
@@ -309,7 +309,46 @@ impl Scene for SettingsScreen {
                                 ScoreDisplayMode::Average,
                                 ScoreDisplayMode::Average.to_string(),
                             );
-                        })
+                        });
+
+                    ui.end_row();
+
+                    egui::ComboBox::new("auto_screenshot_score", "Score screenshot")
+                        .selected_text(self.altered_settings.score_screenshots.to_string())
+                        .show_ui(ui, |ui| {
+                            ui.selectable_value(
+                                &mut self.altered_settings.score_screenshots,
+                                ScoreScreenshot::Never,
+                                ScoreScreenshot::Never.to_string(),
+                            );
+                            ui.selectable_value(
+                                &mut self.altered_settings.score_screenshots,
+                                ScoreScreenshot::Highscores,
+                                ScoreScreenshot::Highscores.to_string(),
+                            );
+                            ui.selectable_value(
+                                &mut self.altered_settings.score_screenshots,
+                                ScoreScreenshot::Always,
+                                ScoreScreenshot::Always.to_string(),
+                            );
+                        });
+                    ui.end_row();
+
+                    let mut screenshot_path = self
+                        .altered_settings
+                        .screenshot_path
+                        .to_str()
+                        .unwrap_or("")
+                        .to_string();
+
+                    ui.label("Screenshots path");
+                    AsyncPicker::new().folder().show(
+                        "screenshot_folder".into(),
+                        &mut screenshot_path,
+                        ui,
+                    );
+
+                    self.altered_settings.screenshot_path = PathBuf::from(screenshot_path);
                 });
 
                 settings_section("Graphics", ui, |ui| {
