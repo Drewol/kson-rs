@@ -197,7 +197,9 @@ impl SongResultData {
         ) = hit_ratings.iter().try_fold(
             (vec![], vec![], vec![]),
             |(mut laser, mut note, mut hold), x| -> anyhow::Result<_> {
-                let rating = (*x).try_into()?;
+                let mut rating: HitStat = (*x).try_into()?;
+                rating.time_frac = (rating.time as f32 / duration as f32).clamp(0.0, 1.0);
+
                 match x {
                     HitRating::None => {}
                     HitRating::Crit {
@@ -373,7 +375,7 @@ struct HitStat {
     rating: i32,    // 0 for miss, 1 for near, 2 for crit
     lane: i32,      // 0-3 btn, 4-5 fx, 6-7 lasers
     time: i32,      // In milliseconds
-    time_frac: f32, // Between 0 and 1
+    time_frac: f32, // Between 0 and 1 (time / duration)
     delta: i32,
     hold: i32, // 0 for chip or laser, otherwise # of ticks in hold
 }
@@ -388,9 +390,9 @@ impl TryFrom<HitRating> for HitStat {
             | HitRating::Good { tick, delta, time }
             | HitRating::Miss { tick, delta, time } => Self {
                 rating: 0,
-                lane: tick.tick.lane() as i32,
+                lane: tick.tick.global_lane() as i32,
                 time: time as i32,
-                time_frac: time.fract() as f32,
+                time_frac: 0.0,
                 delta: delta as i32,
                 hold: match tick.tick {
                     kson::score_ticks::ScoreTick::Laser { lane: _, pos: _ } => 1,
@@ -407,21 +409,9 @@ impl TryFrom<HitRating> for HitStat {
 
         ret.rating = match value {
             HitRating::None => unreachable!(),
-            HitRating::Crit {
-                tick: _,
-                delta: _,
-                time: _,
-            } => 2,
-            HitRating::Good {
-                tick: _,
-                delta: _,
-                time: _,
-            } => 1,
-            HitRating::Miss {
-                tick: _,
-                delta: _,
-                time: _,
-            } => 0,
+            HitRating::Crit { .. } => 2,
+            HitRating::Good { .. } => 1,
+            HitRating::Miss { .. } => 0,
         };
 
         Ok(ret)

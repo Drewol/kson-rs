@@ -1112,7 +1112,7 @@ impl Game {
                     gauge: std::mem::take(&mut self.gauge.active),
                     hit_ratings: std::mem::take(&mut self.hit_ratings),
                     autoplay: self.autoplay,
-                    duration: self.duration as i32,
+                    duration: self.chart.tick_to_ms(self.duration) as i32,
                     hit_window: self.hit_window,
                     manual_exit: false,
                     max_combo: self.max_combo as _,

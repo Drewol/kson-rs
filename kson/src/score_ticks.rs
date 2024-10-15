@@ -21,6 +21,13 @@ impl ScoreTick {
             ScoreTick::Hold { lane, .. } => *lane,
         }
     }
+
+    pub fn global_lane(&self) -> usize {
+        match self {
+            ScoreTick::Laser { .. } | ScoreTick::Slam { .. } => self.lane() + 6,
+            _ => self.lane(),
+        }
+    }
 }
 
 #[derive(Debug, Copy, Clone)]
