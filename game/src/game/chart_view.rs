@@ -277,7 +277,7 @@ impl ChartView {
             notes.iter().map(|n| {
                 let distance_scale = match n.2 {
                     NoteType::BtChip | NoteType::FxChip | NoteType::FxChipSample => {
-                        ((-n.0.y / Self::TRACK_LENGTH) * self.distant_button_scale).max(1.0)
+                        ((n.0.y / Self::TRACK_LENGTH) * self.distant_button_scale).max(1.0)
                     }
                     _ => 1.0,
                 };
