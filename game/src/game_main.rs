@@ -127,7 +127,8 @@ pub struct GameMain {
     modifiers: Modifiers,
     service_provider: ServiceProvider,
     show_fps: bool,
-    fps_limiter: tokio::time::Interval,
+    frame_end: std::time::SystemTime,
+    frame_duration: Duration,
 }
 
 fn get_frame_duration(settings: &GameConfig) -> Duration {
@@ -148,8 +149,7 @@ impl GameMain {
         service_provider: ServiceProvider,
     ) -> Self {
         let (control_tx, control_rx) = channel();
-        let mut fps_limiter = tokio::time::interval(get_frame_duration(&GameConfig::get()));
-        fps_limiter.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
+
         Self {
             lua_arena: service_provider.get_required(),
             lua_provider: service_provider.get_required(),
@@ -176,7 +176,8 @@ impl GameMain {
             service_provider,
             show_fps: GameConfig::get().graphics.show_fps,
             companion_update: 0,
-            fps_limiter,
+            frame_end: SystemTime::UNIX_EPOCH,
+            frame_duration: get_frame_duration(&GameConfig::get()),
         }
     }
 
@@ -270,7 +271,8 @@ impl GameMain {
             show_fps,
             companion_server: _,
             companion_update: _,
-            fps_limiter,
+            frame_end,
+            frame_duration,
         } = self;
 
         knob_state.zero_deltas();
@@ -423,8 +425,7 @@ impl GameMain {
 
                     *show_fps = settings.graphics.show_fps;
 
-                    *fps_limiter = tokio::time::interval(get_frame_duration(&settings));
-                    fps_limiter.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
+                    *frame_duration = get_frame_duration(&settings);
 
                     window.set_fullscreen(match settings.graphics.fullscreen {
                         Fullscreen::Windowed { .. } => None,
@@ -490,7 +491,8 @@ impl GameMain {
 
         {
             profile_scope!("Wait on FPS limiter");
-            tokio::runtime::Handle::current().block_on(fps_limiter.tick());
+            crate::help::wait_until(*frame_end);
+            *frame_end = SystemTime::now() + *frame_duration;
         }
         FrameOutput {
             exit,

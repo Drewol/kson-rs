@@ -150,7 +150,7 @@ impl Default for GraphicsSettings {
             },
             vsync: true,
             anti_alias: 4,
-            target_fps: 120,
+            target_fps: 300,
             show_fps: false,
             disable_bg: false,
         }

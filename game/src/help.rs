@@ -262,3 +262,18 @@ pub fn take_screenshot(
         .map(|x| x.to_path_buf())
         .unwrap_or(path))
 }
+
+pub fn wait_until(frame_end: SystemTime) {
+    let mut now = SystemTime::now();
+    if now > frame_end {
+        return;
+    }
+    let ms = Duration::from_millis(1);
+    while now < frame_end {
+        let wait = frame_end.duration_since(now).unwrap_or(Duration::ZERO);
+        if wait > ms {
+            std::thread::sleep(wait - ms);
+        }
+        now = SystemTime::now();
+    }
+}
