@@ -217,12 +217,12 @@ impl SongSelectScene {
         let score_provider: RefMut<dyn ScoreProvider> = services.get_required();
         let score_events = score_provider.write().expect("Lock error").subscribe();
         let song_events = song_provider.write().expect("Lock error").subscribe();
-        let initial_songs = song_provider.write().expect("Lock error").get_all();
+        let (initial_songs, initial_order) = song_provider.write().expect("Lock error").get_all();
         _ = score_provider
             .write()
             .expect("Lock error")
             .init_scores(&mut initial_songs.iter());
-        song_select.songs.add(initial_songs, vec![]);
+        song_select.songs.add(initial_songs, initial_order);
         let (auto_tx, auto_rx) = mpsc::channel();
         Self {
             filter_lua: LuaProvider::new_lua(),
@@ -301,9 +301,14 @@ impl SongSelectScene {
     }
 
     fn start_preview(&mut self) {
-        let song_id = self.state.songs[self.state.selected_index as usize]
-            .id
-            .clone();
+        let Some(song_id) = self
+            .state
+            .songs
+            .get(self.state.selected_index as usize)
+            .map(|x| x.id.clone())
+        else {
+            return;
+        };
         let services = self.services.create_scope();
 
         let suspended = self.suspended.clone();
@@ -694,11 +699,10 @@ impl Scene for SongSelectScene {
 
         match self.menu_state {
             MenuState::Songs => {
-                if !self.state.songs.is_empty() {
-                    self.state.selected_index = (self.state.selected_index + song_advance_steps)
-                        .rem_euclid(self.state.songs.len() as i32);
-                    let song_idx = self.state.selected_index as usize;
-                    let song_idx = self.state.songs[song_idx].id.as_u64();
+                self.state.selected_index = (self.state.selected_index + song_advance_steps)
+                    .rem_euclid(self.state.songs.len().max(1) as i32);
+                if let Some(s) = self.state.songs.get(self.state.selected_index as _) {
+                    let song_idx = s.id.as_u64();
                     self.song_provider
                         .write()
                         .expect("Lock error")

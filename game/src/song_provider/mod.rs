@@ -325,7 +325,7 @@ pub trait SongProvider: Send {
     fn add_score(&self, id: SongDiffId, score: Score);
     /// Returns: `(music, skip, duration)`
     fn get_preview(&self, id: &SongId) -> Promise<PreviewResult>;
-    fn get_all(&self) -> Vec<Arc<Song>>;
+    fn get_all(&self) -> (Vec<Arc<Song>>, Vec<SongId>);
 }
 
 pub trait ScoreProvider {

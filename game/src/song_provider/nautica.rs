@@ -550,8 +550,11 @@ impl SongProvider for NauticaSongProvider {
         self.bus.add_rx()
     }
 
-    fn get_all(&self) -> Vec<Arc<Song>> {
-        self.all_songs.clone()
+    fn get_all(&self) -> (Vec<Arc<Song>>, Vec<SongId>) {
+        (
+            self.all_songs.clone(),
+            self.all_songs.iter().map(|x| x.id.clone()).collect(),
+        )
     }
 
     fn get_available_sorts(&self) -> Vec<super::SongSort> {
