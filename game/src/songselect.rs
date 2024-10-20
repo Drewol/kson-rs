@@ -383,6 +383,14 @@ impl SongSelectScene {
             };
         }
     }
+
+    fn reload_scores(&mut self) -> std::result::Result<(), anyhow::Error> {
+        let mut songs = self.state.songs.values();
+        self.score_provider
+            .read()
+            .expect("Lock error")
+            .init_scores(&mut songs)
+    }
 }
 
 fn add_preview_source<T: Source<Item = f32> + Send + 'static>(
@@ -615,11 +623,8 @@ impl Scene for SongSelectScene {
             songs_dirty = true;
             match provider_event {
                 SongProviderEvent::SongsAdded(new_songs) => {
-                    self.score_provider
-                        .read()
-                        .expect("Lock error")
-                        .init_scores(&mut new_songs.iter())?;
-                    self.state.songs.append(new_songs)
+                    self.state.songs.append(new_songs);
+                    self.reload_scores()?;
                 }
                 SongProviderEvent::SongsRemoved(removed_ids) => {
                     if removed_ids.contains(&selected_index) {
@@ -1024,6 +1029,11 @@ impl Scene for SongSelectScene {
     }
 
     fn resume(&mut self) {
+        // Reload scores for redundancy
+        if let Some(e) = self.reload_scores().err() {
+            warn!("Could not reload scores: {e}");
+        }
+
         self.suspended
             .store(false, std::sync::atomic::Ordering::Relaxed);
     }

@@ -154,6 +154,52 @@ pub enum HitRating {
     },
 }
 
+#[derive(Debug, Default, Clone, Copy)]
+pub struct HitSummary {
+    crit: u32,
+    good: u32,
+    miss: u32,
+}
+
+impl HitSummary {
+    pub fn new(crit: u32, good: u32, miss: u32) -> Self {
+        Self { crit, good, miss }
+    }
+
+    pub fn perfect(&self) -> bool {
+        self.good == 0 && self.miss == 0
+    }
+
+    pub fn full_combo(&self) -> bool {
+        self.miss == 0
+    }
+}
+
+impl From<&[HitRating]> for HitSummary {
+    fn from(value: &[HitRating]) -> Self {
+        value
+            .iter()
+            .fold(Self::default(), |Self { crit, good, miss }, r| match r {
+                HitRating::None => Self { crit, good, miss },
+                HitRating::Crit { .. } => Self {
+                    crit: crit + 1,
+                    good,
+                    miss,
+                },
+                HitRating::Good { .. } => Self {
+                    crit,
+                    good: good + 1,
+                    miss,
+                },
+                HitRating::Miss { .. } => Self {
+                    crit,
+                    good,
+                    miss: miss + 1,
+                },
+            })
+    }
+}
+
 impl HitRating {
     pub fn delta(self) -> f64 {
         match self {

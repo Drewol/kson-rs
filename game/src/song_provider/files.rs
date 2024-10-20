@@ -11,8 +11,8 @@ use std::{
 use crate::{
     block_on,
     config::{GameConfig, SongSelectSettings},
-    game::HitWindow,
-    results::Score,
+    game::{gauge::Gauge, HitSummary, HitWindow},
+    results::{calculate_clear_mark, Score},
     song_provider::SongFilterType,
     songselect::{Difficulty, Song},
     worker_service::WorkerService,
@@ -70,6 +70,23 @@ pub struct FileSongProvider {
 
 impl From<ScoreEntry> for Score {
     fn from(value: ScoreEntry) -> Self {
+        let samples = Box::new([0.0; 128]);
+        let gauge = if value.gauge_type == 1 {
+            Gauge::Hard {
+                chip_gain: 1.0,
+                tick_gain: 1.0,
+                value: value.gauge as _,
+                samples,
+            }
+        } else {
+            Gauge::Normal {
+                chip_gain: 1.0,
+                tick_gain: 1.0,
+                value: value.gauge as _,
+                samples,
+            }
+        };
+
         Score {
             gauge: value.gauge as f32,
             gauge_type: value.gauge_type as u8,
@@ -81,7 +98,11 @@ impl From<ScoreEntry> for Score {
             perfects: value.crit as i32,
             goods: value.near as i32,
             misses: value.miss as i32,
-            badge: 0, //TODO: Calculate
+            badge: calculate_clear_mark(
+                HitSummary::new(value.crit as _, value.near as _, value.miss as _),
+                false,
+                &gauge,
+            ) as u8,
             timestamp: value.timestamp as i32,
             player_name: value.user_name,
             is_local: value.local_score,
@@ -742,7 +763,7 @@ impl ScoreProvider for FileSongProvider {
                 window_hold: hit_window.hold.as_millis() as _,
                 window_miss: hit_window.miss.as_millis() as _,
                 window_slam: hit_window.good.as_millis() as _,
-                gauge_type: 0,
+                gauge_type: gauge_type as _,
                 gauge_opt: 0,
                 mirror,
                 random,
@@ -763,7 +784,7 @@ impl ScoreProvider for FileSongProvider {
         let mut scores = block_on(self.database.get_all_scores())?;
 
         let mut scores = scores
-            .drain(..)
+            .into_iter()
             .group_by(|x| DiffId(SongId::StringId(x.chart_hash.clone()))) //TODO: Excessive cloning
             .into_iter()
             .map(|(key, scores)| (key, scores.map(Score::from).collect_vec()))

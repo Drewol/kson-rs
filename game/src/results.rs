@@ -7,6 +7,7 @@ use std::{
 
 use di::{RefMut, ServiceProvider};
 use kson::score_ticks::ScoreTick;
+use log::warn;
 use luals_gen::ToLuaLsType;
 use serde::Serialize;
 
@@ -16,7 +17,7 @@ use crate::{
     config::GameConfig,
     game::{
         gauge::{Gauge, GaugeType},
-        HitRating, HitWindow,
+        HitRating, HitSummary, HitWindow,
     },
     game_main::AutoPlay,
     help,
@@ -104,7 +105,7 @@ pub enum ClearMark {
     Perfect,
 }
 
-pub fn calculate_clear_mark(hits: &[HitRating], manual: bool, gauge: &Gauge) -> ClearMark {
+pub fn calculate_clear_mark(hits: HitSummary, manual: bool, gauge: &Gauge) -> ClearMark {
     if manual {
         return ClearMark::None;
     }
@@ -113,11 +114,11 @@ pub fn calculate_clear_mark(hits: &[HitRating], manual: bool, gauge: &Gauge) -> 
         return ClearMark::Played;
     }
 
-    if hits.iter().all(|x| x.crit()) {
+    if hits.perfect() {
         return ClearMark::Perfect;
     }
 
-    if hits.iter().all(|x| x.hit()) {
+    if hits.full_combo() {
         return ClearMark::FullCombo;
     }
 
@@ -177,7 +178,11 @@ impl SongResultData {
         }
         .to_string();
 
-        let badge = calculate_clear_mark(&hit_ratings, manual_exit, &gauge);
+        let badge = calculate_clear_mark(
+            HitSummary::from(hit_ratings.as_slice()),
+            manual_exit,
+            &gauge,
+        );
 
         let stat_times = hit_ratings
             .iter()
@@ -315,6 +320,7 @@ impl SongResultData {
             ),
             gauge_type: GaugeType::try_from(gauge)
                 .map(|x| x as u8)
+                .inspect(|e| warn!("Could not convert gauge type: {e}"))
                 .unwrap_or_default(),
             hit_window,
             playback_speed: 1.0,

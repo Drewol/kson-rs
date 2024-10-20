@@ -64,6 +64,10 @@ impl SongCollection {
             songs: &self.songs,
         }
     }
+
+    pub fn values(&self) -> std::collections::hash_map::Values<'_, SongId, Arc<Song>> {
+        self.songs.values()
+    }
 }
 
 impl<'a> Iterator for SongCollectionIter<'a> {
