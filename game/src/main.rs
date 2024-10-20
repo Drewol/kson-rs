@@ -368,9 +368,38 @@ pub const FRAME_ACC_SIZE: usize = 16;
 
 struct LuaArena(Vec<Rc<Lua>>);
 
-fn main() -> anyhow::Result<()> {
-    simple_logger::init_with_level(Level::Info)?;
+fn get_log_config(level: log::LevelFilter) -> log4rs::Config {
+    use log4rs::append::file::FileAppender;
+    use log4rs::config::*;
+    use log4rs::encode::pattern::PatternEncoder;
+    let encoder = PatternEncoder::new("[{d(%Y-%m-%d %H:%M:%S)}] [{h({l})}] [{t}] {m}{n}");
+    let stdout = log4rs::append::console::ConsoleAppender::builder()
+        .encoder(Box::new(encoder.clone()))
+        .build();
 
+    let mut log_path = default_game_dir();
+    log_path.push("game.log");
+    let file = FileAppender::builder()
+        .append(false)
+        .encoder(Box::new(encoder))
+        .build(log_path)
+        .expect("Failed to create file logger");
+
+    log4rs::Config::builder()
+        .appender(Appender::builder().build("stdout", Box::new(stdout)))
+        .appender(Appender::builder().build("file", Box::new(file)))
+        .build(
+            log4rs::config::Root::builder()
+                .appender("file")
+                .appender("stdout")
+                .build(level),
+        )
+        .expect("Failed to build log config")
+}
+
+fn main() -> anyhow::Result<()> {
+    let _logger_handle =
+        log4rs::init_config(get_log_config(LevelFilter::Info)).expect("Failed to get logger");
     let mut config_path = default_game_dir();
     config_path.push("Main.cfg");
     let args = Args::parse();

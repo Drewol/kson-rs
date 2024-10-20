@@ -29,7 +29,7 @@ use kson_rodio_sources::{
     owned_source::{self, owned_source},
 };
 
-use log::warn;
+use log::{info, warn};
 use puffin::{profile_function, profile_scope};
 use rodio::{dynamic_mixer::DynamicMixerController, source::Buffered, Decoder, Source};
 use std::{
@@ -1677,6 +1677,7 @@ impl Scene for Game {
         self.camera
             .update(vec2(viewport.width as f32, viewport.height as f32));
         if self.intro_done && !self.playback.is_playing() {
+            info!("Starting playback");
             self.zero_time = SystemTime::now() + LEADIN;
             if !self.playback.play() {
                 log::error!("Could not play audio");
@@ -2031,7 +2032,6 @@ impl Scene for Game {
 
                     let delta = ms - time;
                     let abs_delta = Duration::from_secs_f64(delta.abs() / 1000.0);
-                    log::info!("Hit delta: {}", delta);
 
                     hit_rating = if abs_delta <= perfect {
                         HitRating::Crit { tick, delta, time }

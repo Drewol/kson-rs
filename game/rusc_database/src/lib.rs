@@ -249,7 +249,6 @@ impl LocalSongsDb {
             SortDir::Desc => query_builder.push(" DESC"),
         };
 
-        println!("{}", query_builder.sql());
         let mut q = query_builder.build_query_scalar();
         for ele in binds {
             q = q.bind(ele);
