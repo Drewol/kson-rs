@@ -2,6 +2,7 @@ use std::path::Path;
 use std::time::Duration;
 
 use sqlx::migrate::Migrator;
+use sqlx::sqlite::SqliteQueryResult;
 use sqlx::{query, query_as, query_scalar, ConnectOptions, Pool, Row, SqlitePool};
 
 static MIGRATOR: Migrator = sqlx::migrate!("./migrations"); // defaults to "./migrations"
@@ -142,6 +143,13 @@ impl LocalSongsDb {
         )
         .fetch_all(&self.sqlite_pool)
         .await
+    }
+
+    pub async fn remove_hash(&self, hash: impl AsRef<str>) -> sqlx::Result<SqliteQueryResult> {
+        let hash = hash.as_ref();
+        query!("DELETE FROM Charts WHERE hash = ?", hash)
+            .execute(&self.sqlite_pool)
+            .await
     }
 
     pub async fn get_song(&self, id: i64) -> std::result::Result<ChartEntry, sqlx::Error> {
@@ -527,6 +535,7 @@ impl LocalSongsDb {
         level,
         lwt,id).execute(&self.sqlite_pool).await
     }
+
     pub async fn remove_chart(
         &self,
         id: i32,
@@ -535,6 +544,7 @@ impl LocalSongsDb {
             .execute(&self.sqlite_pool)
             .await
     }
+
     pub async fn remove_challenge(
         &self,
         id: i32,
@@ -543,14 +553,18 @@ impl LocalSongsDb {
             .execute(&self.sqlite_pool)
             .await
     }
-    pub async fn remove_folder(
-        &self,
-        id: i32,
-    ) -> std::result::Result<sqlx::sqlite::SqliteQueryResult, sqlx::Error> {
-        query!("DELETE FROM Folders WHERE rowid=?", id)
+
+    pub async fn remove_folder(&self, id: i64) -> sqlx::Result<()> {
+        query!("DELETE FROM Charts WHERE folderid = ?", id)
             .execute(&self.sqlite_pool)
-            .await
+            .await?;
+        query!("DELETE FROM Folders WHERE rowid = ?", id)
+            .execute(&self.sqlite_pool)
+            .await?;
+
+        Ok(())
     }
+
     pub async fn get_scores_for_chart(
         &self,
         chart_hash: &str,
@@ -588,6 +602,12 @@ impl LocalSongsDb {
         )
         .fetch_all(&self.sqlite_pool)
         .await
+    }
+
+    pub async fn get_all_hashes(&self) -> sqlx::Result<Vec<String>> {
+        query_scalar!("SELECT hash FROM Charts")
+            .fetch_all(&self.sqlite_pool)
+            .await
     }
 
     pub async fn get_all_scores(
@@ -673,6 +693,12 @@ impl LocalSongsDb {
     pub async fn get_hash_id(&self, hash: &str) -> std::result::Result<Option<i64>, sqlx::Error> {
         query_scalar!("SELECT rowid FROM Charts WHERE hash=?", hash)
             .fetch_optional(&self.sqlite_pool)
+            .await
+    }
+
+    pub async fn remove_empty_folders(&self) -> sqlx::Result<SqliteQueryResult> {
+        query!("DELETE FROM Folders WHERE rowid NOT IN (SELECT folderid FROM Charts)")
+            .execute(&self.sqlite_pool)
             .await
     }
 }

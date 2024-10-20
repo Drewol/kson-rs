@@ -196,7 +196,26 @@ async fn files_worker(
                 let database = database.clone();
                 tokio::task::spawn(async move {
                     worker_tx.send(WorkerEvent::ImporterState(ImporterState::Starting));
-                    refresh_songs(&worker_tx, &database).await;
+                    let hashes = refresh_songs(&worker_tx, &database)
+                        .await
+                        .unwrap_or_default();
+
+                    worker_tx.send(WorkerEvent::ImporterState(ImporterState::Loading(
+                        "Cleaning".into(),
+                    )));
+                    let db_hashes: HashSet<String> = database
+                        .get_all_hashes()
+                        .await
+                        .unwrap_or_default()
+                        .into_iter()
+                        .collect();
+
+                    for removed in db_hashes.difference(&hashes) {
+                        database.remove_hash(removed).await;
+                    }
+
+                    database.remove_empty_folders().await;
+
                     worker_tx.send(WorkerEvent::ImporterState(ImporterState::Idle));
                     load_db(&database, &worker_tx).await;
                     info!("Finished importing");
@@ -263,21 +282,24 @@ async fn load_db(database: &LocalSongsDb, worker_tx: &Sender<WorkerEvent>) {
 async fn refresh_songs(
     worker_tx: &Sender<WorkerEvent>,
     worker_db: &LocalSongsDb,
-) -> anyhow::Result<()> {
+) -> anyhow::Result<HashSet<String>> {
     let songs_folder = songs_path();
     info!("Refreshing song db");
     let dir = tokio::fs::read_dir(&songs_folder).await?;
-    read_song_dir(dir, worker_tx, worker_db).await?;
 
-    Ok(())
+    Ok(read_song_dir(dir, worker_tx, worker_db)
+        .await?
+        .into_iter()
+        .collect())
 }
 
 async fn read_song_dir(
     mut dir: tokio::fs::ReadDir,
     worker_tx: &Sender<WorkerEvent>,
     worker_db: &LocalSongsDb,
-) -> anyhow::Result<()> {
+) -> anyhow::Result<Vec<String>> {
     let mut chart_files = vec![];
+    let mut hashes = vec![];
 
     while let Some(e) = dir.next_entry().await? {
         let p = e.path();
@@ -285,7 +307,9 @@ async fn read_song_dir(
             let msg = format!("{}", p.display());
             worker_tx.send(WorkerEvent::ImporterState(ImporterState::Loading(msg)));
             let dir = tokio::fs::read_dir(p).await?;
-            Box::pin(read_song_dir(dir, worker_tx, worker_db)).await;
+            if let Ok(mut r) = Box::pin(read_song_dir(dir, worker_tx, worker_db)).await {
+                hashes.append(&mut r);
+            }
         } else if is_chart_file(&p).is_some() {
             chart_files.push(p);
         }
@@ -314,13 +338,16 @@ async fn read_song_dir(
         };
 
         for (p, t) in chart_loaders {
-            if let Some(e) = t.await?.err() {
-                warn!("Failed to load chart {}: {}", p.display(), e);
+            match t.await? {
+                Ok(hash) => hashes.push(hash),
+                Err(e) => {
+                    warn!("Failed to load chart {}: {}", p.display(), e);
+                }
             }
         }
     }
 
-    Ok(())
+    Ok(hashes)
 }
 
 fn is_chart_file(p: &PathBuf) -> Option<String> {
@@ -335,14 +362,14 @@ async fn read_chart_file(
     worker_tx: Sender<WorkerEvent>,
     worker_db: LocalSongsDb,
     folder_id: i64,
-) -> anyhow::Result<Option<kson::Chart>> {
+) -> anyhow::Result<String> {
     let data = tokio::fs::read(&p).await?;
     let mut hasher = sha1_smol::Sha1::new();
     hasher.update(&data);
     let hash = hasher.digest().to_string();
 
     if worker_db.get_hash_id(&hash).await?.is_some() {
-        return Ok(None); //Already exists
+        return Ok(hash); //Already exists
     }
     let ext = is_chart_file(&p).expect("Got non chart file");
     let chart: kson::Chart = if ext == "ksh" {
@@ -363,7 +390,7 @@ async fn read_chart_file(
         .add_chart(chart_to_entry(&chart, &p, folder_id, &hash))
         .await;
 
-    Ok(Some(chart))
+    Ok(hash)
 }
 
 fn chart_to_entry(
