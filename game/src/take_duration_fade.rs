@@ -117,7 +117,6 @@ where
 
     fn send_signal(&mut self) {
         if !self.signal_sent {
-            log::info!("SENDING SIGNAL");
             self.signal
                 .fetch_sub(1, std::sync::atomic::Ordering::Relaxed);
             self.signal_sent = true;

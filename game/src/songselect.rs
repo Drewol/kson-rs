@@ -22,7 +22,7 @@ use game_loop::winit::event::{ElementState, Event, Ime, WindowEvent};
 use itertools::Itertools;
 use kson_rodio_sources::owned_source::{self, owned_source};
 use log::warn;
-use puffin::profile_function;
+use puffin::{profile_function, profile_scope};
 use rodio::Source;
 use serde::Serialize;
 use serde_json::json;
@@ -113,6 +113,7 @@ pub struct SongSelect {
     songs: SongCollection,
     search_input_active: bool, //true when the user is currently inputting search text
     search_text: String,       //current string used by the song search
+    search_status: String,     //database status
     selected_index: i32,
     selected_diff_index: i32,
     preview_countdown: f64,
@@ -151,6 +152,7 @@ impl SongSelect {
             songs: Default::default(),
             search_input_active: false,
             search_text: String::new(),
+            search_status: String::new(),
             selected_index: 0,
             selected_diff_index: 0,
             preview_countdown: 1500.0,
@@ -269,6 +271,7 @@ impl SongSelectScene {
     }
 
     fn update_lua(&self) -> anyhow::Result<()> {
+        profile_function!();
         Ok(self
             .lua
             .globals()
@@ -586,6 +589,7 @@ impl Scene for SongSelectScene {
     }
 
     fn tick(&mut self, _dt: f64, _knob_state: LaserState) -> Result<()> {
+        profile_function!();
         if self.suspended.load(std::sync::atomic::Ordering::Relaxed) {
             return Ok(());
         }
@@ -611,6 +615,7 @@ impl Scene for SongSelectScene {
 
         let mut songs_dirty = false;
         let mut index_dirty = false;
+
         let had_no_songs = self.state.songs.is_empty();
         let selected_index: SongId = self
             .state
@@ -620,13 +625,15 @@ impl Scene for SongSelectScene {
             .unwrap_or_default();
 
         while let Ok(provider_event) = self.song_events.try_recv() {
-            songs_dirty = true;
+            profile_scope!("Handle song provider event");
+
             match provider_event {
                 SongProviderEvent::SongsAdded(new_songs) => {
+                    songs_dirty = true;
                     self.state.songs.append(new_songs);
-                    self.reload_scores()?;
                 }
                 SongProviderEvent::SongsRemoved(removed_ids) => {
+                    songs_dirty = true;
                     if removed_ids.contains(&selected_index) {
                         self.state.selected_index = 0;
                         index_dirty = true;
@@ -634,6 +641,7 @@ impl Scene for SongSelectScene {
                     self.state.songs.remove(removed_ids)
                 }
                 SongProviderEvent::OrderChanged(order) => {
+                    songs_dirty = true;
                     let current_index = self.state.selected_index;
 
                     let id = self
@@ -648,6 +656,11 @@ impl Scene for SongSelectScene {
                         self.state.songs.find_index(&id).unwrap_or_default() as _;
 
                     index_dirty = self.state.selected_index != current_index;
+                }
+                SongProviderEvent::StatusUpdate(s) => {
+                    self.state.search_status = s;
+                    let raw_state: mlua::Table = self.lua.globals().get("songwheel")?;
+                    raw_state.set("searchStatus", self.state.search_status.clone())?;
                 }
             }
         }
@@ -665,6 +678,8 @@ impl Scene for SongSelectScene {
         }
 
         if songs_dirty {
+            profile_scope!("Updating state after songs change");
+            self.reload_scores()?;
             self.update_lua()?;
 
             if had_no_songs {
@@ -987,6 +1002,11 @@ impl Scene for SongSelectScene {
                         self.settings_dialog.show = true;
                     }
                 }
+            }
+
+            UscButton::Refresh => {
+                let mut song_provider = self.song_provider.write().unwrap();
+                song_provider.refresh()
             }
             _ => (),
         }

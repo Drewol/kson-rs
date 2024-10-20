@@ -124,7 +124,7 @@ struct VgfxPoint {
 pub struct Vgfx {
     pub canvas: Arc<Mutex<Canvas<OpenGl>>>,
     skin: String,
-    skin_meta: SkinMeta,
+    _skin_meta: SkinMeta,
     restore_stack: Vec<VgfxPoint>,
     path: Option<Path>,
     fill_paint: Option<Paint>,
@@ -220,7 +220,7 @@ impl Vgfx {
             label_color: Color::white(),
             label_font: *default_fonts.first().expect("No default font loaded"),
             label_align: (femtovg::Align::Left, femtovg::Baseline::Alphabetic),
-            skin_meta,
+            _skin_meta: skin_meta,
         }
     }
 

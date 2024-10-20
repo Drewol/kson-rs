@@ -170,6 +170,7 @@ pub enum UscButton {
     FX(Side),
     Start,
     Back,
+    Refresh,
     /// (Side, Direction)
     Laser(Side, Side),
     Other(Button),
@@ -189,7 +190,8 @@ impl UscButton {
                 Side::Right => 6,
             },
             UscButton::Start => 0,
-            UscButton::Back => 255,
+            UscButton::Back | UscButton::Refresh => 255,
+
             UscButton::Laser(_, _) => 255,
             UscButton::Other(_) => 255,
         }
@@ -209,6 +211,7 @@ impl UscButton {
             },
             UscButton::Start => "Start",
             UscButton::Back => "Back",
+            UscButton::Refresh => "Refresh",
             UscButton::Laser(side, dir) => match (side, dir) {
                 (Side::Left, Side::Left) => "<--Left Laser",
                 (Side::Left, Side::Right) => "Left Laser-->",
@@ -251,6 +254,7 @@ impl From<UscButton> for u8 {
             },
             UscButton::Start => 6,
             UscButton::Back => 7,
+            UscButton::Refresh => 8,
             UscButton::Other(_) => 255,
             UscButton::Laser(_, _) => 255,
         }
@@ -295,7 +299,7 @@ impl From<UscButton> for Button {
             },
             UscButton::Start => Button::Start,
             UscButton::Back => Button::Select,
-            UscButton::Laser(_, _) => Button::Unknown,
+            UscButton::Laser(_, _) | UscButton::Refresh => Button::Unknown,
             UscButton::Other(c) => c,
         }
     }

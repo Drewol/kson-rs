@@ -188,11 +188,13 @@ impl GameMain {
 
         {
             for ele in self.service_provider.get_all_mut::<dyn WorkerService>() {
+                profile_scope!("Worker update");
                 ele.write().expect("Worker service closed").update()
             }
         }
 
         if self.companion_update == 0 {
+            profile_scope!("Companion update");
             let server = self.companion_server.read().unwrap();
 
             if server.active.load(std::sync::atomic::Ordering::Relaxed) {
@@ -276,8 +278,6 @@ impl GameMain {
         } = self;
 
         knob_state.zero_deltas();
-        puffin::profile_scope!("Frame");
-        puffin::GlobalProfiler::lock().new_frame();
 
         for lua in lua_arena.read().expect("Lock error").0.iter() {
             lua.set_app_data(frame_input.clone());
@@ -626,7 +626,7 @@ impl GameMain {
                     },
                 ..
             } => {
-                if !text_input_active && GameConfig::get().keyboard_buttons {
+                if !text_input_active {
                     for button in GameConfig::get()
                         .keybinds
                         .iter()

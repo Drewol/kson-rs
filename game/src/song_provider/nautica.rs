@@ -560,6 +560,10 @@ impl SongProvider for NauticaSongProvider {
     fn get_available_sorts(&self) -> Vec<super::SongSort> {
         vec![]
     }
+
+    fn refresh(&mut self) {
+        self.query_changed();
+    }
 }
 
 fn download_song(id: Uuid, diff: u8, on_loaded: Sender<Datum>) -> anyhow::Result<LoadSongFn> {

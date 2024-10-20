@@ -33,6 +33,7 @@ pub enum SongProviderEvent {
     SongsAdded(Vec<Arc<Song>>),
     SongsRemoved(HashSet<SongId>),
     OrderChanged(Vec<SongId>),
+    StatusUpdate(String),
 }
 
 #[derive(Debug, Clone)]
@@ -326,6 +327,7 @@ pub trait SongProvider: Send {
     /// Returns: `(music, skip, duration)`
     fn get_preview(&self, id: &SongId) -> Promise<PreviewResult>;
     fn get_all(&self) -> (Vec<Arc<Song>>, Vec<SongId>);
+    fn refresh(&mut self) {}
 }
 
 pub trait ScoreProvider {

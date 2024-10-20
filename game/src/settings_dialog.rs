@@ -313,6 +313,7 @@ impl SettingsDialog {
             UscButton::Back => self.show = false,
             UscButton::Laser(_, _) => {}
             UscButton::Other(_) => {}
+            UscButton::Refresh => {}
         }
 
         _ = self.lua.globals().set("SettingsDiag", &*self);

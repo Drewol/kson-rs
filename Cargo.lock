@@ -2509,8 +2509,9 @@ dependencies = [
 [[package]]
 name = "game-loop"
 version = "1.0.0"
-source = "git+https://github.com/Drewol/game-loop.git#137a552380cf0738d65dfecf4b776feb4e84204a"
+source = "git+https://github.com/Drewol/game-loop.git#7077899aa23eec420ea9a289894e02c40f953538"
 dependencies = [
+ "puffin",
  "wasm-bindgen",
  "web-sys",
  "winit 0.29.15",

@@ -166,6 +166,7 @@ pub struct SongSelectSettings {
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone, Copy)]
+#[serde(default)]
 pub struct Keybinds {
     bt_a: PhysicalKey,
     bt_b: PhysicalKey,
@@ -175,6 +176,7 @@ pub struct Keybinds {
     fx_r: PhysicalKey,
     start: PhysicalKey,
     back: PhysicalKey,
+    refresh: PhysicalKey,
     laser_l: (PhysicalKey, PhysicalKey),
     laser_r: (PhysicalKey, PhysicalKey),
 }
@@ -190,6 +192,7 @@ impl Keybinds {
             fx_r,
             start,
             back,
+            refresh,
             laser_l: (ll_l, ll_r),
             laser_r: (rl_l, rl_r),
         } = self;
@@ -204,6 +207,7 @@ impl Keybinds {
             k if k == fx_r => Some(UscButton::FX(kson::Side::Right)),
             k if k == start => Some(UscButton::Start),
             k if k == back => Some(UscButton::Back),
+            k if k == refresh => Some(UscButton::Refresh),
             k if k == ll_l => Some(UscButton::Laser(kson::Side::Left, kson::Side::Left)),
             k if k == ll_r => Some(UscButton::Laser(kson::Side::Left, kson::Side::Right)),
             k if k == rl_l => Some(UscButton::Laser(kson::Side::Right, kson::Side::Left)),
@@ -217,7 +221,7 @@ impl Default for Keybinds {
     fn default() -> Self {
         use winit::keyboard::KeyCode;
         Self {
-            bt_a: PhysicalKey::Code(KeyCode::KeyD),
+            bt_a: PhysicalKey::Code(KeyCode::KeyD),    // D
             bt_b: PhysicalKey::Code(KeyCode::KeyF),    // F
             bt_c: PhysicalKey::Code(KeyCode::KeyJ),    // J
             bt_d: PhysicalKey::Code(KeyCode::KeyK),    // K
@@ -225,6 +229,7 @@ impl Default for Keybinds {
             fx_r: PhysicalKey::Code(KeyCode::KeyM),    // M
             start: PhysicalKey::Code(KeyCode::Digit1), // 1
             back: PhysicalKey::Code(KeyCode::Escape),  // Esc
+            refresh: PhysicalKey::Code(KeyCode::F5),   // F5
             laser_l: (
                 PhysicalKey::Code(KeyCode::KeyW),
                 PhysicalKey::Code(KeyCode::KeyE),

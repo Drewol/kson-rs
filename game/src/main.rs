@@ -231,6 +231,7 @@ impl Scenes {
         knob_state: crate::button_codes::LaserState,
         app_control_tx: std::sync::mpsc::Sender<ControlMessage>,
     ) {
+        profile_function!();
         let new_transition = self.transition.is_some();
         if self.should_outro {
             if let Some(tr) = self.transition.as_mut() {

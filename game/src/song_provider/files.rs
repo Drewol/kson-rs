@@ -12,6 +12,7 @@ use crate::{
     block_on,
     config::{GameConfig, SongSelectSettings},
     game::{gauge::Gauge, HitSummary, HitWindow},
+    log_result,
     results::{calculate_clear_mark, Score},
     song_provider::SongFilterType,
     songselect::{Difficulty, Song},
@@ -45,6 +46,16 @@ enum ImporterState {
     Idle,
     Starting,
     Loading(String),
+}
+
+impl std::fmt::Display for ImporterState {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            ImporterState::Idle => f.write_str(""),
+            ImporterState::Starting => f.write_str("Importer Starting"),
+            ImporterState::Loading(m) => f.write_fmt(format_args!("Importer: {m}")),
+        }
+    }
 }
 
 enum WorkerEvent {
@@ -149,8 +160,8 @@ impl FileSongProvider {
             database,
             worker,
             worker_rx,
-            score_bus: bus::Bus::new(32),
-            song_bus: bus::Bus::new(32),
+            score_bus: bus::Bus::new(128),
+            song_bus: bus::Bus::new(128),
             worker_tx,
             sort: *sorting,
             filter: filter.clone(),
@@ -271,7 +282,7 @@ async fn read_song_dir(
     while let Some(e) = dir.next_entry().await? {
         let p = e.path();
         if p.is_dir() {
-            let msg = format!("Reading {}", p.display());
+            let msg = format!("{}", p.display());
             worker_tx.send(WorkerEvent::ImporterState(ImporterState::Loading(msg)));
             let dir = tokio::fs::read_dir(p).await?;
             Box::pin(read_song_dir(dir, worker_tx, worker_db)).await;
@@ -443,41 +454,56 @@ impl WorkerService for FileSongProvider {
             .ready()
             .is_some()
             .then(|| panic!("Song file provider worker returned")); //panics if worker paniced
-        let ev = self.worker_rx.try_recv().ok();
-
-        match ev {
-            Some(WorkerEvent::ImporterState(s)) => {
-                if self.last_full_update.elapsed().unwrap().as_secs() > 2 {
-                    self.worker_tx.send(WorkerControlMessage::LoadDb);
-                    self.last_full_update = SystemTime::now();
+        let mut importer_dirty = false;
+        while let Some(ev) = self.worker_rx.try_recv().ok() {
+            match ev {
+                WorkerEvent::ImporterState(s) => {
+                    if self.last_full_update.elapsed().unwrap().as_secs() > 2 {
+                        self.worker_tx.send(WorkerControlMessage::LoadDb);
+                        self.last_full_update = SystemTime::now();
+                    }
+                    self.importer_state = s;
+                    importer_dirty = true;
                 }
-                self.importer_state = s;
-            }
-            Some(WorkerEvent::SongProvider(mut ev)) => {
-                match &mut ev {
-                    SongProviderEvent::SongsAdded(s) => {
-                        //TODO: Consider full update event
-                        let mut new_songs = vec![];
-                        for s in s.iter() {
-                            if self.all_songs.insert(s.id.clone(), s.clone()).is_none() {
-                                new_songs.push(s.clone());
+                WorkerEvent::SongProvider(mut ev) => {
+                    match &mut ev {
+                        SongProviderEvent::SongsAdded(s) => {
+                            //TODO: Consider full update event
+                            let mut new_songs = vec![];
+                            for s in s.iter() {
+                                if self.all_songs.insert(s.id.clone(), s.clone()).is_none() {
+                                    new_songs.push(s.clone());
+                                }
                             }
-                        }
 
-                        *s = new_songs
+                            *s = new_songs
+                        }
+                        SongProviderEvent::SongsRemoved(r) => {
+                            self.all_songs.retain(|k, _| !r.contains(k))
+                        }
+                        SongProviderEvent::OrderChanged(_) => {}
+                        SongProviderEvent::StatusUpdate(_) => {}
                     }
-                    SongProviderEvent::SongsRemoved(r) => {
-                        self.all_songs.retain(|k, _| !r.contains(k))
+                    match &ev {
+                        SongProviderEvent::OrderChanged(_) => {}
+                        _ => self.set_sort(self.sort),
                     }
-                    SongProviderEvent::OrderChanged(_) => {}
+                    log_result!(self
+                        .song_bus
+                        .try_broadcast(ev)
+                        .map_err(|_| "Song event bus full"));
                 }
-                match &ev {
-                    SongProviderEvent::OrderChanged(_) => {}
-                    _ => self.set_sort(self.sort),
-                }
-                self.song_bus.broadcast(ev);
+                _ => (),
             }
-            _ => (),
+        }
+
+        if importer_dirty {
+            log_result!(self
+                .song_bus
+                .try_broadcast(SongProviderEvent::StatusUpdate(
+                    self.importer_state.to_string(),
+                ))
+                .map_err(|_| "Song event bus full"));
         }
     }
 }
@@ -571,7 +597,6 @@ impl SongProvider for FileSongProvider {
                 bail!("No chart found")
             };
 
-            info!("Got chart: {:?}", &chart.preview_file);
             let Some(path) = chart.preview_file.take() else {
                 bail!("No preview file")
             };
@@ -706,6 +731,13 @@ impl SongProvider for FileSongProvider {
                 }),
         );
         res
+    }
+
+    fn refresh(&mut self) {
+        if let ImporterState::Idle = self.importer_state {
+            self.importer_state = ImporterState::Starting;
+            self.worker_tx.send(WorkerControlMessage::Refresh);
+        }
     }
 }
 
