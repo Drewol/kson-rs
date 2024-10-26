@@ -893,7 +893,7 @@ impl Game {
 
                     let signum = (end - start).signum() as i32;
                     self.camera.shakes.push(CameraShake::new(
-                        ((start - end).abs() * 2.0).to_radians() as _,
+                        ((start - end).abs().powf(0.5) * 1.2).to_radians() as _,
                         signum as _,
                         20.0,
                         100.0,
