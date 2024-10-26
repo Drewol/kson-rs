@@ -1133,11 +1133,11 @@ impl Game {
     }
 
     fn with_offset(&self, time_ms: f64) -> f64 {
-        time_ms - self.chart.audio.bgm.offset as f64
+        time_ms - self.chart.audio.bgm.offset as f64 - self.playback.leadin().as_secs_f64() * 1000.0
     }
 
     fn without_offset(&self, time_ms: f64) -> f64 {
-        time_ms + self.chart.audio.bgm.offset as f64
+        time_ms + self.chart.audio.bgm.offset as f64 + self.playback.leadin().as_secs_f64() * 1000.0
     }
 
     fn fail_song(&mut self) -> anyhow::Result<()> {
@@ -1678,7 +1678,7 @@ impl Scene for Game {
             .update(vec2(viewport.width as f32, viewport.height as f32));
         if self.intro_done && !self.playback.is_playing() {
             info!("Starting playback");
-            self.zero_time = SystemTime::now() + LEADIN;
+            self.zero_time = SystemTime::now();
             if !self.playback.play() {
                 log::error!("Could not play audio");
                 self.closed = true;
@@ -1752,7 +1752,7 @@ impl Scene for Game {
                 .map(|x| x.roll_at(self.current_tick as f32))
                 .sum::<f32>();
 
-            self.view.cursor = self.with_offset(time.as_secs_f64() * 1000.0) + leadin_ms;
+            self.view.cursor = self.with_offset(time.as_secs_f64() * 1000.0);
 
             self.current_tick = self.chart.ms_to_tick(self.view.cursor);
             self.camera.kson_radius = self

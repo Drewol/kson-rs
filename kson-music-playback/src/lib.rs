@@ -175,6 +175,7 @@ pub struct AudioPlayback {
     file: Option<AudioFile>,
     last_file: String,
     effects: Vec<((u64, u64), Box<EffectBuilder>)>,
+    leadin: Duration,
 }
 
 impl AudioPlayback {
@@ -183,6 +184,7 @@ impl AudioPlayback {
             file: None,
             last_file: String::new(),
             effects: vec![],
+            leadin: Duration::ZERO,
         }
     }
 
@@ -195,8 +197,13 @@ impl AudioPlayback {
 
     pub fn set_leadin(&mut self, duration: Duration) {
         if let Some(file) = &self.file {
-            file.set_leadin(duration)
+            file.set_leadin(duration);
+            self.leadin = duration;
         }
+    }
+
+    pub fn leadin(&self) -> Duration {
+        self.leadin
     }
 
     pub fn build_effects(&mut self, chart: &Chart) {
@@ -371,7 +378,7 @@ impl AudioPlayback {
 
     pub fn get_ms(&self) -> f64 {
         if let Some(file) = &self.file {
-            file.get_ms()
+            file.get_ms() + (self.leadin.as_secs_f64() * 1000.0)
         } else {
             0.0
         }
