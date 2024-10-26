@@ -1018,6 +1018,11 @@ impl Chart {
         }
     }
 
+    pub fn tick_duration_ms_at(&self, tick: u32) -> f64 {
+        let bpm = self.bpm_at_tick(tick);
+        beat_in_ms(bpm) / KSON_RESOLUTION as f64
+    }
+
     pub fn beat_line_iter(&self) -> MeasureBeatLines {
         let mut funcs: Vec<(u32, Box<BeatLineFn>)> = Vec::new();
         let mut prev_start = 0;

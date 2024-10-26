@@ -89,6 +89,8 @@ pub struct GameConfig {
     pub keyboard_buttons: bool,
     pub keyboard_knobs: bool,
     pub global_offset: i32,
+    pub button_offset: i32,
+    pub laser_offset: i32,
     #[serde(skip_serializing, skip_deserializing)]
     pub skin_definition: Vec<SkinSettingEntry>,
     #[serde(skip_serializing, skip_deserializing)]
@@ -265,6 +267,8 @@ impl Default for GameConfig {
             keybinds: vec![Keybinds::default()],
             keyboard_knobs: false,
             global_offset: 0,
+            button_offset: 0,
+            laser_offset: 0,
             controller_binds: HashMap::new(),
             song_select: SongSelectSettings::default(),
             graphics: GraphicsSettings::default(),

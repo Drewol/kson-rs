@@ -408,17 +408,41 @@ impl SettingsDialog {
             vec![
                 SettingsDialogTab::new(
                     "Offsets",
-                    vec![(
-                        "Global Offset".into(),
-                        SettingsDialogSetting::Int {
-                            min: -100,
-                            max: 100,
-                            step: 1,
-                            div: 1,
-                            set: Box::new(|x| GameConfig::get_mut().global_offset = x),
-                            get: Box::new(|| GameConfig::get().global_offset),
-                        },
-                    )],
+                    vec![
+                        (
+                            "Global Offset".into(),
+                            SettingsDialogSetting::Int {
+                                min: -100,
+                                max: 100,
+                                step: 1,
+                                div: 1,
+                                set: Box::new(|x| GameConfig::get_mut().global_offset = x),
+                                get: Box::new(|| GameConfig::get().global_offset),
+                            },
+                        ),
+                        (
+                            "Button Offset".into(),
+                            SettingsDialogSetting::int(
+                                || GameConfig::get().button_offset,
+                                |x| GameConfig::get_mut().button_offset = x,
+                                -300,
+                                300,
+                                1,
+                                1,
+                            ),
+                        ),
+                        (
+                            "Laser Offset".into(),
+                            SettingsDialogSetting::int(
+                                || GameConfig::get().laser_offset,
+                                |x| GameConfig::get_mut().laser_offset = x,
+                                -300,
+                                300,
+                                1,
+                                1,
+                            ),
+                        ),
+                    ],
                 ),
                 SettingsDialogTab::new(
                     "Game",

@@ -124,6 +124,9 @@ pub struct Game {
     chip_h: f32,
     laser_buffer: [VecDeque<(SystemTime, f64)>; 2],
     laser_input_delay: Duration,
+    laser_offset: f64,
+    button_offset: f64,
+    global_offset: f64,
 }
 
 #[derive(Clone, Copy)]
@@ -711,6 +714,9 @@ impl Game {
             chip_h,
             laser_buffer: [VecDeque::new(), VecDeque::new()],
             laser_input_delay: GameConfig::get().laser_input_delay,
+            button_offset: -GameConfig::get().button_offset as _,
+            global_offset: -GameConfig::get().global_offset as _,
+            laser_offset: -GameConfig::get().laser_offset as _,
         };
         res.set_track_uniforms();
         Ok(res)
@@ -1133,11 +1139,17 @@ impl Game {
     }
 
     fn with_offset(&self, time_ms: f64) -> f64 {
-        time_ms - self.chart.audio.bgm.offset as f64 - self.playback.leadin().as_secs_f64() * 1000.0
+        time_ms
+            - self.global_offset
+            - self.chart.audio.bgm.offset as f64
+            - self.playback.leadin().as_secs_f64() * 1000.0
     }
 
     fn without_offset(&self, time_ms: f64) -> f64 {
-        time_ms + self.chart.audio.bgm.offset as f64 + self.playback.leadin().as_secs_f64() * 1000.0
+        time_ms
+            + self.global_offset
+            + self.chart.audio.bgm.offset as f64
+            + self.playback.leadin().as_secs_f64() * 1000.0
     }
 
     fn fail_song(&mut self) -> anyhow::Result<()> {
@@ -1199,8 +1211,11 @@ impl Game {
             let new_pos = (self.laser_cursors[index] + delta).clamp(0.0, 1.0);
             let target_value = self.chart.note.laser[index].value_at(self.current_tick as f64);
 
+            //TODO: Not sure this is a good way to do laser offset but it might work
+            let target_dir_offset =
+                self.laser_offset / self.chart.tick_duration_ms_at(self.current_tick);
             let target_dir = self.chart.note.laser[index]
-                .direction_at(self.current_tick as f64)
+                .direction_at(self.current_tick as f64 + target_dir_offset)
                 .map(|x| x.total_cmp(&0.0))
                 .unwrap_or(std::cmp::Ordering::Equal);
 
@@ -1239,6 +1254,74 @@ impl Game {
         };
 
         true
+    }
+
+    fn get_hit_rating(
+        &mut self,
+        button: UscButton,
+        button_num: u8,
+        timestamp: SystemTime,
+        perfect: Duration,
+        good: Duration,
+        miss: Duration,
+    ) -> HitRating {
+        let last_tick = self.chart.ms_to_tick(
+            self.with_offset(self.current_time().as_secs_f64() * 1000.0)
+                + miss.as_secs_f64() * 1000.0,
+        ) + 1;
+        let mut hittable_ticks = self.score_ticks.iter().take_while(|x| x.y < last_tick);
+        let mut hit_rating = HitRating::None;
+        match button {
+            crate::button_codes::UscButton::BT(_) | crate::button_codes::UscButton::FX(_)
+                if !self.auto_buttons() =>
+            {
+                if let Some((index, score_tick)) = hittable_ticks.find_position(|x| {
+                    if let ScoreTick::Chip { lane } | ScoreTick::Hold { lane, .. } = x.tick {
+                        lane == button_num as usize
+                    } else {
+                        false
+                    }
+                }) {
+                    if let ScoreTick::Hold { .. } = score_tick.tick {
+                        return hit_rating; // Next tick in this lane is a hold, do nothing
+                    }
+                    let tick = *score_tick;
+                    let ms = self.chart.tick_to_ms(score_tick.y);
+                    let time = self.with_offset(
+                        timestamp
+                            .duration_since(self.zero_time)
+                            .unwrap_or(Duration::ZERO)
+                            .as_secs_f64()
+                            * 1000.0,
+                    );
+
+                    let delta = ms - time + self.button_offset;
+                    let abs_delta = Duration::from_secs_f64(delta.abs() / 1000.0);
+
+                    hit_rating = if abs_delta <= perfect {
+                        HitRating::Crit { tick, delta, time }
+                    } else if abs_delta <= good {
+                        HitRating::Good { tick, delta, time }
+                    } else if abs_delta <= miss {
+                        HitRating::Miss { tick, delta, time }
+                    } else {
+                        HitRating::None
+                    };
+
+                    match hit_rating {
+                        HitRating::None => {}
+                        _ => {
+                            self.on_hit(hit_rating);
+                            self.score_ticks.remove(index);
+                            self.score_current_max += 2;
+                        }
+                    }
+                }
+            }
+            crate::button_codes::UscButton::Back => self.closed = true,
+            _ => {}
+        }
+        hit_rating
     }
 }
 
@@ -2001,61 +2084,9 @@ impl Scene for Game {
             slam: _,
         } = self.hit_window;
 
-        let last_tick = self.chart.ms_to_tick(
-            self.with_offset(self.current_time().as_secs_f64() * 1000.0)
-                + miss.as_secs_f64() * 1000.0,
-        ) + 1;
-        let mut hittable_ticks = self.score_ticks.iter().take_while(|x| x.y < last_tick);
-        let mut hit_rating = HitRating::None;
         let button_num = Into::<u8>::into(button);
 
-        match button {
-            crate::button_codes::UscButton::BT(_) | crate::button_codes::UscButton::FX(_)
-                if !self.auto_buttons() =>
-            {
-                if let Some((index, score_tick)) = hittable_ticks.find_position(|x| {
-                    if let ScoreTick::Chip { lane } = x.tick {
-                        lane == button_num as usize
-                    } else {
-                        false
-                    }
-                }) {
-                    let tick = *score_tick;
-                    let ms = self.chart.tick_to_ms(score_tick.y);
-                    let time = self.with_offset(
-                        timestamp
-                            .duration_since(self.zero_time)
-                            .unwrap_or(Duration::ZERO)
-                            .as_secs_f64()
-                            * 1000.0,
-                    );
-
-                    let delta = ms - time;
-                    let abs_delta = Duration::from_secs_f64(delta.abs() / 1000.0);
-
-                    hit_rating = if abs_delta <= perfect {
-                        HitRating::Crit { tick, delta, time }
-                    } else if abs_delta <= good {
-                        HitRating::Good { tick, delta, time }
-                    } else if abs_delta <= miss {
-                        HitRating::Miss { tick, delta, time }
-                    } else {
-                        HitRating::None
-                    };
-
-                    match hit_rating {
-                        HitRating::None => {}
-                        _ => {
-                            self.on_hit(hit_rating);
-                            self.score_ticks.remove(index);
-                            self.score_current_max += 2;
-                        }
-                    }
-                }
-            }
-            crate::button_codes::UscButton::Back => self.closed = true,
-            _ => {}
-        }
+        let hit_rating = self.get_hit_rating(button, button_num, timestamp, perfect, good, miss);
         if let HitRating::None = hit_rating {
             if (button_num as usize) < self.beam_colors_current.len() {
                 self.beam_colors_current[button_num as usize] =
