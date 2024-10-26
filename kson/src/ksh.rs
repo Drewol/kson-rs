@@ -367,6 +367,12 @@ impl Ksh for crate::Chart {
                                 &mut laser_builder[i],
                                 LaserSection(0, Vec::new(), 1),
                             );
+                            if v.1.is_empty() {
+                                return Err(KshReadError {
+                                    error: KshReadErrorDetails::EmptyLaserSection,
+                                    line: file_line,
+                                });
+                            }
                             new_chart.note.laser[i].push(v);
                         }
                         if chars[i + 8] != b'-' && chars[i + 8] != b':' && last_char[i + 6] == b'-'
@@ -575,7 +581,9 @@ impl Ksh for crate::Chart {
                     .ok_or(KshReadErrorDetails::EmptyLaserSection)
                     .with_line(usize::MAX)?;
                 for next in iter {
-                    if (next.ry - prev.ry) <= (KSON_RESOLUTION / 8) {
+                    if (next.ry - prev.ry) <= (KSON_RESOLUTION / 8)
+                        && (prev.v - next.v).abs() > f64::EPSILON
+                    {
                         prev.vf = Some(next.v);
                         for_removal.insert(next.ry);
                         if for_removal.contains(&prev.ry) {
