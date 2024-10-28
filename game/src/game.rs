@@ -1199,7 +1199,7 @@ impl Game {
             return false;
         };
 
-        if delay < self.laser_input_delay {
+        if delay < self.laser_input_delay && self.laser_assist_ticks[index] > 0 {
             self.laser_buffer[index].push_front((time_stamp, delta));
             return false;
         }
