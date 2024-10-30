@@ -72,12 +72,13 @@ jobs:
           key: ${{ runner.os }}-portable-cargo-${{ hashFiles('**/Cargo.lock') }}
       - run: cargo build --release --features portable
       - name: Make zip
+        shell: pwsh
         run: |
-          mkdir kson-win-portable ;
-          Copy-Item ${{ github.workspace }}/game/fonts -Destination ${{ github.workspace }}/kson-win-portable -Recurse ;
-          Copy-Item ${{ github.workspace }}/game/skins -Destination ${{ github.workspace }}/kson-win-portable -Recurse ;
-          Copy-Item ${{ github.workspace }}/target/release/rusc.exe -Destination ${{ github.workspace }}/kson-win-portable ;
-          Copy-Item ${{ github.workspace }}/target/release/kson-editor.exe -Destination ${{ github.workspace }}/kson-win-portable ;
+          mkdir kson-win-portable
+          Copy-Item ${{ github.workspace }}/game/fonts -Destination ${{ github.workspace }}/kson-win-portable -Recurse
+          Copy-Item ${{ github.workspace }}/game/skins -Destination ${{ github.workspace }}/kson-win-portable -Recurse
+          Copy-Item ${{ github.workspace }}/target/release/rusc.exe -Destination ${{ github.workspace }}/kson-win-portable
+          Copy-Item ${{ github.workspace }}/target/release/kson-editor.exe -Destination ${{ github.workspace }}/kson-win-portable
           Compress-Archive -Path ${{ github.workspace }}/kson-win-portable -DestinationPath ${{ github.workspace }}/kson-win-portable.zip
       - run: aws s3 sync . s3://${{ secrets.R2_BUCKET }}/${{ github.ref_name }} --endpoint-url ${{ secrets.S3_ENDPOINT }} --exclude "*" --include "*.zip"
       - uses: actions/upload-artifact@v3
