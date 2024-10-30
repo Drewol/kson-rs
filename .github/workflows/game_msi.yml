@@ -1,7 +1,7 @@
 name: Game Installer
 on:
   push:
-    branches: [master]
+    branches: [master, windows-portable]
 jobs:
   bundle:
     strategy:
@@ -62,3 +62,25 @@ jobs:
         with:
           name: Windows installer
           path: target/**/*.msi
+  windows_portable:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v1
+      - uses: actions/cache@v2
+        with:
+          path: target
+          key: ${{ runner.os }}-portable-cargo-${{ hashFiles('**/Cargo.lock') }}
+      - run: cargo build --release --features portable
+      - name: Make zip
+        run: |
+          mkdir kson-win-portable
+          Copy-Item ${{ github.workspace }}/game/fonts -Destination ${{ github.workspace }}/kson-win-portable -Recurse
+          Copy-Item ${{ github.workspace }}/game/skins -Destination ${{ github.workspace }}/kson-win-portable -Recurse
+          Copy-Item ${{ github.workspace }}/target/release/rusc.exe -Destination ${{ github.workspace }}/kson-win-portable
+          Copy-Item ${{ github.workspace }}/target/release/kson-editor.exe -Destination ${{ github.workspace }}/kson-win-portable
+          Compress-Archive -Path ${{ github.workspace }}/kson-win-portable ${{ github.workspace }}/kson-win-portable.zip
+      - run: aws s3 sync . s3://${{ secrets.R2_BUCKET }}/${{ github.ref_name }} --endpoint-url ${{ secrets.S3_ENDPOINT }} --exclude "*" --include "*.zip"
+      - uses: actions/upload-artifact@v3
+        with:
+          name: Windows portable
+          path: ${{ github.workspace }}/kson-win-portable.zip
