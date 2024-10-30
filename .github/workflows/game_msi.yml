@@ -80,7 +80,14 @@ jobs:
           Copy-Item ${{ github.workspace }}/target/release/rusc.exe -Destination ${{ github.workspace }}/kson-win-portable
           Copy-Item ${{ github.workspace }}/target/release/kson-editor.exe -Destination ${{ github.workspace }}/kson-win-portable
           Compress-Archive -Path ${{ github.workspace }}/kson-win-portable -DestinationPath ${{ github.workspace }}/kson-win-portable.zip
-      - run: aws s3 sync . s3://${{ secrets.R2_BUCKET }}/${{ github.ref_name }} --endpoint-url ${{ secrets.S3_ENDPOINT }} --exclude "*" --include "*.zip"
+      - name: Upload to R2
+        working-directory: ${{ github.workspace }}
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.CLOUDFLARE_API_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          AWS_DEFAULT_REGION: weur
+        run: aws s3 sync . s3://${{ secrets.R2_BUCKET }}/${{ github.ref_name }} --endpoint-url ${{ secrets.S3_ENDPOINT }} --exclude "*" --include "*.zip"
+        continue-on-error: true
       - uses: actions/upload-artifact@v3
         with:
           name: Windows portable
