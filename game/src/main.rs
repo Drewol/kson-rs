@@ -92,7 +92,7 @@ pub type InnerRuscMixer = DynamicMixerController<f32>;
 pub type RuscMixer = Arc<InnerRuscMixer>;
 
 //TODO: Move to platform files
-#[cfg(target_os = "windows")]
+#[cfg(all(target_os = "windows", not(feature = "portable")))]
 pub fn default_game_dir() -> PathBuf {
     let mut game_dir = directories::UserDirs::new()
         .expect("Failed to get directories")
@@ -102,6 +102,14 @@ pub fn default_game_dir() -> PathBuf {
     game_dir.push("USC");
     game_dir
 }
+
+#[cfg(all(target_os = "windows", feature = "portable"))]
+pub fn default_game_dir() -> PathBuf {
+    let mut game_dir = std::env::current_exe().expect("Could not get exe path");
+    game_dir.pop();
+    game_dir
+}
+
 #[cfg(not(target_os = "windows"))]
 pub fn default_game_dir() -> PathBuf {
     let mut game_dir = directories::UserDirs::new()
@@ -113,6 +121,11 @@ pub fn default_game_dir() -> PathBuf {
 }
 
 pub fn init_game_dir(game_dir: impl AsRef<Path>) -> anyhow::Result<()> {
+    #[cfg(feature = "portable")]
+    {
+        return Ok(());
+    }
+
     let cargo_dir = std::env::var("CARGO_MANIFEST_DIR");
 
     let mut install_dir = if let Ok(manifest_dir) = &cargo_dir {

@@ -124,3 +124,7 @@ resources = ["game/skins", "game/fonts"]
 [package.metadata.bundle.bin.kson-editor]
 name = "KSON-Editor"
 identifier = "dev.kson.editor"
+
+[features]
+default = []
+portable = []
