@@ -36,13 +36,12 @@ femtovg = { git = 'https://github.com/Drewol/femtovg', branch = "cache-experimen
 gilrs = { version = "0.10.0", features = ["serde-serialize"] }
 kson = { path = "../kson" }
 kson-rodio-sources = { path = "../kson-rodio-sources" }
-
-tealr = { git = "https://github.com/Drewol/tealr.git", branch = "nil-option", features = [
-    "mlua",
-    "derive",
-    "mlua_lua52",
-    "mlua_vendored",
-    "mlua_serialize",
+mlua-bridge = "0.3.1"
+mlua = { version = "0.10", features = [
+    "serialize",
+    "vendored",
+    "lua53",
+    "anyhow",
 ] }
 three-d = "0.17"
 bitflags = "1"
@@ -86,7 +85,6 @@ kson-editor = { path = "../editor" }
 serde_with = "3.8.1"
 more-di = { version = "3.1.0", features = ["async"] }
 bus = "2.4.1"
-luals-gen-tealr = { git = "https://github.com/Drewol/luals-gen.git" }
 luals-gen = { git = "https://github.com/Drewol/luals-gen.git" }
 tokio-tungstenite = "0.24.0"
 schemars = "0.8.21"

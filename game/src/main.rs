@@ -37,9 +37,9 @@ use puffin::profile_function;
 use rodio::{dynamic_mixer::DynamicMixerController, Source};
 use scene::Scene;
 
+use mlua::Lua;
 pub(crate) use song_provider::{DiffId, FileSongProvider, NauticaSongProvider, SongId};
 use td::{FrameInput, Viewport};
-use tealr::mlu::mlua::Lua;
 use test_scenes::camera_test;
 use three_d as td;
 
@@ -762,17 +762,20 @@ fn export_luals_defs() -> Result<(), anyhow::Error> {
     path.push("gfx.lua");
     let mut f = std::fs::File::create(&path)?;
     writeln!(f, "---@meta")?;
-    luals_gen_tealr::Generator::write_type::<crate::Vgfx>("gfx", f)?;
+    // TODO:
+    // luals_gen_tealr::Generator::write_type::<crate::Vgfx>("gfx", f)?;
 
     path.set_file_name("game.lua");
     let mut f = std::fs::File::create(&path)?;
     writeln!(f, "---@meta")?;
-    luals_gen_tealr::Generator::write_type::<crate::game_data::GameData>("game", f)?;
+    // TODO:
+    // luals_gen_tealr::Generator::write_type::<crate::game_data::GameData>("game", f)?;
 
     path.set_file_name("shadedmesh.lua");
     let mut f = std::fs::File::create(&path)?;
     writeln!(f, "---@meta")?;
-    luals_gen_tealr::Generator::write_type::<crate::shaded_mesh::ShadedMesh>("ShadedMesh", f)?;
+    // TODO:
+    // luals_gen_tealr::Generator::write_type::<crate::shaded_mesh::ShadedMesh>("ShadedMesh", f)?;
 
     path.set_file_name("result.lua");
     let mut f = std::fs::File::create(&path)?;

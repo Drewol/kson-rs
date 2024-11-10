@@ -8,8 +8,8 @@ use std::{
 
 use kson::Side;
 use log::info;
+use mlua::{Function, IntoLua, Lua, LuaSerdeExt};
 use std::sync::mpsc::Sender;
-use tealr::mlu::mlua::{Function, IntoLua, Lua, LuaSerdeExt};
 
 use crate::{
     async_service::AsyncService,
@@ -125,8 +125,8 @@ pub struct SettingsDialogTab {
     current_setting: usize,
 }
 
-impl<'lua> IntoLua<'lua> for &SettingsDialogTab {
-    fn into_lua(self, lua: &'lua Lua) -> tealr::mlu::mlua::Result<tealr::mlu::mlua::Value<'lua>> {
+impl IntoLua for &SettingsDialogTab {
+    fn into_lua(self, lua: &Lua) -> mlua::Result<mlua::Value> {
         let table = lua.create_table()?;
 
         table.set("name", lua.create_string(&self.name)?)?;
@@ -181,12 +181,12 @@ impl<'lua> IntoLua<'lua> for &SettingsDialogTab {
                 }
             }
 
-            settings_table.set(i + 1, tealr::mlu::mlua::Value::Table(setting_table))?;
+            settings_table.set(i + 1, mlua::Value::Table(setting_table))?;
         }
 
-        table.set("settings", tealr::mlu::mlua::Value::Table(settings_table))?;
+        table.set("settings", mlua::Value::Table(settings_table))?;
 
-        Ok(tealr::mlu::mlua::Value::Table(table))
+        Ok(mlua::Value::Table(table))
     }
 }
 
@@ -230,8 +230,8 @@ pub struct SettingsDialog {
     async_service: di::RefMut<AsyncService>,
 }
 
-impl<'lua> IntoLua<'lua> for &SettingsDialog {
-    fn into_lua(self, lua: &'lua Lua) -> tealr::mlu::mlua::Result<tealr::mlu::mlua::Value<'lua>> {
+impl IntoLua for &SettingsDialog {
+    fn into_lua(self, lua: &Lua) -> mlua::Result<mlua::Value> {
         let table = lua.create_table()?;
 
         table.set("currentTab", self.current_tab + 1)?;
@@ -245,9 +245,9 @@ impl<'lua> IntoLua<'lua> for &SettingsDialog {
             tabs_table.set(i + 1, tab)?;
         }
 
-        table.set("tabs", tealr::mlu::mlua::Value::Table(tabs_table))?;
+        table.set("tabs", mlua::Value::Table(tabs_table))?;
 
-        Ok(tealr::mlu::mlua::Value::Table(table))
+        Ok(mlua::Value::Table(table))
     }
 }
 
@@ -621,7 +621,7 @@ impl SettingsDialog {
 
     pub fn render(&mut self, dt: f64) -> anyhow::Result<()> {
         let function: Function = self.lua.globals().get("render")?;
-        function.call::<_, ()>((dt / 1000.0, self.show))?;
+        function.call::<()>((dt / 1000.0, self.show))?;
         Ok(())
     }
 }

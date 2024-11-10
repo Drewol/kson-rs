@@ -1,30 +1,24 @@
 use std::{
     collections::HashMap,
+    ops::DerefMut,
     path::PathBuf,
     sync::{atomic::AtomicUsize, Arc},
     time::Duration,
 };
 
-use di::{Activator, InjectBuilder, Injectable};
+use di::{Activator, InjectBuilder, Injectable, RefMut};
 use egui::epaint::Hsva;
 use log::warn;
+
+use mlua::{AppDataRef, Lua, UserData, UserDataFields, UserDataMethods};
 use puffin::{ProfilerScope, ThreadProfiler};
 use rodio::Source;
-use tealr::{
-    mlu::{mlua::AppDataRef, TealData, UserDataProxy},
-    mlu::{
-        mlua::{self},
-        UserData,
-    },
-    SingleType, ToTypename,
-};
 
 use crate::{
-    button_codes::UscButton, config::GameConfig, help::add_lua_static_method,
-    input_state::InputState, skin_settings::SkinSettingValue, RuscMixer,
+    button_codes::UscButton, config::GameConfig, input_state::InputState, lua_service::LuaKey,
+    skin_settings::SkinSettingValue, RuscMixer,
 };
 
-#[derive(UserData)]
 pub struct GameData {
     pub resolution: (u32, u32),
     pub mouse_pos: (f64, f64),
@@ -66,383 +60,255 @@ impl Injectable for GameData {
         )
     }
 }
+pub struct GameDataLua;
 
-impl ToTypename for GameData {
-    fn to_typename() -> tealr::Type {
-        tealr::Type::Single(SingleType {
-            name: tealr::Name(std::borrow::Cow::Borrowed("name")),
-            kind: tealr::KindOfType::External,
-        })
+#[allow(non_snake_case)]
+#[mlua_bridge::mlua_bridge]
+impl GameDataLua {
+    //GetMousePos
+    fn GetMousePos(game_data: &RefMut<GameData>) -> mlua::Result<(f64, f64)> {
+        Ok(game_data.read().expect("Lock error").mouse_pos)
     }
-}
 
-impl TealData for GameData {
-    fn add_methods<'lua, T: tealr::mlu::TealDataMethods<'lua, Self>>(methods: &mut T) {
-        //GetMousePos
-        add_lua_static_method(methods, "GetMousePos", |_, _game_data, _: ()| {
-            Ok(_game_data.mouse_pos)
-        });
+    fn GetResolution(game_data: &RefMut<GameData>) -> mlua::Result<(u32, u32)> {
+        Ok(game_data.read().expect("Lock error").resolution)
+    }
 
-        //GetResolution
-        add_lua_static_method(methods, "GetResolution", |_, _game_data, _: ()| {
-            Ok(_game_data.resolution)
-        });
+    /*
+       Debug = 0,
+       Info = 1,
+       Normal = 2,
+       Warning = 3,
+       Error = 4
+    */
 
-        //Log
-
-        /*
-           Debug = 0,
-           Info = 1,
-           Normal = 2,
-           Warning = 3,
-           Error = 4
-        */
-        tealr::mlu::create_named_parameters!(LogParams with
-          message : String,
-          severity : i32,
-
-        );
-        add_lua_static_method(methods, "Log", |lua, _game_data, p: LogParams| {
-            use log::*;
-            let LogParams { message, severity } = p;
-            let d = lua
-                .inspect_stack(1)
-                .and_then(|x| {
-                    x.source()
-                        .short_src
-                        .map(|s| s.to_string())
-                        .map(PathBuf::from)
-                        .and_then(|p| p.file_name().map(|f| f.to_string_lossy().to_string()))
-                })
-                .unwrap_or_else(|| String::from("Unknown"));
-            log!(
-                target: &d,
-                match severity {
-                    0 => Level::Debug,
-                    1 => Level::Info,
-                    2 => Level::Info,
-                    3 => Level::Warn,
-                    4 => Level::Error,
-                    _ => Level::Debug,
-                },
-                "{}",
-                message
-            );
-
-            Ok(())
-        });
-
-        //LoadSkinSample
-        tealr::mlu::create_named_parameters!(LoadSkinSampleParams with
-          name : String,
-
-        );
-        add_lua_static_method(
-            methods,
-            "LoadSkinSample",
-            |_, game_data, p: LoadSkinSampleParams| {
-                let LoadSkinSampleParams { name } = p;
-
-                if game_data.audio_samples.contains_key(&name) {
-                    return Ok(());
-                }
-                let config = GameConfig::get();
-
-                let mut folder = config.game_folder.clone();
-                folder.push("skins");
-                folder.push(&config.skin);
-                folder.push("audio");
-                folder.push(&name);
-                if folder.extension().is_none() {
-                    folder.set_extension("wav");
-                }
-
-                let file =
-                    std::fs::File::open(&folder).map_err(tealr::mlu::mlua::Error::external)?;
-
-                let decoder = rodio::Decoder::new(file)
-                    .map_err(tealr::mlu::mlua::Error::external)?
-                    .buffered();
-
-                game_data.audio_samples.insert(name, decoder);
-
-                Ok(())
+    fn Log(lua: &LuaKey, message: String, severity: i32) {
+        use log::*;
+        let d = "Lua";
+        log!(
+            target: &d,
+            match severity {
+                0 => Level::Debug,
+                1 => Level::Info,
+                2 => Level::Info,
+                3 => Level::Warn,
+                4 => Level::Error,
+                _ => Level::Debug,
             },
+            "{}",
+            message
         );
+    }
 
-        //PlaySample
-        tealr::mlu::create_named_parameters!(PlaySampleParams with
-          name : String,
-          do_loop : bool,
+    fn LoadSkinSample(game_data: &RefMut<GameData>, name: String) -> mlua::Result<()> {
+        let mut gd_lock = game_data.write().expect("Lock error");
+        let game_data = gd_lock.deref_mut();
+        if game_data.audio_samples.contains_key(&name) {
+            return Ok(());
+        }
+        let config = GameConfig::get();
 
-        );
-        add_lua_static_method(
-            methods,
-            "PlaySample",
-            |lua, game_data, p: PlaySampleParams| {
-                let PlaySampleParams { name, do_loop } = p;
+        let mut folder = config.game_folder.clone();
+        folder.push("skins");
+        folder.push(&config.skin);
+        folder.push("audio");
+        folder.push(&name);
+        if folder.extension().is_none() {
+            folder.set_extension("wav");
+        }
 
-                let Some(sample) = game_data.audio_samples.get(&name) else {
-                    warn!("No sample named: {name}");
-                    return Ok(());
-                };
+        let file = std::fs::File::open(&folder).map_err(mlua::Error::external)?;
 
-                let mixer: AppDataRef<RuscMixer> = lua
-                    .app_data_ref()
-                    .ok_or(mlua::Error::external("Mixer app data not set"))?;
+        let decoder = rodio::Decoder::new(file)
+            .map_err(mlua::Error::external)?
+            .buffered();
 
-                let play_control = Arc::new(AtomicUsize::new(1));
-                let prev = game_data
-                    .audio_sample_play_status
-                    .insert(name, play_control.clone());
+        game_data.audio_samples.insert(name, decoder);
 
-                if let Some(p) = prev {
-                    p.store(0, std::sync::atomic::Ordering::SeqCst);
-                }
+        Ok(())
+    }
 
-                let to_play = sample.clone();
-                if do_loop {
-                    mixer.add(
-                        to_play
-                            .convert_samples()
-                            .repeat_infinite()
-                            .stoppable()
-                            .periodic_access(Duration::from_millis(10), move |x| {
-                                if play_control.load(std::sync::atomic::Ordering::SeqCst) == 0 {
-                                    x.stop()
-                                }
-                            }),
-                    )
-                } else {
-                    let done_control = play_control.clone();
-                    mixer.add(rodio::source::Done::new(
-                        to_play.convert_samples().stoppable().periodic_access(
-                            Duration::from_millis(10),
-                            move |x| {
-                                if play_control.load(std::sync::atomic::Ordering::SeqCst) == 0 {
-                                    x.stop()
-                                }
-                            },
-                        ),
-                        done_control,
-                    ))
-                }
+    fn PlaySample(
+        game_data: &RefMut<GameData>,
+        mixer: &RuscMixer,
+        name: String,
+        do_loop: bool,
+    ) -> mlua::Result<()> {
+        let mut gd_lock = game_data.write().expect("Lock error");
+        let game_data = gd_lock.deref_mut();
+        let Some(sample) = game_data.audio_samples.get(&name) else {
+            warn!("No sample named: {name}");
+            return Ok(());
+        };
 
-                Ok(())
-            },
-        );
+        let play_control = Arc::new(AtomicUsize::new(1));
+        let prev = game_data
+            .audio_sample_play_status
+            .insert(name, play_control.clone());
 
-        //StopSample
-        tealr::mlu::create_named_parameters!(StopSampleParams with
-          name : String,
+        if let Some(p) = prev {
+            p.store(0, std::sync::atomic::Ordering::SeqCst);
+        }
 
-        );
-        add_lua_static_method(
-            methods,
-            "StopSample",
-            |_, game_data, p: StopSampleParams| {
-                let StopSampleParams { name } = p;
+        let to_play = sample.clone();
+        if do_loop {
+            mixer.add(
+                to_play
+                    .convert_samples()
+                    .repeat_infinite()
+                    .stoppable()
+                    .periodic_access(Duration::from_millis(10), move |x| {
+                        if play_control.load(std::sync::atomic::Ordering::SeqCst) == 0 {
+                            x.stop()
+                        }
+                    }),
+            )
+        } else {
+            let done_control = play_control.clone();
+            mixer.add(rodio::source::Done::new(
+                to_play.convert_samples().stoppable().periodic_access(
+                    Duration::from_millis(10),
+                    move |x| {
+                        if play_control.load(std::sync::atomic::Ordering::SeqCst) == 0 {
+                            x.stop()
+                        }
+                    },
+                ),
+                done_control,
+            ))
+        }
 
-                game_data
-                    .audio_sample_play_status
-                    .entry(name)
-                    .and_modify(|x| x.store(0, std::sync::atomic::Ordering::SeqCst));
+        Ok(())
+    }
 
-                Ok(())
-            },
-        );
+    fn StopSample(game_data: &RefMut<GameData>, name: String) -> mlua::Result<()> {
+        game_data
+            .write()
+            .expect("Lock Error")
+            .audio_sample_play_status
+            .entry(name)
+            .and_modify(|x| x.store(0, std::sync::atomic::Ordering::SeqCst));
 
-        //IsSamplePlaying
-        tealr::mlu::create_named_parameters!(IsSamplePlayingParams with
-          name : String,
+        Ok(())
+    }
 
-        );
-        add_lua_static_method(
-            methods,
-            "IsSamplePlaying",
-            |_, game_data, p: IsSamplePlayingParams| {
-                let IsSamplePlayingParams { name } = p;
-                if !game_data.audio_samples.contains_key(&name) {
-                    return Ok(None);
-                }
+    fn IsSamplePlaying(game_data: &RefMut<GameData>, name: String) -> mlua::Result<Option<bool>> {
+        let game_data = game_data.read().expect("Lock error");
+        if !game_data.audio_samples.contains_key(&name) {
+            return Ok(None);
+        }
 
-                match game_data.audio_sample_play_status.get(&name) {
-                    Some(a) => Ok(Some(a.load(std::sync::atomic::Ordering::SeqCst) == 1)),
-                    None => Ok(Some(false)),
-                }
-            },
-        );
+        match game_data.audio_sample_play_status.get(&name) {
+            Some(a) => Ok(Some(a.load(std::sync::atomic::Ordering::SeqCst) == 1)),
+            None => Ok(Some(false)),
+        }
+    }
 
-        //GetLaserColor
-        tealr::mlu::create_named_parameters!(GetLaserColorParams with
-          laser : i32,
+    fn GetLaserColor(laser: i32) -> mlua::Result<(f32, f32, f32, f32)> {
+        if let Some(hue) = GameConfig::get().laser_hues.get(laser as usize).copied() {
+            let [r, g, b] = Hsva::new(hue / 360.0, 1.0, 1.0, 1.0).to_rgb();
+            Ok((r * 255.0, g * 255.0, b * 255.0, 255.0))
+        } else {
+            Err(mlua::Error::external("Bad laser index"))
+        }
+    }
 
-        );
-        add_lua_static_method(
-            methods,
-            "GetLaserColor",
-            |_, _game_data, _p: GetLaserColorParams| {
-                if let Some(hue) = GameConfig::get().laser_hues.get(_p.laser as usize).copied() {
-                    let [r, g, b] = Hsva::new(hue / 360.0, 1.0, 1.0, 1.0).to_rgb();
-                    Ok((r * 255.0, g * 255.0, b * 255.0, 255.0))
-                } else {
-                    Err(mlua::Error::external("Bad laser index"))
-                }
-            },
-        );
+    fn GetButton(game_data: &RefMut<GameData>, button: u8) -> mlua::Result<bool> {
+        let game_data = game_data.read().expect("Lock error");
+        Ok(game_data
+            .input_state
+            .is_button_held(UscButton::from(button))
+            .is_some())
+    }
 
-        //GetButton
-        tealr::mlu::create_named_parameters!(GetButtonParams with
-          button : u8,
+    fn GetKnob(game_data: &RefMut<GameData>, knob: i32) -> mlua::Result<f32> {
+        let game_data = game_data.read().expect("Lock error");
+        match knob {
+            0 => Ok(game_data.input_state.get_axis(kson::Side::Left).pos),
+            1 => Ok(game_data.input_state.get_axis(kson::Side::Right).pos),
+            _ => Err(mlua::Error::RuntimeError(format!(
+                "Invalid laser index: {}",
+                knob
+            ))),
+        }
+    }
 
-        );
-        add_lua_static_method(
-            methods,
-            "GetButton",
-            |_, game_data, GetButtonParams { button }: GetButtonParams| {
-                Ok(game_data
-                    .input_state
-                    .is_button_held(UscButton::from(button))
-                    .is_some())
-            },
-        );
+    fn UpdateAvailable() -> mlua::Result<()> {
+        Ok(())
+    }
 
-        //GetKnob
-        tealr::mlu::create_named_parameters!(GetKnobParams with
-          knob : i32,
+    fn GetSkin() -> mlua::Result<String> {
+        Ok(GameConfig::get().skin.clone())
+    }
 
-        );
-        add_lua_static_method(
-            methods,
-            "GetKnob",
-            |_, game_data, p: GetKnobParams| match p.knob {
-                0 => Ok(game_data.input_state.get_axis(kson::Side::Left).pos),
-                1 => Ok(game_data.input_state.get_axis(kson::Side::Right).pos),
-                _ => Err(mlua::Error::RuntimeError(format!(
-                    "Invalid laser index: {}",
-                    p.knob
-                ))),
-            },
-        );
+    fn GetSkinSetting(key: String) -> mlua::Result<SkinSettingValue> {
+        let skin_setting_value = GameConfig::get()
+            .skin_settings
+            .get(&key)
+            .cloned()
+            .unwrap_or(SkinSettingValue::None);
 
-        //UpdateAvailable
-        add_lua_static_method(methods, "UpdateAvailable", |_, _game_data, _: ()| Ok(()));
+        Ok(skin_setting_value)
+    }
 
-        //GetSkin
-        add_lua_static_method(methods, "GetSkin", |_, _game_data, _: ()| {
-            Ok(GameConfig::get().skin.clone())
-        });
+    fn SetSkinSetting(key: (String, SkinSettingValue)) -> mlua::Result<()> {
+        GameConfig::get_mut().skin_settings.insert(key.0, key.1);
 
-        //GetSkinSetting
-        add_lua_static_method(methods, "GetSkinSetting", |_, _game_data, key: String| {
-            let skin_setting_value = GameConfig::get()
-                .skin_settings
-                .get(&key)
-                .cloned()
-                .unwrap_or(SkinSettingValue::None);
+        Ok(())
+    }
 
-            Ok(skin_setting_value)
-        });
-
-        //GetSkinSetting
-        add_lua_static_method(
-            methods,
-            "SetSkinSetting",
-            |_, _game_data, key: (String, SkinSettingValue)| {
-                GameConfig::get_mut().skin_settings.insert(key.0, key.1);
-
-                Ok(())
-            },
-        );
+    fn BeginProfile(
+        lua: &LuaKey,
+        scope: Option<String>,
+        game_data: &RefMut<GameData>,
+    ) -> mlua::Result<()> {
+        let mut gd_lock = game_data.write().expect("Lock error");
+        let game_data = gd_lock.deref_mut();
 
         let custom_scope =
             ThreadProfiler::call(|f| f.register_function_scope("Custom Lua Scope", "", 0));
 
-        //BeginProfile
-        add_lua_static_method(
-            methods,
-            "BeginProfile",
-            move |lua, _game_data, scope: Option<String>| {
-                if puffin::are_scopes_on() {
-                    let scope = scope.unwrap_or_else(|| {
-                        if let Some(a) = lua.inspect_stack(1) {
-                            let names = a.names();
-                            names
-                                .name
-                                .map(|a| a.to_string())
-                                .unwrap_or_else(|| "unknown".to_string())
-                        } else {
-                            "unknown".to_string()
-                        }
-                    });
+        if puffin::are_scopes_on() {
+            let scope = "Unknown";
 
-                    _game_data
-                        .profile_stack
-                        .push(ProfilerScope::new(custom_scope, scope))
-                }
-                Ok(())
-            },
-        );
-
-        //EndProfile
-        add_lua_static_method(methods, "EndProfile", |_, _game_data, _: ()| {
-            _game_data.profile_stack.pop();
-            Ok(())
-        })
-    }
-
-    fn add_fields<'lua, F: tealr::mlu::TealDataFields<'lua, Self>>(fields: &mut F) {
-        fields.add_field_function_get("LOGGER_INFO", |_, _| Ok(0));
-        fields.add_field_function_get("LOGGER_NORMAL", |_, _| Ok(1));
-        fields.add_field_function_get("LOGGER_WARNING", |_, _| Ok(2));
-        fields.add_field_function_get("LOGGER_ERROR", |_, _| Ok(3));
-        fields.add_field_function_get("BUTTON_BTA", |_, _| Ok(0));
-        fields.add_field_function_get("BUTTON_BTB", |_, _| Ok(1));
-        fields.add_field_function_get("BUTTON_BTC", |_, _| Ok(2));
-        fields.add_field_function_get("BUTTON_BTD", |_, _| Ok(3));
-        fields.add_field_function_get("BUTTON_FXL", |_, _| Ok(4));
-        fields.add_field_function_get("BUTTON_FXR", |_, _| Ok(5));
-        fields.add_field_function_get("BUTTON_STA", |_, _| Ok(6));
-        fields.add_field_function_get("BUTTON_BCK", |_, _| Ok(7));
-    }
-}
-
-// document and expose the global proxy
-#[derive(Default)]
-pub struct ExportGame;
-impl tealr::mlu::ExportInstances for ExportGame {
-    fn add_instances<'lua, T: tealr::mlu::InstanceCollector<'lua>>(
-        self,
-        instance_collector: &mut T,
-    ) -> mlua::Result<()> {
-        instance_collector.document_instance("Documentation for the exposed static proxy");
-
-        // note that the proxy type is NOT `Example` but a special mlua type, which is represented differnetly in .d.tl as well
-        instance_collector.add_instance("game", UserDataProxy::<GameData>::new)?;
+            game_data
+                .profile_stack
+                .push(ProfilerScope::new(custom_scope, scope))
+        }
         Ok(())
     }
+
+    //EndProfile
+    fn EndProfile(game_data: &RefMut<GameData>) {
+        let mut gd_lock = game_data.write().expect("Lock error");
+        let game_data = gd_lock.deref_mut();
+        game_data.profile_stack.pop();
+    }
+
+    const LOGGER_INFO: u8 = 0;
+    const LOGGER_NORMAL: u8 = 1;
+    const LOGGER_WARNING: u8 = 2;
+    const LOGGER_ERROR: u8 = 3;
+
+    const BUTTON_BTA: u8 = 0;
+    const BUTTON_BTB: u8 = 1;
+    const BUTTON_BTC: u8 = 2;
+    const BUTTON_BTD: u8 = 3;
+    const BUTTON_FXL: u8 = 4;
+    const BUTTON_FXR: u8 = 5;
+    const BUTTON_STA: u8 = 6;
+    const BUTTON_BCK: u8 = 7;
 }
 
-#[derive(UserData, ToTypename, Default)]
+#[derive(Default)]
 pub struct LuaPath;
 
-impl TealData for LuaPath {
-    fn add_methods<'lua, T: tealr::mlu::TealDataMethods<'lua, Self>>(_methods: &mut T) {
+impl UserData for LuaPath {
+    fn add_methods<T: UserDataMethods<Self>>(_methods: &mut T) {
         _methods.add_function("Absolute", |_, s: String| {
             let mut p = GameConfig::get().game_folder.clone();
             p.push(s);
             Ok(p.to_string_lossy().to_string())
         })
-    }
-
-    fn add_fields<'lua, F: tealr::mlu::TealDataFields<'lua, Self>>(_fields: &mut F) {}
-}
-impl tealr::mlu::ExportInstances for LuaPath {
-    fn add_instances<'lua, T: tealr::mlu::InstanceCollector<'lua>>(
-        self,
-        instance_collector: &mut T,
-    ) -> mlua::Result<()> {
-        instance_collector.add_instance("path", UserDataProxy::<Self>::new)?;
-        Ok(())
     }
 }

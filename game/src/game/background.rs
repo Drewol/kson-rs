@@ -2,28 +2,20 @@ use std::path::{Path, PathBuf};
 
 use crate::{
     game::ChartView,
-    game_data::{ExportGame, GameData, LuaPath},
+    game_data::{GameData, GameDataLua, LuaPath},
     help::transform_shader,
+    lua_service::set_global_env,
     shaded_mesh::ShadedMesh,
     util::lua_address,
-    vg_ui::{ExportVgfx, Vgfx},
+    vg_ui::{Vgfx, VgfxLua},
 };
 
 use di::RefMut;
 use kson::MeasureBeatLines;
 use log::warn;
+use mlua::{Function, Lua, LuaOptions, UserData, UserDataMethods};
 use puffin::profile_function;
-use tealr::{
-    mlu::{
-        mlua::{self},
-        UserData,
-    },
-    mlu::{
-        mlua::{Function, Lua, LuaOptions},
-        TealData,
-    },
-    mlua_create_named_parameters, ToTypename,
-};
+
 use three_d_asset::{vec2, Vector2, Vector3, Viewport};
 
 #[derive(Debug, Clone, Copy)]
@@ -64,22 +56,13 @@ pub struct GameBackground {
     background: bool,
 }
 
-#[derive(UserData, ToTypename)]
 struct GameBackgroundLua;
 
-impl TealData for GameBackgroundLua {
-    fn add_methods<'lua, T: tealr::mlu::TealDataMethods<'lua, Self>>(methods: &mut T) {
-        mlua_create_named_parameters!(LoadTextureParams with
-            shadername : String,
-            filename : String,
-        );
+impl UserData for GameBackgroundLua {
+    fn add_methods<T: UserDataMethods<Self>>(methods: &mut T) {
         methods.add_function(
             "LoadTexture",
-            |lua,
-             LoadTextureParams {
-                 shadername,
-                 filename,
-             }| {
+            |lua, (shadername, filename): (String, String)| {
                 let mut path = { lua.app_data_ref::<PathBuf>().expect("No path set").clone() };
 
                 let bg = &mut lua
@@ -95,8 +78,7 @@ impl TealData for GameBackgroundLua {
             },
         );
 
-        mlua_create_named_parameters!(SetParamiParams with name : String, value : i32,);
-        methods.add_function("SetParami", |lua, SetParamiParams { name, value }| {
+        methods.add_function("SetParami", |lua, (name, value): (String, i32)| {
             let bg = &mut lua
                 .app_data_mut::<ShadedMesh>()
                 .expect("Background or Foreground mesh data not set");
@@ -104,8 +86,7 @@ impl TealData for GameBackgroundLua {
             Ok(())
         });
 
-        mlua_create_named_parameters!(SetParamfParams with name : String, value : f32,);
-        methods.add_function("SetParamf", |lua, SetParamfParams { name, value }| {
+        methods.add_function("SetParamf", |lua, (name, value): (String, f32)| {
             let bg = &mut lua
                 .app_data_mut::<ShadedMesh>()
                 .expect("Background or Foreground mesh data not set");
@@ -193,8 +174,6 @@ impl TealData for GameBackgroundLua {
             Ok(())
         })
     }
-
-    fn add_fields<'lua, F: tealr::mlu::TealDataFields<'lua, Self>>(_fields: &mut F) {}
 }
 
 impl Drop for GameBackground {
@@ -239,9 +218,9 @@ impl GameBackground {
                 .init_asset_scope(lua_address(&lua))
         }
 
-        tealr::mlu::set_global_env(ExportVgfx, &lua)?;
-        tealr::mlu::set_global_env(ExportGame, &lua)?;
-        tealr::mlu::set_global_env(LuaPath, &lua)?;
+        set_global_env(VgfxLua, "gfx", &lua)?;
+        set_global_env(GameDataLua, "game", &lua)?;
+        set_global_env(LuaPath, "path", &lua)?;
 
         lua.set_app_data(vgfx.clone());
         lua.set_app_data(game_data.clone());
@@ -319,8 +298,8 @@ impl GameBackground {
             //TODO: put current screen in texture for shader
         }
 
-        if let Ok(render_fn) = self.lua.globals().get::<_, Function>(self.name.as_str()) {
-            if let Some(e) = render_fn.call::<_, ()>(dt / 1000.0).err() {
+        if let Ok(render_fn) = self.lua.globals().get::<Function>(self.name.as_str()) {
+            if let Some(e) = render_fn.call::<()>(dt / 1000.0).err() {
                 warn!("{} error: {}", &self.name, e);
             }
         } else {

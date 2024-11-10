@@ -7,13 +7,7 @@ use std::{
 use anyhow::{anyhow, Result};
 use di::ServiceProvider;
 use game_loop::winit::event::{ElementState, Event, WindowEvent};
-use tealr::{
-    mlu::{
-        mlua::{self, AppDataRef, Function, Lua},
-        ExportInstances, TealData, UserData, UserDataProxy,
-    },
-    ToTypename,
-};
+use mlua::{self, AppDataRef, Function, Lua, UserData, UserDataMethods};
 
 use crate::{
     button_codes::{LaserState, UscInputEvent},
@@ -33,12 +27,12 @@ pub enum MainMenuButton {
     Challenges,
 }
 
-#[derive(Debug, UserData, ToTypename)]
+#[derive(Debug)]
 struct Bindings;
 
-impl TealData for Bindings {
-    fn add_methods<'lua, T: tealr::mlu::TealDataMethods<'lua, Self>>(methods: &mut T) {
-        use tealr::mlu::mlua::Error;
+impl UserData for Bindings {
+    fn add_methods<T: UserDataMethods<Self>>(methods: &mut T) {
+        use mlua::Error;
 
         /*
         m_luaBinds->AddFunction("Start", this, &TitleScreen_Impl::lStart);
@@ -96,18 +90,6 @@ impl TealData for Bindings {
     }
 }
 
-#[derive(Debug, Default)]
-struct ExportBindings;
-impl ExportInstances for ExportBindings {
-    fn add_instances<'lua, T: tealr::mlu::InstanceCollector<'lua>>(
-        self,
-        instance_collector: &mut T,
-    ) -> tealr::mlu::mlua::Result<()> {
-        instance_collector.add_instance("Menu", UserDataProxy::<Bindings>::new)?;
-        Ok(())
-    }
-}
-
 pub struct MainMenu {
     lua: Rc<Lua>,
     button_rx: Receiver<MainMenuButton>,
@@ -122,7 +104,7 @@ impl MainMenu {
         let lua = LuaProvider::new_lua();
         let (tx, button_rx) = std::sync::mpsc::channel();
         lua.set_app_data(tx);
-        tealr::mlu::set_global_env(ExportBindings, &lua).expect("Failed to set menu bindings");
+        lua.globals().set("Menu", Bindings);
         Self {
             lua,
             button_rx,
@@ -182,8 +164,8 @@ impl Scene for MainMenu {
             ..
         } = event
         {
-            if let Ok(mouse_pressed) = self.lua.globals().get::<_, Function>("mouse_pressed") {
-                if let Err(e) = mouse_pressed.call::<_, ()>(match button {
+            if let Ok(mouse_pressed) = self.lua.globals().get::<Function>("mouse_pressed") {
+                if let Err(e) = mouse_pressed.call::<()>(match button {
                     winit::event::MouseButton::Left => 0,
                     winit::event::MouseButton::Right => 2,
                     winit::event::MouseButton::Middle => 1,
@@ -202,8 +184,8 @@ impl Scene for MainMenu {
         button: crate::button_codes::UscButton,
         _timestamp: SystemTime,
     ) {
-        if let Ok(button_pressed) = self.lua.globals().get::<_, Function>("button_pressed") {
-            if let Some(e) = button_pressed.call::<u8, ()>(button.into()).err() {
+        if let Ok(button_pressed) = self.lua.globals().get::<Function>("button_pressed") {
+            if let Some(e) = button_pressed.call::<()>(Into::<u8>::into(button)).err() {
                 log::error!("{:?}", e);
             }
         }
