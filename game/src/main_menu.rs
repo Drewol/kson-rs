@@ -7,7 +7,7 @@ use std::{
 use anyhow::{anyhow, Result};
 use di::ServiceProvider;
 use game_loop::winit::event::{ElementState, Event, WindowEvent};
-use mlua::{self, AppDataRef, Function, Lua, UserData, UserDataMethods};
+use mlua::{self, Function, Lua};
 
 use crate::{
     button_codes::{LaserState, UscInputEvent},
@@ -30,66 +30,30 @@ pub enum MainMenuButton {
 #[derive(Debug)]
 struct Bindings;
 
-impl UserData for Bindings {
-    fn add_methods<T: UserDataMethods<Self>>(methods: &mut T) {
-        use mlua::Error;
-
-        /*
-        m_luaBinds->AddFunction("Start", this, &TitleScreen_Impl::lStart);
-        m_luaBinds->AddFunction("DLScreen", this, &TitleScreen_Impl::lDownloads);
-        m_luaBinds->AddFunction("Exit", this, &TitleScreen_Impl::lExit);
-        m_luaBinds->AddFunction("Settings", this, &TitleScreen_Impl::lSettings);
-        m_luaBinds->AddFunction("Multiplayer", this, &TitleScreen_Impl::lMultiplayer);
-        m_luaBinds->AddFunction("Challenges", this, &TitleScreen_Impl::lChallengeSelect);
-
-        m_luaBinds->AddFunction("Update", this, &TitleScreen_Impl::lUpdate);
-         */
-
-        methods.add_function("Start", |lua, ()| {
-            let s: AppDataRef<Sender<MainMenuButton>> = lua
-                .app_data_ref()
-                .ok_or(mlua::Error::external("Button app data not set"))?;
-            s.send(MainMenuButton::Start).map_err(Error::external)
-        });
-        methods.add_function("DLScreen", |lua, ()| {
-            let s: AppDataRef<Sender<MainMenuButton>> = lua
-                .app_data_ref()
-                .ok_or(mlua::Error::external("Button app data not set"))?;
-            s.send(MainMenuButton::Downloads).map_err(Error::external)
-        });
-        methods.add_function("Multiplayer", |lua, ()| {
-            let s: AppDataRef<Sender<MainMenuButton>> = lua
-                .app_data_ref()
-                .ok_or(mlua::Error::external("Button app data not set"))?;
-            s.send(MainMenuButton::Multiplayer).map_err(Error::external)
-        });
-        methods.add_function("Exit", |lua, ()| {
-            let s: AppDataRef<Sender<MainMenuButton>> = lua
-                .app_data_ref()
-                .ok_or(mlua::Error::external("Button app data not set"))?;
-            s.send(MainMenuButton::Exit).map_err(Error::external)
-        });
-        methods.add_function("Settings", |lua, ()| {
-            let s: AppDataRef<Sender<MainMenuButton>> = lua
-                .app_data_ref()
-                .ok_or(mlua::Error::external("Button app data not set"))?;
-            s.send(MainMenuButton::Options).map_err(Error::external)
-        });
-        methods.add_function("Update", |lua, ()| {
-            let s: AppDataRef<Sender<MainMenuButton>> = lua
-                .app_data_ref()
-                .ok_or(mlua::Error::external("Button app data not set"))?;
-            s.send(MainMenuButton::Update).map_err(Error::external)
-        });
-        methods.add_function("Challenges", |lua, ()| {
-            let s: AppDataRef<Sender<MainMenuButton>> = lua
-                .app_data_ref()
-                .ok_or(mlua::Error::external("Button app data not set"))?;
-            s.send(MainMenuButton::Challenges).map_err(Error::external)
-        });
+#[mlua_bridge::mlua_bridge(rename_funcs = "PascalCase")]
+impl Bindings {
+    fn start(s: &Sender<MainMenuButton>) {
+        s.send(MainMenuButton::Start).unwrap();
+    }
+    fn d_l_screen(s: &Sender<MainMenuButton>) {
+        s.send(MainMenuButton::Downloads).unwrap();
+    }
+    fn multiplayer(s: &Sender<MainMenuButton>) {
+        s.send(MainMenuButton::Multiplayer).unwrap();
+    }
+    fn exit(s: &Sender<MainMenuButton>) {
+        s.send(MainMenuButton::Exit).unwrap();
+    }
+    fn settings(s: &Sender<MainMenuButton>) {
+        s.send(MainMenuButton::Options).unwrap();
+    }
+    fn update(s: &Sender<MainMenuButton>) {
+        s.send(MainMenuButton::Update).unwrap();
+    }
+    fn challenges(s: &Sender<MainMenuButton>) {
+        s.send(MainMenuButton::Challenges).unwrap();
     }
 }
-
 pub struct MainMenu {
     lua: Rc<Lua>,
     button_rx: Receiver<MainMenuButton>,
@@ -104,7 +68,7 @@ impl MainMenu {
         let lua = LuaProvider::new_lua();
         let (tx, button_rx) = std::sync::mpsc::channel();
         lua.set_app_data(tx);
-        lua.globals().set("Menu", Bindings);
+        _ = lua.globals().set("Menu", Bindings);
         Self {
             lua,
             button_rx,

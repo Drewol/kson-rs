@@ -62,16 +62,15 @@ impl Injectable for GameData {
 }
 pub struct GameDataLua;
 
-#[allow(non_snake_case)]
-#[mlua_bridge::mlua_bridge]
+#[mlua_bridge::mlua_bridge(rename_funcs = "PascalCase", no_auto_fields)]
 impl GameDataLua {
     //GetMousePos
-    fn GetMousePos(game_data: &RefMut<GameData>) -> mlua::Result<(f64, f64)> {
-        Ok(game_data.read().expect("Lock error").mouse_pos)
+    fn get_mouse_pos(game_data: &RefMut<GameData>) -> (f64, f64) {
+        game_data.read().expect("Lock error").mouse_pos
     }
 
-    fn GetResolution(game_data: &RefMut<GameData>) -> mlua::Result<(u32, u32)> {
-        Ok(game_data.read().expect("Lock error").resolution)
+    fn get_resolution(game_data: &RefMut<GameData>) -> (u32, u32) {
+        game_data.read().expect("Lock error").resolution
     }
 
     /*
@@ -82,7 +81,7 @@ impl GameDataLua {
        Error = 4
     */
 
-    fn Log(lua: &LuaKey, message: String, severity: i32) {
+    fn log(lua: &LuaKey, message: String, severity: i32) {
         use log::*;
         let d = "Lua";
         log!(
@@ -100,7 +99,7 @@ impl GameDataLua {
         );
     }
 
-    fn LoadSkinSample(game_data: &RefMut<GameData>, name: String) -> mlua::Result<()> {
+    fn load_skin_sample(game_data: &RefMut<GameData>, name: String) -> mlua::Result<()> {
         let mut gd_lock = game_data.write().expect("Lock error");
         let game_data = gd_lock.deref_mut();
         if game_data.audio_samples.contains_key(&name) {
@@ -128,7 +127,7 @@ impl GameDataLua {
         Ok(())
     }
 
-    fn PlaySample(
+    fn play_sample(
         game_data: &RefMut<GameData>,
         mixer: &RuscMixer,
         name: String,
@@ -181,7 +180,7 @@ impl GameDataLua {
         Ok(())
     }
 
-    fn StopSample(game_data: &RefMut<GameData>, name: String) -> mlua::Result<()> {
+    fn stop_sample(game_data: &RefMut<GameData>, name: String) -> mlua::Result<()> {
         game_data
             .write()
             .expect("Lock Error")
@@ -192,7 +191,7 @@ impl GameDataLua {
         Ok(())
     }
 
-    fn IsSamplePlaying(game_data: &RefMut<GameData>, name: String) -> mlua::Result<Option<bool>> {
+    fn is_sample_playing(game_data: &RefMut<GameData>, name: String) -> mlua::Result<Option<bool>> {
         let game_data = game_data.read().expect("Lock error");
         if !game_data.audio_samples.contains_key(&name) {
             return Ok(None);
@@ -204,7 +203,7 @@ impl GameDataLua {
         }
     }
 
-    fn GetLaserColor(laser: i32) -> mlua::Result<(f32, f32, f32, f32)> {
+    fn get_laser_color(laser: i32) -> mlua::Result<(f32, f32, f32, f32)> {
         if let Some(hue) = GameConfig::get().laser_hues.get(laser as usize).copied() {
             let [r, g, b] = Hsva::new(hue / 360.0, 1.0, 1.0, 1.0).to_rgb();
             Ok((r * 255.0, g * 255.0, b * 255.0, 255.0))
@@ -213,7 +212,7 @@ impl GameDataLua {
         }
     }
 
-    fn GetButton(game_data: &RefMut<GameData>, button: u8) -> mlua::Result<bool> {
+    fn get_button(game_data: &RefMut<GameData>, button: u8) -> mlua::Result<bool> {
         let game_data = game_data.read().expect("Lock error");
         Ok(game_data
             .input_state
@@ -221,7 +220,7 @@ impl GameDataLua {
             .is_some())
     }
 
-    fn GetKnob(game_data: &RefMut<GameData>, knob: i32) -> mlua::Result<f32> {
+    fn get_knob(game_data: &RefMut<GameData>, knob: i32) -> mlua::Result<f32> {
         let game_data = game_data.read().expect("Lock error");
         match knob {
             0 => Ok(game_data.input_state.get_axis(kson::Side::Left).pos),
@@ -233,15 +232,15 @@ impl GameDataLua {
         }
     }
 
-    fn UpdateAvailable() -> mlua::Result<()> {
+    fn update_available() -> mlua::Result<()> {
         Ok(())
     }
 
-    fn GetSkin() -> mlua::Result<String> {
+    fn get_skin() -> mlua::Result<String> {
         Ok(GameConfig::get().skin.clone())
     }
 
-    fn GetSkinSetting(key: String) -> mlua::Result<SkinSettingValue> {
+    fn get_skin_setting(key: String) -> mlua::Result<SkinSettingValue> {
         let skin_setting_value = GameConfig::get()
             .skin_settings
             .get(&key)
@@ -251,13 +250,13 @@ impl GameDataLua {
         Ok(skin_setting_value)
     }
 
-    fn SetSkinSetting(key: (String, SkinSettingValue)) -> mlua::Result<()> {
-        GameConfig::get_mut().skin_settings.insert(key.0, key.1);
+    fn set_skin_setting(key: String, value: SkinSettingValue) -> mlua::Result<()> {
+        GameConfig::get_mut().skin_settings.insert(key, value);
 
         Ok(())
     }
 
-    fn BeginProfile(
+    fn begin_profile(
         lua: &LuaKey,
         scope: Option<String>,
         game_data: &RefMut<GameData>,
@@ -279,7 +278,7 @@ impl GameDataLua {
     }
 
     //EndProfile
-    fn EndProfile(game_data: &RefMut<GameData>) {
+    fn end_profile(game_data: &RefMut<GameData>) {
         let mut gd_lock = game_data.write().expect("Lock error");
         let game_data = gd_lock.deref_mut();
         game_data.profile_stack.pop();

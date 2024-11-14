@@ -36,7 +36,7 @@ femtovg = { git = 'https://github.com/Drewol/femtovg', branch = "cache-experimen
 gilrs = { version = "0.10.0", features = ["serde-serialize"] }
 kson = { path = "../kson" }
 kson-rodio-sources = { path = "../kson-rodio-sources" }
-mlua-bridge = "0.3.1"
+mlua-bridge = "0.4.3"
 mlua = { version = "0.10", features = [
     "serialize",
     "vendored",

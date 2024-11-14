@@ -281,10 +281,9 @@ use mlua_bridge::mlua_bridge;
 
 pub struct VgfxLua;
 
-#[allow(non_snake_case)]
-#[mlua_bridge]
+#[mlua_bridge(rename_funcs = "PascalCase", no_auto_fields)]
 impl VgfxLua {
-    fn BeginPath(_vgfx: &RefMut<Vgfx>) -> Result<(), LuaError> {
+    fn begin_path(_vgfx: &RefMut<Vgfx>) -> Result<(), LuaError> {
         let mut _vgfx_lock = _vgfx.write().expect("Lock error");
         let _vgfx = _vgfx_lock.deref_mut();
 
@@ -294,7 +293,7 @@ impl VgfxLua {
         Ok(())
     }
 
-    fn Rect(_vgfx: &RefMut<Vgfx>, x: f32, y: f32, w: f32, h: f32) -> Result<(), mlua::Error> {
+    fn rect(_vgfx: &RefMut<Vgfx>, x: f32, y: f32, w: f32, h: f32) -> Result<(), mlua::Error> {
         let mut _vgfx_lock = _vgfx.write().expect("Lock error");
         let _vgfx = _vgfx_lock.deref_mut();
 
@@ -307,7 +306,7 @@ impl VgfxLua {
         }
     }
 
-    fn FastRect(_vgfx: &RefMut<Vgfx>, x: f32, y: f32, w: f32, h: f32) -> Result<(), mlua::Error> {
+    fn fast_rect(_vgfx: &RefMut<Vgfx>, x: f32, y: f32, w: f32, h: f32) -> Result<(), mlua::Error> {
         let mut _vgfx_lock = _vgfx.write().expect("Lock error");
         let _vgfx = _vgfx_lock.deref_mut();
 
@@ -323,7 +322,7 @@ impl VgfxLua {
         Ok(())
     }
 
-    fn Fill(_vgfx: &RefMut<Vgfx>) -> Result<(), LuaError> {
+    fn fill(_vgfx: &RefMut<Vgfx>) -> Result<(), LuaError> {
         let mut _vgfx_lock = _vgfx.write().expect("Lock error");
         let _vgfx = _vgfx_lock.deref_mut();
         match (_vgfx.path.as_ref(), _vgfx.fill_paint.as_ref()) {
@@ -348,7 +347,7 @@ impl VgfxLua {
         }
     }
 
-    fn FillColor(
+    fn fill_color(
         _vgfx: &RefMut<Vgfx>,
         r: u8,
         g: u8,
@@ -368,7 +367,7 @@ impl VgfxLua {
         Ok(())
     }
 
-    fn CreateImage(
+    fn create_image(
         lua: &LuaKey,
         _vgfx: &RefMut<Vgfx>,
         filename: String,
@@ -400,7 +399,7 @@ impl VgfxLua {
         Ok(this_id)
     }
 
-    fn CreateSkinImage(
+    fn create_skin_image(
         lua: &LuaKey,
         _vgfx: &RefMut<Vgfx>,
         filename: String,
@@ -450,7 +449,7 @@ impl VgfxLua {
         Ok(Some(this_id))
     }
 
-    fn ImageRect(
+    fn image_rect(
         lua: &LuaKey,
         _vgfx: &RefMut<Vgfx>,
         x: f32,
@@ -513,7 +512,7 @@ impl VgfxLua {
         }
     }
 
-    fn Text(_vgfx: &RefMut<Vgfx>, s: Option<String>, x: f32, y: f32) -> Result<(), mlua::Error> {
+    fn text(_vgfx: &RefMut<Vgfx>, s: Option<String>, x: f32, y: f32) -> Result<(), mlua::Error> {
         let mut _vgfx_lock = _vgfx.write().expect("Lock error");
         let _vgfx = _vgfx_lock.deref_mut();
         let Some(s) = s else {
@@ -535,7 +534,7 @@ impl VgfxLua {
         }
     }
 
-    fn TextAlign(_vgfx: &RefMut<Vgfx>, align: u32) -> Result<(), mlua::Error> {
+    fn text_align(_vgfx: &RefMut<Vgfx>, align: u32) -> Result<(), mlua::Error> {
         let mut _vgfx_lock = _vgfx.write().expect("Lock error");
         let _vgfx = _vgfx_lock.deref_mut();
         let align = TextAlign::from_bits(align)
@@ -563,7 +562,7 @@ impl VgfxLua {
         Ok(())
     }
 
-    fn FontFace(_vgfx: &RefMut<Vgfx>, s: String) -> Result<(), mlua::Error> {
+    fn font_face(_vgfx: &RefMut<Vgfx>, s: String) -> Result<(), mlua::Error> {
         let mut _vgfx_lock = _vgfx.write().expect("Lock error");
         let _vgfx = _vgfx_lock.deref_mut();
         if let Some(font_id) = _vgfx.fonts.get(&s) {
@@ -577,7 +576,7 @@ impl VgfxLua {
         Ok(())
     }
 
-    fn FontSize(_vgfx: &RefMut<Vgfx>, size: f32) -> Result<(), mlua::Error> {
+    fn font_size(_vgfx: &RefMut<Vgfx>, size: f32) -> Result<(), mlua::Error> {
         let mut _vgfx_lock = _vgfx.write().expect("Lock error");
         let _vgfx = _vgfx_lock.deref_mut();
         if let Some(text_paint) = _vgfx.fill_paint.as_mut() {
@@ -586,35 +585,35 @@ impl VgfxLua {
         Ok(())
     }
 
-    fn Translate(_vgfx: &RefMut<Vgfx>, x: f32, y: f32) -> Result<(), mlua::Error> {
+    fn translate(_vgfx: &RefMut<Vgfx>, x: f32, y: f32) -> Result<(), mlua::Error> {
         let mut _vgfx_lock = _vgfx.write().expect("Lock error");
         let _vgfx = _vgfx_lock.deref_mut();
         _vgfx.with_canvas(|canvas| canvas.translate(x, y))?;
         Ok(())
     }
 
-    fn Scale(_vgfx: &RefMut<Vgfx>, x: f32, y: f32) -> Result<(), mlua::Error> {
+    fn scale(_vgfx: &RefMut<Vgfx>, x: f32, y: f32) -> Result<(), mlua::Error> {
         let mut _vgfx_lock = _vgfx.write().expect("Lock error");
         let _vgfx = _vgfx_lock.deref_mut();
         _vgfx.with_canvas(|canvas| canvas.scale(x, y))?;
         Ok(())
     }
 
-    fn Rotate(_vgfx: &RefMut<Vgfx>, angle: f32) -> Result<(), mlua::Error> {
+    fn rotate(_vgfx: &RefMut<Vgfx>, angle: f32) -> Result<(), mlua::Error> {
         let mut _vgfx_lock = _vgfx.write().expect("Lock error");
         let _vgfx = _vgfx_lock.deref_mut();
         _vgfx.with_canvas(|canvas| canvas.rotate(angle))?;
         Ok(())
     }
 
-    fn ResetTransform(_vgfx: &RefMut<Vgfx>) -> Result<(), LuaError> {
+    fn reset_transform(_vgfx: &RefMut<Vgfx>) -> Result<(), LuaError> {
         let mut _vgfx_lock = _vgfx.write().expect("Lock error");
         let _vgfx = _vgfx_lock.deref_mut();
         _vgfx.with_canvas(|canvas| canvas.reset_transform())?;
         Ok(())
     }
 
-    fn LoadFont(
+    fn load_font(
         _vgfx: &RefMut<Vgfx>,
         name: String,
         filename: Option<String>,
@@ -640,7 +639,7 @@ impl VgfxLua {
         Ok(())
     }
 
-    fn LoadSkinFont(
+    fn load_skin_font(
         _vgfx: &RefMut<Vgfx>,
         name: String,
         filename: Option<String>,
@@ -673,7 +672,7 @@ impl VgfxLua {
         Ok(())
     }
 
-    fn FastText(
+    fn fast_text(
         _vgfx: &RefMut<Vgfx>,
         input_text: String,
         x: f32,
@@ -703,7 +702,7 @@ impl VgfxLua {
         }
     }
 
-    fn CreateLabel(
+    fn create_label(
         lua: &LuaKey,
         _vgfx: &RefMut<Vgfx>,
         text: Option<String>,
@@ -733,7 +732,7 @@ impl VgfxLua {
         Ok(id)
     }
 
-    fn DrawLabel(
+    fn draw_label(
         lua: &LuaKey,
         _vgfx: &RefMut<Vgfx>,
         label_id: u32,
@@ -777,7 +776,7 @@ impl VgfxLua {
         Ok(())
     }
 
-    fn MoveTo(
+    fn move_to(
         _lua_index: &LuaKey,
         _vgfx: &RefMut<Vgfx>,
         x: f32,
@@ -793,7 +792,7 @@ impl VgfxLua {
         }
     }
 
-    fn LineTo(
+    fn line_to(
         _lua_index: &LuaKey,
         _vgfx: &RefMut<Vgfx>,
         x: f32,
@@ -809,7 +808,7 @@ impl VgfxLua {
         }
     }
 
-    fn BezierTo(
+    fn bezier_to(
         _lua_index: &LuaKey,
         _vgfx: &RefMut<Vgfx>,
         c_1x: f32,
@@ -829,7 +828,7 @@ impl VgfxLua {
         }
     }
 
-    fn QuadTo(
+    fn quad_to(
         _lua_index: &LuaKey,
         _vgfx: &RefMut<Vgfx>,
         cx: f32,
@@ -847,7 +846,7 @@ impl VgfxLua {
         }
     }
 
-    fn ArcTo(
+    fn arc_to(
         _lua_index: &LuaKey,
         _vgfx: &RefMut<Vgfx>,
         x_1: f32,
@@ -866,7 +865,7 @@ impl VgfxLua {
         }
     }
 
-    fn ClosePath(_lua_index: &LuaKey, _vgfx: &RefMut<Vgfx>) -> Result<(), mlua::Error> {
+    fn close_path(_lua_index: &LuaKey, _vgfx: &RefMut<Vgfx>) -> Result<(), mlua::Error> {
         let mut _vgfx_lock = _vgfx.write().expect("Lock error");
         let _vgfx = _vgfx_lock.deref_mut();
         if let Some(path) = _vgfx.path.as_mut() {
@@ -877,7 +876,7 @@ impl VgfxLua {
         }
     }
 
-    fn MiterLimit(_lua_index: &LuaKey, _vgfx: &RefMut<Vgfx>, limit: f32) -> mlua::Result<()> {
+    fn miter_limit(_lua_index: &LuaKey, _vgfx: &RefMut<Vgfx>, limit: f32) -> mlua::Result<()> {
         let mut _vgfx_lock = _vgfx.write().expect("Lock error");
         let _vgfx = _vgfx_lock.deref_mut();
 
@@ -885,7 +884,7 @@ impl VgfxLua {
         Ok(())
     }
 
-    fn StrokeWidth(_lua_index: &LuaKey, _vgfx: &RefMut<Vgfx>, size: f32) -> mlua::Result<()> {
+    fn stroke_width(_lua_index: &LuaKey, _vgfx: &RefMut<Vgfx>, size: f32) -> mlua::Result<()> {
         let mut _vgfx_lock = _vgfx.write().expect("Lock error");
         let _vgfx = _vgfx_lock.deref_mut();
 
@@ -893,7 +892,7 @@ impl VgfxLua {
         Ok(())
     }
 
-    fn LineCap(_lua_index: &LuaKey, _vgfx: &RefMut<Vgfx>, cap: u8) -> mlua::Result<()> {
+    fn line_cap(_lua_index: &LuaKey, _vgfx: &RefMut<Vgfx>, cap: u8) -> mlua::Result<()> {
         let mut _vgfx_lock = _vgfx.write().expect("Lock error");
         let _vgfx = _vgfx_lock.deref_mut();
 
@@ -903,7 +902,7 @@ impl VgfxLua {
         Ok(())
     }
 
-    fn LineJoin(_lua_index: &LuaKey, _vgfx: &RefMut<Vgfx>, join: u8) -> mlua::Result<()> {
+    fn line_join(_lua_index: &LuaKey, _vgfx: &RefMut<Vgfx>, join: u8) -> mlua::Result<()> {
         let mut _vgfx_lock = _vgfx.write().expect("Lock error");
         let _vgfx = _vgfx_lock.deref_mut();
 
@@ -913,7 +912,7 @@ impl VgfxLua {
         Ok(())
     }
 
-    fn Stroke(_lua_index: &LuaKey, _vgfx: &RefMut<Vgfx>) -> Result<(), LuaError> {
+    fn stroke(_lua_index: &LuaKey, _vgfx: &RefMut<Vgfx>) -> Result<(), LuaError> {
         let mut _vgfx_lock = _vgfx.write().expect("Lock error");
         let _vgfx = _vgfx_lock.deref_mut();
         if let Some(path) = _vgfx.path.as_mut() {
@@ -932,7 +931,7 @@ impl VgfxLua {
         Ok(())
     }
 
-    fn StrokeColor(
+    fn stroke_color(
         _lua_index: &LuaKey,
         _vgfx: &RefMut<Vgfx>,
         r: u8,
@@ -949,7 +948,7 @@ impl VgfxLua {
         Ok(())
     }
 
-    fn UpdateLabel(
+    fn update_label(
         lua: &LuaKey,
         _vgfx: &RefMut<Vgfx>,
         label_id: u32,
@@ -977,19 +976,19 @@ impl VgfxLua {
         }
     }
 
-    fn DrawGauge(_lua_index: &LuaKey, _vgfx: &RefMut<Vgfx>) -> Result<(), mlua::Error> {
+    fn draw_gauge(_lua_index: &LuaKey, _vgfx: &RefMut<Vgfx>) -> Result<(), mlua::Error> {
         let mut _vgfx_lock = _vgfx.write().expect("Lock error");
         let _vgfx = _vgfx_lock.deref_mut();
         Err(mlua::Error::external("Function removed".to_string()))
     }
 
-    fn SetGaugeColor(_lua_index: &LuaKey, _vgfx: &RefMut<Vgfx>) -> Result<(), mlua::Error> {
+    fn set_gauge_color(_lua_index: &LuaKey, _vgfx: &RefMut<Vgfx>) -> Result<(), mlua::Error> {
         let mut _vgfx_lock = _vgfx.write().expect("Lock error");
         let _vgfx = _vgfx_lock.deref_mut();
         Err(mlua::Error::external("Function removed".to_string()))
     }
 
-    fn RoundedRect(
+    fn rounded_rect(
         _lua_index: &LuaKey,
         _vgfx: &RefMut<Vgfx>,
         x: f32,
@@ -1009,7 +1008,7 @@ impl VgfxLua {
         }
     }
 
-    fn RoundedRectVarying(
+    fn rounded_rect_varying(
         _lua_index: &LuaKey,
         _vgfx: &RefMut<Vgfx>,
         x: f32,
@@ -1041,7 +1040,7 @@ impl VgfxLua {
         }
     }
 
-    fn Ellipse(
+    fn ellipse(
         _lua_index: &LuaKey,
         _vgfx: &RefMut<Vgfx>,
         cx: f32,
@@ -1060,7 +1059,7 @@ impl VgfxLua {
         }
     }
 
-    fn Circle(
+    fn circle(
         _lua_index: &LuaKey,
         _vgfx: &RefMut<Vgfx>,
         cx: f32,
@@ -1078,7 +1077,7 @@ impl VgfxLua {
         }
     }
 
-    fn SkewX(_lua_index: &LuaKey, _vgfx: &RefMut<Vgfx>, angle: f32) -> mlua::Result<()> {
+    fn skew_x(_lua_index: &LuaKey, _vgfx: &RefMut<Vgfx>, angle: f32) -> mlua::Result<()> {
         let mut _vgfx_lock = _vgfx.write().expect("Lock error");
         let _vgfx = _vgfx_lock.deref_mut();
 
@@ -1086,7 +1085,7 @@ impl VgfxLua {
         Ok(())
     }
 
-    fn SkewY(_lua_index: &LuaKey, _vgfx: &RefMut<Vgfx>, angle: f32) -> mlua::Result<()> {
+    fn skew_y(_lua_index: &LuaKey, _vgfx: &RefMut<Vgfx>, angle: f32) -> mlua::Result<()> {
         let mut _vgfx_lock = _vgfx.write().expect("Lock error");
         let _vgfx = _vgfx_lock.deref_mut();
 
@@ -1094,7 +1093,7 @@ impl VgfxLua {
         Ok(())
     }
 
-    fn LinearGradient(
+    fn linear_gradient(
         lua: &LuaKey,
         _vgfx: &RefMut<Vgfx>,
         sx: f32,
@@ -1127,7 +1126,7 @@ impl VgfxLua {
         Ok(id)
     }
 
-    fn BoxGradient(
+    fn box_gradient(
         _lua_index: &LuaKey,
         _vgfx: &RefMut<Vgfx>,
         x: f32,
@@ -1153,7 +1152,7 @@ impl VgfxLua {
         Ok(())
     }
 
-    fn RadialGradient(
+    fn radial_gradient(
         lua: &LuaKey,
         _vgfx: &RefMut<Vgfx>,
         cx: f32,
@@ -1186,7 +1185,7 @@ impl VgfxLua {
         Ok(id)
     }
 
-    fn ImagePattern(
+    fn image_pattern(
         lua: &LuaKey,
         _vgfx: &RefMut<Vgfx>,
         ox: f32,
@@ -1230,7 +1229,7 @@ impl VgfxLua {
         }
     }
 
-    fn UpdateImagePattern(
+    fn update_image_pattern(
         lua: &LuaKey,
         _vgfx: &RefMut<Vgfx>,
         paint: u32,
@@ -1255,7 +1254,7 @@ impl VgfxLua {
         Ok(())
     }
 
-    fn GradientColors(
+    fn gradient_colors(
         _lua_index: &LuaKey,
         _vgfx: &RefMut<Vgfx>,
         ri: i32,
@@ -1276,7 +1275,7 @@ impl VgfxLua {
         Ok(())
     }
 
-    fn FillPaint(lua: &LuaKey, _vgfx: &RefMut<Vgfx>, paint: u32) -> mlua::Result<()> {
+    fn fill_paint(lua: &LuaKey, _vgfx: &RefMut<Vgfx>, paint: u32) -> mlua::Result<()> {
         let mut _vgfx_lock = _vgfx.write().expect("Lock error");
         let _vgfx = _vgfx_lock.deref_mut();
 
@@ -1286,7 +1285,7 @@ impl VgfxLua {
         Ok(())
     }
 
-    fn StrokePaint(lua: &LuaKey, _vgfx: &RefMut<Vgfx>, paint: u32) -> mlua::Result<()> {
+    fn stroke_paint(lua: &LuaKey, _vgfx: &RefMut<Vgfx>, paint: u32) -> mlua::Result<()> {
         let mut _vgfx_lock = _vgfx.write().expect("Lock error");
         let _vgfx = _vgfx_lock.deref_mut();
 
@@ -1297,7 +1296,7 @@ impl VgfxLua {
         Ok(())
     }
 
-    fn Save(_vgfx: &RefMut<Vgfx>) -> Result<(), LuaError> {
+    fn save(_vgfx: &RefMut<Vgfx>) -> Result<(), LuaError> {
         let mut _vgfx_lock = _vgfx.write().expect("Lock error");
         let _vgfx = _vgfx_lock.deref_mut();
         _vgfx.with_canvas(|canvas| canvas.save())?;
@@ -1311,7 +1310,7 @@ impl VgfxLua {
         Ok(())
     }
 
-    fn Restore(_lua_index: &LuaKey, _vgfx: &RefMut<Vgfx>) -> Result<(), LuaError> {
+    fn restore(_lua_index: &LuaKey, _vgfx: &RefMut<Vgfx>) -> Result<(), LuaError> {
         let mut _vgfx_lock = _vgfx.write().expect("Lock error");
         let _vgfx = _vgfx_lock.deref_mut();
         _vgfx.with_canvas(|canvas| canvas.restore())?;
@@ -1333,7 +1332,7 @@ impl VgfxLua {
         Ok(())
     }
 
-    fn Reset(_lua_index: &LuaKey, _vgfx: &RefMut<Vgfx>) -> Result<(), LuaError> {
+    fn reset(_lua_index: &LuaKey, _vgfx: &RefMut<Vgfx>) -> Result<(), LuaError> {
         let mut _vgfx_lock = _vgfx.write().expect("Lock error");
         let _vgfx = _vgfx_lock.deref_mut();
         _vgfx.restore_stack.clear();
@@ -1341,13 +1340,13 @@ impl VgfxLua {
         _vgfx.with_canvas(|canvas| canvas.reset())
     }
 
-    fn PathWinding(_lua_index: &LuaKey, _vgfx: &RefMut<Vgfx>, dir: i32) -> mlua::Result<()> {
+    fn path_winding(_lua_index: &LuaKey, _vgfx: &RefMut<Vgfx>, dir: i32) -> mlua::Result<()> {
         let mut _vgfx_lock = _vgfx.write().expect("Lock error");
         let _vgfx = _vgfx_lock.deref_mut();
         unimplemented()
     }
 
-    fn ForceRender(_lua_index: &LuaKey, _vgfx: &RefMut<Vgfx>) -> Result<(), LuaError> {
+    fn force_render(_lua_index: &LuaKey, _vgfx: &RefMut<Vgfx>) -> Result<(), LuaError> {
         let mut _vgfx_lock = _vgfx.write().expect("Lock error");
         let _vgfx = _vgfx_lock.deref_mut();
         //TODO: Flush game render as well
@@ -1355,7 +1354,7 @@ impl VgfxLua {
         Ok(())
     }
 
-    fn LoadImageJob(
+    fn load_image_job(
         lua: &LuaKey,
         _vgfx: &RefMut<Vgfx>,
         path: String,
@@ -1429,7 +1428,7 @@ impl VgfxLua {
             .unwrap_or(&placeholder.unwrap_or_default()))
     }
 
-    fn LoadWebImageJob(
+    fn load_web_image_job(
         _lua_index: &LuaKey,
         _vgfx: &RefMut<Vgfx>,
         url: String,
@@ -1442,7 +1441,7 @@ impl VgfxLua {
         unimplemented()
     }
 
-    fn Scissor(
+    fn scissor(
         _lua_index: &LuaKey,
         _vgfx: &RefMut<Vgfx>,
         x: f32,
@@ -1457,7 +1456,7 @@ impl VgfxLua {
         Ok(())
     }
 
-    fn IntersectScissor(
+    fn intersect_scissor(
         _lua_index: &LuaKey,
         _vgfx: &RefMut<Vgfx>,
         x: f32,
@@ -1471,14 +1470,14 @@ impl VgfxLua {
         Ok(())
     }
 
-    fn ResetScissor(_lua_index: &LuaKey, _vgfx: &RefMut<Vgfx>) -> Result<(), LuaError> {
+    fn reset_scissor(_lua_index: &LuaKey, _vgfx: &RefMut<Vgfx>) -> Result<(), LuaError> {
         let mut _vgfx_lock = _vgfx.write().expect("Lock error");
         let _vgfx = _vgfx_lock.deref_mut();
         _vgfx.with_canvas(|canvas| canvas.reset_scissor())?;
         Ok(())
     }
 
-    fn TextBounds(
+    fn text_bounds(
         _lua_index: &LuaKey,
         _vgfx: &RefMut<Vgfx>,
         x: f32,
@@ -1507,7 +1506,7 @@ impl VgfxLua {
         }
     }
 
-    fn LabelSize(lua: &LuaKey, _vgfx: &RefMut<Vgfx>, label: u32) -> mlua::Result<(f32, f32)> {
+    fn label_size(lua: &LuaKey, _vgfx: &RefMut<Vgfx>, label: u32) -> mlua::Result<(f32, f32)> {
         let mut _vgfx_lock = _vgfx.write().expect("Lock error");
         let _vgfx = _vgfx_lock.deref_mut();
 
@@ -1534,13 +1533,13 @@ impl VgfxLua {
         }
     }
 
-    fn FastTextSize(_lua_index: &LuaKey, _vgfx: &RefMut<Vgfx>, text: String) -> mlua::Result<()> {
+    fn fast_text_size(_lua_index: &LuaKey, _vgfx: &RefMut<Vgfx>, text: String) -> mlua::Result<()> {
         let mut _vgfx_lock = _vgfx.write().expect("Lock error");
         let _vgfx = _vgfx_lock.deref_mut();
         unimplemented()
     }
 
-    fn ImageSize(lua: &LuaKey, _vgfx: &RefMut<Vgfx>, image: u32) -> mlua::Result<(usize, usize)> {
+    fn image_size(lua: &LuaKey, _vgfx: &RefMut<Vgfx>, image: u32) -> mlua::Result<(usize, usize)> {
         let mut _vgfx_lock = _vgfx.write().expect("Lock error");
         let _vgfx = _vgfx_lock.deref_mut();
 
@@ -1561,7 +1560,7 @@ impl VgfxLua {
         }
     }
 
-    fn Arc(
+    fn arc(
         _lua_index: &LuaKey,
         _vgfx: &RefMut<Vgfx>,
         cx: f32,
@@ -1593,7 +1592,7 @@ impl VgfxLua {
         }
     }
 
-    fn SetImageTint(
+    fn set_image_tint(
         _lua_index: &LuaKey,
         _vgfx: &RefMut<Vgfx>,
         r: u8,
@@ -1609,7 +1608,7 @@ impl VgfxLua {
         Ok(0)
     }
 
-    fn GlobalCompositeOperation(
+    fn global_composite_operation(
         _lua_index: &LuaKey,
         _vgfx: &RefMut<Vgfx>,
         op: u8,
@@ -1631,7 +1630,7 @@ impl VgfxLua {
         Ok(())
     }
 
-    fn GlobalCompositeBlendFunc(
+    fn global_composite_blend_func(
         _lua_index: &LuaKey,
         _vgfx: &RefMut<Vgfx>,
         sfactor: u8,
@@ -1655,7 +1654,7 @@ impl VgfxLua {
         Ok(())
     }
 
-    fn GlobalCompositeBlendFuncSeparate(
+    fn global_composite_blend_func_separate(
         _lua_index: &LuaKey,
         _vgfx: &RefMut<Vgfx>,
         src_rgb: i32,
@@ -1668,7 +1667,7 @@ impl VgfxLua {
         unimplemented()
     }
 
-    fn LoadAnimation(
+    fn load_animation(
         lua: &LuaKey,
         _vgfx: &RefMut<Vgfx>,
         path: String,
@@ -1698,7 +1697,7 @@ impl VgfxLua {
         Ok(res)
     }
 
-    fn GlobalAlpha(_lua_index: &LuaKey, _vgfx: &RefMut<Vgfx>, alpha: f32) -> mlua::Result<()> {
+    fn global_alpha(_lua_index: &LuaKey, _vgfx: &RefMut<Vgfx>, alpha: f32) -> mlua::Result<()> {
         let mut _vgfx_lock = _vgfx.write().expect("Lock error");
         let _vgfx = _vgfx_lock.deref_mut();
 
@@ -1710,7 +1709,7 @@ impl VgfxLua {
         Ok(())
     }
 
-    fn LoadSkinAnimation(
+    fn load_skin_animation(
         lua: &LuaKey,
         _vgfx: &RefMut<Vgfx>,
         path: String,
@@ -1746,7 +1745,7 @@ impl VgfxLua {
         Ok(res)
     }
 
-    fn TickAnimation(
+    fn tick_animation(
         lua: &LuaKey,
         _vgfx: &RefMut<Vgfx>,
         animation: u32,
@@ -1766,7 +1765,7 @@ impl VgfxLua {
         Ok(())
     }
 
-    fn LoadSharedTexture(
+    fn load_shared_texture(
         _lua_index: &LuaKey,
         _vgfx: &RefMut<Vgfx>,
         key: String,
@@ -1777,19 +1776,23 @@ impl VgfxLua {
         unimplemented()
     }
 
-    fn LoadSharedSkinTexture(_vgfx: &RefMut<Vgfx>, key: String, path: String) -> mlua::Result<()> {
+    fn load_shared_skin_texture(
+        _vgfx: &RefMut<Vgfx>,
+        key: String,
+        path: String,
+    ) -> mlua::Result<()> {
         let mut _vgfx_lock = _vgfx.write().expect("Lock error");
         let _vgfx = _vgfx_lock.deref_mut();
         unimplemented()
     }
 
-    fn GetSharedTexture(_vgfx: &RefMut<Vgfx>, key: String) -> mlua::Result<()> {
+    fn _get_shared_texture(_vgfx: &RefMut<Vgfx>, key: String) -> mlua::Result<()> {
         let mut _vgfx_lock = _vgfx.write().expect("Lock error");
         let _vgfx = _vgfx_lock.deref_mut();
         unimplemented()
     }
 
-    fn CreateShadedMesh(
+    fn create_shaded_mesh(
         lua: &LuaKey,
         context: &Arc<three_d::Context>,
         vgfx: &RefMut<Vgfx>,
