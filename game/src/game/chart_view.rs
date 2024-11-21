@@ -246,7 +246,7 @@ impl ChartView {
                         continue;
                     }
                     let w = 1.0 / 3.0;
-                    let x = 1.0 / 3.0 + (1.0 / 3.0) * i as f32;
+                    let x = (1.0f32 / 3.0f32).mul_add(i as f32, 1.0 / 3.0);
                     let h = if n.l == 0 {
                         chip_h
                     } else {

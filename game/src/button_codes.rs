@@ -177,7 +177,7 @@ pub enum UscButton {
 }
 
 impl UscButton {
-    pub fn to_gilrs_code_u32(self) -> u32 {
+    pub const fn to_gilrs_code_u32(self) -> u32 {
         match self {
             UscButton::BT(bt) => match bt {
                 BtLane::A => 1,
@@ -197,7 +197,7 @@ impl UscButton {
         }
     }
 
-    pub fn as_str(&self) -> &str {
+    pub const fn as_str(&self) -> &str {
         match self {
             UscButton::BT(bt) => match bt {
                 BtLane::A => "BT A",
@@ -330,14 +330,14 @@ impl From<LaserSideAxis> for LaserAxis {
 pub struct LaserState(LaserAxis, LaserAxis);
 
 impl LaserState {
-    pub fn get(&self, side: Side) -> LaserSideAxis {
+    pub const fn get(&self, side: Side) -> LaserSideAxis {
         match side {
             Side::Left => LaserSideAxis::Left(self.0),
             Side::Right => LaserSideAxis::Right(self.1),
         }
     }
 
-    pub fn get_axis(&self, side: Side) -> LaserAxis {
+    pub const fn get_axis(&self, side: Side) -> LaserAxis {
         match side {
             Side::Left => self.0,
             Side::Right => self.1,

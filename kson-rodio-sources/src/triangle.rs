@@ -8,7 +8,7 @@ pub struct TriangleWave {
 }
 
 impl TriangleWave {
-    pub fn new(frequency: f32, amplitude: f32, sample_rate: u32, phase: f32) -> Self {
+    pub const fn new(frequency: f32, amplitude: f32, sample_rate: u32, phase: f32) -> Self {
         Self {
             frequency,
             amplitude,
@@ -25,7 +25,7 @@ impl Iterator for TriangleWave {
         let phase_increment = 2.0 * self.frequency / self.sample_rate as f32;
         self.phase = (self.phase + phase_increment) % 2.0;
 
-        Some(2.0 * self.amplitude * (self.phase - 1.0).abs() - self.amplitude)
+        Some((2.0 * self.amplitude).mul_add((self.phase - 1.0).abs(), -self.amplitude))
     }
 }
 

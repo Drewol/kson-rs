@@ -202,7 +202,7 @@ impl AudioPlayback {
         }
     }
 
-    pub fn leadin(&self) -> Duration {
+    pub const fn leadin(&self) -> Duration {
         self.leadin
     }
 
@@ -378,7 +378,7 @@ impl AudioPlayback {
 
     pub fn get_ms(&self) -> f64 {
         if let Some(file) = &self.file {
-            file.get_ms() + (self.leadin.as_secs_f64() * 1000.0)
+            self.leadin.as_secs_f64().mul_add(1000.0, file.get_ms())
         } else {
             0.0
         }

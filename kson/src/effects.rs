@@ -39,7 +39,7 @@ pub enum AudioEffect {
 }
 
 impl AudioEffect {
-    pub fn name(&self) -> &'static str {
+    pub const fn name(&self) -> &'static str {
         match self {
             AudioEffect::ReTrigger(_) => "ReTrigger",
             AudioEffect::Gate(_) => "Gate",

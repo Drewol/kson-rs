@@ -247,7 +247,7 @@ impl From<egui::Modifiers> for Modifiers {
 }
 
 impl KeyCombo {
-    fn new(key: egui::Key, modifiers: Modifiers) -> Self {
+    const fn new(key: egui::Key, modifiers: Modifiers) -> Self {
         Self { key, modifiers }
     }
 }
@@ -300,7 +300,7 @@ impl std::fmt::Display for KeyCombo {
 
 #[allow(unused)]
 impl Modifiers {
-    fn new() -> Self {
+    const fn new() -> Self {
         Self {
             alt: false,
             command: false,
@@ -310,11 +310,11 @@ impl Modifiers {
         }
     }
 
-    fn alt(mut self) -> Self {
+    const fn alt(mut self) -> Self {
         self.alt = true;
         self
     }
-    fn command(mut self) -> Self {
+    const fn command(mut self) -> Self {
         self.command = true;
         self
     }
@@ -324,21 +324,21 @@ impl Modifiers {
         self
     }
     #[cfg(not(target_os = "macos"))]
-    fn ctrl(mut self) -> Self {
+    const fn ctrl(mut self) -> Self {
         self.ctrl = true;
         self.command = true;
         self
     }
-    fn mac_cmd(mut self) -> Self {
+    const fn mac_cmd(mut self) -> Self {
         self.mac_cmd = true;
         self
     }
-    fn shift(mut self) -> Self {
+    const fn shift(mut self) -> Self {
         self.shift = true;
         self
     }
 
-    fn any(self) -> bool {
+    const fn any(self) -> bool {
         self.alt || self.command || self.ctrl || self.mac_cmd || self.shift
     }
 }

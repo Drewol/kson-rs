@@ -9,7 +9,7 @@ pub struct NoiseSource {
 }
 
 impl NoiseSource {
-    pub fn new(sample_rate: u32, amplitude: f32, channels: u16) -> Self {
+    pub const fn new(sample_rate: u32, amplitude: f32, channels: u16) -> Self {
         NoiseSource {
             sample_rate,
             amplitude,

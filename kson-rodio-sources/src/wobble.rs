@@ -49,7 +49,7 @@ where
 
     fn next(&mut self) -> Option<Self::Item> {
         self.update += 1;
-        let wobble_phase = self.wobble.next().unwrap_or_default() * 0.5 + 0.5;
+        let wobble_phase = self.wobble.next().unwrap_or_default().mul_add(0.5, 0.5);
         if self.update >= self.input.channels() as u32 * 10 {
             let freq = self.f_min * (self.f_max / self.f_min).powf(wobble_phase);
 

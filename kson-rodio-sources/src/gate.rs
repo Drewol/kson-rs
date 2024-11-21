@@ -55,7 +55,7 @@ where
 
         self.cursor = (self.cursor + 1) % self.length;
         let mix = if self.cursor > self.gated_after {
-            self.amount * self.mix + (1.0 - self.mix)
+            self.amount.mul_add(self.mix, 1.0 - self.mix)
         } else {
             1.0
         };
