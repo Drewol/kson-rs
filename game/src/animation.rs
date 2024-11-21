@@ -202,7 +202,7 @@ impl VgAnimation {
         }
     }
 
-    fn next_image(&self) -> usize {
+    const fn next_image(&self) -> usize {
         (self.current_image + 1) % self.image_count
     }
 }

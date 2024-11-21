@@ -20,7 +20,7 @@ pub struct ButtonInterval {
 }
 
 impl ButtonInterval {
-    pub fn new(fx: bool) -> Self {
+    pub const fn new(fx: bool) -> Self {
         ButtonInterval {
             pressed: false,
             fx,

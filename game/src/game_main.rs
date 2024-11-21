@@ -64,7 +64,7 @@ pub enum AutoPlay {
 }
 
 impl AutoPlay {
-    pub fn any(&self) -> bool {
+    pub const fn any(&self) -> bool {
         !matches!(self, AutoPlay::None)
     }
 }

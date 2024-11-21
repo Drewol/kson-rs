@@ -86,7 +86,7 @@ trait EffectParam {
 }
 
 impl EffectParameterValue {
-    pub fn default_shape(&self) -> InterpolationShape {
+    pub const fn default_shape(&self) -> InterpolationShape {
         match self {
             EffectParameterValue::Freq(_) => InterpolationShape::Logarithmic,
             _ => InterpolationShape::Linear,

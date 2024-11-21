@@ -119,7 +119,7 @@ impl From<SongSort> for (rusc_database::SortColumn, rusc_database::SortDir) {
 }
 
 impl SongSort {
-    pub fn new(sort_type: SongSortType, direction: SortDir) -> Self {
+    pub const fn new(sort_type: SongSortType, direction: SortDir) -> Self {
         Self {
             sort_type,
             direction,
@@ -173,7 +173,7 @@ pub struct SongFilter {
 }
 
 impl SongFilter {
-    pub fn new(filter_type: SongFilterType, level: u8) -> Self {
+    pub const fn new(filter_type: SongFilterType, level: u8) -> Self {
         Self { filter_type, level }
     }
 }
@@ -292,7 +292,7 @@ impl Default for SongDiffId {
 }
 
 impl SongDiffId {
-    pub fn get_diff(&self) -> Option<&DiffId> {
+    pub const fn get_diff(&self) -> Option<&DiffId> {
         match self {
             SongDiffId::Missing => None,
             SongDiffId::DiffOnly(d) => Some(d),
@@ -300,7 +300,7 @@ impl SongDiffId {
         }
     }
 
-    pub fn get_song(&self) -> Option<&SongId> {
+    pub const fn get_song(&self) -> Option<&SongId> {
         match self {
             SongDiffId::Missing => None,
             SongDiffId::DiffOnly(_) => None,

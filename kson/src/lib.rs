@@ -53,7 +53,7 @@ impl Side {
     pub fn iter() -> std::array::IntoIter<Side, 2> {
         [Self::Left, Self::Right].into_iter()
     }
-    pub fn opposite(&self) -> Self {
+    pub const fn opposite(&self) -> Self {
         match self {
             Side::Left => Self::Right,
             Side::Right => Self::Left,
@@ -240,7 +240,7 @@ impl Serialize for GraphSectionPoint {
 pub type ByMeasureIdx<T> = Vec<(u32, T)>;
 
 impl GraphSectionPoint {
-    pub fn new(ry: u32, v: f64) -> Self {
+    pub const fn new(ry: u32, v: f64) -> Self {
         GraphSectionPoint {
             ry,
             v,
@@ -359,7 +359,7 @@ pub struct LaserSection(
 );
 
 impl LaserSection {
-    pub fn tick(&self) -> u32 {
+    pub const fn tick(&self) -> u32 {
         self.0
     }
     pub fn segments(&self) -> Windows<GraphSectionPoint> {
@@ -374,7 +374,7 @@ impl LaserSection {
         self.1.first()
     }
 
-    pub fn wide(&self) -> u8 {
+    pub const fn wide(&self) -> u8 {
         self.2
     }
 }
@@ -401,7 +401,7 @@ pub struct NoteInfo {
 }
 
 impl NoteInfo {
-    fn new() -> NoteInfo {
+    const fn new() -> NoteInfo {
         NoteInfo {
             bt: [Vec::new(), Vec::new(), Vec::new(), Vec::new()],
             fx: [Vec::new(), Vec::new()],
@@ -446,7 +446,7 @@ pub struct GaugeInfo {
 }
 
 impl MetaInfo {
-    fn new() -> MetaInfo {
+    const fn new() -> MetaInfo {
         MetaInfo {
             title: String::new(),
             title_img_filename: None,
@@ -471,15 +471,15 @@ pub type ByPulse<T> = Vec<(u32, T)>;
 pub struct ByPulseOption<T>(u32, Option<T>);
 
 impl<T> ByPulseOption<T> {
-    pub fn tick(&self) -> u32 {
+    pub const fn tick(&self) -> u32 {
         self.0
     }
 
-    pub fn value(&self) -> Option<&T> {
+    pub const fn value(&self) -> Option<&T> {
         self.1.as_ref()
     }
 
-    pub fn new(y: u32, v: Option<T>) -> Self {
+    pub const fn new(y: u32, v: Option<T>) -> Self {
         Self(y, v)
     }
 }
@@ -666,7 +666,7 @@ pub struct BeatInfo {
 pub const KSON_RESOLUTION: u32 = 240;
 
 impl BeatInfo {
-    fn new() -> Self {
+    const fn new() -> Self {
         BeatInfo {
             bpm: Vec::new(),
             time_sig: Vec::new(),
@@ -802,7 +802,7 @@ pub struct BgInfo {
 }
 
 impl BgInfo {
-    pub fn new() -> Self {
+    pub const fn new() -> Self {
         Self {
             filename: None,
             offset: 0,

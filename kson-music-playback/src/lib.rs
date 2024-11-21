@@ -202,7 +202,7 @@ impl AudioPlayback {
         }
     }
 
-    pub fn leadin(&self) -> Duration {
+    pub const fn leadin(&self) -> Duration {
         self.leadin
     }
 

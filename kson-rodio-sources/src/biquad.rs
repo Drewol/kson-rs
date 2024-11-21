@@ -35,7 +35,7 @@ impl Default for BiQuadState {
 }
 
 impl BiQuadState {
-    pub fn new(filter: BiQuadType, q: f32, freq: f32) -> Self {
+    pub const fn new(filter: BiQuadType, q: f32, freq: f32) -> Self {
         BiQuadState {
             filter_type: filter,
             q,

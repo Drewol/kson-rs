@@ -132,11 +132,11 @@ impl AsyncPicker {
         Self(self.0.set_file_name(file_name), self.1)
     }
 
-    pub fn folder(mut self) -> Self {
+    pub const fn folder(mut self) -> Self {
         self.1 = false;
         self
     }
-    pub fn file(mut self) -> Self {
+    pub const fn file(mut self) -> Self {
         self.1 = true;
         self
     }

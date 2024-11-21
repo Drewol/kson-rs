@@ -28,7 +28,7 @@ impl TryFrom<Gauge> for GaugeType {
 }
 
 impl GaugeType {
-    pub fn fallback_supported(self) -> bool {
+    pub const fn fallback_supported(self) -> bool {
         match self {
             GaugeType::Normal => false,
             GaugeType::Hard => true,
@@ -88,7 +88,7 @@ pub struct Gauges {
 }
 
 impl Gauges {
-    pub fn new(active: Gauge, fallback: VecDeque<Gauge>) -> Self {
+    pub const fn new(active: Gauge, fallback: VecDeque<Gauge>) -> Self {
         Self {
             active,
             fallback,
@@ -125,7 +125,7 @@ impl Gauges {
     }
 }
 
-fn tick_is_short(score_tick: PlacedScoreTick) -> bool {
+const fn tick_is_short(score_tick: PlacedScoreTick) -> bool {
     match score_tick.tick {
         ScoreTick::Laser { lane: _, pos: _ } => false,
         ScoreTick::Slam {
@@ -151,7 +151,7 @@ impl Gauge {
         }
     }
 
-    pub fn miss_drain_percent(&self) -> f32 {
+    pub const fn miss_drain_percent(&self) -> f32 {
         match self {
             Gauge::None => 0.02,
             Gauge::Normal { .. } => 0.02,
@@ -222,7 +222,7 @@ impl Gauge {
         }
     }
 
-    pub fn value(&self) -> f32 {
+    pub const fn value(&self) -> f32 {
         match self {
             Gauge::None => 0.0,
             Gauge::Normal { value, .. } => *value,

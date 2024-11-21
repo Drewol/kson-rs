@@ -165,15 +165,15 @@ pub struct HitSummary {
 }
 
 impl HitSummary {
-    pub fn new(crit: u32, good: u32, miss: u32) -> Self {
+    pub const fn new(crit: u32, good: u32, miss: u32) -> Self {
         Self { crit, good, miss }
     }
 
-    pub fn perfect(&self) -> bool {
+    pub const fn perfect(&self) -> bool {
         self.good == 0 && self.miss == 0
     }
 
-    pub fn full_combo(&self) -> bool {
+    pub const fn full_combo(&self) -> bool {
         self.miss == 0
     }
 }
@@ -204,7 +204,7 @@ impl From<&[HitRating]> for HitSummary {
 }
 
 impl HitRating {
-    pub fn delta(self) -> f64 {
+    pub const fn delta(self) -> f64 {
         match self {
             HitRating::None => f64::NAN,
             HitRating::Crit { delta, .. }
@@ -213,7 +213,7 @@ impl HitRating {
         }
     }
 
-    pub fn time(self) -> f64 {
+    pub const fn time(self) -> f64 {
         match self {
             HitRating::None => f64::NAN,
             HitRating::Crit { time, .. }
@@ -234,7 +234,7 @@ impl HitRating {
         }
     }
 
-    pub fn crit(self) -> bool {
+    pub const fn crit(self) -> bool {
         match self {
             HitRating::None => true,
             HitRating::Crit { .. } => true,
@@ -242,7 +242,7 @@ impl HitRating {
         }
     }
 
-    pub fn hit(self) -> bool {
+    pub const fn hit(self) -> bool {
         !matches!(self, HitRating::Miss { .. })
     }
 }
@@ -1012,7 +1012,7 @@ impl Game {
     }
 
     pub const MAX_SCORE: u64 = 10_000_000_u64;
-    fn actual_display_score(&self) -> u64 {
+    const fn actual_display_score(&self) -> u64 {
         let max = self.score_summary.total as u64 * 2;
         Self::MAX_SCORE * self.real_score / max
     }
@@ -1182,11 +1182,11 @@ impl Game {
         Ok(())
     }
 
-    fn auto_buttons(&self) -> bool {
+    const fn auto_buttons(&self) -> bool {
         matches!(self.autoplay, AutoPlay::All | AutoPlay::Buttons)
     }
 
-    fn auto_lasers(&self) -> bool {
+    const fn auto_lasers(&self) -> bool {
         matches!(self.autoplay, AutoPlay::All | AutoPlay::Lasers)
     }
 

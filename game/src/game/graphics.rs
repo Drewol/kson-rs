@@ -102,7 +102,7 @@ pub(crate) struct GlVertex {
 }
 
 impl GlVertex {
-    pub fn new(pos: [f32; 3], uv: [f32; 2]) -> Self {
+    pub const fn new(pos: [f32; 3], uv: [f32; 2]) -> Self {
         GlVertex {
             pos: GlVec3 {
                 x: pos[0],

@@ -23,7 +23,7 @@ pub enum CameraSpin {
 }
 
 impl CameraSpin {
-    pub fn active_at(&self, tick: u32) -> bool {
+    pub const fn active_at(&self, tick: u32) -> bool {
         match self {
             CameraSpin::Half(s) => s.0 <= tick && s.0 + s.2 >= tick,
             CameraSpin::Full(s) => s.0 <= tick && s.0 + s.2 >= tick,
@@ -71,7 +71,7 @@ pub struct CameraShake {
 }
 
 impl CameraShake {
-    pub fn new(amplitude: f32, direction: f32, frequency: f32, duration: f32) -> Self {
+    pub const fn new(amplitude: f32, direction: f32, frequency: f32, duration: f32) -> Self {
         Self {
             amplitude,
             direction,
@@ -128,7 +128,7 @@ impl Default for ChartCamera {
 }
 
 impl ChartCamera {
-    pub fn new() -> Self {
+    pub const fn new() -> Self {
         ChartCamera {
             kson_angle: 0.0,
             kson_radius: 0.0,

@@ -19,7 +19,7 @@ impl<T> ActionStack<T>
 where
     T: Clone,
 {
-    pub fn new(original: T) -> Self {
+    pub const fn new(original: T) -> Self {
         ActionStack {
             original,
             undo_stack: Vec::new(),

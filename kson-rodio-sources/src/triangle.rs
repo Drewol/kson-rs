@@ -8,7 +8,7 @@ pub struct TriangleWave {
 }
 
 impl TriangleWave {
-    pub fn new(frequency: f32, amplitude: f32, sample_rate: u32, phase: f32) -> Self {
+    pub const fn new(frequency: f32, amplitude: f32, sample_rate: u32, phase: f32) -> Self {
         Self {
             frequency,
             amplitude,

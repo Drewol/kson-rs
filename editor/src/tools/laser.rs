@@ -29,7 +29,7 @@ enum LaserEditMode {
 }
 
 impl LaserTool {
-    pub fn new(right: bool) -> Self {
+    pub const fn new(right: bool) -> Self {
         LaserTool {
             right,
             mode: LaserEditMode::None,
@@ -37,7 +37,7 @@ impl LaserTool {
         }
     }
 
-    fn gsp(ry: u32, v: f64) -> GraphSectionPoint {
+    const fn gsp(ry: u32, v: f64) -> GraphSectionPoint {
         GraphSectionPoint {
             ry,
             v,

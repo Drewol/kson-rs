@@ -367,7 +367,7 @@ impl ScreenState {
         self.track_width / 6.0
     }
 
-    pub fn ticks_per_col(&self) -> u32 {
+    pub const fn ticks_per_col(&self) -> u32 {
         self.beats_per_col.saturating_mul(self.beat_res)
     }
 

@@ -9,7 +9,7 @@ pub enum ScoreTick {
 }
 
 impl ScoreTick {
-    pub fn lane(&self) -> usize {
+    pub const fn lane(&self) -> usize {
         match self {
             ScoreTick::Laser { lane, pos: _ } => *lane,
             ScoreTick::Slam {
@@ -22,7 +22,7 @@ impl ScoreTick {
         }
     }
 
-    pub fn global_lane(&self) -> usize {
+    pub const fn global_lane(&self) -> usize {
         match self {
             ScoreTick::Laser { .. } | ScoreTick::Slam { .. } => self.lane() + 6,
             _ => self.lane(),

@@ -20,7 +20,7 @@ pub struct BpmTool {
 }
 
 impl BpmTool {
-    pub fn new() -> Self {
+    pub const fn new() -> Self {
         BpmTool {
             bpm: 120.0,
             state: CursorToolStates::None,
@@ -151,7 +151,7 @@ pub struct TimeSigTool {
 }
 
 impl TimeSigTool {
-    pub fn new() -> Self {
+    pub const fn new() -> Self {
         TimeSigTool {
             ts: kson::TimeSignature(4, 4),
             state: CursorToolStates::None,

@@ -213,7 +213,7 @@ impl ShadedMesh {
         })
     }
 
-    pub fn with_transform(mut self, transform: Mat4) -> Self {
+    pub const fn with_transform(mut self, transform: Mat4) -> Self {
         self.transform = transform;
         self
     }

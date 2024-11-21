@@ -44,7 +44,7 @@ impl std::fmt::Display for KshReadError {
 }
 
 impl KshReadErrorDetails {
-    fn at_line(self, line: usize) -> KshReadError {
+    const fn at_line(self, line: usize) -> KshReadError {
         KshReadError { error: self, line }
     }
 }
