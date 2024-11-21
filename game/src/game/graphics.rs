@@ -228,7 +228,7 @@ pub(crate) fn generate_slam_verts(
         //exit square
         let x0 = end - w - xoff;
         let x1 = end - xoff;
-        let y0 = y + height * 2.0;
+        let y0 = height.mul_add(2.0, y);
         let y1 = y + height;
         vertices.append(&mut vec![
             GlVertex::new([y0, 0.0, x0], [0.0, 0.0]),

@@ -382,11 +382,11 @@ impl LaserSection {
 //https://github.com/m4saka/ksh2kson/issues/4#issuecomment-573343229
 pub fn do_curve(x: f64, a: f64, b: f64) -> f64 {
     let t = if x < f64::EPSILON || a < f64::EPSILON {
-        (a - (a * a + x - 2.0 * a * x).sqrt()) / (-1.0 + 2.0 * a)
+        (a - (2.0 * a).mul_add(-x, a.mul_add(a, x)).sqrt()) / 2.0f64.mul_add(a, -1.0)
     } else {
-        x / (a + (a * a + (1.0 - 2.0 * a) * x).sqrt())
+        x / (a + a.mul_add(a, 2.0f64.mul_add(-a, 1.0) * x).sqrt())
     };
-    2.0 * (1.0 - t) * t * b + t * t
+    (2.0 * (1.0 - t) * t).mul_add(b, t * t)
 }
 
 fn default_one<T: From<u8>>() -> T {

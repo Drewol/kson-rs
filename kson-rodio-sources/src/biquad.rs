@@ -97,9 +97,9 @@ impl<I: Source<Item = f32>> BiQuad<I> {
         let alpha = w0.sin() / (2.0 * self.state.q);
         let a = 10.0_f32.powf(gain / 40.0);
 
-        self.b0 = 1.0 + (alpha * a);
+        self.b0 = alpha.mul_add(a, 1.0);
         self.b1 = -2.0 * cw0;
-        self.b2 = 1.0 - (alpha * a);
+        self.b2 = alpha.mul_add(-a, 1.0);
         self.a0 = 1.0 + (alpha / a);
         self.a1 = -2.0 * cw0;
         self.a2 = 1.0 - (alpha / a);
@@ -151,12 +151,12 @@ impl<I: Source<Item = f32>> BiQuad<I> {
         let a = 10.0_f32.powf(gain / 40.0);
         let two_sqrt_aalpha = 2.0 * a.sqrt() * alpha;
 
-        self.b0 = a * ((a + 1.0) + (a - 1.0) * cw0 + two_sqrt_aalpha);
-        self.b1 = -2.0 * a * ((a - 1.0) + (a + 1.0) * cw0);
-        self.b2 = a * ((a + 1.0) + (a - 1.0) * cw0 - two_sqrt_aalpha);
-        self.a0 = (a + 1.0) - (a - 1.0) * cw0 + two_sqrt_aalpha;
-        self.a1 = 2.0 * ((a - 1.0) - (a + 1.0) * cw0);
-        self.a2 = (a + 1.0) - (a - 1.0) * cw0 - two_sqrt_aalpha;
+        self.b0 = a * ((a - 1.0).mul_add(cw0, a + 1.0) + two_sqrt_aalpha);
+        self.b1 = -2.0 * a * (a + 1.0).mul_add(cw0, a - 1.0);
+        self.b2 = a * ((a - 1.0).mul_add(cw0, a + 1.0) - two_sqrt_aalpha);
+        self.a0 = (a - 1.0).mul_add(-cw0, a + 1.0) + two_sqrt_aalpha;
+        self.a1 = 2.0 * (a + 1.0).mul_add(-cw0, a - 1.0);
+        self.a2 = (a - 1.0).mul_add(-cw0, a + 1.0) - two_sqrt_aalpha;
     }
 
     pub fn update(&mut self, filter: BiQuadState) {
@@ -211,9 +211,13 @@ impl<I: Source<Item = f32>> BiQuad<I> {
         let b1 = self.b1;
         let b2 = self.b2;
 
-        let filtered = (b0 / a0) * src + (b1 / a0) * zb[c][0] + (b2 / a0) * zb[c][1]
-            - (a1 / a0) * za[c][0]
-            - (a2 / a0) * za[c][1];
+        let filtered = (a2 / a0).mul_add(
+            -za[c][1],
+            (a1 / a0).mul_add(
+                -za[c][0],
+                (b2 / a0).mul_add(zb[c][1], (b0 / a0).mul_add(src, (b1 / a0) * zb[c][0])),
+            ),
+        );
 
         // Shift delay buffers
         zb[c][1] = zb[c][0];
@@ -223,7 +227,7 @@ impl<I: Source<Item = f32>> BiQuad<I> {
         za[c][1] = za[c][0];
         za[c][0] = filtered;
 
-        filtered * self.mix + src * (1.0 - self.mix)
+        filtered.mul_add(self.mix, src * (1.0 - self.mix))
     }
 }
 

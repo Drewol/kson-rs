@@ -139,7 +139,7 @@ const fn tick_is_short(score_tick: PlacedScoreTick) -> bool {
 }
 
 fn hard_drain_multiplier(value: f32) -> f32 {
-    f32::clamp(1.0 - ((0.3 - value) * 2.0), 0.5, 1.0)
+    f32::clamp((0.3 - value).mul_add(-2.0, 1.0), 0.5, 1.0)
 }
 
 impl Gauge {

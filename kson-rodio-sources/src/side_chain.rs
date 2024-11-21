@@ -71,8 +71,10 @@ where
             1.0
         };
         // range from 1/ratio (volume=0) to 1 (volume=1)
-        let sample_gain =
-            self.mix * ((1.0 / self.ratio) + (1.0 - 1.0 / self.ratio) * volume) + (1.0 - self.mix);
+        let sample_gain = self.mix.mul_add(
+            (1.0 - 1.0 / self.ratio).mul_add(volume, 1.0 / self.ratio),
+            1.0 - self.mix,
+        );
 
         self.channel = (self.channel + 1) % self.channels;
 

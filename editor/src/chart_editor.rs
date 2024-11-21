@@ -154,15 +154,15 @@ impl ScreenState {
                 let mut sv: f32 = s.v as f32;
                 let mut ev: f32 = value as f32;
                 if wide {
-                    ev = ev * 2.0 - 0.5;
-                    sv = sv * 2.0 - 0.5;
+                    ev = ev.mul_add(2.0, -0.5);
+                    sv = sv.mul_add(2.0, -0.5);
                 }
 
                 //draw slam
                 let (pos_x, pos_y) = self.tick_to_pos(interval.y);
 
-                let sx = pos_x + sv * track_lane_diff + half_track + half_lane;
-                let ex = pos_x + ev * track_lane_diff + half_track + half_lane;
+                let sx = sv.mul_add(track_lane_diff, pos_x) + half_track + half_lane;
+                let ex = ev.mul_add(track_lane_diff, pos_x) + half_track + half_lane;
 
                 let (x, width): (f32, f32) = if sx > ex {
                     (sx + half_lane, (ex - half_lane) - (sx + half_lane))
@@ -180,7 +180,7 @@ impl ScreenState {
             let mut value_width = e.v as f32 - start_value;
             if wide {
                 value_width *= 2.0;
-                start_value = start_value * 2.0 - 0.5;
+                start_value = start_value.mul_add(2.0, -0.5);
             }
 
             let curve_points = (s.a, s.b);
@@ -188,12 +188,14 @@ impl ScreenState {
             for (x, y, h, (sv, ev)) in self.interval_to_ranges(&interval) {
                 if (curve_points.0 - curve_points.1).abs() < f64::EPSILON {
                     profile_scope!("Range - Linear");
-                    let sx = x
-                        + (start_value + (sv * value_width)) * track_lane_diff
+                    let sx = sv
+                        .mul_add(value_width, start_value)
+                        .mul_add(track_lane_diff, x)
                         + half_track
                         + half_lane;
-                    let ex = x
-                        + (start_value + (ev * value_width)) * track_lane_diff
+                    let ex = ev
+                        .mul_add(value_width, start_value)
+                        .mul_add(track_lane_diff, x)
                         + half_track
                         + half_lane;
 
@@ -235,22 +237,24 @@ impl ScreenState {
                     //     (start_value + ev * value_width) - interval_start_value;
 
                     for i in 0..curve_segments {
-                        let cssv = sv + curve_segment_progress_h * i as f32;
-                        let csev = sv + curve_segment_progress_h * (i + 1) as f32;
+                        let cssv = curve_segment_progress_h.mul_add(i as f32, sv);
+                        let csev = curve_segment_progress_h.mul_add((i + 1) as f32, sv);
                         let csv = do_curve(cssv as f64, curve_points.0, curve_points.1) as f32;
                         let cev = do_curve(csev as f64, curve_points.0, curve_points.1) as f32;
 
-                        let sx = x
-                            + (start_value + (csv * value_width)) * track_lane_diff
+                        let sx = csv
+                            .mul_add(value_width, start_value)
+                            .mul_add(track_lane_diff, x)
                             + half_track
                             + half_lane;
-                        let ex = x
-                            + (start_value + (cev * value_width)) * track_lane_diff
+                        let ex = cev
+                            .mul_add(value_width, start_value)
+                            .mul_add(track_lane_diff, x)
                             + half_track
                             + half_lane;
 
-                        let csy = sy + curve_segment_h * i as f32;
-                        let cey = sy + curve_segment_h * i as f32 + curve_segment_h;
+                        let csy = curve_segment_h.mul_add(i as f32, sy);
+                        let cey = curve_segment_h.mul_add(i as f32, sy) + curve_segment_h;
 
                         let xoff = half_lane;
                         let i_off = mesh.vertices.len() as u32;
@@ -285,13 +289,13 @@ impl ScreenState {
                 let mut sv: f32 = l.v as f32;
                 let mut ev: f32 = vf as f32;
                 if wide {
-                    sv = sv * 2.0 - 0.5;
-                    ev = ev * 2.0 - 0.5;
+                    sv = sv.mul_add(2.0, -0.5);
+                    ev = ev.mul_add(2.0, -0.5);
                 }
 
                 let (x, y) = self.tick_to_pos(l.ry + y_base);
-                let sx = x + sv * track_lane_diff + half_track + half_lane;
-                let ex = x + ev * track_lane_diff + half_track + half_lane;
+                let sx = sv.mul_add(track_lane_diff, x) + half_track + half_lane;
+                let ex = ev.mul_add(track_lane_diff, x) + half_track + half_lane;
 
                 let (x, w): (f32, f32) = if sx > ex {
                     (sx + half_lane, (ex - half_lane) - (sx + half_lane))
@@ -306,7 +310,7 @@ impl ScreenState {
                     mesh.add_rect_with_uv(
                         rect_xy_wh([
                             x + w - end_rect_x,
-                            y - slam_height * self.tick_height.signum(),
+                            slam_height.mul_add(-self.tick_height.signum(), y),
                             self.lane_width(),
                             -slam_height,
                         ]),
@@ -333,11 +337,11 @@ impl ScreenState {
             if l.vf.is_some() {
                 let mut sv: f32 = l.v as f32;
                 if wide {
-                    sv = sv * 2.0 - 0.5;
+                    sv = sv.mul_add(2.0, -0.5);
                 }
 
                 let (x, y) = self.tick_to_pos(l.ry + y_base);
-                let x = x + sv * track_lane_diff + half_track;
+                let x = sv.mul_add(track_lane_diff, x) + half_track;
                 if with_uv {
                     let slam_rect = rect_xy_wh([
                         x,
@@ -381,7 +385,8 @@ impl ScreenState {
 
     pub fn tick_to_pos(&self, in_y: u32) -> (f32, f32) {
         let h = self.chart_draw_height();
-        let x = (in_y / self.ticks_per_col()) as f32 * self.track_spacing() + self.left_margin
+        let x = ((in_y / self.ticks_per_col()) as f32)
+            .mul_add(self.track_spacing(), self.left_margin)
             - self.x_offset;
         let y = (in_y % self.ticks_per_col()) as f32 * self.tick_height;
         let y = h - y + self.top_margin;
@@ -412,7 +417,7 @@ impl ScreenState {
 
     pub fn update(&mut self, delta_time: f32, beat_res: u32) -> bool {
         self.beat_res = beat_res;
-        self.x_offset = self.x_offset + (self.x_offset_target - self.x_offset) * delta_time;
+        self.x_offset = (self.x_offset_target - self.x_offset).mul_add(delta_time, self.x_offset);
         if (self.x_offset_target - self.x_offset).abs() < 0.5 {
             self.x_offset = self.x_offset_target;
             false
@@ -488,9 +493,9 @@ impl ScreenState {
             })
         {
             let value_width = transform_value(end.v) - start_value;
-            let x = (start_value + b * value_width) as f32;
-            let x = track_bounds.0 + x * (track_bounds.1 - track_bounds.0);
-            let x = x * self.track_width + interval_x + self.track_width / 2.0;
+            let x = b.mul_add(value_width, start_value) as f32;
+            let x = x.mul_add(track_bounds.1 - track_bounds.0, track_bounds.0);
+            let x = x.mul_add(self.track_width, interval_x) + self.track_width / 2.0;
             let y = interval_y
                 + interval_h * (a as f32 - interval_start) / (interval_end - interval_start);
             Some(Pos2::new(x, y))
@@ -661,8 +666,8 @@ impl MainState {
                 let (sx, sy) = self.screen.tick_to_pos(s);
                 let (ex, ey) = self.screen.tick_to_pos(e);
 
-                let sx = sx + sv * self.screen.track_width + self.screen.track_width / 2.0;
-                let ex = ex + ev * self.screen.track_width + self.screen.track_width / 2.0;
+                let sx = sv.mul_add(self.screen.track_width, sx) + self.screen.track_width / 2.0;
+                let ex = ev.mul_add(self.screen.track_width, ex) + self.screen.track_width / 2.0;
 
                 painter.line_segment([pos2(sx, sy), pos2(ex, ey)], stroke);
             }
@@ -710,8 +715,8 @@ impl MainState {
                 let (sx, sy) = self.screen.tick_to_pos(s);
                 let (ex, ey) = self.screen.tick_to_pos(e);
 
-                let sx = sx + sv * self.screen.track_width + self.screen.track_width / 2.0;
-                let ex = ex + ev * self.screen.track_width + self.screen.track_width / 2.0;
+                let sx = sv.mul_add(self.screen.track_width, sx) + self.screen.track_width / 2.0;
+                let ex = ev.mul_add(self.screen.track_width, ex) + self.screen.track_width / 2.0;
 
                 painter.line_segment([pos2(sx, sy), pos2(ex, ey)], stroke);
             }
@@ -1001,9 +1006,9 @@ impl MainState {
                 let x = self.screen.track_width / 2.0 + lane_width + self.screen.left_margin
                     - (self.screen.x_offset % (self.screen.track_width * 2.0));
                 for i in 0..track_count {
-                    let x = x + i as f32 * track_spacing;
+                    let x = (i as f32).mul_add(track_spacing, x);
                     for j in 0..5 {
-                        let x = x + j as f32 * lane_width;
+                        let x = (j as f32).mul_add(lane_width, x);
                         track_line_builder.push(Shape::rect_filled(
                             rect_xy_wh([x, self.screen.top_margin, 1.0, chart_draw_height]),
                             0.0,
@@ -1052,9 +1057,8 @@ impl MainState {
                         if n.l == 0 {
                             let (x, y) = self.screen.tick_to_pos(n.y);
 
-                            let x = x
-                                + i as f32 * self.screen.lane_width()
-                                + 1.0 * i as f32
+                            let x = 1.0f32
+                                .mul_add(i as f32, (i as f32).mul_add(self.screen.lane_width(), x))
                                 + self.screen.lane_width()
                                 + self.screen.track_width / 2.0;
                             let w = self.screen.track_width / 6.0 - 2.0;
@@ -1067,10 +1071,10 @@ impl MainState {
                             ));
                         } else {
                             for (x, y, h, _) in self.screen.interval_to_ranges(n) {
-                                let x = x
-                                    + i as f32 * self.screen.lane_width()
-                                    + 1.0 * i as f32
-                                    + self.screen.lane_width()
+                                let x = 1.0f32.mul_add(
+                                    i as f32,
+                                    (i as f32).mul_add(self.screen.lane_width(), x),
+                                ) + self.screen.lane_width()
                                     + self.screen.track_width / 2.0;
                                 let w = self.screen.track_width / 6.0 - 2.0;
 
@@ -1100,12 +1104,12 @@ impl MainState {
                         if n.l == 0 {
                             let (x, y) = self.screen.tick_to_pos(n.y);
 
-                            let x = x
-                                + (i as f32 * self.screen.lane_width() * 2.0)
-                                + self.screen.track_width / 2.0
-                                + 2.0 * i as f32
-                                + self.screen.lane_width();
-                            let w = self.screen.lane_width() * 2.0 - 1.0;
+                            let x = 2.0f32.mul_add(
+                                i as f32,
+                                (i as f32 * self.screen.lane_width()).mul_add(2.0, x)
+                                    + self.screen.track_width / 2.0,
+                            ) + self.screen.lane_width();
+                            let w = self.screen.lane_width().mul_add(2.0, -1.0);
                             let h = -2.0 * self.screen.note_height_mult();
                             let color = Color32::from_rgb(255, 77, 0);
 
@@ -1116,12 +1120,12 @@ impl MainState {
                             ));
                         } else {
                             for (x, y, h, _) in self.screen.interval_to_ranges(n) {
-                                let x = x
-                                    + (i as f32 * self.screen.lane_width() * 2.0)
-                                    + self.screen.track_width / 2.0
-                                    + 2.0 * i as f32
-                                    + self.screen.lane_width();
-                                let w = self.screen.lane_width() * 2.0 - 1.0;
+                                let x = 2.0f32.mul_add(
+                                    i as f32,
+                                    (i as f32 * self.screen.lane_width()).mul_add(2.0, x)
+                                        + self.screen.track_width / 2.0,
+                                ) + self.screen.lane_width();
+                                let w = self.screen.lane_width().mul_add(2.0, -1.0);
                                 let color = Color32::from_rgba_unmultiplied(255, 77, 0, 180);
 
                                 long_fx_builder.push(Shape::rect_filled(
@@ -1266,12 +1270,12 @@ impl MainState {
                         break;
                     }
                     let (x, y) = self.screen.tick_to_pos(c.0);
-                    let x = x + self.screen.track_width * 1.5;
+                    let x = self.screen.track_width.mul_add(1.5, x);
                     let line_height = 12.0;
 
                     for (i, (text, color)) in c.1.iter().enumerate() {
                         painter.text(
-                            pos2(x, y - i as f32 * line_height),
+                            pos2(x, (i as f32).mul_add(-line_height, y)),
                             Align2::RIGHT_BOTTOM,
                             text,
                             FontId::monospace(12.0),
@@ -1470,11 +1474,11 @@ fn get_extension_from_filename(filename: &str) -> Option<&str> {
 //https://github.com/m4saka/ksh2kson/issues/4#issuecomment-573343229
 pub fn do_curve(x: f64, a: f64, b: f64) -> f64 {
     let t = if x < f64::EPSILON || a < f64::EPSILON {
-        (a - (a * a + x - 2.0 * a * x).sqrt()) / (-1.0 + 2.0 * a)
+        (a - (2.0 * a).mul_add(-x, a.mul_add(a, x)).sqrt()) / 2.0f64.mul_add(a, -1.0)
     } else {
-        x / (a + (a * a + (1.0 - 2.0 * a) * x).sqrt())
+        x / (a + a.mul_add(a, 2.0f64.mul_add(-a, 1.0) * x).sqrt())
     };
-    2.0 * (1.0 - t) * t * b + t * t
+    (2.0 * (1.0 - t) * t).mul_add(b, t * t)
 }
 
 fn open_chart_file(path: PathBuf) -> Result<Option<(kson::Chart, PathBuf)>> {

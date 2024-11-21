@@ -44,12 +44,15 @@ impl CameraSpin {
                 let abs_degrees = if rate < 360.0 / 675.0 {
                     (rate / (360.0 / 675.0) * 0.75).sin() / (0.75f32).sin() * 360.0
                 } else if rate < 440.0 / 675.0 {
-                    (((rate * 675.0 - 360.0) * 9.0 / 8.0).to_radians()).sin() * 30.0
+                    ((rate.mul_add(675.0, -360.0) * 9.0 / 8.0).to_radians()).sin() * 30.0
                 } else {
-                    (1.0 - ((1.0 - rate) * 90.0 / 235.0 * 675.0)
+                    ((1.0 - rate) * 90.0 / 235.0 * 675.0)
                         .to_radians()
                         .cos()
-                        .powf(2.0))
+                        .mul_add(
+                            -((1.0 - rate) * 90.0 / 235.0 * 675.0).to_radians().cos(),
+                            1.0,
+                        )
                         * 30.0
                 };
 
@@ -85,7 +88,7 @@ impl CameraShake {
         (self.timer * self.frequency).sin()
             * self.direction
             * self.amplitude
-            * (self.timer / self.duration).powf(2.0)
+            * (self.timer / self.duration).powi(2)
     }
 
     pub fn tick(&mut self, dt: f32) {
@@ -202,14 +205,14 @@ impl From<&ChartCamera> for Camera {
         };
 
         let radius = radius * f32::powf(3.0, val.kson_radius / -300.0);
-        let angle = angle + (val.kson_angle * KSON_ANGLE_FACTOR);
+        let angle = val.kson_angle.mul_add(KSON_ANGLE_FACTOR, angle);
 
         let angle_rad = (angle).to_radians();
         let fov_rad = fov.to_radians();
 
         //Wrong, idk why, doesn't really matter once correct values are found though
         let base_angle_rad =
-            { (fov_rad) / (2.0) - (if val.portrait { 0.27 } else { 0.05 } * fov_rad) };
+            { (if val.portrait { 0.27f32 } else { 0.05f32 }).mul_add(-fov_rad, (fov_rad) / (2.0)) };
 
         let track_end: Vec3 = ChartView::TRACK_DIRECTION * ChartView::TRACK_LENGTH;
         let final_camera_pos: Vec3 = -ChartView::UP * radius * angle_rad.cos()

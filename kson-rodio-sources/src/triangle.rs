@@ -25,7 +25,7 @@ impl Iterator for TriangleWave {
         let phase_increment = 2.0 * self.frequency / self.sample_rate as f32;
         self.phase = (self.phase + phase_increment) % 2.0;
 
-        Some(2.0 * self.amplitude * (self.phase - 1.0).abs() - self.amplitude)
+        Some((2.0 * self.amplitude).mul_add((self.phase - 1.0).abs(), -self.amplitude))
     }
 }
 

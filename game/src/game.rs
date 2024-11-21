@@ -799,8 +799,10 @@ impl Game {
                 rotation,
                 cursors: [
                     lua_data::Cursor::new(
-                        self.laser_cursors[0] as f32 * self.laser_wide[0] as f32
-                            - (0.5 * (self.laser_wide[0].saturating_sub(1)) as f32),
+                        (self.laser_cursors[0] as f32).mul_add(
+                            self.laser_wide[0] as f32,
+                            -(0.5 * (self.laser_wide[0].saturating_sub(1)) as f32),
+                        ),
                         camera,
                         if self.laser_target[0].is_some() {
                             1.0
@@ -809,8 +811,10 @@ impl Game {
                         },
                     ),
                     lua_data::Cursor::new(
-                        self.laser_cursors[1] as f32 * self.laser_wide[1] as f32
-                            - (0.5 * (self.laser_wide[1].saturating_sub(1)) as f32),
+                        (self.laser_cursors[1] as f32).mul_add(
+                            self.laser_wide[1] as f32,
+                            -(0.5 * (self.laser_wide[1].saturating_sub(1)) as f32),
+                        ),
                         camera,
                         if self.laser_target[1].is_some() {
                             1.0
@@ -893,7 +897,7 @@ impl Game {
 
                     let signum = (end - start).signum() as i32;
                     self.camera.shakes.push(CameraShake::new(
-                        ((start - end).abs().powf(0.5) * 1.2).to_radians() as _,
+                        ((start - end).abs().sqrt() * 1.2).to_radians() as _,
                         signum as _,
                         20.0,
                         100.0,
@@ -1139,17 +1143,17 @@ impl Game {
     }
 
     fn with_offset(&self, time_ms: f64) -> f64 {
-        time_ms
-            - self.global_offset
-            - self.chart.audio.bgm.offset as f64
-            - self.playback.leadin().as_secs_f64() * 1000.0
+        self.playback.leadin().as_secs_f64().mul_add(
+            -1000.0,
+            time_ms - self.global_offset - self.chart.audio.bgm.offset as f64,
+        )
     }
 
     fn without_offset(&self, time_ms: f64) -> f64 {
-        time_ms
-            + self.global_offset
-            + self.chart.audio.bgm.offset as f64
-            + self.playback.leadin().as_secs_f64() * 1000.0
+        self.playback.leadin().as_secs_f64().mul_add(
+            1000.0,
+            time_ms + self.global_offset + self.chart.audio.bgm.offset as f64,
+        )
     }
 
     fn fail_song(&mut self) -> anyhow::Result<()> {
@@ -1266,8 +1270,7 @@ impl Game {
         miss: Duration,
     ) -> HitRating {
         let last_tick = self.chart.ms_to_tick(
-            self.with_offset(self.current_time().as_secs_f64() * 1000.0)
-                + miss.as_secs_f64() * 1000.0,
+            miss.as_secs_f64().mul_add(1000.0, self.with_offset(self.current_time().as_secs_f64() * 1000.0)),
         ) + 1;
         let mut hittable_ticks = self.score_ticks.iter().take_while(|x| x.y < last_tick);
         let mut hit_rating = HitRating::None;
@@ -1424,7 +1427,7 @@ impl Scene for Game {
         {
             self.biquad_control.send((
                 Some(s),
-                Some((1.0 - (f - 0.5).abs() * 1.99).powf(0.1) as f32),
+                Some((f - 0.5).abs().mul_add(-1.99, 1.0).powf(0.1) as f32),
             ))
         } else {
             self.biquad_control.send((None, Some(0.0)))
@@ -1600,7 +1603,8 @@ impl Scene for Game {
         } else if long_count != 0 && chip_count == 0 {
             (0f32, ftotal / long_count as f32)
         } else {
-            let gain = (ftotal * 20.0) / (5.0 * (long_count as f32 + (4.0 * chip_count as f32)));
+            let gain =
+                (ftotal * 20.0) / (5.0 * 4.0f32.mul_add(chip_count as f32, long_count as f32));
             (gain, gain / 4.0)
         };
 
@@ -1785,7 +1789,7 @@ impl Scene for Game {
         let leadin_ms = self.playback.get_ms().min(0.0);
 
         let time = self.current_time();
-        let time_ms = time.as_secs_f64() * 1000.0 + leadin_ms;
+        let time_ms = time.as_secs_f64().mul_add(1000.0, leadin_ms);
 
         //Update roll
         {
@@ -1811,9 +1815,13 @@ impl Scene for Game {
                     };
                     let target_roll = target_roll * scale;
                     if self.current_roll - target_roll < 0.0 {
-                        (self.current_roll + max_roll_speed * 2.0 * scale).min(target_roll)
+                        (max_roll_speed * 2.0)
+                            .mul_add(scale, self.current_roll)
+                            .min(target_roll)
                     } else {
-                        (self.current_roll - max_roll_speed * 2.0 * scale).max(target_roll)
+                        (max_roll_speed * 2.0)
+                            .mul_add(-scale, self.current_roll)
+                            .max(target_roll)
                     }
                 }
                 TargetRoll::Manual(v) => v,
@@ -1889,7 +1897,9 @@ impl Scene for Game {
         }
 
         //Set glow/hit states
-        let object_glow = ((time_ms as f32 % 100.0) / 50.0 - 1.0).abs() * 0.5 + 0.5;
+        let object_glow = ((time_ms as f32 % 100.0) / 50.0 - 1.0)
+            .abs()
+            .mul_add(0.5, 0.5);
         let hit_state = (time_ms / 50.0).rem_euclid(2.0) as i32 + 2;
         for (side, [_, shader]) in self.laser_shaders.iter_mut().enumerate() {
             shader.set_param(

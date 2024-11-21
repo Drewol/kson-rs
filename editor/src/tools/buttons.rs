@@ -191,14 +191,16 @@ impl CursorObject for ButtonInterval {
             let (x, y) = state.screen.tick_to_pos(self.interval.y);
 
             let x = if self.fx {
-                x + self.lane as f32 * state.screen.lane_width() * 2.0
-                    + 2.0 * self.lane as f32
-                    + state.screen.lane_width()
+                2.0f32.mul_add(
+                    self.lane as f32,
+                    (self.lane as f32 * state.screen.lane_width()).mul_add(2.0, x),
+                ) + state.screen.lane_width()
                     + state.screen.track_width / 2.0
             } else {
-                x + self.lane as f32 * state.screen.lane_width()
-                    + 1.0 * self.lane as f32
-                    + state.screen.lane_width()
+                1.0f32.mul_add(
+                    self.lane as f32,
+                    (self.lane as f32).mul_add(state.screen.lane_width(), x),
+                ) + state.screen.lane_width()
                     + state.screen.track_width / 2.0
             };
 
@@ -215,14 +217,16 @@ impl CursorObject for ButtonInterval {
             let mut long_bt_builder = Vec::<Shape>::new();
             for (x, y, h, _) in state.screen.interval_to_ranges(&self.interval) {
                 let x = if self.fx {
-                    x + self.lane as f32 * state.screen.lane_width() * 2.0
-                        + 2.0 * self.lane as f32
-                        + state.screen.lane_width()
+                    2.0f32.mul_add(
+                        self.lane as f32,
+                        (self.lane as f32 * state.screen.lane_width()).mul_add(2.0, x),
+                    ) + state.screen.lane_width()
                         + state.screen.track_width / 2.0
                 } else {
-                    x + self.lane as f32 * state.screen.lane_width()
-                        + 1.0 * self.lane as f32
-                        + state.screen.lane_width()
+                    1.0f32.mul_add(
+                        self.lane as f32,
+                        (self.lane as f32).mul_add(state.screen.lane_width(), x),
+                    ) + state.screen.lane_width()
                         + state.screen.track_width / 2.0
                 };
 

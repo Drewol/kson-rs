@@ -115,7 +115,9 @@ impl CameraView {
                     if n.l == 0 {
                         let (x, y) = screen.tick_to_pos(n.y);
 
-                        let x = x + i as f32 * lane_width + lane_width + screen.track_width / 2.0;
+                        let x = (i as f32).mul_add(lane_width, x)
+                            + lane_width
+                            + screen.track_width / 2.0;
                         let w = screen.track_width / 6.0;
                         let h = Self::TRACK_LENGH / 100.0;
 
@@ -126,8 +128,9 @@ impl CameraView {
                         );
                     } else {
                         for (x, y, h, _) in screen.interval_to_ranges(n) {
-                            let x =
-                                x + i as f32 * lane_width + lane_width + screen.track_width / 2.0;
+                            let x = (i as f32).mul_add(lane_width, x)
+                                + lane_width
+                                + screen.track_width / 2.0;
                             let w = screen.track_width / 6.0;
 
                             bt_hold_mesh.add_rect_with_uv(
@@ -155,8 +158,7 @@ impl CameraView {
                     if n.l == 0 {
                         let (x, y) = screen.tick_to_pos(n.y);
 
-                        let x = x
-                            + (i as f32 * lane_width * 2.0)
+                        let x = (i as f32 * lane_width).mul_add(2.0, x)
                             + screen.track_width / 2.0
                             + lane_width;
                         let w = lane_width * 2.0;
@@ -169,8 +171,7 @@ impl CameraView {
                         );
                     } else {
                         for (x, y, h, _) in screen.interval_to_ranges(n) {
-                            let x = x
-                                + (i as f32 * lane_width * 2.0)
+                            let x = (i as f32 * lane_width).mul_add(2.0, x)
                                 + screen.track_width / 2.0
                                 + lane_width;
                             let w = lane_width * 2.0;

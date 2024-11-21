@@ -132,11 +132,11 @@ impl EffectParam for RangeInclusive<f32> {
             InterpolationShape::Logarithmic => {
                 let sln = self.start().ln();
                 let wn = self.end().ln() - sln;
-                (sln + wn * v).exp()
+                wn.mul_add(v, sln).exp()
             }
             InterpolationShape::Smooth => {
                 //https://en.wikipedia.org/wiki/Smoothstep
-                self.start() + (v * v * v * (v * (v * 6.0 - 15.0) + 10.0)) * w
+                self.start() + (v * v * v * v.mul_add(v.mul_add(6.0, -15.0), 10.0)) * w
             }
         }
     }

@@ -33,9 +33,9 @@ impl Graph<f64> for Vec<GraphPoint> {
                     let width = end_p.v - start_v;
                     let (a, b) = (start_p.a, start_p.b);
                     if (a - b).abs() > f64::EPSILON {
-                        start_v + do_curve(x, a, b) * width
+                        do_curve(x, a, b).mul_add(width, start_v)
                     } else {
-                        start_v + x * width
+                        x.mul_add(width, start_v)
                     }
                 }
             }
@@ -101,10 +101,10 @@ impl Graph<Option<f64>> for Vec<GraphSectionPoint> {
                 let width = end_p.v - start_v;
                 let (a,b) =  (start_p.a, start_p.b);
                 if (a-b).abs() > f64::EPSILON {
-                    Some(start_v + do_curve(x, a, b) * width)
+                    Some(do_curve(x, a, b).mul_add(width, start_v))
                 }
                 else {
-                    Some(start_v + x * width)
+                    Some(x.mul_add(width, start_v))
                 }
             }
         }
