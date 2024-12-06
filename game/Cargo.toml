@@ -15,23 +15,29 @@ name = "kson-editor"
 
 
 [dependencies]
-egui_glow = { workspace = true, features = ["winit"] }
 puffin = { workspace = true }
 puffin_http = { workspace = true }
 serde = { workspace = true }
 image = { workspace = true }
-emath = { workspace = true }
+emath = { git = "https://github.com/emilk/egui" }
 serde_json = { workspace = true }
 rodio = { workspace = true }
 anyhow = { workspace = true }
-egui = { workspace = true }
+egui = { git = "https://github.com/emilk/egui" }
+egui-winit = { git = "https://github.com/emilk/egui" }
 rand = { workspace = true }
 
-egui_plot = "0.27"
-femtovg = { git = 'https://github.com/Drewol/femtovg', branch = "cache-experiment-1", default-features = false, features = [
+egui_plot = "0.29"
+egui-wgpu = { git = "https://github.com/emilk/egui", features = ["winit"] }
+femtovg = { version = "0.11", default-features = false, features = [
+    "wgpu",
     "image",
     "image-loading",
 ] }
+
+wgpu = { version = "23", features = ["glsl", "naga-ir"] }
+glam = "0.29"
+encase = "*"
 
 gilrs = { version = "0.10.0", features = ["serde-serialize"] }
 kson = { path = "../kson" }
@@ -44,7 +50,6 @@ tealr = { git = "https://github.com/Drewol/tealr.git", branch = "nil-option", fe
     "mlua_vendored",
     "mlua_serialize",
 ] }
-three-d = "0.17"
 bitflags = "1"
 once_cell = "1"
 walkdir = "*"
@@ -57,21 +62,9 @@ poll-promise = { git = "https://github.com/EmbarkStudios/poll-promise", features
 tokio = { version = "1", features = ["rt-multi-thread", "fs"] }
 toml = "0.8.12"
 reqwest = { version = "0.12", features = ["json", "rustls-tls", "blocking"] }
-three-d-asset = { version = "0.7.0", features = [
-    "image",
-    "png",
-    "jpeg",
-    "tga",
-    "tiff",
-] }
 directories = "5.0.1"
 zip = "2"
-game-loop = { git = "https://github.com/Drewol/game-loop.git", features = [
-    "winit",
-] }
-glutin = "0.31.2"
-glutin-winit = "0.4"
-glow = "0.13"
+
 raw-window-handle = "0.5.2"
 rusc_database = { path = "./rusc_database" }
 itertools = { workspace = true }
@@ -105,9 +98,11 @@ log4rs = { version = "1.3.0", features = [
     "pattern_encoder",
     "console_writer",
 ], default-features = false }
+palette = "0.7.6"
+flume = "0.11.1"
 
 [dependencies.winit]
-version = "0.29"
+version = "0.30.5"
 features = ["serde"]
 
 [target.'cfg(unix)'.dependencies]

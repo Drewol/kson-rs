@@ -3,6 +3,7 @@ use std::rc::Rc;
 use crate::{
     config::GameConfig,
     game_data::{self, ExportGame, LuaPath},
+    help::RenderContext,
     lua_http::{ExportLuaHttp, LuaHttp},
     util::lua_address,
     vg_ui::{ExportVgfx, Vgfx},
@@ -21,7 +22,7 @@ use tealr::mlu::mlua::LuaSerdeExt;
 pub struct LuaProvider {
     arena: RefMut<LuaArena>,
     vgfx: RefMut<Vgfx>,
-    context: Ref<three_d::core::Context>,
+    context: Ref<RenderContext>,
     mixer: Ref<InnerRuscMixer>,
     game_data: RefMut<game_data::GameData>,
 }

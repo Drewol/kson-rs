@@ -1,26 +1,69 @@
 use std::sync::mpsc::{self, Receiver, Sender};
 
+use femtovg::rgb::bytemuck;
+use futures::executor::block_on;
 use tealr::mlu::mlua::Lua;
-use three_d::{context::*, *};
+use wgpu::{BufferUsages, ImageCopyBuffer, Origin3d, SurfaceTexture};
 
-pub fn back_pixels(context: &three_d::Context, viewport: Viewport) -> Vec<[u8; 4]> {
-    unsafe {
-        context.read_buffer(BACK);
-    }
-    let data_size = 4;
-    let mut bytes = vec![0u8; viewport.width as usize * viewport.height as usize * data_size];
-    unsafe {
-        context.read_pixels(
-            viewport.x,
-            viewport.y,
-            viewport.width as i32,
-            viewport.height as i32,
-            context::RGBA,
-            context::UNSIGNED_BYTE,
-            context::PixelPackData::Slice(&mut bytes),
-        );
-    }
-    unsafe { bytes.align_to::<[u8; 4]>() }.1.to_vec()
+use crate::{help::RenderContext, Viewport};
+
+pub fn back_pixels(
+    context: &RenderContext,
+    viewport: Viewport,
+    surface: &SurfaceTexture,
+) -> Vec<[u8; 4]> {
+    let mut encoder = context
+        .device
+        .create_command_encoder(&wgpu::CommandEncoderDescriptor { label: None });
+    let buffer = context.device.create_buffer(&wgpu::BufferDescriptor {
+        label: None,
+        size: 0,
+        usage: BufferUsages::COPY_DST | BufferUsages::MAP_READ,
+        mapped_at_creation: true,
+    });
+
+    encoder.copy_texture_to_buffer(
+        wgpu::ImageCopyTextureBase {
+            texture: &surface.texture,
+            mip_level: 0,
+            origin: Origin3d::ZERO,
+            aspect: wgpu::TextureAspect::All,
+        },
+        wgpu::ImageCopyBuffer {
+            buffer: &buffer,
+            layout: wgpu::ImageDataLayout {
+                offset: 0,
+                bytes_per_row: None,
+                rows_per_image: None,
+            },
+        },
+        wgpu::Extent3d {
+            width: viewport.width,
+            height: viewport.height,
+            depth_or_array_layers: 0,
+        },
+    );
+    let c = encoder.finish();
+    let x = context.queue.submit([c]);
+    let buffer_slice = buffer.slice(..);
+    let (sender, reciever) = flume::bounded(1);
+    buffer_slice.map_async(wgpu::MapMode::Read, move |f| sender.send(f).unwrap());
+
+    context
+        .device
+        .poll(wgpu::MaintainBase::WaitForSubmissionIndex(x));
+
+    block_on(reciever.recv_async())
+        .ok()
+        .map(|x| x.ok())
+        .flatten()
+        .expect("Could not read back buffer");
+
+    let data = buffer_slice.get_mapped_range();
+    let result = bytemuck::cast_slice(&data).to_vec();
+    drop(data);
+    buffer.unmap();
+    result
 }
 
 pub fn lua_address(lua: &Lua) -> usize {

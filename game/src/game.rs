@@ -2,6 +2,7 @@ use crate::{
     button_codes::{UscButton, UscInputEvent},
     config::{GameConfig, ScoreDisplayMode},
     game_main::AutoPlay,
+    help::{self, RenderContext},
     input_state::InputState,
     log_result,
     lua_service::LuaProvider,
@@ -9,13 +10,14 @@ use crate::{
     shaded_mesh::ShadedMesh,
     songselect::Song,
     vg_ui::Vgfx,
-    ControlMessage,
+    ControlMessage, Viewport,
 };
 
 use anyhow::{anyhow, ensure, Result};
 use di::{RefMut, ServiceProvider};
 use egui::epaint::Hsva;
 use egui_plot::{Line, PlotPoints};
+use glam::{vec2, vec3, vec4, Mat4, Vec3, Vec4};
 use image::GenericImageView;
 use itertools::Itertools;
 use kson::{
@@ -43,8 +45,7 @@ use std::{
     time::{Duration, SystemTime},
 };
 use tealr::mlu::mlua::{Function, Lua, LuaSerdeExt};
-use three_d::{vec2, vec3, Blend, Camera, Mat4, Matrix4, Vec3, Vec4, Viewport, Zero};
-use three_d_asset::vec4;
+use wgpu::SurfaceTexture;
 
 pub mod chart_view;
 use chart_view::*;
@@ -127,6 +128,7 @@ pub struct Game {
     laser_offset: f64,
     button_offset: f64,
     global_offset: f64,
+    render_context: RenderContext,
 }
 
 #[derive(Clone, Copy)]
@@ -327,11 +329,11 @@ impl SceneData for GameData {
         profile_function!();
 
         let context = service_provider
-            .get_required::<three_d::Context>()
+            .get_required::<RenderContext>()
             .as_ref()
             .clone();
 
-        let mesh_transform = Mat4::from_scale(1.0);
+        let mesh_transform = Mat4::IDENTITY;
 
         let mut shader_folder = skin_folder.clone();
         let mut texture_folder = skin_folder.clone();
@@ -341,7 +343,7 @@ impl SceneData for GameData {
 
         let mut fx_long_shader = ShadedMesh::new(&context, "holdbutton", &shader_folder)
             .expect("Failed to load shader:")
-            .with_transform(Matrix4::from_translation(vec3(-0.5, 0.0, 0.0)));
+            .with_transform(Mat4::from_translation(vec3(-0.5, 0.0, 0.0)));
 
         let mut beam_shader = ShadedMesh::new(&context, "sprite", &shader_folder)
             .expect("Failed to load shader:")
@@ -354,7 +356,7 @@ impl SceneData for GameData {
             false,
         )?;
 
-        beam_shader.set_data_mesh(&graphics::xy_rect(Vec3::zero(), vec2(1.0, 1.0)));
+        beam_shader.set_data_mesh(&graphics::xy_rect(Vec3::ZERO, vec2(1.0, 1.0)));
 
         fx_long_shader.use_texture(
             "mainTex",
@@ -370,7 +372,7 @@ impl SceneData for GameData {
 
         let mut bt_long_shader = ShadedMesh::new(&context, "holdbutton", &shader_folder)
             .expect("Failed to load shader:")
-            .with_transform(Matrix4::from_translation(vec3(-0.5, 0.0, 0.0)));
+            .with_transform(Mat4::from_translation(vec3(-0.5, 0.0, 0.0)));
 
         bt_long_shader.use_texture(
             "mainTex",
@@ -386,7 +388,7 @@ impl SceneData for GameData {
 
         let mut fx_chip_shader = ShadedMesh::new(&context, "button", &shader_folder)
             .expect("Failed to load shader:")
-            .with_transform(Matrix4::from_translation(vec3(-0.5, 0.0, 0.0)));
+            .with_transform(Mat4::from_translation(vec3(-0.5, 0.0, 0.0)));
         fx_chip_shader.use_texture(
             "mainTex",
             texture_folder.with_file_name("fxbutton.png"),
@@ -402,7 +404,7 @@ impl SceneData for GameData {
 
         let mut bt_chip_shader = ShadedMesh::new(&context, "button", &shader_folder)
             .expect("Failed to load shader:")
-            .with_transform(Matrix4::from_translation(vec3(-0.5, 0.0, 0.0)));
+            .with_transform(Mat4::from_translation(vec3(-0.5, 0.0, 0.0)));
         let bt_height = 1.0;
 
         let bt_tex = bt_chip_shader.use_texture(
@@ -417,16 +419,16 @@ impl SceneData for GameData {
             vec2(1.0 / 6.0, bt_height),
         ));
 
-        let chip_h = (1.0 / 6.0) * (bt_tex.height as f32 / bt_tex.width as f32);
+        let chip_h = (1.0 / 6.0) * (bt_tex.height() as f32 / bt_tex.width() as f32);
 
         let mut track_shader =
             ShadedMesh::new(&context, "track", &shader_folder).expect("Failed to load shader:");
         track_shader.set_data_mesh(&graphics::xy_rect(
-            Vec3::zero(),
+            Vec3::ZERO,
             vec2(1.0, ChartView::TRACK_LENGTH * 2.0),
         ));
 
-        let laser_colors: [three_d::Vector4<f32>; 2] = [
+        let laser_colors: [Vec4; 2] = [
             Hsva::new(GameConfig::get().laser_hues[0] / 360.0, 1.0, 1.0, 1.0)
                 .to_rgba_unmultiplied()
                 .into(),
@@ -486,10 +488,11 @@ impl SceneData for GameData {
             .map(|x| x.2)
             .collect();
 
-        laser_left.set_blend(Blend::ADD);
-        laser_left_active.set_blend(Blend::ADD);
-        laser_right.set_blend(Blend::ADD);
-        laser_right_active.set_blend(Blend::ADD);
+        let blend_add = help::blend_add();
+        laser_left.set_blend(blend_add);
+        laser_left_active.set_blend(blend_add);
+        laser_right.set_blend(blend_add);
+        laser_right_active.set_blend(blend_add);
 
         let mut playback = kson_music_playback::AudioPlayback::new();
         let (biquad_control, _) = std::sync::mpsc::channel();
@@ -602,7 +605,7 @@ impl Game {
     pub fn new(
         chart: Chart,
         skin_root: &PathBuf,
-        td: &three_d::Context,
+        td: &RenderContext,
         fx_long_shaders: ShadedMesh,
 
         bt_long_shaders: ShadedMesh,
@@ -624,7 +627,7 @@ impl Game {
         laser_effects: BTreeMap<u32, AudioEffect>,
         autoplay: AutoPlay,
         chip_h: f32,
-        laser_colors: [three_d::Vector4<f32>; 2],
+        laser_colors: [Vec4; 2],
     ) -> Result<Self> {
         let mut view = ChartView::new(skin_root, td)?;
         view.build_laser_meshes(&chart);
@@ -717,6 +720,7 @@ impl Game {
             button_offset: -GameConfig::get().button_offset as _,
             global_offset: -GameConfig::get().global_offset as _,
             laser_offset: -GameConfig::get().laser_offset as _,
+            render_context: td.clone(),
         };
         res.set_track_uniforms();
         Ok(res)
@@ -758,14 +762,14 @@ impl Game {
     fn lua_game_state(
         &self,
         viewport: Viewport,
-        camera: &Camera,
+        camera: &Mat4,
         hit_window: HitWindow,
     ) -> lua_data::LuaGameState {
         let screen = vec2(viewport.width as f32, viewport.height as f32);
-        let track_center = graphics::camera_to_screen(camera, Vec3::zero(), screen);
+        let track_center = graphics::camera_to_screen(camera, Vec3::ZERO, screen);
 
-        let track_left = graphics::camera_to_screen(camera, Vec3::unit_x() * -0.5, screen);
-        let track_right = graphics::camera_to_screen(camera, Vec3::unit_x() * 0.5, screen);
+        let track_left = graphics::camera_to_screen(camera, Vec3::X * -0.5, screen);
+        let track_right = graphics::camera_to_screen(camera, Vec3::X * 0.5, screen);
         let crit_line = track_right - track_left;
         let rotation = -crit_line.y.atan2(crit_line.x);
 
@@ -833,7 +837,7 @@ impl Game {
         }
     }
 
-    fn reset_canvas(&mut self) {
+    fn reset_canvas(&mut self, surface: &wgpu::SurfaceTexture) {
         let Some(vgfx) = self.lua.app_data_mut::<RefMut<Vgfx>>() else {
             log::error!("VGFX app data not set");
             return;
@@ -841,7 +845,7 @@ impl Game {
 
         let vgfx = vgfx.write().expect("Lock error");
         let canvas = &mut vgfx.canvas.lock().expect("Lock error");
-        canvas.flush();
+        canvas.flush_to_surface(&surface.texture);
         canvas.reset();
         canvas.reset_transform();
         canvas.reset_scissor();
@@ -1646,16 +1650,7 @@ impl Scene for Game {
                         ui.end_row();
 
                         ui.label("Sync delta (ms)");
-                        let line: PlotPoints = self
-                            .sync_delta
-                            .iter()
-                            .enumerate()
-                            .map(|(x, y)| [x as f64, *y])
-                            .collect();
-                        let line = Line::new(line);
-                        egui_plot::Plot::new("sync_delta").show(ui, |plot| {
-                            plot.line(line);
-                        });
+
                         ui.end_row();
 
                         ui.label("HiSpeed");
@@ -1740,7 +1735,7 @@ impl Scene for Game {
                         ui.label("Stats");
                         ui.add(
                             egui::Label::new(format!("{:#?}", &self.beam_colors_current))
-                                .wrap(false),
+                                .wrap_mode(TextWrapMode::Extend),
                         )
                     });
             });
@@ -1751,9 +1746,9 @@ impl Scene for Game {
     fn render(
         &mut self,
         dt: f64,
-        td_context: &three_d::Context,
-        target: &mut three_d::RenderTarget,
+        td_context: &RenderContext,
         viewport: Viewport,
+        surface: &SurfaceTexture,
     ) {
         profile_function!();
 
@@ -1858,7 +1853,7 @@ impl Scene for Game {
                 !x.completed()
             });
         }
-        let td_camera: Camera = Camera::from(&self.camera);
+        let td_camera: Mat4 = Mat4::from(&self.camera);
         if let Some(bg) = self.background.as_mut() {
             bg.render(
                 dt,
@@ -1868,6 +1863,7 @@ impl Scene for Game {
                 self.current_tick,
                 self.camera.tilt,
                 self.gauge.is_cleared(),
+                viewport,
             );
         }
 
@@ -1911,10 +1907,9 @@ impl Scene for Game {
             );
         }
 
-        target.render(&td_camera, [&self.track_shader], &[]);
+        self.track_shader.draw_camera(&td_camera);
         let render_data = match self.view.render(
             &self.chart,
-            td_context,
             |lane, tick| self.hold_ok(lane, tick),
             self.beam_colors_current,
             self.chip_h,
@@ -1930,54 +1925,61 @@ impl Scene for Game {
             &td_camera,
             render_data.fx_hold,
             |material, transform, (hold, active)| {
-                material.use_uniform("world", transform * hold);
+                material.use_uniform("world", (transform * hold).to_cols_array());
                 let (glow, state) = match active {
                     HoldState::Idle => (0.6, 1),
                     HoldState::Hit => (object_glow, hit_state), //FLIP_Y?
                     HoldState::Miss => (0.3, 0),
                 };
-                material.use_uniform_if_required("objectGlow", glow);
-                material.use_uniform_if_required("hitState", state);
+                material.use_uniform("objectGlow", glow);
+                material.use_uniform("hitState", state);
             },
+            viewport,
         );
 
         self.bt_long_shaders.draw_instanced_camera(
             &td_camera,
             render_data.bt_hold,
             |material, transform, (bt, active)| {
-                material.use_uniform("world", transform * bt);
+                material.use_uniform("world", (transform * bt).to_cols_array());
                 let (glow, state) = match active {
                     HoldState::Idle => (0.6, 1),
                     HoldState::Hit => (object_glow, hit_state),
                     HoldState::Miss => (0.3, 0),
                 };
-                material.use_uniform_if_required("objectGlow", glow);
-                material.use_uniform_if_required("hitState", state);
+                material.use_uniform("objectGlow", glow);
+                material.use_uniform("hitState", state);
             },
+            viewport,
         );
 
         self.fx_chip_shaders.draw_instanced_camera(
             &td_camera,
             render_data.fx_chip,
             |material, transform, (fx, has_sample)| {
-                material.use_uniform("world", transform * fx);
-                material.use_uniform_if_required("hasSample", if has_sample { 1 } else { 0 });
+                material.use_uniform("world", (transform * fx).to_cols_array());
+                material.use_uniform("hasSample", if has_sample { 1 } else { 0 });
             },
+            viewport,
         );
 
         self.bt_chip_shader.draw_instanced_camera(
             &td_camera,
             render_data.bt_chip,
-            |material, transform, bt| material.use_uniform("world", transform * bt),
+            |material, transform, bt| {
+                material.use_uniform("world", (transform * bt).to_cols_array())
+            },
+            viewport,
         );
 
         self.lane_beam_shader.draw_instanced_camera(
             &td_camera,
             render_data.lane_beams,
             |material, tranform, (light, color)| {
-                material.use_uniform_if_required::<Vec4>("color", color.into());
-                material.use_uniform("world", tranform * light);
+                material.use_uniform("color", palette::cast::into_array(color));
+                material.use_uniform("world", (tranform * light).to_cols_array());
             },
+            viewport,
         );
 
         self.laser_shaders[0][0].set_data_mesh(&render_data.lasers[0]);
@@ -1985,7 +1987,9 @@ impl Scene for Game {
         self.laser_shaders[1][0].set_data_mesh(&render_data.lasers[2]);
         self.laser_shaders[1][1].set_data_mesh(&render_data.lasers[3]);
 
-        target.render(&td_camera, self.laser_shaders.iter().flatten(), &[]);
+        for ele in self.laser_shaders.iter().flatten() {
+            ele.draw_camera(&td_camera);
+        }
 
         if !self.intro_done {
             if let Ok(func) = self.lua.globals().get::<_, Function>("render_intro") {
@@ -2005,7 +2009,7 @@ impl Scene for Game {
                 log::error!("{}", e);
             };
         }
-        self.reset_canvas();
+        self.reset_canvas(surface);
 
         if let Some(fg) = self.foreground.as_mut() {
             fg.render(
@@ -2016,6 +2020,7 @@ impl Scene for Game {
                 self.current_tick,
                 self.camera.tilt,
                 self.gauge.is_cleared(),
+                viewport,
             );
         }
 
@@ -2025,7 +2030,7 @@ impl Scene for Game {
                 log::error!("{}", e);
             };
         }
-        self.reset_canvas();
+        self.reset_canvas(surface);
 
         if let Ok(func) = self.lua.globals().get::<_, Function>("render") {
             profile_scope!("lua render");
@@ -2033,20 +2038,11 @@ impl Scene for Game {
                 log::error!("{}", e);
             };
         }
-        self.reset_canvas();
-        if self.draw_axis_guides {
-            let axes = three_d::Axes::new(td_context, 0.01, 0.30);
-            target.render(&td_camera, [axes], &[]);
-        }
+        self.reset_canvas(surface);
     }
 
-    fn on_event(
-        &mut self,
-        event: &game_loop::winit::event::Event<crate::button_codes::UscInputEvent>,
-    ) {
-        if let game_loop::winit::event::Event::UserEvent(UscInputEvent::Laser(ls, timestamp)) =
-            event
-        {
+    fn on_event(&mut self, event: &winit::event::Event<crate::button_codes::UscInputEvent>) {
+        if let winit::event::Event::UserEvent(UscInputEvent::Laser(ls, timestamp)) = event {
             //TODO: Slam detection, or always handle slam ticks in ticking function?
 
             for (side, index) in [(kson::Side::Left, 0), (kson::Side::Right, 1)] {

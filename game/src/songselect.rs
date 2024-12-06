@@ -18,7 +18,6 @@ use crate::{
 };
 use anyhow::{anyhow, ensure, Result};
 use di::{RefMut, ServiceProvider};
-use game_loop::winit::event::{ElementState, Event, Ime, WindowEvent};
 use itertools::Itertools;
 use kson_rodio_sources::owned_source::{self, owned_source};
 use log::warn;
@@ -46,7 +45,7 @@ use tealr::{
     SingleType, ToTypename,
 };
 use winit::{
-    event::KeyEvent,
+    event::{ElementState, Event, Ime, KeyEvent, WindowEvent},
     keyboard::{Key, NamedKey},
 };
 

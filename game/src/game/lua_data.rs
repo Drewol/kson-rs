@@ -1,15 +1,13 @@
+use glam::vec3;
+use glam::Mat4;
+use glam::Vec2;
+use glam::Vec3Swizzles;
 use luals_gen::LuaLsType;
 use luals_gen::ToLuaLsType;
 use serde::Deserialize;
 use serde::Serialize;
 use serde_with::serde_as;
 use serde_with::DurationMilliSecondsWithFrac;
-use three_d::vec3;
-
-use three_d::Vec2;
-
-use three_d::Camera;
-use three_d_asset::InnerSpace;
 
 use std::time::Duration;
 
@@ -139,15 +137,15 @@ pub(crate) struct Cursor {
 }
 
 impl Cursor {
-    pub fn new(pos: f32, camera: &Camera, alpha: f32) -> Self {
+    pub fn new(pos: f32, camera: &Mat4, alpha: f32) -> Self {
         let pos = (pos - 0.5) * (5.0 / 6.0);
 
-        let crit_pos = Vec2::from(camera.pixel_at_position(vec3(0.0, 0.0, 0.0)));
-        let c_pos = Vec2::from(camera.pixel_at_position(vec3(pos, 0.0, 0.0)));
-        let c_pos_up = Vec2::from(camera.pixel_at_position(vec3(pos, 0.2, 0.0)));
-        let c_pos_down = Vec2::from(camera.pixel_at_position(vec3(pos, -0.2, 0.0)));
+        let crit_pos = camera.project_point3(vec3(0.0, 0.0, 0.0)).xy();
+        let c_pos = camera.project_point3(vec3(pos, 0.0, 0.0)).xy();
+        let c_pos_up = camera.project_point3(vec3(pos, 0.2, 0.0)).xy();
+        let c_pos_down = camera.project_point3(vec3(pos, -0.2, 0.0)).xy();
         let dist_from_crit_center =
-            (crit_pos - c_pos).magnitude() * if pos < 0.0 { -1.0 } else { 1.0 };
+            (crit_pos - c_pos).length() * if pos < 0.0 { -1.0 } else { 1.0 };
         let cursor_angle_vector = c_pos_up - c_pos_down;
 
         let skew = cursor_angle_vector.y.atan2(cursor_angle_vector.x) + std::f32::consts::FRAC_PI_2;

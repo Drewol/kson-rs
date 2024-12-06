@@ -1,8 +1,6 @@
-use three_d::{vec2, Camera, Matrix4, Transform, Vec2, Vec3};
-use three_d_asset::{Deg, InnerSpace, Rad, Viewport};
-
 use super::chart_view;
 use chart_view::ChartView;
+use glam::{vec2, Mat4, Vec2, Vec3};
 
 #[derive(Debug, Clone)]
 pub struct ChartCamera {
@@ -191,7 +189,7 @@ impl ChartCamera {
 
 const KSON_ANGLE_FACTOR: f32 = 360.0 / 2400.0;
 
-impl From<&ChartCamera> for Camera {
+impl From<&ChartCamera> for Mat4 {
     fn from(val: &ChartCamera) -> Self {
         let (fov, angle, radius) = {
             if val.portrait {
@@ -228,26 +226,25 @@ impl From<&ChartCamera> for Camera {
             + (ChartView::UP * (angle_rad - base_angle_rad).cos()
                 - ChartView::TRACK_DIRECTION * (angle_rad - base_angle_rad).sin());
 
-        let end_dist = (track_end - final_camera_pos).magnitude();
-        let begin_dist = (-track_end - final_camera_pos).magnitude();
+        let end_dist = (track_end - final_camera_pos).length();
+        let begin_dist = (-track_end - final_camera_pos).length();
         let z_far = end_dist.max(begin_dist);
 
-        let roll = Matrix4::from_axis_angle(ChartView::TRACK_DIRECTION, Deg(-val.tilt));
-        let target = roll.transform_vector(target - final_camera_pos) + final_camera_pos;
-        let up = roll.transform_vector(up);
+        let roll = Mat4::from_axis_angle(ChartView::TRACK_DIRECTION, -val.tilt.to_radians());
+        let target = roll.transform_vector3(target - final_camera_pos) + final_camera_pos;
+        let up = roll.transform_vector3(up);
         // let final_camera_pos = roll.transform_vector(final_camera_pos);
 
-        let mut cam = Camera::new_perspective(
-            Viewport::new_at_origo(val.view_size.x as u32, val.view_size.y as u32),
-            final_camera_pos,
-            target,
-            up.normalize(),
-            Rad(fov_rad),
+        let cam = Mat4::perspective_rh(
+            fov_rad,
+            val.view_size.x / val.view_size.y,
             ChartView::Z_NEAR,
             z_far,
         );
-        // cam.roll(Deg(val.tilt)); //TODO: Need to roll the position and stuff now
-        cam.yaw(Rad(val.shakes.iter().map(|x| x.get_shake()).sum()));
+
+        //cam.yaw(Rad(val.shakes.iter().map(|x| x.get_shake()).sum()));
+
+        let cam = cam * Mat4::look_at_rh(final_camera_pos, target, up.normalize());
 
         cam
     }

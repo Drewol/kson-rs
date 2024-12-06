@@ -7,22 +7,25 @@ use std::{
 use anyhow::anyhow;
 use di::{RefMut, ServiceProvider};
 
+use glam::{vec2, Mat4};
 use log::warn;
 use poll_promise::Promise;
 use rodio::Source;
 use serde_json::json;
 use tealr::mlu::mlua::{Function, Lua, LuaSerdeExt};
-use three_d::{ColorMaterial, Gm, Mat3, Rad, Rectangle, Texture2DRef, Vec2, Zero};
+use wgpu::{Origin3d, SurfaceTexture, Texture};
 
 use crate::{
     game_main::AutoPlay,
+    help::RenderContext,
     log_result,
     main_menu::MainMenuButton,
     results::SongResultData,
     scene::{Scene, SceneData},
+    shaded_mesh::ShadedMesh,
     songselect::{Song, SongSelect},
     util::{back_pixels, lua_address},
-    ControlMessage,
+    ControlMessage, Viewport,
 };
 
 #[derive(Debug, PartialEq, Eq)]
@@ -41,7 +44,7 @@ pub struct Transition {
     pub state: TransitionState,
     transition_lua: Rc<Lua>,
     vgfx: RefMut<crate::Vgfx>,
-    prev_screengrab: Option<Gm<Rectangle, ColorMaterial>>,
+    prev_screengrab: Arc<Texture>,
     service_provider: ServiceProvider,
 }
 
@@ -77,7 +80,8 @@ impl Transition {
         target: ControlMessage,
         control_tx: Sender<ControlMessage>,
         vgfx: RefMut<crate::Vgfx>,
-        viewport: three_d::Viewport,
+        viewport: Viewport,
+        surface: &SurfaceTexture,
 
         service_provider: ServiceProvider,
     ) -> anyhow::Result<Self> {
@@ -88,11 +92,11 @@ impl Transition {
         }
 
         let context = service_provider
-            .get_required::<three_d::Context>()
+            .get_required::<RenderContext>()
             .as_ref()
             .clone();
 
-        let prev_grab = screen_grab(context, viewport);
+        let prev_grab = screen_grab(&context, viewport, surface);
 
         if let ControlMessage::Song { song, diff, .. } = &target {
             let mut vgfx = vgfx.write().expect("Failed to lock VG");
@@ -132,27 +136,11 @@ impl Transition {
 }
 
 pub fn screen_grab(
-    context: three_d::Context,
-    viewport: three_d::Viewport,
-) -> Option<Gm<Rectangle, ColorMaterial>> {
-    let screen_tex = three_d::texture::CpuTexture {
-        data: three_d::TextureData::RgbaU8(back_pixels(&context, viewport)),
-        height: viewport.height,
-        width: viewport.width,
-        ..Default::default()
-    };
-
-    Some(three_d::Gm::new(
-        Rectangle::new(&context, Vec2::zero(), Rad::zero(), 1.0, 1.0),
-        three_d::ColorMaterial {
-            texture: Some(Texture2DRef {
-                texture: Arc::new(three_d::Texture2D::new(&context, &screen_tex)),
-                transformation: Mat3::from_nonuniform_scale(1.0, -1.0),
-            }),
-            color: three_d::Srgba::WHITE,
-            ..Default::default()
-        },
-    ))
+    context: &RenderContext,
+    viewport: Viewport,
+    surface: &SurfaceTexture,
+) -> Arc<wgpu::Texture> {
+    context.new_screen_texture(viewport, surface)
 }
 
 impl Scene for Transition {
@@ -171,24 +159,30 @@ impl Scene for Transition {
     fn render(
         &mut self,
         _dt: f64,
-        _td_context: &three_d::Context,
-        target: &mut three_d::RenderTarget,
-        viewport: three_d::Viewport,
+        context: &RenderContext,
+        viewport: Viewport,
+        s: &SurfaceTexture,
     ) {
-        use three_d::*;
-
         match self.state {
             TransitionState::Intro => {
-                if let Some(screengrab) = &mut self.prev_screengrab {
-                    screengrab.set_size(viewport.width as f32, viewport.height as f32);
-                    screengrab.set_center(vec2(
-                        viewport.width as f32 / 2.0,
-                        viewport.height as f32 / 2.0,
-                    ));
-                    let mut new_2d = Camera::new_2d(viewport);
-                    new_2d.disable_tone_and_color_mapping();
-                    target.render(&new_2d, &[screengrab], &[]);
-                }
+                let mut encoder = context.encoder(None);
+                encoder.copy_texture_to_texture(
+                    wgpu::ImageCopyTextureBase {
+                        texture: &self.prev_screengrab,
+                        mip_level: 0,
+                        origin: Origin3d::ZERO,
+                        aspect: wgpu::TextureAspect::All,
+                    },
+                    wgpu::ImageCopyTextureBase {
+                        texture: &s.texture,
+                        mip_level: 0,
+                        origin: Origin3d::ZERO,
+                        aspect: wgpu::TextureAspect::All,
+                    },
+                    viewport.extend3d(1),
+                );
+
+                context.queue.submit([encoder.finish()]);
             }
             TransitionState::Countdown(0) => self.state = TransitionState::Outro,
             TransitionState::Countdown(c) => self.state = TransitionState::Countdown(c - 1),

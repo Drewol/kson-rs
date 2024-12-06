@@ -10,9 +10,9 @@ use std::{
 };
 
 use di::{RefMut, ServiceProvider};
-use egui_glow::EguiGlow;
-use femtovg::Paint;
-use game_loop::winit::{
+use femtovg::{ImageId, Paint};
+use wgpu::SurfaceTexture;
+use winit::{
     dpi::{PhysicalPosition, PhysicalSize},
     event,
     keyboard::{Key, NamedKey},
@@ -20,18 +20,11 @@ use game_loop::winit::{
     window::Window,
 };
 
-use glutin::{
-    context::PossiblyCurrentContext,
-    surface::{GlSurface, SwapInterval},
-};
 use puffin::{profile_function, profile_scope};
 
-use td::{FrameOutput, Modifiers};
 use tealr::mlu::mlua::Lua;
-use three_d::FrameInput;
 
 use femtovg as vg;
-use three_d as td;
 
 use crate::{
     button_codes::{LaserState, UscInputEvent},
@@ -39,7 +32,7 @@ use crate::{
     config::{Fullscreen, GameConfig},
     game::{gauge::Gauge, HitRating},
     game_data::GameData,
-    help,
+    help::{self, Modifiers, RenderContext},
     input_state::InputState,
     lua_http::LuaHttp,
     lua_service::LuaProvider,
@@ -52,7 +45,7 @@ use crate::{
     vg_ui::Vgfx,
     window::find_monitor,
     worker_service::WorkerService,
-    LuaArena, RuscMixer, Scenes, FRAME_ACC_SIZE,
+    FrameInput, LuaArena, RuscMixer, Scenes, FRAME_ACC_SIZE,
 };
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -118,7 +111,7 @@ pub struct GameMain {
     game_data: Arc<RwLock<GameData>>,
     vgfx: Arc<RwLock<Vgfx>>,
     frame_count: u32,
-    gui: EguiGlow,
+    gui: egui_winit::State,
     show_debug_ui: bool,
     mousex: f64,
     mousey: f64,
@@ -129,6 +122,7 @@ pub struct GameMain {
     show_fps: bool,
     frame_end: std::time::SystemTime,
     frame_duration: Duration,
+    render_context: RenderContext,
 }
 
 fn get_frame_duration(settings: &GameConfig) -> Duration {
@@ -144,9 +138,10 @@ impl GameMain {
     pub fn new(
         scenes: Scenes,
         fps_paint: Paint,
-        gui: EguiGlow,
+        gui: egui_winit::State,
         show_debug_ui: bool,
         service_provider: ServiceProvider,
+        render_context: RenderContext,
     ) -> Self {
         let (control_tx, control_rx) = channel();
 
@@ -178,6 +173,7 @@ impl GameMain {
             companion_update: 0,
             frame_end: SystemTime::UNIX_EPOCH,
             frame_duration: get_frame_duration(&GameConfig::get()),
+            render_context,
         }
     }
 
@@ -240,13 +236,14 @@ impl GameMain {
             });
         }
     }
+
+    /// Returns true if exit is requested
     pub fn render(
         &mut self,
         frame_input: FrameInput,
-        window: &game_loop::winit::window::Window,
-        surface: &glutin::surface::Surface<glutin::surface::WindowSurface>,
-        gl_context: &PossiblyCurrentContext,
-    ) -> FrameOutput {
+        window: &winit::window::Window,
+        surface: &SurfaceTexture,
+    ) -> bool {
         let GameMain {
             lua_arena,
             scenes,
@@ -275,6 +272,7 @@ impl GameMain {
             companion_update: _,
             frame_end,
             frame_duration,
+            render_context,
         } = self;
 
         knob_state.zero_deltas();
@@ -282,11 +280,10 @@ impl GameMain {
         for lua in lua_arena.read().expect("Lock error").0.iter() {
             lua.set_app_data(frame_input.clone());
         }
-        let _lua_frame_input = frame_input.clone();
         let _lua_mixer = mixer.clone();
 
         if frame_input.first_frame {
-            frame_input.screen().clear(td::ClearState::default());
+            // frame_input.context.clear(wgpu::Color::BLACK);
             let vgfx = vgfx.write().expect("Lock error");
             let mut canvas = vgfx.canvas.lock().expect("Lock error");
             canvas.reset();
@@ -299,15 +296,15 @@ impl GameMain {
                     .with_font_size(32.0)
                     .with_text_baseline(vg::Baseline::Top),
             );
-            canvas.flush();
+            canvas.flush_to_surface(&surface.texture);
+            canvas.set_render_target(femtovg::RenderTarget::Screen); //wgpu renderer bug
+            canvas.set_size(frame_input.viewport.width, frame_input.viewport.height, 1.0);
+
             *frame_count += 1;
 
-            return FrameOutput {
-                swap_buffers: true,
-                wait_next_event: false,
-                ..Default::default()
-            };
+            return false;
         }
+
         if *frame_count == 1 {
             lua_provider
                 .register_libraries(transition_lua.clone(), "transition.lua")
@@ -334,6 +331,7 @@ impl GameMain {
                                 control_tx.clone(),
                                 vgfx.clone(),
                                 frame_input.viewport,
+                                surface,
                                 service_provider.create_scope(),
                             )
                             .ok()
@@ -369,6 +367,7 @@ impl GameMain {
                             control_tx.clone(),
                             vgfx.clone(),
                             frame_input.viewport,
+                            surface,
                             service_provider.create_scope(),
                         )
                         .ok()
@@ -406,6 +405,7 @@ impl GameMain {
                             control_tx.clone(),
                             vgfx.clone(),
                             frame_input.viewport,
+                            surface,
                             service_provider.create_scope(),
                         )
                         .ok()
@@ -414,14 +414,11 @@ impl GameMain {
                 ControlMessage::ApplySettings => {
                     //TODO: Reload skin
                     let settings = GameConfig::get();
-                    _ = surface.set_swap_interval(
-                        gl_context,
-                        if settings.graphics.vsync {
-                            SwapInterval::Wait(NonZeroU32::new(1).expect("Invalid value"))
-                        } else {
-                            SwapInterval::DontWait
-                        },
-                    );
+                    render_context.set_swap_interval(if settings.graphics.vsync {
+                        wgpu::PresentMode::AutoVsync
+                    } else {
+                        wgpu::PresentMode::AutoNoVsync
+                    });
 
                     *show_fps = settings.graphics.show_fps;
 
@@ -431,7 +428,7 @@ impl GameMain {
                         Fullscreen::Windowed { .. } => None,
                         Fullscreen::Borderless { monitor } => {
                             let m = find_monitor(window.available_monitors(), monitor);
-                            Some(game_loop::winit::window::Fullscreen::Borderless(m))
+                            Some(winit::window::Fullscreen::Borderless(m))
                         }
                         Fullscreen::Exclusive {
                             monitor,
@@ -444,7 +441,7 @@ impl GameMain {
                                         .max_by_key(|x| x.refresh_rate_millihertz())
                                 });
 
-                            m.map(game_loop::winit::window::Fullscreen::Exclusive)
+                            m.map(winit::window::Fullscreen::Exclusive)
                         }
                     });
 
@@ -466,17 +463,19 @@ impl GameMain {
             self.input_state.clone(),
         );
 
-        scenes.render(frame_input.clone(), vgfx);
-        Self::render_overlays(vgfx, &frame_input, fps, fps_paint, *show_fps);
+        scenes.render(&frame_input, vgfx, surface);
+        Self::render_overlays(vgfx, &frame_input, fps, fps_paint, *show_fps, surface);
+        render_context.process_screen_grabs(surface, frame_input.viewport);
 
-        gui.run(window, |ctx| {
+        let gui_in = gui.take_egui_input(window);
+
+        let gui_out = gui.egui_ctx().run(gui_in, |ctx| {
             scenes.render_egui(ctx);
 
             if *show_debug_ui {
                 Self::debug_ui(ctx, scenes, &vgfx);
             }
         });
-        gui.paint(window);
 
         Self::run_lua_gc(lua_arena, &mut vgfx.write().expect("Lock error"));
 
@@ -494,18 +493,14 @@ impl GameMain {
             crate::help::wait_until(*frame_end);
             *frame_end = SystemTime::now() + *frame_duration;
         }
-        FrameOutput {
-            exit,
-            swap_buffers: true,
-            wait_next_event: false,
-        }
+        exit
     }
     pub fn handle(
         &mut self,
-        window: &Window,
-        event: &game_loop::winit::event::Event<UscInputEvent>,
+        window: &winit::window::Window,
+        event: &winit::event::Event<UscInputEvent>,
     ) {
-        use game_loop::winit::event::*;
+        use winit::event::*;
         if let Event::WindowEvent {
             window_id: _,
             event,
@@ -579,7 +574,7 @@ impl GameMain {
                 event: WindowEvent::ModifiersChanged(mods),
                 ..
             } => {
-                self.modifiers = three_d::renderer::control::Modifiers {
+                self.modifiers = help::Modifiers {
                     alt: mods.state().alt_key(),
                     ctrl: mods.state().control_key(),
                     shift: mods.state().shift_key(),
@@ -650,7 +645,7 @@ impl GameMain {
                 }
             }
             Event::DeviceEvent {
-                event: game_loop::winit::event::DeviceEvent::MouseMotion { delta },
+                event: winit::event::DeviceEvent::MouseMotion { delta },
                 ..
             } if !text_input_active && GameConfig::get().mouse_knobs => {
                 {
@@ -760,10 +755,11 @@ impl GameMain {
 
     fn render_overlays(
         vgfx: &Arc<RwLock<Vgfx>>,
-        frame_input: &td::FrameInput,
+        frame_input: &FrameInput,
         fps: f64,
         fps_paint: &vg::Paint,
         show_fps: bool,
+        surface: &SurfaceTexture,
     ) {
         profile_function!();
         let vgfx_lock = vgfx.write();
@@ -781,8 +777,12 @@ impl GameMain {
                 }
 
                 {
+                    //also flushes game game ui, can take longer than it looks like it should
                     profile_scope!("Flush Canvas");
-                    canvas.flush(); //also flushes game game ui, can take longer than it looks like it should
+                    canvas.flush_to_surface(&surface.texture);
+
+                    canvas.reset();
+                    canvas.set_size(frame_input.viewport.width, frame_input.viewport.height, 1.0);
                 }
             }
         }
@@ -792,7 +792,7 @@ impl GameMain {
         game_data: &Arc<RwLock<GameData>>,
         mousex: f64,
         mousey: f64,
-        frame_input: &td::FrameInput,
+        frame_input: &FrameInput,
         input_state: InputState,
     ) {
         profile_function!();
@@ -813,9 +813,7 @@ impl GameMain {
         }
 
         {
-            frame_input
-                .screen()
-                .clear(td::ClearState::color_and_depth(0.0, 0.0, 0.0, 1.0, 1.0));
+
             // .render(&camera, [&model], &[]);
         }
     }
@@ -827,7 +825,6 @@ impl GameMain {
             if let Ok(ref mut canvas) = canvas_lock {
                 canvas.reset();
                 canvas.set_size(size.width, size.height, 1.0);
-                canvas.flush();
             }
         }
     }
@@ -853,9 +850,7 @@ impl GameMain {
                     };
                 }
 
-                window.set_fullscreen(Some(game_loop::winit::window::Fullscreen::Borderless(
-                    current_monitor,
-                )))
+                window.set_fullscreen(Some(winit::window::Fullscreen::Borderless(current_monitor)))
             }
         }
     }

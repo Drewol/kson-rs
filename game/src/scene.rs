@@ -2,13 +2,14 @@ use std::{sync::mpsc::Sender, time::SystemTime};
 
 use anyhow::Result;
 use di::ServiceProvider;
-use game_loop::winit::event::Event;
-use three_d::{RenderTarget, Viewport};
+use wgpu::SurfaceTexture;
+use winit::event::Event;
 
 use crate::{
     button_codes::{LaserState, UscButton, UscInputEvent},
     companion_interface::GameState,
-    ControlMessage,
+    help::RenderContext,
+    ControlMessage, Viewport,
 };
 
 #[allow(unused_variables)]
@@ -25,9 +26,9 @@ pub trait Scene {
     fn render(
         &mut self,
         dt: f64,
-        td_context: &three_d::Context,
-        target: &mut RenderTarget,
+        td_context: &RenderContext,
         viewport: Viewport,
+        surface: &SurfaceTexture,
     ) {
     }
     fn render_ui(&mut self, dt: f64) -> Result<()>;

@@ -4,11 +4,11 @@ use std::{
 };
 
 use clap::Parser;
-use game_loop::winit::keyboard::PhysicalKey;
 use log::{error, info};
 use once_cell::sync::OnceCell;
 use serde::{Deserialize, Serialize};
 use winit::dpi::{PhysicalPosition, PhysicalSize};
+use winit::keyboard::PhysicalKey;
 
 use crate::{
     button_codes::{CustomBindings, UscButton},

@@ -10,7 +10,7 @@ const COMPAT_TEXT_SCALE: f32 = 21.5 / 30.0; // Needed because old usc has two di
 
 use anyhow::anyhow;
 use di::{Activator, InjectBuilder, Injectable};
-use femtovg::{renderer::OpenGl, Canvas, Color, FontId, ImageFlags, ImageId, Paint, Path};
+use femtovg::{renderer::WGPURenderer, Canvas, Color, FontId, ImageFlags, ImageId, Paint, Path};
 
 use log::warn;
 use poll_promise::Promise;
@@ -23,8 +23,14 @@ use tealr::{
 use tealr::mlu::mlua;
 
 use crate::{
-    animation::VgAnimation, config::GameConfig, default_game_dir, help::add_lua_static_method,
-    log_result, settings_screen::skin_select::SkinMeta, shaded_mesh::ShadedMesh, util::lua_address,
+    animation::VgAnimation,
+    config::GameConfig,
+    default_game_dir,
+    help::{add_lua_static_method, RenderContext},
+    log_result,
+    settings_screen::skin_select::SkinMeta,
+    shaded_mesh::ShadedMesh,
+    util::lua_address,
 };
 
 const FALLBACK_ID: u32 = u32::MAX;
@@ -82,11 +88,11 @@ struct ScopedAssets {
     labels: HashMap<u32, Label>,
     paint_imgs: HashMap<u32, ImageId>,
     job_imgs: HashMap<String, u32>,
-    canvas: Arc<Mutex<Canvas<OpenGl>>>,
+    canvas: Arc<Mutex<Canvas<WGPURenderer>>>,
 }
 
 impl ScopedAssets {
-    fn new(canvas: Arc<Mutex<Canvas<OpenGl>>>) -> Self {
+    fn new(canvas: Arc<Mutex<Canvas<WGPURenderer>>>) -> Self {
         Self {
             images: Default::default(),
             paints: Default::default(),
@@ -122,7 +128,7 @@ struct VgfxPoint {
 
 #[derive(UserData)]
 pub struct Vgfx {
-    pub canvas: Arc<Mutex<Canvas<OpenGl>>>,
+    pub canvas: Arc<Mutex<Canvas<WGPURenderer>>>,
     skin: String,
     _skin_meta: SkinMeta,
     restore_stack: Vec<VgfxPoint>,
@@ -174,7 +180,7 @@ struct Label {
 }
 
 impl Vgfx {
-    pub fn new(canvas: Arc<Mutex<Canvas<OpenGl>>>, game_folder: std::path::PathBuf) -> Self {
+    pub fn new(canvas: Arc<Mutex<Canvas<WGPURenderer>>>, game_folder: std::path::PathBuf) -> Self {
         let default_fonts = {
             let mut canvas = canvas.lock().expect("Lock error");
 
@@ -247,7 +253,7 @@ impl Vgfx {
 
     fn with_canvas<R>(
         &mut self,
-        mut f: impl FnMut(&mut Canvas<OpenGl>) -> R,
+        mut f: impl FnMut(&mut Canvas<WGPURenderer>) -> R,
     ) -> Result<R, mlua::Error> {
         let canvas = &mut self
             .canvas
@@ -2123,7 +2129,7 @@ impl TealData for Vgfx {
 
         methods.add_function_mut("CreateShadedMesh", |lua, p: CreateShadedMeshParams| {
             let context = &lua
-                .app_data_ref::<Arc<three_d::Context>>()
+                .app_data_ref::<Arc<RenderContext>>()
                 .ok_or(mlua::Error::external("three_d Context app date not set"))?;
             let vgfx = &lua
                 .app_data_ref::<Arc<RwLock<Vgfx>>>()

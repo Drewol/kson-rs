@@ -4,8 +4,8 @@ use std::{
     time::SystemTime,
 };
 
-use game_loop::winit::event::ElementState;
 use kson::Side;
+use winit::event::ElementState;
 
 use crate::button_codes::{LaserAxis, LaserState, UscButton, UscInputEvent};
 

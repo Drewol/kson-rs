@@ -1,6 +1,11 @@
 use std::{path::Path, rc::Rc, sync::Arc};
 
-use crate::{config::GameConfig, game::HoldState};
+use crate::{
+    config::GameConfig,
+    game::{graphics::CpuMesh, HoldState},
+    help::RenderContext,
+    shaded_mesh::ShadedMesh,
+};
 
 use super::graphics::{self, GlVertex};
 
@@ -8,32 +13,30 @@ pub struct ChartView {
     pub hispeed: f32,
     pub cursor: f64,
     laser_meshes: [Vec<Vec<graphics::GlVertex>>; 2],
-    track: CpuMesh,
+    track: ShadedMesh,
     distant_button_scale: f32,
 }
 
 use anyhow::anyhow;
+use glam::{vec2, vec3, Mat4, Vec2, Vec3};
 use kson::KSON_RESOLUTION;
+use openssl::sha;
+use palette::Srgba;
 use puffin::{profile_function, profile_scope};
-use three_d::{
-    vec2, vec3, Blend, ColorMaterial, CpuMesh, DepthTest, Indices, Mat3, RenderStates, Texture2D,
-    Vec3,
-};
-use three_d_asset::Srgba;
+
 impl ChartView {
     pub const TRACK_LENGTH: f32 = 16.0;
     pub const UP: Vec3 = vec3(0.0, 0.0, -1.0);
     pub const TRACK_DIRECTION: Vec3 = vec3(0.0, 1.0, 0.0);
     pub const Z_NEAR: f32 = 0.01;
 
-    pub fn new(skin_root: impl AsRef<Path>, td: &three_d::Context) -> anyhow::Result<Self> {
+    pub fn new(skin_root: impl AsRef<Path>, td: &RenderContext) -> anyhow::Result<Self> {
         let _indices: [u16; 6] = [0, 1, 2, 0, 2, 3];
         let mut texure_path = skin_root.as_ref().to_path_buf();
         texure_path.push("textures");
         texure_path.push("file.png");
-        td.set_depth_test(three_d::DepthTest::Never);
 
-        let mut textures = three_d_asset::io::load(&[
+        let mut textures = td.load_textures(&[
             texure_path.with_file_name("laser_l.png"),
             texure_path.with_file_name("laser_r.png"),
             texure_path.with_file_name("track.png"),
@@ -41,37 +44,17 @@ impl ChartView {
             texure_path.with_file_name("button.png"),
         ])?;
 
-        let _laser_texture = Some(Arc::new(Texture2D::new(
-            td,
-            &textures.deserialize("laser_l")?,
-        )));
-        let _laser_render_states = RenderStates {
-            blend: Blend::ADD,
-            depth_test: DepthTest::Always,
-            ..Default::default()
-        };
+        let mut shader_path = skin_root.as_ref().to_path_buf();
+        shader_path.push("shaders");
 
-        let track_texture = Arc::new(Texture2D::new(td, &textures.deserialize("track")?));
+        let track_texture = textures.remove("track").unwrap();
 
-        let _track_mat = Rc::new(ColorMaterial {
-            color: Srgba::WHITE,
-            texture: Some(three_d::Texture2DRef {
-                texture: track_texture,
-                transformation: Mat3::from_scale(1.0),
-            }),
-            render_states: RenderStates {
-                depth_test: three_d::DepthTest::Always,
-                ..Default::default()
-            },
-            ..Default::default()
-        });
+        let mut track = ShadedMesh::new(&td, "track", shader_path)?;
 
-        let track = graphics::xy_rect(vec3(0.0, 0.0, 0.0), vec2(1.0, Self::TRACK_LENGTH * 2.0));
-        let _button_render_states = RenderStates {
-            depth_test: DepthTest::Always,
-            ..Default::default()
-        };
-
+        track.set_data_mesh(&graphics::xy_rect(
+            vec3(0.0, 0.0, 0.0),
+            vec2(1.0, Self::TRACK_LENGTH * 2.0),
+        ));
         Ok(ChartView {
             distant_button_scale: GameConfig::get().distant_button_scale,
             cursor: 0.0,
@@ -159,12 +142,10 @@ impl ChartView {
     pub fn render(
         &self,
         chart: &kson::Chart,
-        td: &three_d::Context,
         hold_ok: impl Fn(usize, u32) -> bool,
         mut beam_colors: [[f32; 4]; 6],
         chip_h: f32,
     ) -> anyhow::Result<graphics::TrackRenderMeshes> {
-        use three_d::prelude::*;
         profile_function!();
         let chip_h = chip_h.copysign(-1.0);
         let view_time = self.cursor;
@@ -174,8 +155,6 @@ impl ChartView {
             0
         };
 
-        td.set_depth_test(three_d::DepthTest::Never);
-
         let _glow_state = if (0.0_f32 * 8.0).fract() > 0.5 { 2 } else { 3 };
         let view_tick = chart.ms_to_tick(view_time) as i64 + view_offset;
         let view_distance = (KSON_RESOLUTION as f32 * 8.0) / self.hispeed;
@@ -183,10 +162,6 @@ impl ChartView {
         let first_view_tick = view_tick - view_distance as i64;
         let y_view_div = view_distance / -Self::TRACK_LENGTH;
         let laser_y_view_div = y_view_div * Self::LASER_SPEED_OFFSET;
-        let _white_mat = Rc::new(ColorMaterial {
-            color: Srgba::WHITE,
-            ..Default::default()
-        });
 
         #[derive(Debug, PartialEq, Eq, Clone, Copy)]
         #[allow(unused)]
@@ -200,8 +175,6 @@ impl ChartView {
             FxHoldActive(usize, u32),
         }
         let mut notes = Vec::new();
-
-        let _track = self.track.clone();
 
         {
             profile_scope!("Build notes");
@@ -284,7 +257,7 @@ impl ChartView {
 
                 (
                     Mat4::from_translation(n.0)
-                        * Mat4::from_nonuniform_scale(1.0, -n.1.y * distance_scale, 1.0),
+                        * Mat4::from_scale(vec3(1.0, -n.1.y * distance_scale, 1.0)),
                     n.2,
                 )
             })
@@ -295,10 +268,10 @@ impl ChartView {
         let mut fx_chip = vec![];
         let mut bt_chip = vec![];
         let mut lasers = [
-            graphics::xy_rect(Vec3::zero(), Vec2::zero()),
-            graphics::xy_rect(Vec3::zero(), Vec2::zero()),
-            graphics::xy_rect(Vec3::zero(), Vec2::zero()),
-            graphics::xy_rect(Vec3::zero(), Vec2::zero()),
+            graphics::xy_rect(Vec3::ZERO, Vec2::ZERO),
+            graphics::xy_rect(Vec3::ZERO, Vec2::ZERO),
+            graphics::xy_rect(Vec3::ZERO, Vec2::ZERO),
+            graphics::xy_rect(Vec3::ZERO, Vec2::ZERO),
         ];
 
         //Dim FX beams
@@ -308,32 +281,32 @@ impl ChartView {
         let lane_beams = [
             (
                 Mat4::from_translation(vec3(-1.5 / 6.0, 0.0, 0.0))
-                    * Mat4::from_nonuniform_scale(1.0 / 6.0, ChartView::TRACK_LENGTH, 1.0),
+                    * Mat4::from_scale(vec3(1.0 / 6.0, ChartView::TRACK_LENGTH, 1.0)),
                 Srgba::from(beam_colors[0]),
             ),
             (
                 Mat4::from_translation(-vec3(0.5 / 6.0, 0.0, 0.0))
-                    * Mat4::from_nonuniform_scale(1.0 / 6.0, ChartView::TRACK_LENGTH, 1.0),
+                    * Mat4::from_scale(vec3(1.0 / 6.0, ChartView::TRACK_LENGTH, 1.0)),
                 Srgba::from(beam_colors[1]),
             ),
             (
                 Mat4::from_translation(vec3(0.5 / 6.0, 0.0, 0.0))
-                    * Mat4::from_nonuniform_scale(1.0 / 6.0, ChartView::TRACK_LENGTH, 1.0),
+                    * Mat4::from_scale(vec3(1.0 / 6.0, ChartView::TRACK_LENGTH, 1.0)),
                 Srgba::from(beam_colors[2]),
             ),
             (
                 Mat4::from_translation(vec3(1.5 / 6.0, 0.0, 0.0))
-                    * Mat4::from_nonuniform_scale(1.0 / 6.0, ChartView::TRACK_LENGTH, 1.0),
+                    * Mat4::from_scale(vec3(1.0 / 6.0, ChartView::TRACK_LENGTH, 1.0)),
                 Srgba::from(beam_colors[3]),
             ),
             (
                 Mat4::from_translation(-vec3(1.0 / 6.0, 0.0, 0.0))
-                    * Mat4::from_nonuniform_scale(2.0 / 6.0, ChartView::TRACK_LENGTH, 1.0),
+                    * Mat4::from_scale(vec3(2.0 / 6.0, ChartView::TRACK_LENGTH, 1.0)),
                 Srgba::from(beam_colors[4]),
             ),
             (
                 Mat4::from_translation(vec3(1.0 / 6.0, 0.0, 0.0))
-                    * Mat4::from_nonuniform_scale(2.0 / 6.0, ChartView::TRACK_LENGTH, 1.0),
+                    * Mat4::from_scale(vec3(2.0 / 6.0, ChartView::TRACK_LENGTH, 1.0)),
                 Srgba::from(beam_colors[5]),
             ),
         ];
@@ -386,15 +359,12 @@ impl ChartView {
                         .ok_or(anyhow!("Laser meshes not built correctly"))?;
                     let yoff = (view_tick - s.tick() as i64) as f32;
                     let laser_mesh = CpuMesh {
-                        indices: Indices::U32((0u32..(vertices.len() as u32)).collect()),
-                        positions: three_d::Positions::F32(
-                            vertices
-                                .iter()
-                                .map(|v| {
-                                    vec3(v.pos.z, (yoff - v.pos.x) / laser_y_view_div, v.pos.y)
-                                })
-                                .collect(),
-                        ),
+                        indices: Some((0..(vertices.len() as u32)).collect()),
+                        positions: vertices
+                            .iter()
+                            .map(|v| vec3(v.pos.z, (yoff - v.pos.x) / laser_y_view_div, v.pos.y))
+                            .collect(),
+
                         uvs: Some(vertices.iter().map(|v| vec2(v.uv.x, v.uv.y)).collect()),
                         ..Default::default()
                     };

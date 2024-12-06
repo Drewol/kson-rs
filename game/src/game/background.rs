@@ -3,13 +3,15 @@ use std::path::{Path, PathBuf};
 use crate::{
     game::ChartView,
     game_data::{ExportGame, GameData, LuaPath},
-    help::transform_shader,
+    help::{transform_shader, RenderContext},
     shaded_mesh::ShadedMesh,
     util::lua_address,
     vg_ui::{ExportVgfx, Vgfx},
+    Viewport,
 };
 
 use di::RefMut;
+use glam::{vec2, Mat4, Vec2, Vec3, Vec3Swizzles};
 use kson::MeasureBeatLines;
 use log::warn;
 use puffin::profile_function;
@@ -24,7 +26,6 @@ use tealr::{
     },
     mlua_create_named_parameters, ToTypename,
 };
-use three_d_asset::{vec2, Vector2, Vector3, Viewport};
 
 #[derive(Debug, Clone, Copy)]
 pub struct BackgroundData {
@@ -182,10 +183,10 @@ impl TealData for GameBackgroundLua {
 
             bg.set_param(
                 "screenCenter",
-                Vector2::new((data.screen_center.0) as i32, (data.screen_center.1) as i32),
+                Vec2::new((data.screen_center.0), (data.screen_center.1)),
             );
 
-            bg.set_param("timing", Vector3::from(data.timing));
+            bg.set_param("timing", Vec3::from(data.timing));
             bg.set_param("clearTransition", data.clear_transition);
             bg.set_param("tilt", vec2(data.roll, 0.0)); //(camera roll, background spin)
 
@@ -207,7 +208,7 @@ impl Drop for GameBackground {
 
 impl GameBackground {
     pub fn new(
-        context: &three_d::Context,
+        context: &RenderContext,
         background: bool,
         path: impl AsRef<Path>,
         chart: &kson::Chart,
@@ -273,15 +274,18 @@ impl GameBackground {
     pub fn render(
         &mut self,
         dt: f64,
-        camera: &three_d::Camera,
+        camera: &Mat4,
         chart_time: f64,
         chart: &kson::Chart,
         tick: u32,
         roll: f32,
         clear: bool,
+        viewport: Viewport,
     ) {
         profile_function!();
-        let center = camera.pixel_at_position(ChartView::TRACK_DIRECTION * 50.0);
+        let center = camera
+            .project_point3(ChartView::TRACK_DIRECTION * 50.0)
+            .xy();
         let bpm = chart.bpm_at_tick(tick);
 
         {
@@ -290,7 +294,7 @@ impl GameBackground {
                 .app_data_mut::<BackgroundData>()
                 .expect("No background data");
             data.screen_center = center.into();
-            data.viewport = camera.viewport();
+            data.viewport = viewport;
 
             while chart_time > self.beat_bounds.1 {
                 self.beat_bounds.0 = self.beat_bounds.1;

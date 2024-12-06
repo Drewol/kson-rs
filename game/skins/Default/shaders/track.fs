@@ -6,10 +6,10 @@ in vec2 fsTex;
 out vec4 target;
 #endif
 
-uniform sampler2D mainTex;
-uniform vec4 lCol;
-uniform vec4 rCol;
-uniform float hidden;
+layout(binding=0) uniform int mainTex;
+layout(binding=1) uniform vec4 lCol;
+layout(binding=2) uniform vec4 rCol;
+layout(binding=3) uniform float hidden;
 
 void main()
 {	

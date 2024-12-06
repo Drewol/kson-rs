@@ -9,7 +9,6 @@ use std::{
 };
 
 use crate::{
-    block_on,
     config::{GameConfig, SongSelectSettings},
     game::{gauge::Gauge, HitSummary, HitWindow},
     log_result,
@@ -580,7 +579,7 @@ impl SongProvider for FileSongProvider {
         };
 
         let db = self.database.clone();
-        let path = PathBuf::from(block_on!(db.get_song(_diff_index as _))?.path);
+        let path = PathBuf::from(block_on(db.get_song(_diff_index as _))?.path);
 
         Ok(Box::new(move || {
             let data = std::fs::read(&path)?;

@@ -1,12 +1,22 @@
 use std::{
+    borrow::Cow,
     collections::HashMap,
+    io::Read,
     path::Path,
     sync::{Arc, RwLock},
 };
 
-use anyhow::ensure;
+use anyhow::{anyhow, ensure};
 use di::RefMut;
+use encase::{
+    internal::{BufferMut, WriteInto},
+    ShaderSize, ShaderType,
+};
+use femtovg::renderer::WGPURenderer;
+use futures::executor::block_on;
+use image::{buffer, GenericImageView};
 use itertools::Itertools;
+use palette::{stimulus::IntoStimulus, IntoColor, Srgba};
 use puffin::profile_function;
 use tealr::{
     mlu::{
@@ -15,14 +25,24 @@ use tealr::{
     },
     ToTypename,
 };
-use three_d::{
-    vec2, vec3, vec4, AxisAlignedBoundingBox, Blend, BufferDataType, Context, CpuTexture,
-    ElementBuffer, ElementBufferDataType, FrameInput, Geometry, Mat4, Object, Program,
-    RenderStates, SquareMatrix, Texture2D, Vec2, Vec3, Vec4, VertexBuffer, Wrapping,
-};
-use three_d_asset::{Srgba, Vector2, Vector3, Vector4};
 
-use crate::{config::GameConfig, game_data, help::transform_shader, vg_ui::Vgfx};
+use glam::{vec2, vec3, vec4, IVec2, IVec3, IVec4, Mat4, Vec2, Vec3, Vec4};
+use wgpu::{
+    naga::{self, front::glsl::Options},
+    util::DeviceExt,
+    BindGroupEntry, BindGroupLayoutEntry, BufferUsages, Device, Extent3d, FragmentState,
+    ImageDataLayout, PrimitiveState, RenderPassColorAttachment, ShaderModuleDescriptor,
+    ShaderStages, Texture, TextureDescriptor, TextureFormat,
+};
+
+use crate::{
+    config::GameConfig,
+    game::graphics::CpuMesh,
+    game_data,
+    help::{blend_add, transform_shader, RenderContext},
+    vg_ui::Vgfx,
+    FrameInput, Viewport,
+};
 
 pub enum ShaderParam {
     Int(i32),
@@ -30,26 +50,26 @@ pub enum ShaderParam {
     Vec2(Vec2),
     Vec3(Vec3),
     Vec4(Vec4),
-    IVec2(Vector2<i32>),
-    IVec3(Vector3<i32>),
-    IVec4(Vector4<i32>),
-    Texture(Texture2D),
+    IVec2(IVec2),
+    IVec3(IVec3),
+    IVec4(IVec4),
+    Texture(Texture),
 }
 
-impl From<Vector2<i32>> for ShaderParam {
-    fn from(value: Vector2<i32>) -> Self {
+impl From<IVec2> for ShaderParam {
+    fn from(value: IVec2) -> Self {
         Self::IVec2(value)
     }
 }
 
-impl From<Vector3<i32>> for ShaderParam {
-    fn from(value: Vector3<i32>) -> Self {
+impl From<IVec3> for ShaderParam {
+    fn from(value: IVec3) -> Self {
         Self::IVec3(value)
     }
 }
 
-impl From<Vector4<i32>> for ShaderParam {
-    fn from(value: Vector4<i32>) -> Self {
+impl From<IVec4> for ShaderParam {
+    fn from(value: IVec4) -> Self {
         Self::IVec4(value)
     }
 }
@@ -75,8 +95,8 @@ impl From<Vec4> for ShaderParam {
         Self::Vec4(value)
     }
 }
-impl From<Texture2D> for ShaderParam {
-    fn from(value: Texture2D) -> Self {
+impl From<wgpu::Texture> for ShaderParam {
+    fn from(value: Texture) -> Self {
         Self::Texture(value)
     }
 }
@@ -87,11 +107,11 @@ impl From<i32> for ShaderParam {
     }
 }
 
-impl From<Srgba> for ShaderParam {
-    fn from(value: Srgba) -> Self {
-        Self::Vec4(value.into())
-    }
-}
+// Reserved groups
+// 1000 = transform
+// 1001 = projection
+// 1002 = camera
+// 1003 = resolution
 
 /// https://www.khronos.org/opengl/wiki/Primitive#Triangle_primitives for calculating indecies
 enum DrawingMode {
@@ -104,19 +124,29 @@ enum DrawingMode {
 #[derive(UserData, ToTypename)]
 pub struct ShadedMesh {
     params: HashMap<String, ShaderParam>,
-    material: three_d::Program,
-    state: RenderStates,
+    material: wgpu::RenderPipeline,
+    state: wgpu::BlendState,
     vertex_count: usize,
     draw_mode: DrawingMode,
-    indecies: ElementBuffer,
-    vertecies_pos: VertexBuffer,
-    vertecies_uv: VertexBuffer,
-    vertecies_color: Option<VertexBuffer>,
-    aabb: AxisAlignedBoundingBox,
+    indecies: Vec<u32>,
+    vertecies_pos: Vec<Vec3>,
+    vertecies_uv: Vec<Vec2>,
+    vertecies_color: Option<Vec<Vec4>>,
+    vertex_buffer: wgpu::Buffer,
+    uniform_buffer: wgpu::Buffer,
+    index_buffer: wgpu::Buffer,
+    uniform_bind_group: wgpu::BindGroup,
     transform: Mat4,
-    context: Context,
-    requires_in_tex: bool,
-    requires_in_color: bool,
+    context: RenderContext,
+    /// Map uniform names to bind groups + buffer
+    uniform_map: HashMap<String, (u32, wgpu::Buffer, wgpu::BindGroup)>,
+}
+
+#[derive(ShaderType)]
+pub struct GpuVertex {
+    pos: [f32; 3],
+    uv: [f32; 2],
+    color: [f32; 4],
 }
 
 fn flip_image_data<T>(d: &mut [T], width: usize, height: usize) {
@@ -129,88 +159,146 @@ fn flip_image_data<T>(d: &mut [T], width: usize, height: usize) {
 
 impl ShadedMesh {
     pub fn new(
-        context: &three_d::Context,
+        context: &RenderContext,
         material: &str,
         path: impl AsRef<Path>,
     ) -> anyhow::Result<Self> {
         let mut shader_path = path.as_ref().to_path_buf();
         shader_path.push(material);
-        shader_path.set_extension("vs");
+        shader_path.set_extension("wgsl");
+        let fs_text = std::fs::read_to_string(shader_path)?;
+        Self::new_with_shader(context, &fs_text, material)
+    }
+
+    pub fn new_with_shader(
+        context: &RenderContext,
+        shader_source: &str,
+        name: &str,
+    ) -> anyhow::Result<Self> {
+        let RenderContext { device, .. } = context;
+        let parser = naga::front::glsl::Frontend::default();
+
         profile_function!();
 
-        let vertex_shader_source = transform_shader(std::fs::read_to_string(&shader_path)?);
+        let shader = device.create_shader_module(ShaderModuleDescriptor {
+            label: Some(name),
+            source: wgpu::ShaderSource::Wgsl(shader_source.into()),
+        });
 
-        let fragment_shader_source =
-            transform_shader(std::fs::read_to_string(shader_path.with_extension("fs"))?);
+        let layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+            label: None,
+            bind_group_layouts: &[],
+            push_constant_ranges: &[],
+        });
+
+        let uniform_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+            label: None,
+            contents: &[],
+            usage: wgpu::BufferUsages::UNIFORM,
+        });
+
+        let bind_group_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+            label: None,
+            entries: &[BindGroupLayoutEntry {
+                binding: 0,
+                visibility: wgpu::ShaderStages::VERTEX_FRAGMENT,
+                ty: wgpu::BindingType::Buffer {
+                    ty: wgpu::BufferBindingType::Uniform,
+                    has_dynamic_offset: false,
+                    min_binding_size: None,
+                },
+                count: None,
+            }],
+        });
+
+        let uniform_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
+            label: None,
+            layout: &bind_group_layout,
+            entries: &[BindGroupEntry {
+                binding: 0,
+                resource: uniform_buffer.as_entire_binding(),
+            }],
+        });
+
+        let pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+            label: None,
+            bind_group_layouts: &[&bind_group_layout],
+            push_constant_ranges: &[],
+        });
+
+        let vertex_buffer = device.create_buffer(&wgpu::BufferDescriptor {
+            label: None,
+            size: 0,
+            usage: BufferUsages::VERTEX,
+            mapped_at_creation: false,
+        });
+
+        let index_buffer = device.create_buffer(&wgpu::BufferDescriptor {
+            label: None,
+            size: 0,
+            usage: BufferUsages::INDEX,
+            mapped_at_creation: false,
+        });
+
+        let material = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+            label: None,
+            layout: Some(&pipeline_layout),
+            vertex: wgpu::VertexState {
+                module: &shader,
+                entry_point: None,
+                compilation_options: Default::default(),
+                buffers: &[wgpu::VertexBufferLayout {
+                    array_stride: GpuVertex::SHADER_SIZE.get(),
+                    step_mode: wgpu::VertexStepMode::Vertex,
+                    attributes: &wgpu::vertex_attr_array![0 => Float32x3, 1 => Float32x2, 2 => Float32x4],
+                }],
+            },
+            primitive: PrimitiveState::default(),
+            depth_stencil: None,
+            multisample: Default::default(),
+            fragment: Some(FragmentState {
+                module: &shader,
+                entry_point: None,
+                compilation_options: Default::default(),
+                targets: &[Some(wgpu::TextureFormat::Rgba8Unorm.into())],
+            }),
+            multiview: None,
+            cache: None,
+        });
 
         let mut params = HashMap::new();
 
-        let material =
-            Program::from_source(context, &vertex_shader_source, &fragment_shader_source)?;
-
-        if material.requires_uniform("color") {
-            params.insert("color".into(), vec4(1.0, 1.0, 1.0, 1.0).into());
-        }
-        let requires_in_color = material.requires_attribute("inColor");
-        let requires_in_tex = material.requires_attribute("inTex");
         Ok(Self {
             params,
             material,
-            state: RenderStates {
-                cull: three_d::Cull::None,
-                blend: Blend::TRANSPARENCY,
-                depth_test: three_d::DepthTest::Always,
-                write_mask: three_d::WriteMask::COLOR,
-            },
+            state: wgpu::BlendState::ALPHA_BLENDING,
             vertex_count: 0,
             draw_mode: DrawingMode::Triangles,
-            indecies: ElementBuffer::new(context),
-            vertecies_pos: VertexBuffer::new(context),
-            vertecies_uv: VertexBuffer::new(context),
-            aabb: AxisAlignedBoundingBox::EMPTY,
-            transform: Mat4::identity(),
+            indecies: vec![],
+            vertecies_pos: vec![],
+            vertecies_uv: vec![],
+            transform: Mat4::IDENTITY,
             vertecies_color: None,
             context: context.clone(),
-            requires_in_color,
-            requires_in_tex,
+            uniform_bind_group,
+            uniform_buffer,
+            vertex_buffer,
+            index_buffer,
+            uniform_map: HashMap::new(),
         })
     }
 
-    pub fn new_fullscreen(
-        context: &three_d::Context,
-        fragment_shader: &str,
-    ) -> anyhow::Result<Self> {
-        let vertecies_pos = VertexBuffer::new_with_data(
-            context,
-            &(0..3).map(|x| vec3(x as f32, 0.0, 0.0)).collect_vec(),
+    pub fn new_fullscreen(context: &RenderContext, fragment_shader: &str) -> anyhow::Result<Self> {
+        let shader = format!(
+            "{}\n{}",
+            include_str!("static_assets/fullscreen.wgsl"),
+            fragment_shader
         );
 
-        Ok(Self {
-            params: HashMap::default(),
-            material: Program::from_source(
-                //https://stackoverflow.com/questions/2588875/whats-the-best-way-to-draw-a-fullscreen-quad-in-opengl-3-2
-                context,
-                include_str!("static_assets/fullscreen.vs"),
-                fragment_shader,
-            )?,
-            state: RenderStates {
-                cull: three_d::Cull::None,
-                blend: Blend::TRANSPARENCY,
-                depth_test: three_d::DepthTest::Always,
-                write_mask: three_d::WriteMask::COLOR,
-            },
-            vertex_count: 0,
-            draw_mode: DrawingMode::Triangles,
-            indecies: ElementBuffer::new(context),
-            vertecies_pos,
-            vertecies_uv: VertexBuffer::new(context),
-            aabb: AxisAlignedBoundingBox::EMPTY,
-            transform: Mat4::identity(),
-            vertecies_color: None,
-            context: context.clone(),
-            requires_in_color: false,
-            requires_in_tex: false,
-        })
+        let mut v = Self::new_with_shader(context, &shader, "Fullscreen")?;
+        v.vertecies_pos = (0..3).map(|x| vec3(x as f32, 0.0, 0.0)).collect_vec();
+
+        Ok(v)
     }
 
     pub fn with_transform(mut self, transform: Mat4) -> Self {
@@ -218,8 +306,17 @@ impl ShadedMesh {
         self
     }
 
-    pub fn set_blend(&mut self, blend: Blend) {
-        self.state.blend = blend;
+    pub fn write_uniform<T: ShaderType + WriteInto>(&mut self, v: &T) -> anyhow::Result<()> {
+        let mut encase_buffer = encase::UniformBuffer::new(Vec::new());
+        encase_buffer.write(v)?;
+        self.context
+            .queue
+            .write_buffer(&self.uniform_buffer, 0, &encase_buffer.into_inner());
+        Ok(())
+    }
+
+    pub fn set_blend(&mut self, blend: wgpu::BlendState) {
+        self.state = blend;
     }
 
     fn update_indecies(&mut self) -> anyhow::Result<()> {
@@ -238,7 +335,7 @@ impl ShadedMesh {
 
         let index_list: Vec<u32> = (0u32..self.vertex_count as u32).collect();
 
-        let indecies = match self.draw_mode {
+        self.indecies = match self.draw_mode {
             DrawingMode::Triangles => index_list,
             DrawingMode::Strip => index_list
                 .windows(3)
@@ -258,16 +355,18 @@ impl ShadedMesh {
                 .collect(),
         };
 
-        self.indecies.fill(&indecies);
-
         Ok(())
     }
 
     pub fn set_param(&mut self, key: &str, param: impl Into<ShaderParam>) {
-        if self.material.requires_uniform(key) {
+        if self.requires_uniform(key) {
             let key: String = key.into();
             self.params.insert(key, param.into());
         }
+    }
+
+    fn requires_uniform(&self, key: &str) -> bool {
+        self.uniform_map.contains_key(key)
     }
 
     pub fn use_texture(
@@ -276,231 +375,196 @@ impl ShadedMesh {
         path: impl AsRef<Path>,
         wrap_xy: (bool, bool),
         flip_y: bool,
-    ) -> anyhow::Result<CpuTexture> {
+    ) -> anyhow::Result<Texture> {
         profile_function!();
         let name = name.into();
-        let mut cpu_texture: CpuTexture = three_d_asset::io::load_and_deserialize(path)?;
+        let mut texture_data = image::open(path)?;
 
-        log::info!("{}", &cpu_texture.name);
-        cpu_texture.data = match cpu_texture.data {
-            three_d::TextureData::RU8(luma) => {
-                three_d::TextureData::RgbaU8(luma.into_iter().map(|v| [v, v, v, 255u8]).collect())
-            }
-            three_d::TextureData::RgU8(luma_alpha) => three_d::TextureData::RgbaU8(
-                luma_alpha
-                    .into_iter()
-                    .map(|la| [la[0], la[0], la[0], la[1]])
-                    .collect(),
-            ),
-
-            data => data,
+        texture_data = if flip_y {
+            texture_data.flipv()
+        } else {
+            texture_data
         };
 
-        if flip_y {
-            let width = cpu_texture.width as usize;
-            let height = cpu_texture.height as usize;
-            match &mut cpu_texture.data {
-                three_d::TextureData::RU8(vec) => flip_image_data(vec, width, height),
-                three_d::TextureData::RgU8(vec) => flip_image_data(vec, width, height),
-                three_d::TextureData::RgbU8(vec) => flip_image_data(vec, width, height),
-                three_d::TextureData::RgbaU8(vec) => flip_image_data(vec, width, height),
-                three_d::TextureData::RF16(vec) => flip_image_data(vec, width, height),
-                three_d::TextureData::RgF16(vec) => flip_image_data(vec, width, height),
-                three_d::TextureData::RgbF16(vec) => flip_image_data(vec, width, height),
-                three_d::TextureData::RgbaF16(vec) => flip_image_data(vec, width, height),
-                three_d::TextureData::RF32(vec) => flip_image_data(vec, width, height),
-                three_d::TextureData::RgF32(vec) => flip_image_data(vec, width, height),
-                three_d::TextureData::RgbF32(vec) => flip_image_data(vec, width, height),
-                three_d::TextureData::RgbaF32(vec) => flip_image_data(vec, width, height),
-            }
-        }
+        let (wrap_h, wrap_v) = match wrap_xy {
+            (true, true) => (wgpu::AddressMode::Repeat, wgpu::AddressMode::Repeat),
+            (true, false) => (wgpu::AddressMode::Repeat, wgpu::AddressMode::ClampToBorder),
+            (false, true) => (wgpu::AddressMode::ClampToBorder, wgpu::AddressMode::Repeat),
+            (false, false) => (
+                wgpu::AddressMode::ClampToBorder,
+                wgpu::AddressMode::ClampToBorder,
+            ),
+        };
 
-        match wrap_xy {
-            (true, true) => {
-                cpu_texture.wrap_s = Wrapping::Repeat;
-                cpu_texture.wrap_t = Wrapping::Repeat;
-            }
-            (true, false) => {
-                cpu_texture.wrap_s = Wrapping::Repeat;
-                cpu_texture.wrap_t = Wrapping::ClampToEdge;
-            }
-            (false, true) => {
-                cpu_texture.wrap_s = Wrapping::ClampToEdge;
-                cpu_texture.wrap_t = Wrapping::Repeat;
-            }
-            (false, false) => {
-                cpu_texture.wrap_s = Wrapping::ClampToEdge;
-                cpu_texture.wrap_t = Wrapping::ClampToEdge;
-            }
-        }
+        let cpu_texture = self.context.device.create_texture_with_data(
+            &self.context.queue,
+            &TextureDescriptor {
+                label: Some(&name),
+                size: Extent3d {
+                    width: texture_data.width(),
+                    height: texture_data.height(),
+                    depth_or_array_layers: 1,
+                },
+                mip_level_count: 1,
+                sample_count: 1,
+                dimension: wgpu::TextureDimension::D2,
+                format: wgpu::TextureFormat::Rgba8UnormSrgb,
+                usage: wgpu::TextureUsages::COPY_DST | wgpu::TextureUsages::TEXTURE_BINDING,
+                view_formats: &[wgpu::TextureFormat::Rgba8Unorm],
+            },
+            wgpu::util::TextureDataOrder::LayerMajor,
+            texture_data
+                .as_rgba8()
+                .ok_or(anyhow!("Failed to convert texture"))?
+                .as_raw(),
+        );
 
-        let texture = three_d::Texture2D::new(&self.context, &cpu_texture);
-
-        if self.material.requires_uniform(&name) {
-            self.material.use_texture(&name, &texture);
-            self.params.insert(name, ShaderParam::Texture(texture));
-        }
         Ok(cpu_texture)
     }
+
+    pub fn use_uniform<T: ShaderType + WriteInto>(&self, n: impl AsRef<str>, v: T) {
+        if let Some((_, buff, _)) = self.uniform_map.get(n.as_ref()) {
+            let mut encased = encase::UniformBuffer::new(Vec::<u8>::new());
+            encased.write(&v);
+
+            self.context
+                .queue
+                .write_buffer(buff, 0, &encased.into_inner());
+        }
+    }
+
+    pub fn use_texture_uniform(&self, name: &str, tex: &wgpu::Texture) {}
 
     #[inline]
     fn use_params(&self) {
         for (name, param) in &self.params {
             match param {
-                ShaderParam::Single(v) => self.material.use_uniform(name, v),
-                ShaderParam::Vec2(v) => self.material.use_uniform(name, v),
-                ShaderParam::Vec3(v) => self.material.use_uniform(name, v),
-                ShaderParam::Vec4(v) => self.material.use_uniform(name, v),
-                ShaderParam::IVec2(v) => self.material.use_uniform(name, v),
-                ShaderParam::IVec3(v) => self.material.use_uniform(name, v),
-                ShaderParam::IVec4(v) => self.material.use_uniform(name, v),
-                ShaderParam::Int(v) => self.material.use_uniform(name, v),
-                ShaderParam::Texture(v) => self.material.use_texture(name, v),
+                ShaderParam::Single(v) => self.use_uniform(name, v),
+                ShaderParam::Vec2(v) => self.use_uniform(name, v.to_array()),
+                ShaderParam::Vec3(v) => self.use_uniform(name, v.to_array()),
+                ShaderParam::Vec4(v) => self.use_uniform(name, v.to_array()),
+                ShaderParam::IVec2(v) => self.use_uniform(name, v.to_array()),
+                ShaderParam::IVec3(v) => self.use_uniform(name, v.to_array()),
+                ShaderParam::IVec4(v) => self.use_uniform(name, v.to_array()),
+                ShaderParam::Int(v) => self.use_uniform(name, v),
+                ShaderParam::Texture(v) => self.use_texture_uniform(name, v),
             }
         }
     }
 
     #[allow(unused)]
-    pub fn draw(&self, frame: &FrameInput) -> Result<(), tealr::mlu::mlua::Error> {
+    pub fn draw(&self) -> Result<(), tealr::mlu::mlua::Error> {
         self.use_params();
-        self.material
-            .use_vertex_attribute("inPos", &self.vertecies_pos);
-        if self.requires_in_tex {
-            self.material
-                .use_vertex_attribute("inTex", &self.vertecies_uv); //UVs
+        let mut encoder = self.context.encoder(None);
+
+        let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+            label: None,
+            color_attachments: &[Some(RenderPassColorAttachment {
+                view: todo!(),
+                resolve_target: todo!(),
+                ops: todo!(),
+            })],
+            depth_stencil_attachment: None,
+            timestamp_writes: None,
+            occlusion_query_set: None,
+        });
+
+        render_pass.set_vertex_buffer(0, self.vertex_buffer.slice(..));
+        render_pass.set_index_buffer(self.index_buffer.slice(..), wgpu::IndexFormat::Uint32);
+
+        // Set predefined bind groups
+        // render_pass.set_bind_group(index, bind_group, offsets);
+
+        // Set dynamic bind groups
+        for (idx, _, g) in self.uniform_map.values() {
+            render_pass.set_bind_group(*idx, g, &[]);
         }
 
-        if let Some(colors) = self.vertecies_color.as_ref() {
-            if self.requires_in_color {
-                self.material.use_vertex_attribute("inColor", colors);
-            }
-        }
-
-        self.material
-            .draw_elements(self.state, frame.viewport, &self.indecies);
+        render_pass.draw_indexed(0..self.indecies.len() as u32, 0, 0..1);
         Ok(())
     }
 
-    pub fn draw_fullscreen(&self, viewport: three_d::Viewport) {
+    pub fn draw_fullscreen(&self, viewport: Viewport) {
         self.use_params();
-
-        self.material.use_uniform_if_required(
-            "viewport",
-            Vector2::<i32>::new(viewport.width as i32, viewport.height as i32),
-        );
-        self.material
-            .use_vertex_attribute("inPos", &self.vertecies_pos);
-
-        self.material.draw_arrays(self.state, viewport, 3)
+        self.use_uniform("viewport", [viewport.width as i32, viewport.height as i32]);
+        self.draw();
     }
 
-    pub fn draw_camera(&self, camera: &three_d::Camera) {
+    pub fn draw_camera(&self, camera: &Mat4) {
         self.set_camera_uniforms(camera);
 
-        self.material
-            .draw_elements(self.state, camera.viewport(), &self.indecies);
+        self.draw();
     }
 
     #[inline]
-    fn set_camera_uniforms(&self, camera: &three_d_asset::Camera) {
-        self.material.use_uniform("proj", camera.projection());
-        self.material.use_uniform("camera", camera.view());
-        self.material.use_uniform("world", self.transform);
+    fn set_camera_uniforms(&self, camera: &Mat4) {
+        self.use_uniform("proj", camera.to_cols_array());
+        self.use_uniform("camera", camera.to_cols_array());
+        self.use_uniform("world", self.transform.to_cols_array());
         self.use_params();
-        self.material
-            .use_vertex_attribute("inPos", &self.vertecies_pos);
-        if self.requires_in_tex {
-            self.material
-                .use_vertex_attribute("inTex", &self.vertecies_uv); //UVs
-        }
-
-        if let Some(colors) = self.vertecies_color.as_ref() {
-            if self.requires_in_color {
-                self.material.use_vertex_attribute("inColor", colors);
-            }
-        }
     }
 
     pub fn draw_instanced_camera<T>(
         &self,
-        camera: &three_d::Camera,
+        camera: &Mat4,
         instances: impl IntoIterator<Item = T>,
-        set_uniforms: impl Fn(&Program, &Mat4, T),
+        set_uniforms: impl Fn(&Self, Mat4, T),
+        viewport: Viewport,
     ) {
         profile_function!();
         //TODO: Use actual instancing, may causes skin incompatibility
-        let viewport = camera.viewport();
+
         for i in instances {
             self.set_camera_uniforms(camera);
-            set_uniforms(&self.material, &self.transform, i);
-            self.material
-                .draw_elements(self.state, viewport, &self.indecies)
+            set_uniforms(&self, self.transform, i);
+            self.draw();
         }
     }
 
-    pub fn set_data<T: BufferDataType, U: BufferDataType, V: BufferDataType>(
-        &mut self,
-        pos: &[T],
-        uv: &[U],
-        colors: &Option<Vec<V>>,
-    ) {
-        self.set_data_indexed(pos, uv, &[] as &[u32], colors);
+    pub fn set_data(&mut self, pos: Vec<Vec3>, uv: Vec<Vec2>, colors: Option<Vec<Vec4>>) {
+        self.set_data_indexed(pos, uv, vec![], colors);
         self.update_indecies().expect("Bad mesh data");
     }
 
-    pub fn set_data_mesh(&mut self, mesh: &three_d::CpuMesh) {
+    pub fn set_data_mesh(&mut self, mesh: &CpuMesh) {
         profile_function!();
-        self.aabb = mesh.compute_aabb();
         let colors: Option<Vec<Vec4>> = mesh
             .colors
             .as_ref()
             .map(|x| x.iter().copied().map(|x| x.into()).collect_vec());
-        if let Some(indicies) = mesh.indices.to_u32() {
+        if let Some(indicies) = mesh.indices.as_ref() {
             self.set_data_indexed(
-                &mesh.positions.to_f32(),
-                mesh.uvs.as_ref().unwrap_or(&vec![]),
-                &indicies,
-                &colors,
+                mesh.positions.clone(),
+                mesh.uvs.clone().unwrap_or(vec![]),
+                indicies.clone(),
+                colors.clone(),
             );
         } else {
             self.set_data(
-                &mesh.positions.to_f32(),
-                mesh.uvs.as_ref().unwrap_or(&vec![]),
-                &colors,
+                mesh.positions.clone(),
+                mesh.uvs.clone().unwrap_or(vec![]),
+                colors.clone(),
             );
         }
     }
 
-    pub fn set_data_indexed<
-        T: BufferDataType,
-        U: BufferDataType,
-        V: ElementBufferDataType,
-        W: BufferDataType,
-    >(
+    pub fn set_data_indexed(
         &mut self,
-        pos: &[T],
-        uv: &[U],
-        indecies: &[V],
-        colors: &Option<Vec<W>>,
+        pos: Vec<Vec3>,
+        uv: Vec<Vec2>,
+        indecies: Vec<u32>,
+        colors: Option<Vec<Vec4>>,
     ) {
         profile_function!();
 
-        self.vertecies_pos.fill(pos);
-
-        self.vertecies_pos.fill(pos);
-        self.vertecies_uv.fill(uv);
-
-        match (self.vertecies_color.as_mut(), colors) {
-            (None, None) => {}
-            (None, Some(x)) => {
-                self.vertecies_color =
-                    Some(VertexBuffer::new_with_data(&self.context, x.as_slice()))
-            }
-            (Some(_), None) => self.vertecies_color = None,
-            (Some(buffer), Some(x)) => buffer.fill(x.as_slice()),
-        }
-
-        self.indecies.fill(indecies);
+        self.vertecies_pos = pos;
+        self.vertecies_uv = uv;
+        self.vertecies_color = colors;
+        self.indecies = if indecies.is_empty() {
+            (0..self.vertecies_pos.len() as u32).collect_vec()
+        } else {
+            indecies
+        };
     }
 
     pub fn draw_lua_skin(
@@ -518,7 +582,7 @@ impl ShadedMesh {
         };
 
         self.use_params();
-        self.material.use_uniform(
+        self.use_uniform(
             "proj",
             create_orthographic(
                 0.0,
@@ -527,87 +591,23 @@ impl ShadedMesh {
                 0.0,
                 0.0,
                 100.0,
-            ),
+            )
+            .to_cols_array(),
         );
 
-        self.material.use_uniform(
+        self.use_uniform(
             "world",
-            Mat4::new(
-                c0r0, c0r1, 0.0, 0.0, c1r0, c1r1, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, c2r0, c2r1, 0.0,
-                1.0,
-            ),
+            Mat4::from_cols(
+                vec4(c0r0, c0r1, 0.0, 0.0),
+                vec4(c1r0, c1r1, 0.0, 0.0),
+                vec4(0.0, 0.0, 0.0, 0.0),
+                vec4(c2r0, c2r1, 0.0, 1.0),
+            )
+            .to_cols_array(),
         );
-        self.material
-            .use_vertex_attribute("inPos", &self.vertecies_pos);
-        if self.material.requires_attribute("inTex") {
-            self.material
-                .use_vertex_attribute("inTex", &self.vertecies_uv); //UVs
-        }
-        self.material.draw_elements(
-            self.state,
-            three_d_asset::Viewport {
-                x: 0,
-                y: 0,
-                width: resolution.0,
-                height: resolution.1,
-            },
-            &self.indecies,
-        );
+
+        self.draw();
         Ok(())
-    }
-}
-
-impl Geometry for ShadedMesh {
-    fn render_with_material(
-        &self,
-        _material: &dyn three_d::Material,
-        camera: &three_d::Camera,
-        _lights: &[&dyn three_d::Light],
-    ) {
-        self.draw_camera(camera);
-    }
-
-    fn aabb(&self) -> three_d::AxisAlignedBoundingBox {
-        three_d::AxisAlignedBoundingBox::EMPTY
-    }
-
-    fn draw(
-        &self,
-        camera: &three_d::Camera,
-        _program: &Program,
-        _render_states: RenderStates,
-        _attributes: three_d::FragmentAttributes,
-    ) {
-        self.draw_camera(camera);
-    }
-
-    fn vertex_shader_source(&self, _required_attributes: three_d::FragmentAttributes) -> String {
-        todo!()
-    }
-
-    fn id(&self, _required_attributes: three_d::FragmentAttributes) -> u16 {
-        todo!()
-    }
-
-    fn render_with_effect(
-        &self,
-        _material: &dyn three_d::Effect,
-        _camera: &three_d::Camera,
-        _lights: &[&dyn three_d::Light],
-        _color_texture: Option<three_d::ColorTexture>,
-        _depth_texture: Option<three_d::DepthTexture>,
-    ) {
-        todo!()
-    }
-}
-
-impl Object for ShadedMesh {
-    fn render(&self, camera: &three_d::Camera, _lights: &[&dyn three_d::Light]) {
-        self.draw_camera(camera);
-    }
-
-    fn material_type(&self) -> three_d::MaterialType {
-        three_d::MaterialType::Transparent
     }
 }
 
@@ -668,8 +668,11 @@ fn create_orthographic(
     let c3r1 = -(top + bottom) / (top - bottom);
     let c3r2 = -(z_far + z_near) / (z_far - z_near);
     let c3r3 = 1f32;
-    Mat4::new(
-        c0r0, 0.0, 0.0, 0.0, 0.0, c1r1, 0.0, 0.0, 0.0, 0.0, c2r2, 0.0, c3r0, c3r1, c3r2, c3r3,
+    Mat4::from_cols(
+        vec4(c0r0, 0.0, 0.0, 0.0),
+        vec4(0.0, c1r1, 0.0, 0.0),
+        vec4(0.0, 0.0, c2r2, 0.0),
+        vec4(c3r0, c3r1, c3r2, c3r3),
     )
 }
 
@@ -744,29 +747,19 @@ impl TealData for ShadedMesh {
             this.vertex_count = verts.len();
             let (pos, uv): (Vec<_>, Vec<_>) = verts
                 .iter()
-                .map(|vert| (vec2(vert.0 .0, vert.0 .1), vec2(vert.1 .0, vert.1 .1)))
+                .map(|vert| (vec3(vert.0 .0, vert.0 .1, 0.0), vec2(vert.1 .0, vert.1 .1)))
                 .unzip();
 
-            let context = &lua
-                .app_data_ref::<Arc<three_d::Context>>()
-                .ok_or(mlua::Error::external("three_d Context app data not set"))?;
-            this.vertecies_pos = VertexBuffer::new_with_data(context, &pos);
-            this.vertecies_uv = VertexBuffer::new_with_data(context, &uv);
-
-            this.material
-                .use_vertex_attribute("inPos", &this.vertecies_pos); //Vertex positions
-            if this.material.requires_attribute("inTex") {
-                this.material
-                    .use_vertex_attribute("inTex", &this.vertecies_uv); //UVs
-            }
+            this.vertecies_pos = pos;
+            this.vertecies_uv = uv;
 
             this.update_indecies()
                 .map_err(tealr::mlu::mlua::Error::external)
         });
         methods.add_method_mut("SetBlendMode", |_, this, params: u8| {
             match params {
-                0 => this.state.blend = Blend::TRANSPARENCY,
-                1 => this.state.blend = Blend::ADD,
+                0 => this.state = wgpu::BlendState::ALPHA_BLENDING,
+                1 => this.state = blend_add(),
                 2 => todo!(), //Multiply
                 _ => {
                     return Err(tealr::mlu::mlua::Error::RuntimeError(format!(
@@ -779,9 +772,9 @@ impl TealData for ShadedMesh {
         });
         methods.add_method_mut("SetOpaque", |_, this, params: bool| {
             if params {
-                this.state.blend = Blend::Disabled
+                this.state = wgpu::BlendState::REPLACE;
             } else {
-                this.state.blend = Blend::STANDARD_TRANSPARENCY
+                this.state = wgpu::BlendState::ALPHA_BLENDING;
             }
             Ok(())
         });

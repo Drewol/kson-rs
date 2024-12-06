@@ -1,5 +1,6 @@
 use std::{
-    path::PathBuf,
+    collections::HashMap,
+    path::{Path, PathBuf},
     sync::{Arc, Mutex, RwLock},
     time::{Duration, SystemTime},
 };
@@ -16,14 +17,27 @@ use tealr::{
     },
     TealMultiValue, ToTypename,
 };
-use winit::event::ElementState;
+use wgpu::{
+    util::DeviceExt, Extent3d, Origin3d, SurfaceConfiguration, SurfaceTexture, Texture,
+    TextureFormat, TextureUsages,
+};
+use winit::{dpi::PhysicalSize, event::ElementState};
 
 use crate::{
     button_codes::{UscButton, UscInputEvent},
     config::GameConfig,
     vg_ui::Vgfx,
     worker_service::WorkerService,
+    Viewport,
 };
+
+#[derive(Debug, Clone, Copy, Default)]
+pub struct Modifiers {
+    pub alt: bool,
+    pub ctrl: bool,
+    pub shift: bool,
+    pub command: bool,
+}
 
 pub async fn await_task<T: Send + 'static>(mut t: poll_promise::Promise<T>) -> T {
     loop {
@@ -275,5 +289,172 @@ pub fn wait_until(frame_end: SystemTime) {
             std::thread::sleep(wait - ms);
         }
         now = SystemTime::now();
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct RenderContext {
+    pub queue: Arc<wgpu::Queue>,
+    pub device: Arc<wgpu::Device>,
+    pub surface_ctx: Arc<wgpu::Surface<'static>>,
+    pub surface_config: wgpu::SurfaceConfiguration,
+    pub pending_screen_grabs: Arc<Mutex<Vec<Arc<Texture>>>>,
+}
+
+impl RenderContext {
+    pub fn process_screen_grabs(&self, surface: &SurfaceTexture, viewport: Viewport) {
+        self.device.poll(wgpu::MaintainBase::Wait);
+        let mut grabs = self.pending_screen_grabs.lock().unwrap();
+        let mut encoder = self.encoder(None);
+        while let Some(target_texture) = grabs.pop() {
+            encoder.copy_texture_to_texture(
+                wgpu::ImageCopyTextureBase {
+                    texture: &surface.texture,
+                    mip_level: 0,
+                    origin: wgpu::Origin3d::ZERO,
+                    aspect: wgpu::TextureAspect::All,
+                },
+                wgpu::ImageCopyTextureBase {
+                    texture: &target_texture,
+                    mip_level: 0,
+                    origin: wgpu::Origin3d::ZERO,
+                    aspect: wgpu::TextureAspect::All,
+                },
+                viewport.extend3d(1),
+            );
+        }
+        self.queue.submit([encoder.finish()]);
+    }
+    pub fn set_swap_interval(&mut self, v: wgpu::PresentMode) {
+        self.surface_config.present_mode = v;
+
+        self.surface_ctx
+            .configure(&self.device, &self.surface_config);
+    }
+
+    pub fn set_size(&mut self, size: PhysicalSize<u32>) {
+        self.surface_config.width = size.width;
+        self.surface_config.height = size.height;
+
+        self.surface_ctx
+            .configure(&self.device, &self.surface_config);
+    }
+
+    pub fn load_texture(&self, p: impl AsRef<Path>) -> anyhow::Result<wgpu::Texture> {
+        let image = image::open(p)?;
+
+        let tex = self.device.create_texture_with_data(
+            &self.queue,
+            &wgpu::TextureDescriptor {
+                label: None,
+                size: Extent3d {
+                    width: image.width(),
+                    height: image.height(),
+                    depth_or_array_layers: 1,
+                },
+                mip_level_count: 1,
+                sample_count: 1,
+                dimension: wgpu::TextureDimension::D2,
+                format: wgpu::TextureFormat::Rgba8Unorm,
+                usage: TextureUsages::TEXTURE_BINDING,
+                view_formats: &[wgpu::TextureFormat::Rgba8Unorm],
+            },
+            wgpu::util::TextureDataOrder::LayerMajor,
+            image
+                .as_rgba8()
+                .ok_or(anyhow!("Could not convert image"))?
+                .as_raw(),
+        );
+
+        Ok(tex)
+    }
+    pub fn load_textures(
+        &self,
+        p: &[impl AsRef<Path>],
+    ) -> anyhow::Result<HashMap<String, wgpu::Texture>> {
+        Ok(p.iter()
+            .map(|p| match self.load_texture(p) {
+                Ok(t) => Ok((
+                    p.as_ref()
+                        .file_stem()
+                        .unwrap()
+                        .to_string_lossy()
+                        .to_string(),
+                    t,
+                )),
+                Err(e) => Err(e),
+            })
+            .try_collect()?)
+    }
+
+    pub fn new_screen_texture(
+        &self,
+        viewport: Viewport,
+        surface: &SurfaceTexture,
+    ) -> Arc<wgpu::Texture> {
+        self.device.poll(wgpu::MaintainBase::Wait);
+        let mut encoder = self
+            .device
+            .create_command_encoder(&wgpu::CommandEncoderDescriptor { label: None });
+
+        let target_texture = self.device.create_texture(&wgpu::TextureDescriptor {
+            label: None,
+            size: viewport.extend3d(1),
+            mip_level_count: 1,
+            sample_count: 1,
+            dimension: wgpu::TextureDimension::D2,
+            format: surface.texture.format(),
+            usage: TextureUsages::TEXTURE_BINDING
+                | TextureUsages::COPY_DST
+                | TextureUsages::COPY_SRC,
+            view_formats: &[surface.texture.format()],
+        });
+
+        let ret = Arc::new(target_texture);
+        self.pending_screen_grabs.lock().unwrap().push(ret.clone());
+        ret
+    }
+
+    pub fn update_screen_texture(
+        &self,
+        texture: Texture,
+        viewport: Viewport,
+        surface: SurfaceTexture,
+    ) {
+        let mut encoder = self.encoder(None);
+
+        encoder.copy_texture_to_texture(
+            wgpu::ImageCopyTextureBase {
+                texture: &surface.texture,
+                mip_level: 0,
+                origin: Origin3d::ZERO,
+                aspect: wgpu::TextureAspect::All,
+            },
+            wgpu::ImageCopyTextureBase {
+                texture: &texture,
+                mip_level: 0,
+                origin: Origin3d::ZERO,
+                aspect: wgpu::TextureAspect::All,
+            },
+            viewport.extend3d(1),
+        );
+        self.queue.submit([encoder.finish()]);
+    }
+
+    pub fn encoder(&self, desc: Option<&str>) -> wgpu::CommandEncoder {
+        self.device
+            .create_command_encoder(&wgpu::CommandEncoderDescriptor { label: desc })
+    }
+}
+
+pub(crate) const fn blend_add() -> wgpu::BlendState {
+    let add_comp = wgpu::BlendComponent {
+        src_factor: wgpu::BlendFactor::One,
+        dst_factor: wgpu::BlendFactor::One,
+        operation: wgpu::BlendOperation::Add,
+    };
+    wgpu::BlendState {
+        color: add_comp,
+        alpha: add_comp,
     }
 }
