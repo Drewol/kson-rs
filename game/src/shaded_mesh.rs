@@ -1,8 +1,9 @@
 use std::{
     borrow::Cow,
-    collections::HashMap,
+    collections::{BTreeMap, HashMap},
     io::Read,
     path::Path,
+    rc::Rc,
     sync::{Arc, RwLock},
 };
 
@@ -16,6 +17,7 @@ use femtovg::renderer::WGPURenderer;
 use futures::executor::block_on;
 use image::{buffer, GenericImageView};
 use itertools::Itertools;
+use log::info;
 use palette::{stimulus::IntoStimulus, IntoColor, Srgba};
 use puffin::profile_function;
 use tealr::{
@@ -32,7 +34,7 @@ use wgpu::{
     util::DeviceExt,
     BindGroupEntry, BindGroupLayoutEntry, BufferUsages, Device, Extent3d, FragmentState,
     ImageDataLayout, PrimitiveState, RenderPassColorAttachment, ShaderModuleDescriptor,
-    ShaderStages, Texture, TextureDescriptor, TextureFormat,
+    ShaderStages, SurfaceTexture, Texture, TextureDescriptor, TextureFormat,
 };
 
 use crate::{
@@ -133,13 +135,12 @@ pub struct ShadedMesh {
     vertecies_uv: Vec<Vec2>,
     vertecies_color: Option<Vec<Vec4>>,
     vertex_buffer: wgpu::Buffer,
-    uniform_buffer: wgpu::Buffer,
     index_buffer: wgpu::Buffer,
-    uniform_bind_group: wgpu::BindGroup,
     transform: Mat4,
     context: RenderContext,
     /// Map uniform names to bind groups + buffer
-    uniform_map: HashMap<String, (u32, wgpu::Buffer, wgpu::BindGroup)>,
+    uniform_map: HashMap<String, wgpu::Buffer>,
+    bind_groups: HashMap<u32, wgpu::BindGroup>,
 }
 
 #[derive(ShaderType)]
@@ -176,7 +177,93 @@ impl ShadedMesh {
         name: &str,
     ) -> anyhow::Result<Self> {
         let RenderContext { device, .. } = context;
-        let parser = naga::front::glsl::Frontend::default();
+        let mut parser = naga::front::wgsl::Frontend::new();
+
+        let module = parser.parse(shader_source)?;
+
+        // info!("Parsed shader: {:#?}", module);
+
+        let mut uniform_map = HashMap::new();
+        let mut bind_group_entries: BTreeMap<u32, Vec<naga::GlobalVariable>> = BTreeMap::new();
+        let mut bind_groups = HashMap::new();
+
+        // Add uniforms through reflection
+        for (_, global) in module.global_variables.iter() {
+            let Some(binding) = global.binding.as_ref() else {
+                continue;
+            };
+
+            bind_group_entries
+                .entry(binding.group)
+                .or_default()
+                .push(global.clone());
+        }
+
+        let mut bind_group_layouts = vec![];
+        for (group, globals) in bind_group_entries.iter() {
+            let mut global_binds = vec![];
+
+            for global in globals.iter() {
+                let Some(name) = global.name.as_ref() else {
+                    continue;
+                };
+
+                let Some(binding) = global.binding.as_ref() else {
+                    continue;
+                };
+
+                let ty = &module.types[global.ty];
+
+                let size = ty.inner.size(module.to_ctx());
+
+                let uniform_buffer = device.create_buffer(&wgpu::BufferDescriptor {
+                    label: Some(name.as_str()),
+                    mapped_at_creation: false,
+                    size: size as _,
+                    usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+                });
+
+                global_binds.push((name.clone(), binding.clone(), uniform_buffer));
+            }
+
+            let layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+                label: None,
+                entries: global_binds
+                    .iter()
+                    .map(|x| wgpu::BindGroupLayoutEntry {
+                        binding: x.1.binding,
+                        visibility: ShaderStages::VERTEX_FRAGMENT,
+                        ty: wgpu::BindingType::Buffer {
+                            ty: wgpu::BufferBindingType::Uniform,
+                            has_dynamic_offset: false,
+                            min_binding_size: None,
+                        },
+                        count: None,
+                    })
+                    .collect_vec()
+                    .as_slice(),
+            });
+            bind_groups.insert(
+                *group,
+                device.create_bind_group(&wgpu::BindGroupDescriptor {
+                    label: None,
+                    layout: &layout,
+                    entries: global_binds
+                        .iter()
+                        .map(|x| wgpu::BindGroupEntry {
+                            binding: x.1.binding,
+                            resource: x.2.as_entire_binding(),
+                        })
+                        .collect_vec()
+                        .as_slice(),
+                }),
+            );
+            bind_group_layouts.push(layout);
+
+            for (name, _, buffer) in global_binds.into_iter() {
+                uniform_map.insert(name, buffer);
+            }
+        }
 
         profile_function!();
 
@@ -185,44 +272,9 @@ impl ShadedMesh {
             source: wgpu::ShaderSource::Wgsl(shader_source.into()),
         });
 
-        let layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
-            label: None,
-            bind_group_layouts: &[],
-            push_constant_ranges: &[],
-        });
-
-        let uniform_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-            label: None,
-            contents: &[],
-            usage: wgpu::BufferUsages::UNIFORM,
-        });
-
-        let bind_group_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
-            label: None,
-            entries: &[BindGroupLayoutEntry {
-                binding: 0,
-                visibility: wgpu::ShaderStages::VERTEX_FRAGMENT,
-                ty: wgpu::BindingType::Buffer {
-                    ty: wgpu::BufferBindingType::Uniform,
-                    has_dynamic_offset: false,
-                    min_binding_size: None,
-                },
-                count: None,
-            }],
-        });
-
-        let uniform_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
-            label: None,
-            layout: &bind_group_layout,
-            entries: &[BindGroupEntry {
-                binding: 0,
-                resource: uniform_buffer.as_entire_binding(),
-            }],
-        });
-
         let pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
             label: None,
-            bind_group_layouts: &[&bind_group_layout],
+            bind_group_layouts: bind_group_layouts.iter().collect_vec().as_slice(),
             push_constant_ranges: &[],
         });
 
@@ -241,7 +293,7 @@ impl ShadedMesh {
         });
 
         let material = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
-            label: None,
+            label: Some(name),
             layout: Some(&pipeline_layout),
             vertex: wgpu::VertexState {
                 module: &shader,
@@ -260,13 +312,13 @@ impl ShadedMesh {
                 module: &shader,
                 entry_point: None,
                 compilation_options: Default::default(),
-                targets: &[Some(wgpu::TextureFormat::Rgba8Unorm.into())],
+                targets: &[Some(context.surface_config.format.into())],
             }),
             multiview: None,
             cache: None,
         });
 
-        let mut params = HashMap::new();
+        let params = HashMap::new();
 
         Ok(Self {
             params,
@@ -280,11 +332,10 @@ impl ShadedMesh {
             transform: Mat4::IDENTITY,
             vertecies_color: None,
             context: context.clone(),
-            uniform_bind_group,
-            uniform_buffer,
             vertex_buffer,
             index_buffer,
-            uniform_map: HashMap::new(),
+            uniform_map,
+            bind_groups,
         })
     }
 
@@ -304,15 +355,6 @@ impl ShadedMesh {
     pub fn with_transform(mut self, transform: Mat4) -> Self {
         self.transform = transform;
         self
-    }
-
-    pub fn write_uniform<T: ShaderType + WriteInto>(&mut self, v: &T) -> anyhow::Result<()> {
-        let mut encase_buffer = encase::UniformBuffer::new(Vec::new());
-        encase_buffer.write(v)?;
-        self.context
-            .queue
-            .write_buffer(&self.uniform_buffer, 0, &encase_buffer.into_inner());
-        Ok(())
     }
 
     pub fn set_blend(&mut self, blend: wgpu::BlendState) {
@@ -354,6 +396,45 @@ impl ShadedMesh {
                 .flat_map(|x| [0, x[0], x[1]])
                 .collect(),
         };
+
+        let device = &self.context.device;
+
+        let mut vertecies = vec![];
+
+        for (i, pos) in self.vertecies_pos.iter().enumerate() {
+            vertecies.push(GpuVertex {
+                pos: pos.to_array(),
+                uv: self.vertecies_uv.get(i).unwrap_or(&Vec2::ZERO).to_array(),
+                color: self
+                    .vertecies_color
+                    .as_ref()
+                    .unwrap_or(&vec![])
+                    .get(i)
+                    .unwrap_or(&Vec4::ZERO)
+                    .to_array(),
+            });
+        }
+
+        let mut index_buffer = encase::StorageBuffer::new(Vec::<u8>::new());
+        let mut vertex_buffer = encase::StorageBuffer::new(Vec::<u8>::new());
+
+        index_buffer.write(&self.indecies)?;
+        vertex_buffer.write(&vertecies)?;
+
+        let vertex_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+            label: None,
+            contents: &vertex_buffer.into_inner(),
+            usage: BufferUsages::VERTEX,
+        });
+
+        let index_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+            label: None,
+            contents: &index_buffer.into_inner(),
+            usage: BufferUsages::INDEX,
+        });
+
+        self.vertex_buffer = vertex_buffer;
+        self.index_buffer = index_buffer;
 
         Ok(())
     }
@@ -422,14 +503,11 @@ impl ShadedMesh {
         Ok(cpu_texture)
     }
 
-    pub fn use_uniform<T: ShaderType + WriteInto>(&self, n: impl AsRef<str>, v: T) {
-        if let Some((_, buff, _)) = self.uniform_map.get(n.as_ref()) {
-            let mut encased = encase::UniformBuffer::new(Vec::<u8>::new());
-            encased.write(&v);
-
+    pub fn use_uniform<T: bytemuck::Pod>(&self, n: impl AsRef<str>, v: T) {
+        if let Some(buff) = self.uniform_map.get(n.as_ref()) {
             self.context
                 .queue
-                .write_buffer(buff, 0, &encased.into_inner());
+                .write_buffer(buff, 0, bytemuck::cast_slice(&[v]));
         }
     }
 
@@ -439,36 +517,38 @@ impl ShadedMesh {
     fn use_params(&self) {
         for (name, param) in &self.params {
             match param {
-                ShaderParam::Single(v) => self.use_uniform(name, v),
+                ShaderParam::Single(v) => self.use_uniform(name, *v),
                 ShaderParam::Vec2(v) => self.use_uniform(name, v.to_array()),
                 ShaderParam::Vec3(v) => self.use_uniform(name, v.to_array()),
                 ShaderParam::Vec4(v) => self.use_uniform(name, v.to_array()),
                 ShaderParam::IVec2(v) => self.use_uniform(name, v.to_array()),
                 ShaderParam::IVec3(v) => self.use_uniform(name, v.to_array()),
                 ShaderParam::IVec4(v) => self.use_uniform(name, v.to_array()),
-                ShaderParam::Int(v) => self.use_uniform(name, v),
+                ShaderParam::Int(v) => self.use_uniform(name, *v),
                 ShaderParam::Texture(v) => self.use_texture_uniform(name, v),
             }
         }
     }
 
-    #[allow(unused)]
-    pub fn draw(&self) -> Result<(), tealr::mlu::mlua::Error> {
+    pub fn draw(&self, surface: Rc<SurfaceTexture>) -> Result<(), tealr::mlu::mlua::Error> {
         self.use_params();
         let mut encoder = self.context.encoder(None);
 
         let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
             label: None,
             color_attachments: &[Some(RenderPassColorAttachment {
-                view: todo!(),
-                resolve_target: todo!(),
-                ops: todo!(),
+                view: &surface.texture.create_view(&Default::default()),
+                resolve_target: None,
+                ops: wgpu::Operations {
+                    load: wgpu::LoadOp::Load,
+                    store: wgpu::StoreOp::Store,
+                },
             })],
             depth_stencil_attachment: None,
             timestamp_writes: None,
             occlusion_query_set: None,
         });
-
+        render_pass.set_pipeline(&self.material);
         render_pass.set_vertex_buffer(0, self.vertex_buffer.slice(..));
         render_pass.set_index_buffer(self.index_buffer.slice(..), wgpu::IndexFormat::Uint32);
 
@@ -476,29 +556,31 @@ impl ShadedMesh {
         // render_pass.set_bind_group(index, bind_group, offsets);
 
         // Set dynamic bind groups
-        for (idx, _, g) in self.uniform_map.values() {
+        for (idx, g) in self.bind_groups.iter() {
             render_pass.set_bind_group(*idx, g, &[]);
         }
 
         render_pass.draw_indexed(0..self.indecies.len() as u32, 0, 0..1);
+        drop(render_pass);
+        self.context.queue.submit([encoder.finish()]);
         Ok(())
     }
 
-    pub fn draw_fullscreen(&self, viewport: Viewport) {
+    pub fn draw_fullscreen(&self, viewport: Viewport, surface: Rc<SurfaceTexture>) {
         self.use_params();
         self.use_uniform("viewport", [viewport.width as i32, viewport.height as i32]);
-        self.draw();
+        self.draw(surface);
     }
 
-    pub fn draw_camera(&self, camera: &Mat4) {
+    pub fn draw_camera(&self, camera: &Mat4, surface: Rc<SurfaceTexture>) {
         self.set_camera_uniforms(camera);
 
-        self.draw();
+        self.draw(surface);
     }
 
     #[inline]
     fn set_camera_uniforms(&self, camera: &Mat4) {
-        self.use_uniform("proj", camera.to_cols_array());
+        self.use_uniform("proj", camera.inverse().to_cols_array());
         self.use_uniform("camera", camera.to_cols_array());
         self.use_uniform("world", self.transform.to_cols_array());
         self.use_params();
@@ -510,6 +592,7 @@ impl ShadedMesh {
         instances: impl IntoIterator<Item = T>,
         set_uniforms: impl Fn(&Self, Mat4, T),
         viewport: Viewport,
+        surface: Rc<SurfaceTexture>,
     ) {
         profile_function!();
         //TODO: Use actual instancing, may causes skin incompatibility
@@ -517,7 +600,7 @@ impl ShadedMesh {
         for i in instances {
             self.set_camera_uniforms(camera);
             set_uniforms(&self, self.transform, i);
-            self.draw();
+            self.draw(surface.clone());
         }
     }
 
@@ -571,6 +654,7 @@ impl ShadedMesh {
         &mut self,
         resolution: (u32, u32),
         vgfx: &RwLock<Vgfx>,
+        surface: Rc<SurfaceTexture>,
     ) -> Result<(), tealr::mlu::mlua::Error> {
         let [c0r0, c0r1, c1r0, c1r1, c2r0, c2r1] = {
             let vgfx = vgfx.write().expect("Lock error");
@@ -592,6 +676,7 @@ impl ShadedMesh {
                 0.0,
                 100.0,
             )
+            .inverse()
             .to_cols_array(),
         );
 
@@ -606,7 +691,7 @@ impl ShadedMesh {
             .to_cols_array(),
         );
 
-        self.draw();
+        self.draw(surface);
         Ok(())
     }
 }
@@ -689,7 +774,10 @@ impl TealData for ShadedMesh {
             let vgfx = &lua
                 .app_data_ref::<RefMut<Vgfx>>()
                 .ok_or(mlua::Error::external("VGFX App data not set"))?;
-            this.draw_lua_skin(frame, vgfx)
+            let surface = lua
+                .app_data_ref::<Rc<SurfaceTexture>>()
+                .ok_or(mlua::Error::external("SurfaceTexture not set"))?;
+            this.draw_lua_skin(frame, vgfx, surface.clone())
         });
         methods.add_method_mut("AddTexture", |_lua, this, params: (String, String)| {
             this.use_texture(params.0, params.1, (false, false), true)

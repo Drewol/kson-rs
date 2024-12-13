@@ -1,5 +1,6 @@
 use std::fmt::Display;
 use std::path::PathBuf;
+use std::rc::Rc;
 
 use di::ServiceProvider;
 use glam::{vec2, Mat4, Vec3, Vec4};
@@ -145,7 +146,7 @@ impl Scene for CameraTest {
         _dt: f64,
         _td_context: &RenderContext,
         viewport: Viewport,
-        _surface: &SurfaceTexture,
+        _surface: Rc<SurfaceTexture>,
     ) {
         self.camera
             .update(vec2(viewport.width as f32, viewport.height as f32));

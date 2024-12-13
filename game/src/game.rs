@@ -1748,7 +1748,7 @@ impl Scene for Game {
         dt: f64,
         td_context: &RenderContext,
         viewport: Viewport,
-        surface: &SurfaceTexture,
+        surface: Rc<SurfaceTexture>,
     ) {
         profile_function!();
 
@@ -1864,6 +1864,7 @@ impl Scene for Game {
                 self.camera.tilt,
                 self.gauge.is_cleared(),
                 viewport,
+                surface.clone(),
             );
         }
 
@@ -1907,7 +1908,7 @@ impl Scene for Game {
             );
         }
 
-        self.track_shader.draw_camera(&td_camera);
+        self.track_shader.draw_camera(&td_camera, surface.clone());
         let render_data = match self.view.render(
             &self.chart,
             |lane, tick| self.hold_ok(lane, tick),
@@ -1935,6 +1936,7 @@ impl Scene for Game {
                 material.use_uniform("hitState", state);
             },
             viewport,
+            surface.clone(),
         );
 
         self.bt_long_shaders.draw_instanced_camera(
@@ -1951,6 +1953,7 @@ impl Scene for Game {
                 material.use_uniform("hitState", state);
             },
             viewport,
+            surface.clone(),
         );
 
         self.fx_chip_shaders.draw_instanced_camera(
@@ -1961,6 +1964,7 @@ impl Scene for Game {
                 material.use_uniform("hasSample", if has_sample { 1 } else { 0 });
             },
             viewport,
+            surface.clone(),
         );
 
         self.bt_chip_shader.draw_instanced_camera(
@@ -1970,6 +1974,7 @@ impl Scene for Game {
                 material.use_uniform("world", (transform * bt).to_cols_array())
             },
             viewport,
+            surface.clone(),
         );
 
         self.lane_beam_shader.draw_instanced_camera(
@@ -1980,6 +1985,7 @@ impl Scene for Game {
                 material.use_uniform("world", (tranform * light).to_cols_array());
             },
             viewport,
+            surface.clone(),
         );
 
         self.laser_shaders[0][0].set_data_mesh(&render_data.lasers[0]);
@@ -1988,7 +1994,7 @@ impl Scene for Game {
         self.laser_shaders[1][1].set_data_mesh(&render_data.lasers[3]);
 
         for ele in self.laser_shaders.iter().flatten() {
-            ele.draw_camera(&td_camera);
+            ele.draw_camera(&td_camera, surface.clone());
         }
 
         if !self.intro_done {
@@ -2009,7 +2015,7 @@ impl Scene for Game {
                 log::error!("{}", e);
             };
         }
-        self.reset_canvas(surface);
+        self.reset_canvas(surface.as_ref());
 
         if let Some(fg) = self.foreground.as_mut() {
             fg.render(
@@ -2021,6 +2027,7 @@ impl Scene for Game {
                 self.camera.tilt,
                 self.gauge.is_cleared(),
                 viewport,
+                surface.clone(),
             );
         }
 
@@ -2030,7 +2037,7 @@ impl Scene for Game {
                 log::error!("{}", e);
             };
         }
-        self.reset_canvas(surface);
+        self.reset_canvas(surface.as_ref());
 
         if let Ok(func) = self.lua.globals().get::<_, Function>("render") {
             profile_scope!("lua render");
@@ -2038,7 +2045,7 @@ impl Scene for Game {
                 log::error!("{}", e);
             };
         }
-        self.reset_canvas(surface);
+        self.reset_canvas(surface.as_ref());
     }
 
     fn on_event(&mut self, event: &winit::event::Event<crate::button_codes::UscInputEvent>) {

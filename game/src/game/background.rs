@@ -1,4 +1,7 @@
-use std::path::{Path, PathBuf};
+use std::{
+    path::{Path, PathBuf},
+    rc::Rc,
+};
 
 use crate::{
     game::ChartView,
@@ -26,6 +29,7 @@ use tealr::{
     },
     mlua_create_named_parameters, ToTypename,
 };
+use wgpu::SurfaceTexture;
 
 #[derive(Debug, Clone, Copy)]
 pub struct BackgroundData {
@@ -189,8 +193,11 @@ impl TealData for GameBackgroundLua {
             bg.set_param("timing", Vec3::from(data.timing));
             bg.set_param("clearTransition", data.clear_transition);
             bg.set_param("tilt", vec2(data.roll, 0.0)); //(camera roll, background spin)
+            let surface = lua
+                .app_data_ref::<Rc<SurfaceTexture>>()
+                .ok_or(mlua::Error::external("SurfaceTexture not set"))?;
 
-            bg.draw_fullscreen(data.viewport);
+            bg.draw_fullscreen(data.viewport, surface.clone());
             Ok(())
         })
     }
@@ -281,6 +288,7 @@ impl GameBackground {
         roll: f32,
         clear: bool,
         viewport: Viewport,
+        surface: Rc<SurfaceTexture>,
     ) {
         profile_function!();
         let center = camera
@@ -324,9 +332,11 @@ impl GameBackground {
         }
 
         if let Ok(render_fn) = self.lua.globals().get::<_, Function>(self.name.as_str()) {
+            self.lua.set_app_data(surface);
             if let Some(e) = render_fn.call::<_, ()>(dt / 1000.0).err() {
                 warn!("{} error: {}", &self.name, e);
             }
+            self.lua.remove_app_data::<Rc<SurfaceTexture>>(); //Drop reference
         } else {
             warn!("No render fn");
         }

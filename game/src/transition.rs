@@ -161,7 +161,7 @@ impl Scene for Transition {
         _dt: f64,
         context: &RenderContext,
         viewport: Viewport,
-        s: &SurfaceTexture,
+        s: Rc<SurfaceTexture>,
     ) {
         match self.state {
             TransitionState::Intro => {

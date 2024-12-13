@@ -57,7 +57,7 @@ var main_tex: texture_2d<f32>;
 @group(0) @binding(2)
 var tex_s: sampler;
 
-@group(1000) @binding(0)
+@group(1) @binding(0)
 var<uniform> transform: mat4x4f;
 
 

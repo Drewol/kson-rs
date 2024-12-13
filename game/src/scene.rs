@@ -1,4 +1,4 @@
-use std::{sync::mpsc::Sender, time::SystemTime};
+use std::{rc::Rc, sync::mpsc::Sender, time::SystemTime};
 
 use anyhow::Result;
 use di::ServiceProvider;
@@ -28,7 +28,7 @@ pub trait Scene {
         dt: f64,
         td_context: &RenderContext,
         viewport: Viewport,
-        surface: &SurfaceTexture,
+        surface: Rc<SurfaceTexture>,
     ) {
     }
     fn render_ui(&mut self, dt: f64) -> Result<()>;

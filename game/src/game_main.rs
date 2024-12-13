@@ -1,4 +1,5 @@
 use std::{
+    marker::PhantomData,
     num::NonZeroU32,
     ops::{Add, Sub},
     rc::Rc,
@@ -134,6 +135,30 @@ fn get_frame_duration(settings: &GameConfig) -> Duration {
     }
 }
 
+struct LuaAppDataHandle<T: 'static>(di::RefMut<LuaArena>, PhantomData<T>);
+
+impl<T> LuaAppDataHandle<T> {
+    fn set(arena: di::RefMut<LuaArena>, surface: Rc<T>) -> Self {
+        {
+            let arena = arena.read().unwrap();
+            for l in arena.0.iter() {
+                l.set_app_data(surface.clone());
+            }
+        }
+
+        Self(arena.clone(), PhantomData)
+    }
+}
+
+impl<T> Drop for LuaAppDataHandle<T> {
+    fn drop(&mut self) {
+        let arena = self.0.read().unwrap();
+        for l in arena.0.iter() {
+            l.remove_app_data::<Rc<T>>();
+        }
+    }
+}
+
 impl GameMain {
     pub fn new(
         scenes: Scenes,
@@ -242,7 +267,7 @@ impl GameMain {
         &mut self,
         frame_input: FrameInput,
         window: &winit::window::Window,
-        surface: &SurfaceTexture,
+        surface: Rc<SurfaceTexture>,
     ) -> bool {
         let GameMain {
             lua_arena,
@@ -276,6 +301,8 @@ impl GameMain {
         } = self;
 
         knob_state.zero_deltas();
+
+        let _surface_app_data_handle = LuaAppDataHandle::set(lua_arena.clone(), surface.clone());
 
         for lua in lua_arena.read().expect("Lock error").0.iter() {
             lua.set_app_data(frame_input.clone());
@@ -331,7 +358,7 @@ impl GameMain {
                                 control_tx.clone(),
                                 vgfx.clone(),
                                 frame_input.viewport,
-                                surface,
+                                surface.as_ref(),
                                 service_provider.create_scope(),
                             )
                             .ok()
@@ -367,7 +394,7 @@ impl GameMain {
                             control_tx.clone(),
                             vgfx.clone(),
                             frame_input.viewport,
-                            surface,
+                            surface.as_ref(),
                             service_provider.create_scope(),
                         )
                         .ok()
@@ -405,7 +432,7 @@ impl GameMain {
                             control_tx.clone(),
                             vgfx.clone(),
                             frame_input.viewport,
-                            surface,
+                            surface.as_ref(),
                             service_provider.create_scope(),
                         )
                         .ok()
@@ -463,9 +490,16 @@ impl GameMain {
             self.input_state.clone(),
         );
 
-        scenes.render(&frame_input, vgfx, surface);
-        Self::render_overlays(vgfx, &frame_input, fps, fps_paint, *show_fps, surface);
-        render_context.process_screen_grabs(surface, frame_input.viewport);
+        scenes.render(&frame_input, vgfx, surface.clone());
+        Self::render_overlays(
+            vgfx,
+            &frame_input,
+            fps,
+            fps_paint,
+            *show_fps,
+            surface.as_ref(),
+        );
+        render_context.process_screen_grabs(surface.as_ref(), frame_input.viewport);
 
         let gui_in = gui.take_egui_input(window);
 

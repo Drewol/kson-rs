@@ -90,6 +90,7 @@ struct GameApp {
     frame_time: Instant,
     updates: u64,
     renders: u64,
+    output_stream: (rodio::OutputStream, rodio::OutputStreamHandle),
 }
 
 struct GameState {
@@ -292,6 +293,7 @@ impl GameState {
             launch_time: Instant::now(),
             updates: 0,
             renders: 0,
+            output_stream: (_output_stream, output_stream_handle),
         });
         Ok(())
     }
@@ -323,6 +325,7 @@ impl winit::application::ApplicationHandler<UscInputEvent> for GameState {
             launch_time,
             updates,
             renders,
+            output_stream: _,
         }) = self.game.as_mut()
         else {
             event_loop.exit();
@@ -335,7 +338,7 @@ impl winit::application::ApplicationHandler<UscInputEvent> for GameState {
 
         if let winit::event::WindowEvent::RedrawRequested = event {
             let target_updates = (launch_time.elapsed().as_secs_f64() * 240.0) as u64;
-            let surface = render_context.surface_ctx.get_current_texture().unwrap();
+            let surface = Rc::new(render_context.surface_ctx.get_current_texture().unwrap());
 
             //TODO: Limit updates per frame to avoid escalating frame times
             while target_updates > *updates {
@@ -363,13 +366,14 @@ impl winit::application::ApplicationHandler<UscInputEvent> for GameState {
                     context: render_context.clone(),
                 },
                 window,
-                &surface,
+                surface.clone(),
             );
             if exiting {
                 event_loop.exit();
             }
 
             *renders += 1;
+            let surface = Rc::try_unwrap(surface).expect("Surface references still held somewhere");
             surface.present();
             window.request_redraw();
             *frame_time = now;
@@ -614,7 +618,7 @@ impl Scenes {
         &mut self,
         frame: &FrameInput,
         _vgfx: &Arc<RwLock<Vgfx>>,
-        surface: &SurfaceTexture,
+        surface: Rc<SurfaceTexture>,
     ) {
         profile_function!();
         let dt = frame.elapsed_time;
@@ -625,7 +629,7 @@ impl Scenes {
             if scene.is_suspended() {
                 continue;
             }
-            scene.render(dt, td_context, viewport, surface);
+            scene.render(dt, td_context, viewport, surface.clone());
             if let Err(e) = scene.render_ui(dt) {
                 log::error!("{}", e)
             };
@@ -733,6 +737,10 @@ fn get_log_config(level: log::LevelFilter) -> log4rs::Config {
     log4rs::Config::builder()
         .appender(Appender::builder().build("stdout", Box::new(stdout)))
         .appender(Appender::builder().build("file", Box::new(file)))
+        .logger(
+            log4rs::config::runtime::Logger::builder()
+                .build("naga::back::spv::writer", LevelFilter::Warn),
+        )
         .build(
             log4rs::config::Root::builder()
                 .appender("file")
