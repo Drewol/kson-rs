@@ -8,7 +8,7 @@ use glam::{vec2, Mat4, Vec3, Vec4};
 use palette::WithAlpha;
 use wgpu::SurfaceTexture;
 
-use crate::game::camera::ChartCamera;
+use crate::game::camera::{CameraMats, ChartCamera};
 use crate::game::chart_view::ChartView;
 use crate::help::RenderContext;
 use crate::scene::Scene;
@@ -150,6 +150,6 @@ impl Scene for CameraTest {
     ) {
         self.camera
             .update(vec2(viewport.width as f32, viewport.height as f32));
-        let td_camera: Mat4 = Mat4::from(&self.camera);
+        let td_camera: CameraMats = CameraMats::from(&self.camera);
     }
 }

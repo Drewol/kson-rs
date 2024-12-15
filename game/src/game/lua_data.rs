@@ -13,6 +13,8 @@ use std::time::Duration;
 
 use std::path::PathBuf;
 
+use super::CameraMats;
+
 #[derive(Debug, Serialize, Default, Deserialize, Clone, PartialEq, ToLuaLsType)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct LuaGameState {
@@ -137,13 +139,13 @@ pub(crate) struct Cursor {
 }
 
 impl Cursor {
-    pub fn new(pos: f32, camera: &Mat4, alpha: f32) -> Self {
+    pub fn new(pos: f32, camera: &CameraMats, alpha: f32) -> Self {
         let pos = (pos - 0.5) * (5.0 / 6.0);
 
-        let crit_pos = camera.project_point3(vec3(0.0, 0.0, 0.0)).xy();
-        let c_pos = camera.project_point3(vec3(pos, 0.0, 0.0)).xy();
-        let c_pos_up = camera.project_point3(vec3(pos, 0.2, 0.0)).xy();
-        let c_pos_down = camera.project_point3(vec3(pos, -0.2, 0.0)).xy();
+        let crit_pos = camera.get_pixel_at_pos(vec3(0.0, 0.0, 0.0));
+        let c_pos = camera.get_pixel_at_pos(vec3(pos, 0.0, 0.0));
+        let c_pos_up = camera.get_pixel_at_pos(vec3(pos, 0.2, 0.0));
+        let c_pos_down = camera.get_pixel_at_pos(vec3(pos, -0.2, 0.0));
         let dist_from_crit_center =
             (crit_pos - c_pos).length() * if pos < 0.0 { -1.0 } else { 1.0 };
         let cursor_angle_vector = c_pos_up - c_pos_down;

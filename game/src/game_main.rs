@@ -502,14 +502,73 @@ impl GameMain {
         render_context.process_screen_grabs(surface.as_ref(), frame_input.viewport);
 
         let gui_in = gui.take_egui_input(window);
-
-        let gui_out = gui.egui_ctx().run(gui_in, |ctx| {
+        let egui_out = gui.egui_ctx().run(gui_in, |ctx| {
             scenes.render_egui(ctx);
 
             if *show_debug_ui {
                 Self::debug_ui(ctx, scenes, &vgfx);
             }
         });
+
+        {
+            let mut egui_renderer = render_context.gui.renderer.write();
+            for (id, delta) in egui_out.textures_delta.set {
+                egui_renderer.update_texture(
+                    &render_context.device,
+                    &render_context.queue,
+                    id,
+                    &delta,
+                );
+            }
+
+            for id in egui_out.textures_delta.free {
+                egui_renderer.free_texture(&id);
+            }
+
+            let sd = egui_wgpu::ScreenDescriptor {
+                size_in_pixels: window.inner_size().into(),
+                pixels_per_point: window.scale_factor() as _,
+            };
+            let shapes = gui
+                .egui_ctx()
+                .tessellate(egui_out.shapes, window.scale_factor() as _);
+            let mut encoder = render_context.encoder(Some("egui"));
+
+            {
+                let cmds = egui_renderer.update_buffers(
+                    &render_context.device,
+                    &render_context.queue,
+                    &mut encoder,
+                    &shapes,
+                    &sd,
+                );
+                render_context.queue.submit(cmds);
+            }
+
+            let mut rpass = encoder
+                .begin_render_pass(&wgpu::RenderPassDescriptor {
+                    label: Some("egui"),
+                    color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                        view: &surface
+                            .texture
+                            .create_view(&wgpu::TextureViewDescriptor::default()),
+                        resolve_target: None,
+                        ops: wgpu::Operations {
+                            load: wgpu::LoadOp::Load,
+                            store: wgpu::StoreOp::Store,
+                        },
+                    })],
+                    depth_stencil_attachment: None,
+                    occlusion_query_set: None,
+                    timestamp_writes: None,
+                })
+                .forget_lifetime();
+            egui_renderer.render(&mut rpass, &shapes, &sd);
+            drop(rpass);
+            render_context
+                .queue
+                .submit(std::iter::once(encoder.finish()));
+        }
 
         Self::run_lua_gc(lua_arena, &mut vgfx.write().expect("Lock error"));
 

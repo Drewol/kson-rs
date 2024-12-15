@@ -1,6 +1,6 @@
 use super::chart_view;
 use chart_view::ChartView;
-use glam::{vec2, Mat4, Vec2, Vec3};
+use glam::{vec2, vec4, Mat4, Vec2, Vec3};
 
 #[derive(Debug, Clone)]
 pub struct ChartCamera {
@@ -189,7 +189,33 @@ impl ChartCamera {
 
 const KSON_ANGLE_FACTOR: f32 = 360.0 / 2400.0;
 
-impl From<&ChartCamera> for Mat4 {
+pub struct CameraMats {
+    pub view: Mat4,
+    pub proj: Mat4,
+}
+
+pub const OPENGL_TO_WGPU_MATRIX: Mat4 = Mat4::from_cols(
+    vec4(1.0, 0.0, 0.0, 0.0),
+    vec4(0.0, 1.0, 0.0, 0.0),
+    vec4(0.0, 0.0, 0.5, 0.0),
+    vec4(0.0, 0.0, 0.5, 1.0),
+);
+
+impl CameraMats {
+    pub fn get_uniform(&self) -> Mat4 {
+        self.proj * self.view * OPENGL_TO_WGPU_MATRIX
+    }
+
+    pub fn get_pixel_at_pos(&self, pos: Vec3) -> Vec2 {
+        let proj = self.proj * self.view * pos.extend(1.0);
+        vec2(
+            0.5 * (proj.x / proj.w.abs() + 1.0),
+            0.5 * (proj.y / proj.w.abs() + 1.0),
+        )
+    }
+}
+
+impl From<&ChartCamera> for CameraMats {
     fn from(val: &ChartCamera) -> Self {
         let (fov, angle, radius) = {
             if val.portrait {
@@ -244,8 +270,9 @@ impl From<&ChartCamera> for Mat4 {
 
         //cam.yaw(Rad(val.shakes.iter().map(|x| x.get_shake()).sum()));
 
-        let cam = cam * Mat4::look_at_rh(final_camera_pos, target, up.normalize());
-
-        cam
+        CameraMats {
+            proj: Mat4::look_at_rh(final_camera_pos, target, up.normalize()),
+            view: cam,
+        }
     }
 }

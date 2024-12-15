@@ -23,6 +23,7 @@ use clap::Parser;
 use directories::ProjectDirs;
 
 use egui::ViewportId;
+use egui_wgpu::ScreenDescriptor;
 use femtovg as vg;
 
 use futures::executor::block_on;
@@ -43,11 +44,8 @@ use tealr::mlu::mlua::Lua;
 use test_scenes::camera_test;
 
 use di::*;
-use wgpu::SurfaceTexture;
-use winit::{
-    event_loop::{ControlFlow, EventLoop},
-    platform::x11::EventLoopBuilderExtX11,
-};
+use wgpu::{core::device::queue, SurfaceTexture};
+use winit::event_loop::{ControlFlow, EventLoop};
 
 mod animation;
 mod async_service;
@@ -82,7 +80,6 @@ mod worker_service;
 
 struct GameApp {
     game_state: GameMain,
-    render_state: egui_wgpu::RenderState,
     window: Arc<winit::window::Window>,
     services: ServiceProvider,
     render_context: RenderContext,
@@ -131,12 +128,17 @@ impl GameState {
             None,
             None,
         );
+
+        gui.egui_ctx().set_request_repaint_callback(|_r| {});
+
         let render_context = RenderContext {
             queue: egui_render_state.queue.clone(),
             device: egui_render_state.device.clone(),
             surface_ctx: Arc::new(surface),
             surface_config,
             pending_screen_grabs: Arc::new(vec![].into()),
+            gui: Arc::new(egui_render_state),
+            commands: Arc::new(vec![].into()),
         };
 
         let services = ServiceCollection::new()
@@ -285,7 +287,6 @@ impl GameState {
                 services.create_scope(),
                 render_context.clone(),
             ),
-            render_state: egui_render_state,
             window,
             services,
             render_context,
@@ -317,7 +318,6 @@ impl winit::application::ApplicationHandler<UscInputEvent> for GameState {
     ) {
         let Some(GameApp {
             game_state,
-            render_state,
             window,
             services,
             render_context,
@@ -335,6 +335,7 @@ impl winit::application::ApplicationHandler<UscInputEvent> for GameState {
         if let winit::event::WindowEvent::Resized(size) = event {
             render_context.set_size(size);
         }
+        render_context.process_config();
 
         if let winit::event::WindowEvent::RedrawRequested = event {
             let target_updates = (launch_time.elapsed().as_secs_f64() * 240.0) as u64;
@@ -346,7 +347,6 @@ impl winit::application::ApplicationHandler<UscInputEvent> for GameState {
                 *updates += 1;
             }
 
-            let ctx = egui::Context::default();
             let now = Instant::now();
 
             let exiting = game_state.render(
@@ -631,14 +631,14 @@ impl Scenes {
             }
             scene.render(dt, td_context, viewport, surface.clone());
             if let Err(e) = scene.render_ui(dt) {
-                log::error!("{}", e)
+                log::error!("{:#}", e)
             };
         }
 
         if let Some(transition) = self.transition.as_mut() {
             transition.render(dt, td_context, viewport, surface);
             if let Err(e) = transition.render_ui(dt) {
-                log::error!("{}", e)
+                log::error!("{:#}", e)
             };
         }
     }

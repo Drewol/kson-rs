@@ -31,6 +31,8 @@ use tealr::{
 };
 use wgpu::SurfaceTexture;
 
+use super::CameraMats;
+
 #[derive(Debug, Clone, Copy)]
 pub struct BackgroundData {
     screen_center: (f32, f32),
@@ -281,7 +283,7 @@ impl GameBackground {
     pub fn render(
         &mut self,
         dt: f64,
-        camera: &Mat4,
+        camera: &CameraMats,
         chart_time: f64,
         chart: &kson::Chart,
         tick: u32,
@@ -292,6 +294,7 @@ impl GameBackground {
     ) {
         profile_function!();
         let center = camera
+            .proj
             .project_point3(ChartView::TRACK_DIRECTION * 50.0)
             .xy();
         let bpm = chart.bpm_at_tick(tick);

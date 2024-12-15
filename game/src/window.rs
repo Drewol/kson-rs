@@ -1,8 +1,8 @@
 use std::sync::Arc;
 
 use femtovg::{Canvas, Renderer};
+use winit::event_loop::ActiveEventLoop;
 use winit::window::Window;
-use winit::{event_loop::ActiveEventLoop, platform::x11::WindowAttributesExtX11};
 
 use wgpu::{InstanceDescriptor, TextureUsages};
 use winit::{
@@ -109,8 +109,7 @@ pub async fn create_window<'a>(el: &ActiveEventLoop) -> anyhow::Result<WindowCre
     surface_config.usage = surface_config.usage | TextureUsages::COPY_SRC | TextureUsages::COPY_DST;
     surface.configure(&device, &surface_config);
 
-    let renderer =
-        egui_wgpu::Renderer::new(&device, wgpu::TextureFormat::Rgba8Unorm, None, 4, false);
+    let renderer = egui_wgpu::Renderer::new(&device, surface_config.format, None, 1, false);
 
     let device = Arc::new(device);
 

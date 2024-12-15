@@ -29,7 +29,7 @@ rand = { workspace = true }
 
 egui_plot = "0.29"
 egui-wgpu = { git = "https://github.com/emilk/egui", features = ["winit"] }
-femtovg = { version = "0.11", default-features = false, features = [
+femtovg = { path = "../../femtovg", default-features = false, features = [
     "wgpu",
     "image",
     "image-loading",

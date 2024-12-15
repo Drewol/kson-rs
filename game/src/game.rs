@@ -341,13 +341,11 @@ impl SceneData for GameData {
         texture_folder.push("textures");
         texture_folder.push("dummy.png");
 
-        let mut fx_long_shader = ShadedMesh::new(&context, "holdbutton", &shader_folder)
-            .expect("Failed to load shader:")
+        let mut fx_long_shader = ShadedMesh::new(&context, "holdbutton", &shader_folder)?
             .with_transform(Mat4::from_translation(vec3(-0.5, 0.0, 0.0)));
 
-        let mut beam_shader = ShadedMesh::new(&context, "sprite", &shader_folder)
-            .expect("Failed to load shader:")
-            .with_transform(mesh_transform);
+        let mut beam_shader =
+            ShadedMesh::new(&context, "sprite", &shader_folder)?.with_transform(mesh_transform);
 
         beam_shader.use_texture(
             "mainTex",
@@ -370,8 +368,7 @@ impl SceneData for GameData {
             vec2(2.0 / 6.0, 1.0),
         ));
 
-        let mut bt_long_shader = ShadedMesh::new(&context, "holdbutton", &shader_folder)
-            .expect("Failed to load shader:")
+        let mut bt_long_shader = ShadedMesh::new(&context, "holdbutton", &shader_folder)?
             .with_transform(Mat4::from_translation(vec3(-0.5, 0.0, 0.0)));
 
         bt_long_shader.use_texture(
@@ -386,8 +383,7 @@ impl SceneData for GameData {
             vec2(1.0 / 6.0, 1.0),
         ));
 
-        let mut fx_chip_shader = ShadedMesh::new(&context, "button", &shader_folder)
-            .expect("Failed to load shader:")
+        let mut fx_chip_shader = ShadedMesh::new(&context, "button", &shader_folder)?
             .with_transform(Mat4::from_translation(vec3(-0.5, 0.0, 0.0)));
         fx_chip_shader.use_texture(
             "mainTex",
@@ -402,8 +398,7 @@ impl SceneData for GameData {
             vec2(2.0 / 6.0, fx_height),
         ));
 
-        let mut bt_chip_shader = ShadedMesh::new(&context, "button", &shader_folder)
-            .expect("Failed to load shader:")
+        let mut bt_chip_shader = ShadedMesh::new(&context, "button", &shader_folder)?
             .with_transform(Mat4::from_translation(vec3(-0.5, 0.0, 0.0)));
         let bt_height = 1.0;
 
@@ -421,8 +416,7 @@ impl SceneData for GameData {
 
         let chip_h = (1.0 / 6.0) * (bt_tex.height() as f32 / bt_tex.width() as f32);
 
-        let mut track_shader =
-            ShadedMesh::new(&context, "track", &shader_folder).expect("Failed to load shader:");
+        let mut track_shader = ShadedMesh::new(&context, "track", &shader_folder)?;
         track_shader.set_data_mesh(&graphics::xy_rect(
             Vec3::ZERO,
             vec2(1.0, ChartView::TRACK_LENGTH * 2.0),
@@ -441,21 +435,17 @@ impl SceneData for GameData {
         track_shader.set_param("rCol", laser_colors[1]);
 
         track_shader.use_texture(
-            "mainTex",
+            "main_tex",
             texture_folder.with_file_name("track.png"),
             (false, false),
             true,
         )?;
 
-        let mut laser_left =
-            ShadedMesh::new(&context, "laser", &shader_folder).expect("Failed to load shader:");
-        let mut laser_left_active =
-            ShadedMesh::new(&context, "laser", &shader_folder).expect("Failed to load shader:");
+        let mut laser_left = ShadedMesh::new(&context, "laser", &shader_folder)?;
+        let mut laser_left_active = ShadedMesh::new(&context, "laser", &shader_folder)?;
 
-        let mut laser_right =
-            ShadedMesh::new(&context, "laser", &shader_folder).expect("Failed to load shader:");
-        let mut laser_right_active =
-            ShadedMesh::new(&context, "laser", &shader_folder).expect("Failed to load shader:");
+        let mut laser_right = ShadedMesh::new(&context, "laser", &shader_folder)?;
+        let mut laser_right_active = ShadedMesh::new(&context, "laser", &shader_folder)?;
 
         laser_left.use_texture(
             "mainTex",
@@ -482,8 +472,7 @@ impl SceneData for GameData {
             true,
         )?;
 
-        let beam_colors: Vec<_> = image::open(texture_folder.with_file_name("hitcolors.png"))
-            .expect("Failed to load hitcolors.png")
+        let beam_colors: Vec<_> = image::open(texture_folder.with_file_name("hitcolors.png"))?
             .pixels()
             .map(|x| x.2)
             .collect();
@@ -496,9 +485,7 @@ impl SceneData for GameData {
 
         let mut playback = kson_music_playback::AudioPlayback::new();
         let (biquad_control, _) = std::sync::mpsc::channel();
-        playback
-            .open(audio, "Game", None)
-            .expect("Failed to load audio");
+        playback.open(audio, "Game", None)?;
         playback.build_effects(&chart);
         playback.stop();
         let laser_effects = chart.laser_effect_queue();
@@ -762,14 +749,14 @@ impl Game {
     fn lua_game_state(
         &self,
         viewport: Viewport,
-        camera: &Mat4,
+        camera: &CameraMats,
         hit_window: HitWindow,
     ) -> lua_data::LuaGameState {
         let screen = vec2(viewport.width as f32, viewport.height as f32);
-        let track_center = graphics::camera_to_screen(camera, Vec3::ZERO, screen);
+        let track_center = camera.get_pixel_at_pos(Vec3::ZERO);
 
-        let track_left = graphics::camera_to_screen(camera, Vec3::X * -0.5, screen);
-        let track_right = graphics::camera_to_screen(camera, Vec3::X * 0.5, screen);
+        let track_left = camera.get_pixel_at_pos(Vec3::X * -0.5);
+        let track_right = camera.get_pixel_at_pos(Vec3::X * 0.5);
         let crit_line = track_right - track_left;
         let rotation = -crit_line.y.atan2(crit_line.x);
 
@@ -1853,7 +1840,7 @@ impl Scene for Game {
                 !x.completed()
             });
         }
-        let td_camera: Mat4 = Mat4::from(&self.camera);
+        let td_camera = CameraMats::from(&self.camera);
         if let Some(bg) = self.background.as_mut() {
             bg.render(
                 dt,

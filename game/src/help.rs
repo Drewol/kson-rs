@@ -292,16 +292,40 @@ pub fn wait_until(frame_end: SystemTime) {
     }
 }
 
-#[derive(Debug, Clone)]
+pub enum ConfigCommand {
+    SetSwapInterval(wgpu::PresentMode),
+    SetSize(PhysicalSize<u32>),
+}
+
+#[derive(Clone)]
 pub struct RenderContext {
     pub queue: Arc<wgpu::Queue>,
     pub device: Arc<wgpu::Device>,
     pub surface_ctx: Arc<wgpu::Surface<'static>>,
     pub surface_config: wgpu::SurfaceConfiguration,
     pub pending_screen_grabs: Arc<Mutex<Vec<Arc<Texture>>>>,
+    pub gui: Arc<egui_wgpu::RenderState>,
+    pub commands: Arc<Mutex<Vec<ConfigCommand>>>,
 }
 
 impl RenderContext {
+    pub fn process_config(&mut self) {
+        for c in self.commands.lock().unwrap().drain(..) {
+            match c {
+                ConfigCommand::SetSwapInterval(present_mode) => {
+                    self.surface_config.present_mode = present_mode;
+                }
+                ConfigCommand::SetSize(s) => {
+                    self.surface_config.width = s.width;
+                    self.surface_config.height = s.height;
+                }
+            }
+        }
+
+        self.surface_ctx
+            .configure(&self.device, &self.surface_config);
+    }
+
     pub fn process_screen_grabs(&self, surface: &SurfaceTexture, viewport: Viewport) {
         self.device.poll(wgpu::MaintainBase::Wait);
         let mut grabs = self.pending_screen_grabs.lock().unwrap();
@@ -326,18 +350,17 @@ impl RenderContext {
         self.queue.submit([encoder.finish()]);
     }
     pub fn set_swap_interval(&mut self, v: wgpu::PresentMode) {
-        self.surface_config.present_mode = v;
-
-        self.surface_ctx
-            .configure(&self.device, &self.surface_config);
+        self.commands
+            .lock()
+            .unwrap()
+            .push(ConfigCommand::SetSwapInterval(v));
     }
 
     pub fn set_size(&mut self, size: PhysicalSize<u32>) {
-        self.surface_config.width = size.width;
-        self.surface_config.height = size.height;
-
-        self.surface_ctx
-            .configure(&self.device, &self.surface_config);
+        self.commands
+            .lock()
+            .unwrap()
+            .push(ConfigCommand::SetSize(size));
     }
 
     pub fn load_texture(&self, p: impl AsRef<Path>) -> anyhow::Result<wgpu::Texture> {
@@ -360,10 +383,7 @@ impl RenderContext {
                 view_formats: &[wgpu::TextureFormat::Rgba8Unorm],
             },
             wgpu::util::TextureDataOrder::LayerMajor,
-            image
-                .as_rgba8()
-                .ok_or(anyhow!("Could not convert image"))?
-                .as_raw(),
+            image.to_rgba8().as_raw(),
         );
 
         Ok(tex)

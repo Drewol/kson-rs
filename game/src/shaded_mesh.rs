@@ -7,7 +7,7 @@ use std::{
     sync::{Arc, RwLock},
 };
 
-use anyhow::{anyhow, ensure};
+use anyhow::{anyhow, ensure, Context};
 use di::RefMut;
 use encase::{
     internal::{BufferMut, WriteInto},
@@ -17,7 +17,7 @@ use femtovg::renderer::WGPURenderer;
 use futures::executor::block_on;
 use image::{buffer, GenericImageView};
 use itertools::Itertools;
-use log::info;
+use log::{info, warn};
 use palette::{stimulus::IntoStimulus, IntoColor, Srgba};
 use puffin::profile_function;
 use tealr::{
@@ -32,14 +32,15 @@ use glam::{vec2, vec3, vec4, IVec2, IVec3, IVec4, Mat4, Vec2, Vec3, Vec4};
 use wgpu::{
     naga::{self, front::glsl::Options},
     util::DeviceExt,
-    BindGroupEntry, BindGroupLayoutEntry, BufferUsages, Device, Extent3d, FragmentState,
-    ImageDataLayout, PrimitiveState, RenderPassColorAttachment, ShaderModuleDescriptor,
-    ShaderStages, SurfaceTexture, Texture, TextureDescriptor, TextureFormat,
+    BindGroupDescriptor, BindGroupEntry, BindGroupLayoutEntry, BufferUsages, Device, Extent3d,
+    FragmentState, ImageDataLayout, PrimitiveState, RenderPassColorAttachment, SamplerDescriptor,
+    ShaderModuleDescriptor, ShaderStages, SurfaceTexture, Texture, TextureDescriptor,
+    TextureFormat, TextureViewDescriptor,
 };
 
 use crate::{
     config::GameConfig,
-    game::graphics::CpuMesh,
+    game::{camera::CameraMats, graphics::CpuMesh},
     game_data,
     help::{blend_add, transform_shader, RenderContext},
     vg_ui::Vgfx,
@@ -122,6 +123,41 @@ enum DrawingMode {
     Strip = 2,
 }
 
+enum UniformValue {
+    Buffer(wgpu::Buffer),
+    Texture(wgpu::Texture, wgpu::TextureView, u32),
+    Sampler(wgpu::Sampler, u32),
+}
+
+impl<'a> UniformValue {
+    fn as_binding(&'a self) -> wgpu::BindingResource<'a> {
+        match self {
+            UniformValue::Buffer(buffer) => buffer.as_entire_binding(),
+            UniformValue::Texture(_, view, _) => wgpu::BindingResource::TextureView(&view),
+            UniformValue::Sampler(sampler, _) => wgpu::BindingResource::Sampler(&sampler),
+        }
+    }
+}
+
+impl From<wgpu::Buffer> for UniformValue {
+    fn from(value: wgpu::Buffer) -> Self {
+        Self::Buffer(value)
+    }
+}
+
+impl From<(wgpu::Texture, u32)> for UniformValue {
+    fn from(value: (wgpu::Texture, u32)) -> Self {
+        let view = value.0.create_view(&TextureViewDescriptor::default());
+        Self::Texture(value.0, view, value.1)
+    }
+}
+
+impl From<(wgpu::Sampler, u32)> for UniformValue {
+    fn from(value: (wgpu::Sampler, u32)) -> Self {
+        Self::Sampler(value.0, value.1)
+    }
+}
+
 //TODO: Cloneable with Arc for gpu resources for better shader reuse
 #[derive(UserData, ToTypename)]
 pub struct ShadedMesh {
@@ -139,8 +175,9 @@ pub struct ShadedMesh {
     transform: Mat4,
     context: RenderContext,
     /// Map uniform names to bind groups + buffer
-    uniform_map: HashMap<String, wgpu::Buffer>,
+    uniform_map: HashMap<String, UniformValue>,
     bind_groups: HashMap<u32, wgpu::BindGroup>,
+    name: String,
 }
 
 #[derive(ShaderType)]
@@ -167,8 +204,10 @@ impl ShadedMesh {
         let mut shader_path = path.as_ref().to_path_buf();
         shader_path.push(material);
         shader_path.set_extension("wgsl");
-        let fs_text = std::fs::read_to_string(shader_path)?;
+        let fs_text = std::fs::read_to_string(shader_path)
+            .with_context(|| format!("Failed loading shader: {material}"))?;
         Self::new_with_shader(context, &fs_text, material)
+            .with_context(|| format!("Failed loading shader: {material}"))
     }
 
     pub fn new_with_shader(
@@ -176,6 +215,9 @@ impl ShadedMesh {
         shader_source: &str,
         name: &str,
     ) -> anyhow::Result<Self> {
+        context
+            .device
+            .push_error_scope(wgpu::ErrorFilter::Validation);
         let RenderContext { device, .. } = context;
         let mut parser = naga::front::wgsl::Frontend::new();
 
@@ -216,14 +258,42 @@ impl ShadedMesh {
 
                 let size = ty.inner.size(module.to_ctx());
 
-                let uniform_buffer = device.create_buffer(&wgpu::BufferDescriptor {
-                    label: Some(name.as_str()),
-                    mapped_at_creation: false,
-                    size: size as _,
-                    usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
-                });
+                let uniform: UniformValue = match ty.inner {
+                    naga::TypeInner::Image { .. } => (
+                        device.create_texture(&wgpu::TextureDescriptor {
+                            label: Some(name.as_str()),
+                            size: Extent3d {
+                                width: 1,
+                                height: 1,
+                                depth_or_array_layers: 1,
+                            },
+                            mip_level_count: 1,
+                            sample_count: 1,
+                            dimension: wgpu::TextureDimension::D2,
+                            format: wgpu::TextureFormat::Rgba8Unorm,
+                            usage: wgpu::TextureUsages::COPY_DST
+                                | wgpu::TextureUsages::TEXTURE_BINDING,
+                            view_formats: &[],
+                        }),
+                        binding.group,
+                    )
+                        .into(),
+                    naga::TypeInner::Sampler { .. } => (
+                        device.create_sampler(&wgpu::SamplerDescriptor::default()),
+                        binding.group,
+                    )
+                        .into(),
+                    _ => device
+                        .create_buffer(&wgpu::BufferDescriptor {
+                            label: Some(name.as_str()),
+                            mapped_at_creation: false,
+                            size: size as _,
+                            usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+                        })
+                        .into(),
+                };
 
-                global_binds.push((name.clone(), binding.clone(), uniform_buffer));
+                global_binds.push((name.clone(), binding.clone(), uniform));
             }
 
             let layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
@@ -233,10 +303,20 @@ impl ShadedMesh {
                     .map(|x| wgpu::BindGroupLayoutEntry {
                         binding: x.1.binding,
                         visibility: ShaderStages::VERTEX_FRAGMENT,
-                        ty: wgpu::BindingType::Buffer {
-                            ty: wgpu::BufferBindingType::Uniform,
-                            has_dynamic_offset: false,
-                            min_binding_size: None,
+                        ty: match &x.2 {
+                            UniformValue::Buffer(_) => wgpu::BindingType::Buffer {
+                                ty: wgpu::BufferBindingType::Uniform,
+                                has_dynamic_offset: false,
+                                min_binding_size: None,
+                            },
+                            UniformValue::Texture(_, _, _) => wgpu::BindingType::Texture {
+                                sample_type: wgpu::TextureSampleType::Float { filterable: true },
+                                view_dimension: wgpu::TextureViewDimension::D2,
+                                multisampled: false,
+                            },
+                            UniformValue::Sampler(_, _) => {
+                                wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering)
+                            }
                         },
                         count: None,
                     })
@@ -252,7 +332,7 @@ impl ShadedMesh {
                         .iter()
                         .map(|x| wgpu::BindGroupEntry {
                             binding: x.1.binding,
-                            resource: x.2.as_entire_binding(),
+                            resource: x.2.as_binding(),
                         })
                         .collect_vec()
                         .as_slice(),
@@ -261,7 +341,7 @@ impl ShadedMesh {
             bind_group_layouts.push(layout);
 
             for (name, _, buffer) in global_binds.into_iter() {
-                uniform_map.insert(name, buffer);
+                uniform_map.insert(name, buffer.into());
             }
         }
 
@@ -319,7 +399,9 @@ impl ShadedMesh {
         });
 
         let params = HashMap::new();
-
+        if let Some(err) = block_on(context.device.pop_error_scope()) {
+            return Err(anyhow!("{err}"));
+        }
         Ok(Self {
             params,
             material,
@@ -336,6 +418,7 @@ impl ShadedMesh {
             index_buffer,
             uniform_map,
             bind_groups,
+            name: name.to_string(),
         })
     }
 
@@ -396,7 +479,6 @@ impl ShadedMesh {
                 .flat_map(|x| [0, x[0], x[1]])
                 .collect(),
         };
-
         let device = &self.context.device;
 
         let mut vertecies = vec![];
@@ -460,6 +542,14 @@ impl ShadedMesh {
         profile_function!();
         let name = name.into();
         let mut texture_data = image::open(path)?;
+        let Some(UniformValue::Texture(_tex, _view, group_num)) = self.uniform_map.get(&name)
+        else {
+            return Err(anyhow!(
+                "Could not update texture {:?} in shader {:?}",
+                name,
+                self.name
+            ));
+        };
 
         texture_data = if flip_y {
             texture_data.flipv()
@@ -469,11 +559,11 @@ impl ShadedMesh {
 
         let (wrap_h, wrap_v) = match wrap_xy {
             (true, true) => (wgpu::AddressMode::Repeat, wgpu::AddressMode::Repeat),
-            (true, false) => (wgpu::AddressMode::Repeat, wgpu::AddressMode::ClampToBorder),
-            (false, true) => (wgpu::AddressMode::ClampToBorder, wgpu::AddressMode::Repeat),
+            (true, false) => (wgpu::AddressMode::Repeat, wgpu::AddressMode::ClampToEdge),
+            (false, true) => (wgpu::AddressMode::ClampToEdge, wgpu::AddressMode::Repeat),
             (false, false) => (
-                wgpu::AddressMode::ClampToBorder,
-                wgpu::AddressMode::ClampToBorder,
+                wgpu::AddressMode::ClampToEdge,
+                wgpu::AddressMode::ClampToEdge,
             ),
         };
 
@@ -494,17 +584,66 @@ impl ShadedMesh {
                 view_formats: &[wgpu::TextureFormat::Rgba8Unorm],
             },
             wgpu::util::TextureDataOrder::LayerMajor,
-            texture_data
-                .as_rgba8()
-                .ok_or(anyhow!("Failed to convert texture"))?
-                .as_raw(),
+            texture_data.to_rgba8().as_raw(),
         );
 
+        let layout =
+            self.context
+                .device
+                .create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+                    label: Some(&name),
+                    entries: &[
+                        BindGroupLayoutEntry {
+                            binding: 0,
+                            visibility: ShaderStages::VERTEX_FRAGMENT,
+                            ty: wgpu::BindingType::Texture {
+                                sample_type: wgpu::TextureSampleType::Float { filterable: true },
+                                view_dimension: wgpu::TextureViewDimension::D2,
+                                multisampled: false,
+                            },
+                            count: None,
+                        },
+                        BindGroupLayoutEntry {
+                            binding: 1,
+                            visibility: ShaderStages::VERTEX_FRAGMENT,
+                            ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
+                            count: None,
+                        },
+                    ],
+                });
+
+        let sampler = self.context.device.create_sampler(&SamplerDescriptor {
+            label: Some(&name),
+            address_mode_u: wrap_h,
+            address_mode_v: wrap_v,
+            address_mode_w: wgpu::AddressMode::Repeat,
+            mag_filter: wgpu::FilterMode::Linear,
+            min_filter: wgpu::FilterMode::Linear,
+            mipmap_filter: wgpu::FilterMode::Linear,
+            ..Default::default()
+        });
+        let group = self.context.device.create_bind_group(&BindGroupDescriptor {
+            label: Some(&name),
+            layout: &layout,
+            entries: &[
+                BindGroupEntry {
+                    binding: 0,
+                    resource: wgpu::BindingResource::TextureView(
+                        &cpu_texture.create_view(&TextureViewDescriptor::default()),
+                    ),
+                },
+                BindGroupEntry {
+                    binding: 1,
+                    resource: wgpu::BindingResource::Sampler(&sampler),
+                },
+            ],
+        });
+        self.bind_groups.insert(*group_num, group);
         Ok(cpu_texture)
     }
 
     pub fn use_uniform<T: bytemuck::Pod>(&self, n: impl AsRef<str>, v: T) {
-        if let Some(buff) = self.uniform_map.get(n.as_ref()) {
+        if let Some(UniformValue::Buffer(buff)) = self.uniform_map.get(n.as_ref()) {
             self.context
                 .queue
                 .write_buffer(buff, 0, bytemuck::cast_slice(&[v]));
@@ -535,7 +674,7 @@ impl ShadedMesh {
         let mut encoder = self.context.encoder(None);
 
         let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
-            label: None,
+            label: Some(&self.name),
             color_attachments: &[Some(RenderPassColorAttachment {
                 view: &surface.texture.create_view(&Default::default()),
                 resolve_target: None,
@@ -549,9 +688,12 @@ impl ShadedMesh {
             occlusion_query_set: None,
         });
         render_pass.set_pipeline(&self.material);
-        render_pass.set_vertex_buffer(0, self.vertex_buffer.slice(..));
-        render_pass.set_index_buffer(self.index_buffer.slice(..), wgpu::IndexFormat::Uint32);
-
+        if !self.vertecies_pos.is_empty() || !self.indecies.is_empty() {
+            render_pass.set_vertex_buffer(0, self.vertex_buffer.slice(..));
+            render_pass.set_index_buffer(self.index_buffer.slice(..), wgpu::IndexFormat::Uint32);
+        } else {
+            warn!("Drawing empty mesh {:?}", self.name);
+        }
         // Set predefined bind groups
         // render_pass.set_bind_group(index, bind_group, offsets);
 
@@ -572,23 +714,23 @@ impl ShadedMesh {
         self.draw(surface);
     }
 
-    pub fn draw_camera(&self, camera: &Mat4, surface: Rc<SurfaceTexture>) {
+    pub fn draw_camera(&self, camera: &CameraMats, surface: Rc<SurfaceTexture>) {
         self.set_camera_uniforms(camera);
 
         self.draw(surface);
     }
 
     #[inline]
-    fn set_camera_uniforms(&self, camera: &Mat4) {
-        self.use_uniform("proj", camera.inverse().to_cols_array());
-        self.use_uniform("camera", camera.to_cols_array());
+    fn set_camera_uniforms(&self, camera: &CameraMats) {
+        self.use_uniform("proj", camera.get_uniform().to_cols_array());
+        self.use_uniform("camera", Mat4::IDENTITY.to_cols_array());
         self.use_uniform("world", self.transform.to_cols_array());
         self.use_params();
     }
 
     pub fn draw_instanced_camera<T>(
         &self,
-        camera: &Mat4,
+        camera: &CameraMats,
         instances: impl IntoIterator<Item = T>,
         set_uniforms: impl Fn(&Self, Mat4, T),
         viewport: Viewport,
@@ -648,6 +790,7 @@ impl ShadedMesh {
         } else {
             indecies
         };
+        self.update_indecies();
     }
 
     pub fn draw_lua_skin(
