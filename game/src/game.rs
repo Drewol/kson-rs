@@ -17,7 +17,7 @@ use anyhow::{anyhow, ensure, Result};
 use di::{RefMut, ServiceProvider};
 use egui::epaint::Hsva;
 use egui_plot::{Line, PlotPoints};
-use glam::{vec2, vec3, vec4, Mat4, Vec3, Vec4};
+use glam::{vec2, vec3, vec4, Mat4, Quat, Vec3, Vec4};
 use image::GenericImageView;
 use itertools::Itertools;
 use kson::{
@@ -45,6 +45,7 @@ use std::{
     time::{Duration, SystemTime},
 };
 use tealr::mlu::mlua::{Function, Lua, LuaSerdeExt};
+use three_d_asset::Camera;
 use wgpu::SurfaceTexture;
 
 pub mod chart_view;
@@ -749,15 +750,15 @@ impl Game {
     fn lua_game_state(
         &self,
         viewport: Viewport,
-        camera: &CameraMats,
+        camera: &Camera,
         hit_window: HitWindow,
     ) -> lua_data::LuaGameState {
         let screen = vec2(viewport.width as f32, viewport.height as f32);
-        let track_center = camera.get_pixel_at_pos(Vec3::ZERO);
+        let track_center = camera.pixel_at_position(three_d_asset::Vec3::unit_x() * 0.0);
 
-        let track_left = camera.get_pixel_at_pos(Vec3::X * -0.5);
-        let track_right = camera.get_pixel_at_pos(Vec3::X * 0.5);
-        let crit_line = track_right - track_left;
+        let track_left = camera.pixel_at_position(three_d_asset::Vec3::unit_x() * -0.5);
+        let track_right = camera.pixel_at_position(three_d_asset::Vec3::unit_x() * 0.5);
+        let crit_line = vec2(track_right.x, track_right.y) - vec2(track_left.x, track_left.y);
         let rotation = -crit_line.y.atan2(crit_line.x);
 
         lua_data::LuaGameState {
@@ -1320,8 +1321,11 @@ impl Scene for Game {
     fn closed(&self) -> bool {
         self.closed
     }
-    fn render_ui(&mut self, _dt: f64) -> anyhow::Result<()> {
-        Ok(())
+    fn render_ui(
+        &mut self,
+        _dt: f64,
+    ) -> std::result::Result<std::vec::Vec<wgpu::CommandBuffer>, anyhow::Error> {
+        Ok(vec![])
     }
 
     fn is_suspended(&self) -> bool {
@@ -1736,7 +1740,8 @@ impl Scene for Game {
         td_context: &RenderContext,
         viewport: Viewport,
         surface: Rc<SurfaceTexture>,
-    ) {
+    ) -> std::vec::Vec<wgpu::CommandBuffer> {
+        let mut render_commands = vec![];
         profile_function!();
 
         self.camera
@@ -1747,7 +1752,7 @@ impl Scene for Game {
             if !self.playback.play() {
                 log::error!("Could not play audio");
                 self.closed = true;
-                return;
+                return vec![];
             };
 
             let (biquad_control, biquad_events) = std::sync::mpsc::channel();
@@ -1840,7 +1845,7 @@ impl Scene for Game {
                 !x.completed()
             });
         }
-        let td_camera = CameraMats::from(&self.camera);
+        let td_camera = Camera::from(&self.camera);
         if let Some(bg) = self.background.as_mut() {
             bg.render(
                 dt,
@@ -1866,7 +1871,7 @@ impl Scene for Game {
                 Ok(s) => s,
                 Err(e) => {
                     log::error!("{e}");
-                    return;
+                    return vec![];
                 }
             };
             log_result!(self.lua.globals().set("gameplay", lua_game_state));
@@ -1894,8 +1899,11 @@ impl Scene for Game {
                 },
             );
         }
-
-        self.track_shader.draw_camera(&td_camera, surface.clone());
+        render_commands.extend(
+            self.track_shader
+                .draw_camera(&td_camera, surface.clone())
+                .into_iter(),
+        );
         let render_data = match self.view.render(
             &self.chart,
             |lane, tick| self.hold_ok(lane, tick),
@@ -1905,11 +1913,11 @@ impl Scene for Game {
             Ok(d) => d,
             Err(e) => {
                 log::error!("{e}");
-                return;
+                return vec![];
             }
         };
 
-        self.fx_long_shaders.draw_instanced_camera(
+        let fx_long_commands = self.fx_long_shaders.draw_instanced_camera(
             &td_camera,
             render_data.fx_hold,
             |material, transform, (hold, active)| {
@@ -1926,7 +1934,7 @@ impl Scene for Game {
             surface.clone(),
         );
 
-        self.bt_long_shaders.draw_instanced_camera(
+        let bt_long_commands = self.bt_long_shaders.draw_instanced_camera(
             &td_camera,
             render_data.bt_hold,
             |material, transform, (bt, active)| {
@@ -1943,7 +1951,7 @@ impl Scene for Game {
             surface.clone(),
         );
 
-        self.fx_chip_shaders.draw_instanced_camera(
+        let fx_chip_commands = self.fx_chip_shaders.draw_instanced_camera(
             &td_camera,
             render_data.fx_chip,
             |material, transform, (fx, has_sample)| {
@@ -1954,7 +1962,7 @@ impl Scene for Game {
             surface.clone(),
         );
 
-        self.bt_chip_shader.draw_instanced_camera(
+        let bt_chip_commands = self.bt_chip_shader.draw_instanced_camera(
             &td_camera,
             render_data.bt_chip,
             |material, transform, bt| {
@@ -1964,7 +1972,7 @@ impl Scene for Game {
             surface.clone(),
         );
 
-        self.lane_beam_shader.draw_instanced_camera(
+        let lane_beam_commands = self.lane_beam_shader.draw_instanced_camera(
             &td_camera,
             render_data.lane_beams,
             |material, tranform, (light, color)| {
@@ -1975,13 +1983,19 @@ impl Scene for Game {
             surface.clone(),
         );
 
+        render_commands.extend(fx_long_commands.into_iter().flatten());
+        render_commands.extend(bt_long_commands.into_iter().flatten());
+        render_commands.extend(fx_chip_commands.into_iter().flatten());
+        render_commands.extend(bt_chip_commands.into_iter().flatten());
+        render_commands.extend(lane_beam_commands.into_iter().flatten());
+
         self.laser_shaders[0][0].set_data_mesh(&render_data.lasers[0]);
         self.laser_shaders[0][1].set_data_mesh(&render_data.lasers[1]);
         self.laser_shaders[1][0].set_data_mesh(&render_data.lasers[2]);
         self.laser_shaders[1][1].set_data_mesh(&render_data.lasers[3]);
 
         for ele in self.laser_shaders.iter().flatten() {
-            ele.draw_camera(&td_camera, surface.clone());
+            render_commands.extend(ele.draw_camera(&td_camera, surface.clone()).into_iter());
         }
 
         if !self.intro_done {
@@ -2033,6 +2047,7 @@ impl Scene for Game {
             };
         }
         self.reset_canvas(surface.as_ref());
+        render_commands
     }
 
     fn on_event(&mut self, event: &winit::event::Event<crate::button_codes::UscInputEvent>) {

@@ -14,6 +14,7 @@ use crate::{
         SongId, SongProvider, SongProviderEvent, SongSort,
     },
     take_duration_fade::take_duration_fade,
+    vg_ui::{Vgfx, VgfxSyncExt},
     ControlMessage, RuscMixer,
 };
 use anyhow::{anyhow, ensure, Result};
@@ -208,6 +209,7 @@ pub struct SongSelectScene {
     filters: Vec<song_provider::SongFilterType>,
     sorts: Vec<song_provider::SongSort>,
     auto_rx: Receiver<crate::game_main::AutoPlay>,
+    vgfx: RefMut<Vgfx>,
 }
 
 impl SongSelectScene {
@@ -249,6 +251,7 @@ impl SongSelectScene {
             score_events,
             song_provider,
             score_provider,
+            vgfx: services.get_required(),
             services,
             menu_state: MenuState::Songs,
             level_filter: 0,
@@ -445,7 +448,10 @@ fn add_preview_source<T: Source<Item = f32> + Send + 'static>(
 }
 
 impl Scene for SongSelectScene {
-    fn render_ui(&mut self, dt: f64) -> Result<()> {
+    fn render_ui(
+        &mut self,
+        dt: f64,
+    ) -> std::result::Result<std::vec::Vec<wgpu::CommandBuffer>, anyhow::Error> {
         profile_function!();
         let render_bg: Function = self.background_lua.globals().get("render")?;
         render_bg.call(dt / 1000.0)?;
@@ -464,7 +470,7 @@ impl Scene for SongSelectScene {
 
         self.settings_dialog.render(dt)?;
 
-        Ok(())
+        Ok(self.vgfx.take_commands())
     }
 
     fn is_suspended(&self) -> bool {

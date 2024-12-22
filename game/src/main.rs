@@ -24,7 +24,7 @@ use directories::ProjectDirs;
 
 use egui::ViewportId;
 use egui_wgpu::ScreenDescriptor;
-use femtovg as vg;
+use femtovg::{self as vg, renderer::WGPURenderer, Canvas};
 
 use futures::executor::block_on;
 use game_main::ControlMessage;
@@ -35,7 +35,7 @@ use log::*;
 
 use lua_service::LuaProvider;
 use luals_gen::LuaLsGen;
-use puffin::profile_function;
+use puffin::{profile_function, profile_scope};
 use rodio::{dynamic_mixer::DynamicMixerController, Source};
 use scene::Scene;
 
@@ -45,7 +45,11 @@ use test_scenes::camera_test;
 
 use di::*;
 use wgpu::{core::device::queue, SurfaceTexture};
-use winit::event_loop::{ControlFlow, EventLoop};
+use winit::{
+    dpi::PhysicalSize,
+    event_loop::{ControlFlow, EventLoop},
+    platform::x11::EventLoopBuilderExtX11,
+};
 
 mod animation;
 mod async_service;
@@ -88,17 +92,23 @@ struct GameApp {
     updates: u64,
     renders: u64,
     output_stream: (rodio::OutputStream, rodio::OutputStreamHandle),
+    size: PhysicalSize<u32>,
 }
 
 struct GameState {
     game: Option<GameApp>,
     companion_service: Option<RwLock<companion_interface::CompanionServer>>,
+    puffin_server: Option<puffin_http::Server>,
 }
 
 impl GameState {
     fn init(&mut self, event_loop: &winit::event_loop::ActiveEventLoop) -> anyhow::Result<()> {
         if self.game.is_some() {
             return Ok(());
+        }
+
+        if self.puffin_server.is_some() {
+            info!("Puffin profiler running")
         }
 
         let (window, surface, egui_render_state, canvas, surface_config) =
@@ -136,7 +146,6 @@ impl GameState {
             device: egui_render_state.device.clone(),
             surface_ctx: Arc::new(surface),
             surface_config,
-            pending_screen_grabs: Arc::new(vec![].into()),
             gui: Arc::new(egui_render_state),
             commands: Arc::new(vec![].into()),
         };
@@ -278,7 +287,7 @@ impl GameState {
                 )));
         }
 
-        self.game.insert(GameApp {
+        self.game.replace(GameApp {
             game_state: GameMain::new(
                 scenes,
                 fps_paint,
@@ -287,6 +296,7 @@ impl GameState {
                 services.create_scope(),
                 render_context.clone(),
             ),
+            size: window.inner_size(),
             window,
             services,
             render_context,
@@ -326,41 +336,53 @@ impl winit::application::ApplicationHandler<UscInputEvent> for GameState {
             updates,
             renders,
             output_stream: _,
+            size,
         }) = self.game.as_mut()
         else {
             event_loop.exit();
             return;
         };
 
-        if let winit::event::WindowEvent::Resized(size) = event {
-            render_context.set_size(size);
+        if let winit::event::WindowEvent::Resized(new_size) = event {
+            *size = new_size;
+            render_context.set_size(new_size);
+            let canvas = services.get_required::<Mutex<Canvas<WGPURenderer>>>();
+            let mut canvas_lock = canvas.lock().unwrap();
+            canvas_lock.set_size(new_size.width, new_size.height, 1.0);
         }
         render_context.process_config();
 
         if let winit::event::WindowEvent::RedrawRequested = event {
+            puffin::GlobalProfiler::lock().new_frame();
+            profile_scope!("Frame");
             let target_updates = (launch_time.elapsed().as_secs_f64() * 240.0) as u64;
-            let surface = Rc::new(render_context.surface_ctx.get_current_texture().unwrap());
 
             //TODO: Limit updates per frame to avoid escalating frame times
             while target_updates > *updates {
+                profile_scope!("Game tick");
                 game_state.update();
                 *updates += 1;
             }
 
             let now = Instant::now();
 
-            let exiting = game_state.render(
+            let surface = {
+                profile_scope!("Get surface");
+                Rc::new(render_context.surface_ctx.get_current_texture().unwrap())
+            };
+            let viewport = Viewport {
+                x: 0,
+                y: 0,
+                width: size.width,
+                height: size.height,
+            };
+            let (exiting, commands) = game_state.render(
                 FrameInput {
                     elapsed_time: frame_time.elapsed().as_secs_f64() * 1000.0,
                     accumulated_time: frame_time.elapsed().as_secs_f64() * 1000.0,
-                    viewport: Viewport {
-                        x: 0,
-                        y: 0,
-                        width: window.inner_size().width,
-                        height: window.inner_size().height,
-                    },
-                    window_width: window.outer_size().width,
-                    window_height: window.outer_size().height,
+                    viewport,
+                    window_width: size.width,
+                    window_height: size.height,
                     device_pixel_ratio: 1.0,
                     first_frame: *renders == 0,
                     context: render_context.clone(),
@@ -374,8 +396,12 @@ impl winit::application::ApplicationHandler<UscInputEvent> for GameState {
 
             *renders += 1;
             let surface = Rc::try_unwrap(surface).expect("Surface references still held somewhere");
-            surface.present();
-            window.request_redraw();
+            {
+                profile_scope!("Submit commands and present frame");
+                render_context.queue.submit(commands);
+                surface.present();
+                window.request_redraw();
+            }
             *frame_time = now;
         } else {
             game_state.handle(
@@ -619,8 +645,9 @@ impl Scenes {
         frame: &FrameInput,
         _vgfx: &Arc<RwLock<Vgfx>>,
         surface: Rc<SurfaceTexture>,
-    ) {
+    ) -> Vec<wgpu::CommandBuffer> {
         profile_function!();
+        let mut res = vec![];
         let dt = frame.elapsed_time;
         let td_context = &frame.context;
         let viewport = frame.viewport;
@@ -629,18 +656,21 @@ impl Scenes {
             if scene.is_suspended() {
                 continue;
             }
-            scene.render(dt, td_context, viewport, surface.clone());
-            if let Err(e) = scene.render_ui(dt) {
-                log::error!("{:#}", e)
+            res.append(&mut scene.render(dt, td_context, viewport, surface.clone()));
+            match scene.render_ui(dt) {
+                Err(e) => log::error!("{:#}", e),
+                Ok(mut commands) => res.append(&mut commands),
             };
         }
 
         if let Some(transition) = self.transition.as_mut() {
-            transition.render(dt, td_context, viewport, surface);
-            if let Err(e) = transition.render_ui(dt) {
-                log::error!("{:#}", e)
+            res.append(&mut transition.render(dt, td_context, viewport, surface));
+            match transition.render_ui(dt) {
+                Err(e) => log::error!("{:#}", e),
+                Ok(mut commands) => res.append(&mut commands),
             };
         }
+        res
     }
 
     pub fn should_render_egui(&self) -> bool {
@@ -791,7 +821,9 @@ fn main() -> anyhow::Result<()> {
 
     let _tokio = rt.enter();
 
-    let event_loop = EventLoop::<UscInputEvent>::with_user_event().build()?;
+    let event_loop = EventLoop::<UscInputEvent>::with_user_event()
+        .with_x11()
+        .build()?;
 
     let event_proxy = event_loop.create_proxy();
 
@@ -881,6 +913,7 @@ fn main() -> anyhow::Result<()> {
     event_loop.run_app(&mut GameState {
         game: None,
         companion_service: Some(companion_service),
+        puffin_server: _puffin_server,
     })?;
 
     Ok(())

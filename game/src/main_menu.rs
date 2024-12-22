@@ -20,6 +20,7 @@ use crate::{
     companion_interface::GameState,
     lua_service::LuaProvider,
     scene::Scene,
+    vg_ui::{Vgfx, VgfxSyncExt},
     ControlMessage,
 };
 #[derive(Debug, Clone, Copy)]
@@ -135,10 +136,16 @@ impl MainMenu {
 }
 
 impl Scene for MainMenu {
-    fn render_ui(&mut self, dt: f64) -> anyhow::Result<()> {
+    fn render_ui(
+        &mut self,
+        dt: f64,
+    ) -> std::result::Result<std::vec::Vec<wgpu::CommandBuffer>, anyhow::Error> {
         let render: Function = self.lua.globals().get("render")?;
-        render.call(dt / 1000.0)?;
-        Ok(())
+        render.call::<_, ()>(dt / 1000.0)?;
+        Ok(self
+            .service_provider
+            .get_required_mut::<Vgfx>()
+            .take_commands())
     }
 
     fn init(&mut self, app_control_tx: Sender<ControlMessage>) -> anyhow::Result<()> {

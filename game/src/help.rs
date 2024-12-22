@@ -9,6 +9,7 @@ use anyhow::anyhow;
 use di::{transient_factory, RefMut, ServiceCollection};
 use femtovg::rgb::ComponentSlice;
 use itertools::Itertools;
+use puffin::profile_function;
 use rfd::AsyncFileDialog;
 use tealr::{
     mlu::{
@@ -303,14 +304,15 @@ pub struct RenderContext {
     pub device: Arc<wgpu::Device>,
     pub surface_ctx: Arc<wgpu::Surface<'static>>,
     pub surface_config: wgpu::SurfaceConfiguration,
-    pub pending_screen_grabs: Arc<Mutex<Vec<Arc<Texture>>>>,
     pub gui: Arc<egui_wgpu::RenderState>,
     pub commands: Arc<Mutex<Vec<ConfigCommand>>>,
 }
 
 impl RenderContext {
     pub fn process_config(&mut self) {
+        let mut changed = false;
         for c in self.commands.lock().unwrap().drain(..) {
+            changed = true;
             match c {
                 ConfigCommand::SetSwapInterval(present_mode) => {
                     self.surface_config.present_mode = present_mode;
@@ -322,33 +324,12 @@ impl RenderContext {
             }
         }
 
-        self.surface_ctx
-            .configure(&self.device, &self.surface_config);
+        if changed {
+            self.surface_ctx
+                .configure(&self.device, &self.surface_config);
+        }
     }
 
-    pub fn process_screen_grabs(&self, surface: &SurfaceTexture, viewport: Viewport) {
-        self.device.poll(wgpu::MaintainBase::Wait);
-        let mut grabs = self.pending_screen_grabs.lock().unwrap();
-        let mut encoder = self.encoder(None);
-        while let Some(target_texture) = grabs.pop() {
-            encoder.copy_texture_to_texture(
-                wgpu::ImageCopyTextureBase {
-                    texture: &surface.texture,
-                    mip_level: 0,
-                    origin: wgpu::Origin3d::ZERO,
-                    aspect: wgpu::TextureAspect::All,
-                },
-                wgpu::ImageCopyTextureBase {
-                    texture: &target_texture,
-                    mip_level: 0,
-                    origin: wgpu::Origin3d::ZERO,
-                    aspect: wgpu::TextureAspect::All,
-                },
-                viewport.extend3d(1),
-            );
-        }
-        self.queue.submit([encoder.finish()]);
-    }
     pub fn set_swap_interval(&mut self, v: wgpu::PresentMode) {
         self.commands
             .lock()
@@ -411,7 +392,7 @@ impl RenderContext {
         &self,
         viewport: Viewport,
         surface: &SurfaceTexture,
-    ) -> Arc<wgpu::Texture> {
+    ) -> (wgpu::Texture, wgpu::CommandBuffer) {
         self.device.poll(wgpu::MaintainBase::Wait);
         let mut encoder = self
             .device
@@ -430,9 +411,23 @@ impl RenderContext {
             view_formats: &[surface.texture.format()],
         });
 
-        let ret = Arc::new(target_texture);
-        self.pending_screen_grabs.lock().unwrap().push(ret.clone());
-        ret
+        encoder.copy_texture_to_texture(
+            wgpu::ImageCopyTextureBase {
+                texture: &surface.texture,
+                mip_level: 0,
+                origin: wgpu::Origin3d::ZERO,
+                aspect: wgpu::TextureAspect::All,
+            },
+            wgpu::ImageCopyTextureBase {
+                texture: &target_texture,
+                mip_level: 0,
+                origin: wgpu::Origin3d::ZERO,
+                aspect: wgpu::TextureAspect::All,
+            },
+            viewport.extend3d(1),
+        );
+
+        (target_texture, encoder.finish())
     }
 
     pub fn update_screen_texture(

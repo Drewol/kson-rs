@@ -13,8 +13,6 @@ use std::time::Duration;
 
 use std::path::PathBuf;
 
-use super::CameraMats;
-
 #[derive(Debug, Serialize, Default, Deserialize, Clone, PartialEq, ToLuaLsType)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct LuaGameState {
@@ -139,16 +137,18 @@ pub(crate) struct Cursor {
 }
 
 impl Cursor {
-    pub fn new(pos: f32, camera: &CameraMats, alpha: f32) -> Self {
+    pub fn new(pos: f32, camera: &three_d_asset::Camera, alpha: f32) -> Self {
         let pos = (pos - 0.5) * (5.0 / 6.0);
 
-        let crit_pos = camera.get_pixel_at_pos(vec3(0.0, 0.0, 0.0));
-        let c_pos = camera.get_pixel_at_pos(vec3(pos, 0.0, 0.0));
-        let c_pos_up = camera.get_pixel_at_pos(vec3(pos, 0.2, 0.0));
-        let c_pos_down = camera.get_pixel_at_pos(vec3(pos, -0.2, 0.0));
+        let crit_pos = camera.pixel_at_position(three_d_asset::vec3(0.0, 0.0, 0.0));
+        let c_pos = camera.pixel_at_position(three_d_asset::vec3(pos, 0.0, 0.0));
+        let c_pos_up = camera.pixel_at_position(three_d_asset::vec3(pos, 0.2, 0.0));
+        let c_pos_down = camera.pixel_at_position(three_d_asset::vec3(pos, -0.2, 0.0));
         let dist_from_crit_center =
-            (crit_pos - c_pos).length() * if pos < 0.0 { -1.0 } else { 1.0 };
-        let cursor_angle_vector = c_pos_up - c_pos_down;
+            (glam::vec2(crit_pos.x, crit_pos.y) - (glam::vec2(c_pos.x, c_pos.y))).length()
+                * if pos < 0.0 { -1.0 } else { 1.0 };
+        let cursor_angle_vector =
+            glam::vec2(c_pos_up.x, c_pos_up.y) - glam::vec2(c_pos_down.x, c_pos_down.y);
 
         let skew = cursor_angle_vector.y.atan2(cursor_angle_vector.x) + std::f32::consts::FRAC_PI_2;
 

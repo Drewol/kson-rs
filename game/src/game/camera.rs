@@ -1,6 +1,7 @@
+use three_d_asset::{vec2, Camera, Deg, InnerSpace, Matrix4, Rad, Transform, Vec2, Vec3, Viewport};
+
 use super::chart_view;
 use chart_view::ChartView;
-use glam::{vec2, vec4, Mat4, Vec2, Vec3};
 
 #[derive(Debug, Clone)]
 pub struct ChartCamera {
@@ -97,7 +98,7 @@ impl CameraShake {
 }
 
 // Statics for easier testing of values during dev
-#[cfg(target_feature = "camera_test")]
+#[cfg(feature = "camera_test")]
 mod camera_consts {
     pub static mut FOV_LANDSCAPE: f32 = 40.0;
     pub static mut FOV_PORTRAIT: f32 = 70.0;
@@ -107,7 +108,7 @@ mod camera_consts {
     pub static mut RADIUS_PORTRAIT: f32 = 1.7;
 }
 
-#[cfg(not(target_feature = "camera_test"))]
+#[cfg(not(feature = "camera_test"))]
 mod camera_consts {
     pub const FOV_LANDSCAPE: f32 = 40.0;
     pub const FOV_PORTRAIT: f32 = 70.0;
@@ -138,10 +139,30 @@ impl ChartCamera {
         }
     }
 
-    pub fn update(&mut self, view_size: Vec2) {
+    fn base_values(&self) -> (f32, f32, f32) {
+        #[cfg(feature = "camera_test")]
+        unsafe {
+            if self.portrait {
+                (FOV_PORTRAIT, ANGLE_PORTRAIT, RADIUS_PORTRAIT)
+            } else {
+                (FOV_LANDSCAPE, ANGLE_LANDSCAPE, RADIUS_LANDSCAPE)
+            }
+        }
+
+        #[cfg(not(feature = "camera_test"))]
+        {
+            if self.portrait {
+                (FOV_PORTRAIT, ANGLE_PORTRAIT, RADIUS_PORTRAIT)
+            } else {
+                (FOV_LANDSCAPE, ANGLE_LANDSCAPE, RADIUS_LANDSCAPE)
+            }
+        }
+    }
+
+    pub fn update(&mut self, view_size: glam::Vec2) {
         self.portrait = (view_size.x / view_size.y) < 1.0;
 
-        self.view_size = view_size;
+        self.view_size = vec2(view_size.x, view_size.y);
     }
 
     pub fn check_spins(&mut self, tick: u32) {
@@ -152,7 +173,7 @@ impl ChartCamera {
         egui::Grid::new("camera_widget")
             .num_columns(2)
             .show(ui, |ui| {
-                #[cfg(target_feature = "camera_test")]
+                #[cfg(feature = "camera_test")]
                 {
                     let (fov, angle, radius) = unsafe {
                         if self.portrait {
@@ -189,41 +210,9 @@ impl ChartCamera {
 
 const KSON_ANGLE_FACTOR: f32 = 360.0 / 2400.0;
 
-pub struct CameraMats {
-    pub view: Mat4,
-    pub proj: Mat4,
-}
-
-pub const OPENGL_TO_WGPU_MATRIX: Mat4 = Mat4::from_cols(
-    vec4(1.0, 0.0, 0.0, 0.0),
-    vec4(0.0, 1.0, 0.0, 0.0),
-    vec4(0.0, 0.0, 0.5, 0.0),
-    vec4(0.0, 0.0, 0.5, 1.0),
-);
-
-impl CameraMats {
-    pub fn get_uniform(&self) -> Mat4 {
-        self.proj * self.view * OPENGL_TO_WGPU_MATRIX
-    }
-
-    pub fn get_pixel_at_pos(&self, pos: Vec3) -> Vec2 {
-        let proj = self.proj * self.view * pos.extend(1.0);
-        vec2(
-            0.5 * (proj.x / proj.w.abs() + 1.0),
-            0.5 * (proj.y / proj.w.abs() + 1.0),
-        )
-    }
-}
-
-impl From<&ChartCamera> for CameraMats {
+impl From<&ChartCamera> for Camera {
     fn from(val: &ChartCamera) -> Self {
-        let (fov, angle, radius) = {
-            if val.portrait {
-                (FOV_PORTRAIT, ANGLE_PORTRAIT, RADIUS_PORTRAIT)
-            } else {
-                (FOV_LANDSCAPE, ANGLE_LANDSCAPE, RADIUS_LANDSCAPE)
-            }
-        };
+        let (fov, angle, radius) = val.base_values();
 
         let radius = radius * f32::powf(3.0, val.kson_radius / -300.0);
         let angle = angle + (val.kson_angle * KSON_ANGLE_FACTOR);
@@ -235,8 +224,8 @@ impl From<&ChartCamera> for CameraMats {
         let base_angle_rad =
             { (fov_rad) / (2.0) - (if val.portrait { 0.27 } else { 0.05 } * fov_rad) };
 
-        let track_end: Vec3 = ChartView::TRACK_DIRECTION * ChartView::TRACK_LENGTH;
-        let final_camera_pos: Vec3 = -ChartView::UP * radius * angle_rad.cos()
+        let track_end: glam::Vec3 = ChartView::TRACK_DIRECTION * ChartView::TRACK_LENGTH;
+        let final_camera_pos: glam::Vec3 = -ChartView::UP * radius * angle_rad.cos()
             + ChartView::TRACK_DIRECTION * radius * angle_rad.sin();
 
         // let up = (ChartView::UP * radius * (angle_rad).sin()
@@ -256,23 +245,50 @@ impl From<&ChartCamera> for CameraMats {
         let begin_dist = (-track_end - final_camera_pos).length();
         let z_far = end_dist.max(begin_dist);
 
-        let roll = Mat4::from_axis_angle(ChartView::TRACK_DIRECTION, -val.tilt.to_radians());
-        let target = roll.transform_vector3(target - final_camera_pos) + final_camera_pos;
-        let up = roll.transform_vector3(up);
+        let roll =
+            Matrix4::from_axis_angle(ChartView::TRACK_DIRECTION.to_array().into(), Deg(-val.tilt));
+        let target = roll.transform_vector((target - final_camera_pos).to_array().into())
+            + Vec3::from(final_camera_pos.to_array());
+        let up = roll.transform_vector(up.to_array().into());
         // let final_camera_pos = roll.transform_vector(final_camera_pos);
 
-        let cam = Mat4::perspective_rh(
-            fov_rad,
-            val.view_size.x / val.view_size.y,
+        let mut cam = Camera::new_perspective(
+            Viewport::new_at_origo(val.view_size.x as u32, val.view_size.y as u32),
+            final_camera_pos.to_array().into(),
+            target,
+            up.normalize(),
+            Rad(fov_rad),
             ChartView::Z_NEAR,
             z_far,
         );
+        // cam.roll(Deg(val.tilt)); //TODO: Need to roll the position and stuff now
+        cam.yaw(Rad(val.shakes.iter().map(|x| x.get_shake()).sum()));
 
-        //cam.yaw(Rad(val.shakes.iter().map(|x| x.get_shake()).sum()));
+        cam
+    }
+}
 
-        CameraMats {
-            proj: Mat4::look_at_rh(final_camera_pos, target, up.normalize()),
-            view: cam,
-        }
+pub trait WgpuCameraWrapper {
+    fn wgpu_view(&self) -> [f32; 16];
+    fn wgpu_proj(&self) -> [f32; 16];
+}
+
+impl WgpuCameraWrapper for Camera {
+    fn wgpu_view(&self) -> [f32; 16] {
+        let view = self.view();
+        glam::Mat4::from_cols_array(&[
+            view.x.x, view.x.y, view.x.z, view.x.w, view.y.x, view.y.y, view.y.z, view.y.w,
+            view.z.x, view.z.y, view.z.z, view.z.w, view.w.x, view.w.y, view.w.z, view.w.w,
+        ])
+        .to_cols_array()
+    }
+
+    fn wgpu_proj(&self) -> [f32; 16] {
+        let proj = self.projection();
+        (glam::Mat4::from_cols_array(&[
+            proj.x.x, proj.x.y, proj.x.z, proj.x.w, proj.y.x, proj.y.y, proj.y.z, proj.y.w,
+            proj.z.x, proj.z.y, proj.z.z, proj.z.w, proj.w.x, proj.w.y, proj.w.z, proj.w.w,
+        ]))
+        .to_cols_array()
     }
 }

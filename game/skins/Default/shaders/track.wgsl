@@ -94,5 +94,5 @@ fn fs_main(input: VertexOutput) -> @location(0) vec4<f32> {
         col = vec3(0.);
         alpha = step(alpha, 0.0) * 0.3;
     }
-    return vec4f(1.0);
+    return vec4(col, alpha);
 }

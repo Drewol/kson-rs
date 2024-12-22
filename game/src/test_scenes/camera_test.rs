@@ -5,11 +5,13 @@ use std::rc::Rc;
 use di::ServiceProvider;
 use glam::{vec2, Mat4, Vec3, Vec4};
 
+use itertools::Itertools;
 use palette::WithAlpha;
 use wgpu::SurfaceTexture;
 
-use crate::game::camera::{CameraMats, ChartCamera};
+use crate::game::camera::ChartCamera;
 use crate::game::chart_view::ChartView;
+use crate::game::graphics::extend_mesh;
 use crate::help::RenderContext;
 use crate::scene::Scene;
 use crate::shaded_mesh::ShadedMesh;
@@ -53,12 +55,20 @@ impl CameraTest {
         texture_folder.push("textures");
         texture_folder.push("dummy.png");
 
+        let track_mesh =
+            crate::game::graphics::xy_rect(Vec3::ZERO, vec2(1.0, ChartView::TRACK_LENGTH * 2.0));
+        let mut crit_mesh = crate::game::graphics::xy_rect(Vec3::ZERO, vec2(2.0, 0.02));
+
+        crit_mesh
+            .uvs
+            .as_mut()
+            .unwrap()
+            .iter_mut()
+            .for_each(|x| *x = vec2(1.0, 1.0));
+
         let mut track_shader =
             ShadedMesh::new(&context, "track", &shader_folder).expect("Failed to load shader:");
-        track_shader.set_data_mesh(&crate::game::graphics::xy_rect(
-            Vec3::ZERO,
-            vec2(1.0, ChartView::TRACK_LENGTH * 2.0),
-        ));
+        track_shader.set_data_mesh(&extend_mesh(track_mesh, crit_mesh));
 
         track_shader.set_param(
             "lCol",
@@ -81,7 +91,7 @@ impl CameraTest {
 
         track_shader
             .use_texture(
-                "mainTex",
+                "main_tex",
                 texture_folder.with_file_name("track.png"),
                 (false, false),
                 true,
@@ -97,8 +107,11 @@ impl CameraTest {
 }
 
 impl Scene for CameraTest {
-    fn render_ui(&mut self, _dt: f64) -> anyhow::Result<()> {
-        Ok(())
+    fn render_ui(
+        &mut self,
+        _dt: f64,
+    ) -> std::result::Result<std::vec::Vec<wgpu::CommandBuffer>, anyhow::Error> {
+        Ok(vec![])
     }
 
     fn is_suspended(&self) -> bool {
@@ -146,10 +159,14 @@ impl Scene for CameraTest {
         _dt: f64,
         _td_context: &RenderContext,
         viewport: Viewport,
-        _surface: Rc<SurfaceTexture>,
-    ) {
+        surface: Rc<SurfaceTexture>,
+    ) -> std::vec::Vec<wgpu::CommandBuffer> {
         self.camera
             .update(vec2(viewport.width as f32, viewport.height as f32));
-        let td_camera: CameraMats = CameraMats::from(&self.camera);
+        let camera: three_d_asset::Camera = (&self.camera).into();
+        self.track_shader
+            .draw_camera(&camera, surface)
+            .into_iter()
+            .collect_vec()
     }
 }

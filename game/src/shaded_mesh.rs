@@ -19,31 +19,32 @@ use image::{buffer, GenericImageView};
 use itertools::Itertools;
 use log::{info, warn};
 use palette::{stimulus::IntoStimulus, IntoColor, Srgba};
-use puffin::profile_function;
+use puffin::{profile_function, profile_scope};
 use tealr::{
     mlu::{
-        mlua::{self, FromLua, Lua},
+        mlua::{self, ExternalResult, FromLua, Lua},
         TealData, UserData,
     },
     ToTypename,
 };
 
 use glam::{vec2, vec3, vec4, IVec2, IVec3, IVec4, Mat4, Vec2, Vec3, Vec4};
+use three_d_asset::Camera;
 use wgpu::{
-    naga::{self, front::glsl::Options},
+    naga::{self},
     util::DeviceExt,
-    BindGroupDescriptor, BindGroupEntry, BindGroupLayoutEntry, BufferUsages, Device, Extent3d,
-    FragmentState, ImageDataLayout, PrimitiveState, RenderPassColorAttachment, SamplerDescriptor,
-    ShaderModuleDescriptor, ShaderStages, SurfaceTexture, Texture, TextureDescriptor,
-    TextureFormat, TextureViewDescriptor,
+    BindGroupDescriptor, BindGroupEntry, BindGroupLayoutEntry, BufferUsages, CommandBuffer, Device,
+    Extent3d, FragmentState, ImageDataLayout, PrimitiveState, RenderPassColorAttachment,
+    SamplerDescriptor, ShaderModuleDescriptor, ShaderStages, SurfaceTexture, Texture,
+    TextureDescriptor, TextureFormat, TextureViewDescriptor,
 };
 
 use crate::{
     config::GameConfig,
-    game::{camera::CameraMats, graphics::CpuMesh},
+    game::{camera::WgpuCameraWrapper, graphics::CpuMesh},
     game_data,
     help::{blend_add, transform_shader, RenderContext},
-    vg_ui::Vgfx,
+    vg_ui::{Vgfx, VgfxSyncExt},
     FrameInput, Viewport,
 };
 
@@ -479,6 +480,11 @@ impl ShadedMesh {
                 .flat_map(|x| [0, x[0], x[1]])
                 .collect(),
         };
+        self.update_vertex_buffers()?;
+        Ok(())
+    }
+
+    pub fn update_vertex_buffers(&mut self) -> anyhow::Result<()> {
         let device = &self.context.device;
 
         let mut vertecies = vec![];
@@ -669,7 +675,18 @@ impl ShadedMesh {
         }
     }
 
-    pub fn draw(&self, surface: Rc<SurfaceTexture>) -> Result<(), tealr::mlu::mlua::Error> {
+    pub fn draw(&self, surface: Rc<SurfaceTexture>) -> anyhow::Result<CommandBuffer> {
+        profile_function!();
+        ensure!(
+            !self.vertecies_pos.is_empty(),
+            "Empty vertex data for {:?}",
+            self.name
+        );
+        ensure!(
+            !self.indecies.is_empty(),
+            "Empty index data for {:?}",
+            self.name
+        );
         self.use_params();
         let mut encoder = self.context.encoder(None);
 
@@ -688,7 +705,7 @@ impl ShadedMesh {
             occlusion_query_set: None,
         });
         render_pass.set_pipeline(&self.material);
-        if !self.vertecies_pos.is_empty() || !self.indecies.is_empty() {
+        if !self.vertecies_pos.is_empty() && !self.indecies.is_empty() {
             render_pass.set_vertex_buffer(0, self.vertex_buffer.slice(..));
             render_pass.set_index_buffer(self.index_buffer.slice(..), wgpu::IndexFormat::Uint32);
         } else {
@@ -703,52 +720,61 @@ impl ShadedMesh {
         }
 
         render_pass.draw_indexed(0..self.indecies.len() as u32, 0, 0..1);
+
         drop(render_pass);
-        self.context.queue.submit([encoder.finish()]);
-        Ok(())
+        Ok(encoder.finish())
     }
 
-    pub fn draw_fullscreen(&self, viewport: Viewport, surface: Rc<SurfaceTexture>) {
+    pub fn draw_fullscreen(
+        &self,
+        viewport: Viewport,
+        surface: Rc<SurfaceTexture>,
+    ) -> anyhow::Result<CommandBuffer> {
         self.use_params();
         self.use_uniform("viewport", [viewport.width as i32, viewport.height as i32]);
-        self.draw(surface);
+        self.draw(surface)
     }
 
-    pub fn draw_camera(&self, camera: &CameraMats, surface: Rc<SurfaceTexture>) {
+    pub fn draw_camera(
+        &self,
+        camera: &Camera,
+        surface: Rc<SurfaceTexture>,
+    ) -> anyhow::Result<CommandBuffer> {
         self.set_camera_uniforms(camera);
-
-        self.draw(surface);
+        self.draw(surface)
     }
 
     #[inline]
-    fn set_camera_uniforms(&self, camera: &CameraMats) {
-        self.use_uniform("proj", camera.get_uniform().to_cols_array());
-        self.use_uniform("camera", Mat4::IDENTITY.to_cols_array());
-        self.use_uniform("world", self.transform.to_cols_array());
+    fn set_camera_uniforms(&self, camera: &Camera) {
+        self.use_uniform("proj", camera.wgpu_proj());
+        self.use_uniform("camera", camera.wgpu_view());
+        self.use_uniform("world", self.transform.transpose().to_cols_array());
         self.use_params();
     }
 
     pub fn draw_instanced_camera<T>(
         &self,
-        camera: &CameraMats,
+        camera: &Camera,
         instances: impl IntoIterator<Item = T>,
         set_uniforms: impl Fn(&Self, Mat4, T),
         viewport: Viewport,
         surface: Rc<SurfaceTexture>,
-    ) {
+    ) -> anyhow::Result<Vec<CommandBuffer>> {
         profile_function!();
+        let mut commands = vec![];
         //TODO: Use actual instancing, may causes skin incompatibility
 
         for i in instances {
             self.set_camera_uniforms(camera);
             set_uniforms(&self, self.transform, i);
-            self.draw(surface.clone());
+            commands.push(self.draw(surface.clone())?);
         }
+
+        Ok(commands)
     }
 
     pub fn set_data(&mut self, pos: Vec<Vec3>, uv: Vec<Vec2>, colors: Option<Vec<Vec4>>) {
         self.set_data_indexed(pos, uv, vec![], colors);
-        self.update_indecies().expect("Bad mesh data");
     }
 
     pub fn set_data_mesh(&mut self, mesh: &CpuMesh) {
@@ -790,7 +816,9 @@ impl ShadedMesh {
         } else {
             indecies
         };
-        self.update_indecies();
+
+        self.update_vertex_buffers()
+            .expect("Failed to update vertex buffers");
     }
 
     pub fn draw_lua_skin(
@@ -798,7 +826,7 @@ impl ShadedMesh {
         resolution: (u32, u32),
         vgfx: &RwLock<Vgfx>,
         surface: Rc<SurfaceTexture>,
-    ) -> Result<(), tealr::mlu::mlua::Error> {
+    ) -> Result<wgpu::CommandBuffer, tealr::mlu::mlua::Error> {
         let [c0r0, c0r1, c1r0, c1r1, c2r0, c2r1] = {
             let vgfx = vgfx.write().expect("Lock error");
             let canvas = vgfx.canvas.lock().expect("Lock error");
@@ -834,8 +862,7 @@ impl ShadedMesh {
             .to_cols_array(),
         );
 
-        self.draw(surface);
-        Ok(())
+        self.draw(surface).into_lua_err()
     }
 }
 
@@ -920,7 +947,8 @@ impl TealData for ShadedMesh {
             let surface = lua
                 .app_data_ref::<Rc<SurfaceTexture>>()
                 .ok_or(mlua::Error::external("SurfaceTexture not set"))?;
-            this.draw_lua_skin(frame, vgfx, surface.clone())
+            vgfx.extend_commands(Some(this.draw_lua_skin(frame, vgfx, surface.clone())?));
+            Ok(())
         });
         methods.add_method_mut("AddTexture", |_lua, this, params: (String, String)| {
             this.use_texture(params.0, params.1, (false, false), true)

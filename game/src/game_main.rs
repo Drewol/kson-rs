@@ -12,6 +12,9 @@ use std::{
 
 use di::{RefMut, ServiceProvider};
 use femtovg::{ImageId, Paint};
+use futures::executor::block_on;
+use itertools::Itertools;
+use log::warn;
 use wgpu::SurfaceTexture;
 use winit::{
     dpi::{PhysicalPosition, PhysicalSize},
@@ -268,7 +271,7 @@ impl GameMain {
         frame_input: FrameInput,
         window: &winit::window::Window,
         surface: Rc<SurfaceTexture>,
-    ) -> bool {
+    ) -> (bool, Vec<wgpu::CommandBuffer>) {
         let GameMain {
             lua_arena,
             scenes,
@@ -314,7 +317,7 @@ impl GameMain {
             let vgfx = vgfx.write().expect("Lock error");
             let mut canvas = vgfx.canvas.lock().expect("Lock error");
             canvas.reset();
-            canvas.set_size(frame_input.viewport.width, frame_input.viewport.height, 1.0);
+
             _ = canvas.fill_text(
                 10.0,
                 10.0,
@@ -323,13 +326,22 @@ impl GameMain {
                     .with_font_size(32.0)
                     .with_text_baseline(vg::Baseline::Top),
             );
-            canvas.flush_to_surface(&surface.texture);
+            render_context
+                .device
+                .push_error_scope(wgpu::ErrorFilter::Validation);
+            let commands = canvas
+                .flush_to_surface(&surface.texture)
+                .into_iter()
+                .collect_vec();
             canvas.set_render_target(femtovg::RenderTarget::Screen); //wgpu renderer bug
-            canvas.set_size(frame_input.viewport.width, frame_input.viewport.height, 1.0);
+
+            if let Some(e) = block_on(render_context.device.pop_error_scope()) {
+                warn!("FemtoVG rendering error: {e}");
+            };
 
             *frame_count += 1;
 
-            return false;
+            return (false, commands);
         }
 
         if *frame_count == 1 {
@@ -342,6 +354,8 @@ impl GameMain {
                 .expect("Failed to register lua libraries");
             *frame_count += 1;
         }
+
+        let mut transition_commands = vec![];
 
         while let Ok(control_msg) = control_rx.try_recv() {
             match control_msg {
@@ -360,6 +374,7 @@ impl GameMain {
                                 frame_input.viewport,
                                 surface.as_ref(),
                                 service_provider.create_scope(),
+                                &mut transition_commands,
                             )
                             .ok()
                         }
@@ -396,6 +411,7 @@ impl GameMain {
                             frame_input.viewport,
                             surface.as_ref(),
                             service_provider.create_scope(),
+                            &mut transition_commands,
                         )
                         .ok()
                     }
@@ -434,6 +450,7 @@ impl GameMain {
                             frame_input.viewport,
                             surface.as_ref(),
                             service_provider.create_scope(),
+                            &mut transition_commands,
                         )
                         .ok()
                     }
@@ -490,27 +507,39 @@ impl GameMain {
             self.input_state.clone(),
         );
 
-        scenes.render(&frame_input, vgfx, surface.clone());
-        Self::render_overlays(
+        let mut commands = scenes.render(&frame_input, vgfx, surface.clone());
+
+        render_context
+            .device
+            .push_error_scope(wgpu::ErrorFilter::Validation);
+        if let Some(vg_commands) = Self::render_overlays(
             vgfx,
             &frame_input,
             fps,
             fps_paint,
             *show_fps,
             surface.as_ref(),
-        );
-        render_context.process_screen_grabs(surface.as_ref(), frame_input.viewport);
+        ) {
+            commands.push(vg_commands);
+        }
 
-        let gui_in = gui.take_egui_input(window);
-        let egui_out = gui.egui_ctx().run(gui_in, |ctx| {
-            scenes.render_egui(ctx);
+        commands.append(&mut transition_commands);
 
-            if *show_debug_ui {
-                Self::debug_ui(ctx, scenes, &vgfx);
-            }
-        });
+        if let Some(e) = block_on(render_context.device.pop_error_scope()) {
+            warn!("FemtoVG rendering error: {e}");
+        };
 
         {
+            profile_scope!("egui");
+            let gui_in = gui.take_egui_input(window);
+            let egui_out = gui.egui_ctx().run(gui_in, |ctx| {
+                scenes.render_egui(ctx);
+
+                if *show_debug_ui {
+                    Self::debug_ui(ctx, scenes, &vgfx);
+                }
+            });
+
             let mut egui_renderer = render_context.gui.renderer.write();
             for (id, delta) in egui_out.textures_delta.set {
                 egui_renderer.update_texture(
@@ -535,14 +564,14 @@ impl GameMain {
             let mut encoder = render_context.encoder(Some("egui"));
 
             {
-                let cmds = egui_renderer.update_buffers(
+                let mut cmds = egui_renderer.update_buffers(
                     &render_context.device,
                     &render_context.queue,
                     &mut encoder,
                     &shapes,
                     &sd,
                 );
-                render_context.queue.submit(cmds);
+                commands.append(&mut cmds);
             }
 
             let mut rpass = encoder
@@ -565,9 +594,7 @@ impl GameMain {
                 .forget_lifetime();
             egui_renderer.render(&mut rpass, &shapes, &sd);
             drop(rpass);
-            render_context
-                .queue
-                .submit(std::iter::once(encoder.finish()));
+            commands.push(encoder.finish());
         }
 
         Self::run_lua_gc(lua_arena, &mut vgfx.write().expect("Lock error"));
@@ -586,7 +613,7 @@ impl GameMain {
             crate::help::wait_until(*frame_end);
             *frame_end = SystemTime::now() + *frame_duration;
         }
-        exit
+        (exit, commands)
     }
     pub fn handle(
         &mut self,
@@ -853,7 +880,7 @@ impl GameMain {
         fps_paint: &vg::Paint,
         show_fps: bool,
         surface: &SurfaceTexture,
-    ) {
+    ) -> Option<wgpu::CommandBuffer> {
         profile_function!();
         let vgfx_lock = vgfx.write();
         if let Ok(vgfx) = vgfx_lock {
@@ -872,12 +899,16 @@ impl GameMain {
                 {
                     //also flushes game game ui, can take longer than it looks like it should
                     profile_scope!("Flush Canvas");
-                    canvas.flush_to_surface(&surface.texture);
+                    let commands = canvas.flush_to_surface(&surface.texture);
 
                     canvas.reset();
-                    canvas.set_size(frame_input.viewport.width, frame_input.viewport.height, 1.0);
+                    commands
                 }
+            } else {
+                None
             }
+        } else {
+            None
         }
     }
 
@@ -917,7 +948,6 @@ impl GameMain {
             let mut canvas_lock = vgfx.canvas.try_lock();
             if let Ok(ref mut canvas) = canvas_lock {
                 canvas.reset();
-                canvas.set_size(size.width, size.height, 1.0);
             }
         }
     }

@@ -25,6 +25,7 @@ use crate::{
     shaded_mesh::ShadedMesh,
     songselect::{Song, SongSelect},
     util::{back_pixels, lua_address},
+    vg_ui::VgfxSyncExt,
     ControlMessage, Viewport,
 };
 
@@ -44,8 +45,9 @@ pub struct Transition {
     pub state: TransitionState,
     transition_lua: Rc<Lua>,
     vgfx: RefMut<crate::Vgfx>,
-    prev_screengrab: Arc<Texture>,
+    prev_screengrab: Texture,
     service_provider: ServiceProvider,
+    first_frame: bool,
 }
 
 fn load_songs() -> anyhow::Result<Box<dyn SceneData + Send>> {
@@ -82,8 +84,8 @@ impl Transition {
         vgfx: RefMut<crate::Vgfx>,
         viewport: Viewport,
         surface: &SurfaceTexture,
-
         service_provider: ServiceProvider,
+        commands: &mut Vec<wgpu::CommandBuffer>,
     ) -> anyhow::Result<Self> {
         if let Ok(reset_fn) = transition_lua.globals().get::<_, Function>("reset") {
             if let Some(e) = reset_fn.call::<(), ()>(()).err() {
@@ -96,7 +98,8 @@ impl Transition {
             .as_ref()
             .clone();
 
-        let prev_grab = screen_grab(&context, viewport, surface);
+        let (prev_grab, grab_command) = screen_grab(&context, viewport, surface);
+        commands.push(grab_command);
 
         if let ControlMessage::Song { song, diff, .. } = &target {
             let mut vgfx = vgfx.write().expect("Failed to lock VG");
@@ -131,6 +134,7 @@ impl Transition {
             vgfx,
             prev_screengrab: prev_grab,
             service_provider,
+            first_frame: true,
         })
     }
 }
@@ -139,7 +143,7 @@ pub fn screen_grab(
     context: &RenderContext,
     viewport: Viewport,
     surface: &SurfaceTexture,
-) -> Arc<wgpu::Texture> {
+) -> (wgpu::Texture, wgpu::CommandBuffer) {
     context.new_screen_texture(viewport, surface)
 }
 
@@ -162,9 +166,9 @@ impl Scene for Transition {
         context: &RenderContext,
         viewport: Viewport,
         s: Rc<SurfaceTexture>,
-    ) {
+    ) -> std::vec::Vec<wgpu::CommandBuffer> {
         match self.state {
-            TransitionState::Intro => {
+            TransitionState::Intro if !self.first_frame => {
                 let mut encoder = context.encoder(None);
                 encoder.copy_texture_to_texture(
                     wgpu::ImageCopyTextureBase {
@@ -182,15 +186,20 @@ impl Scene for Transition {
                     viewport.extend3d(1),
                 );
 
-                context.queue.submit([encoder.finish()]);
+                return vec![encoder.finish()];
             }
             TransitionState::Countdown(0) => self.state = TransitionState::Outro,
             TransitionState::Countdown(c) => self.state = TransitionState::Countdown(c - 1),
             _ => (),
         }
+        self.first_frame = false;
+        vec![]
     }
 
-    fn render_ui(&mut self, dt: f64) -> anyhow::Result<()> {
+    fn render_ui(
+        &mut self,
+        dt: f64,
+    ) -> std::result::Result<std::vec::Vec<wgpu::CommandBuffer>, anyhow::Error> {
         {
             self.vgfx
                 .read()
@@ -291,7 +300,7 @@ impl Scene for Transition {
             TransitionState::Done => {}
         }
 
-        Ok(())
+        Ok(self.vgfx.take_commands())
     }
 
     fn is_suspended(&self) -> bool {

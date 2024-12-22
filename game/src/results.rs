@@ -25,7 +25,7 @@ use crate::{
     scene::{Scene, SceneData},
     song_provider::{DiffId, ScoreProvider, SongDiffId, SongId},
     songselect::{Difficulty, Song},
-    vg_ui::Vgfx,
+    vg_ui::{Vgfx, VgfxSyncExt},
     ControlMessage,
 };
 use serde_with::*;
@@ -369,6 +369,7 @@ impl SceneData for SongResultData {
             control_tx: None,
             data: *self,
             lua: LuaProvider::new_lua(),
+            vgfx: services.get_required(),
             services,
             screenshot_state: ScreenshotState::NotRendered,
         }))
@@ -512,6 +513,7 @@ enum ScreenshotState {
 pub struct SongResult {
     data: SongResultData,
     lua: Rc<Lua>,
+    vgfx: RefMut<Vgfx>,
     services: ServiceProvider,
     control_tx: Option<Sender<ControlMessage>>,
     close: bool,
@@ -541,7 +543,10 @@ impl Scene for SongResult {
         Ok(())
     }
 
-    fn render_ui(&mut self, dt: f64) -> anyhow::Result<()> {
+    fn render_ui(
+        &mut self,
+        dt: f64,
+    ) -> std::result::Result<std::vec::Vec<wgpu::CommandBuffer>, anyhow::Error> {
         let render_fn: Function = self.lua.globals().get("render")?;
         render_fn.call(dt / 1000.0)?;
 
@@ -591,7 +596,7 @@ impl Scene for SongResult {
             ScreenshotState::Finished => ScreenshotState::Finished,
         };
 
-        Ok(())
+        Ok(self.vgfx.take_commands())
     }
 
     fn is_suspended(&self) -> bool {

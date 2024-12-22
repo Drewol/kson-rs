@@ -18,7 +18,7 @@ strip = true
 
 [workspace.dependencies]
 serde = { version = "1", features = ["derive"] }
-puffin = "0.19"
+puffin = "0.19.1"
 puffin_http = "0.16.0"
 egui = "0.27"
 emath = "0.27"

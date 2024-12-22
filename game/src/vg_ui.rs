@@ -1,3 +1,7 @@
+mod ext;
+
+pub use ext::*;
+
 use std::{
     collections::HashMap,
     hash::{Hash, Hasher},
@@ -148,6 +152,7 @@ pub struct Vgfx {
     fonts: HashMap<String, FontId>,
     image_jobs: HashMap<String, Promise<image::DynamicImage>>,
     label_align: (femtovg::Align, femtovg::Baseline),
+    commands: Vec<wgpu::CommandBuffer>,
 }
 
 impl Injectable for Vgfx {
@@ -226,6 +231,7 @@ impl Vgfx {
             label_color: Color::white(),
             label_font: *default_fonts.first().expect("No default font loaded"),
             label_align: (femtovg::Align::Left, femtovg::Baseline::Alphabetic),
+            commands: vec![],
             _skin_meta: skin_meta,
         }
     }
@@ -292,6 +298,10 @@ impl Vgfx {
         res.push("skins");
         res.push(&self.skin);
         res
+    }
+
+    pub fn take_commands(&mut self) -> Vec<wgpu::CommandBuffer> {
+        std::mem::take(&mut self.commands)
     }
 }
 
