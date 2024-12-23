@@ -90,7 +90,7 @@ luals-gen-tealr = { git = "https://github.com/Drewol/luals-gen.git" }
 luals-gen = { git = "https://github.com/Drewol/luals-gen.git" }
 tokio-tungstenite = "0.24.0"
 schemars = "0.8.21"
-futures-util = "0.3.30"
+futures-util = "0.3.31"
 specta = { version = "1.0.5", features = ["export"] }
 statrs = "0.17.1"
 chrono = { version = "0.4.38", default-features = false, features = [
