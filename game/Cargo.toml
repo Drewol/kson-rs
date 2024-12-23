@@ -107,7 +107,7 @@ log4rs = { version = "1.3.0", features = [
 ], default-features = false }
 
 [dependencies.winit]
-version = "0.29"
+version = "0.30"
 features = ["serde"]
 
 [target.'cfg(unix)'.dependencies]
