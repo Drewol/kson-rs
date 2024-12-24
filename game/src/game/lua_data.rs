@@ -108,7 +108,13 @@ impl HitWindow {
         slam: Duration::from_nanos(83_333_333),
     };
 
-    pub fn new(variant: i32, perfect_ms: u64, good_ms: u64, hold_ms: u64, miss_ms: u64) -> Self {
+    pub const fn new(
+        variant: i32,
+        perfect_ms: u64,
+        good_ms: u64,
+        hold_ms: u64,
+        miss_ms: u64,
+    ) -> Self {
         Self {
             variant,
             perfect: Duration::from_millis(perfect_ms),

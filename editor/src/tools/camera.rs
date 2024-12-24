@@ -233,7 +233,7 @@ impl CursorObject for CameraTool {
 
         let camera = ChartCamera {
             center: vec3(0.0, 0.0, 0.0),
-            angle: -45.0 - 14.0 * self.angle,
+            angle: 14.0f32.mul_add(-self.angle, -45.0),
             fov: 70.0,
             radius: (-self.radius + 3.1) / 2.0,
             tilt: 0.0,

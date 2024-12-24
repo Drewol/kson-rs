@@ -24,7 +24,7 @@ impl<'a, T: Clone> ParamEditor<'a, T> {
 }
 
 #[allow(unused)]
-fn is_filename<T>(v: &EffectParameter<T>) -> bool {
+const fn is_filename<T>(v: &EffectParameter<T>) -> bool {
     matches!(
         (&v.off, &v.on),
         (kson::parameter::EffectParameterValue::Filename(_), _)
