@@ -33,7 +33,7 @@ femtovg = { git = 'https://github.com/Drewol/femtovg', branch = "cache-experimen
     "image-loading",
 ] }
 
-gilrs = { version = "0.10.0", features = ["serde-serialize"] }
+gilrs = { version = "0.10.10", features = ["serde-serialize"] }
 kson = { path = "../kson" }
 kson-rodio-sources = { path = "../kson-rodio-sources" }
 
