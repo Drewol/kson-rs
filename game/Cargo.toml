@@ -70,7 +70,7 @@ game-loop = { git = "https://github.com/Drewol/game-loop.git", features = [
     "winit",
 ] }
 glutin = "0.31.2"
-glutin-winit = "0.4"
+glutin-winit = "0.5"
 glow = "0.13"
 raw-window-handle = "0.5.2"
 rusc_database = { path = "./rusc_database" }
