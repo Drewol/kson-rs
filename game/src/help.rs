@@ -19,8 +19,8 @@ use tealr::{
     TealMultiValue, ToTypename,
 };
 use wgpu::{
-    util::DeviceExt, Extent3d, Origin3d, SurfaceConfiguration, SurfaceTexture, Texture,
-    TextureFormat, TextureUsages,
+    util::DeviceExt, Extent3d, Origin3d, RenderPassDescriptor, SurfaceConfiguration,
+    SurfaceTexture, Texture, TextureFormat, TextureUsages,
 };
 use winit::{dpi::PhysicalSize, event::ElementState};
 
@@ -454,6 +454,30 @@ impl RenderContext {
             viewport.extend3d(1),
         );
         self.queue.submit([encoder.finish()]);
+    }
+
+    pub fn default_render_pass<'a>(
+        &self,
+        name: Option<&str>,
+        encoder: &'a mut wgpu::CommandEncoder,
+        surface: &SurfaceTexture,
+    ) -> wgpu::RenderPass<'a> {
+        let render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+            label: name,
+            color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                view: &surface.texture.create_view(&Default::default()),
+                resolve_target: None,
+                ops: wgpu::Operations {
+                    load: wgpu::LoadOp::Load,
+                    store: wgpu::StoreOp::Store,
+                },
+            })],
+            depth_stencil_attachment: None,
+            timestamp_writes: None,
+            occlusion_query_set: None,
+        });
+
+        render_pass
     }
 
     pub fn encoder(&self, desc: Option<&str>) -> wgpu::CommandEncoder {

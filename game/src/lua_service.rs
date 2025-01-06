@@ -1,4 +1,4 @@
-use std::rc::Rc;
+use std::{rc::Rc, sync::Arc};
 
 use crate::{
     config::GameConfig,
@@ -105,5 +105,32 @@ impl LuaProvider {
                 .eval::<()>()?;
         }
         Ok(())
+    }
+}
+
+pub trait LuaExt {
+    fn wgpu_surface(&self) -> Rc<wgpu::SurfaceTexture>;
+    fn render_context(&self) -> Arc<RenderContext>;
+    fn wgpu_encoder(&self, label: Option<&str>) -> wgpu::CommandEncoder;
+}
+
+impl LuaExt for tealr::mlu::mlua::Lua {
+    fn wgpu_encoder(&self, label: Option<&str>) -> wgpu::CommandEncoder {
+        let ctx = self
+            .app_data_ref::<Arc<RenderContext>>()
+            .expect("No render context");
+        ctx.encoder(label)
+    }
+
+    fn render_context(&self) -> Arc<RenderContext> {
+        self.app_data_ref::<Arc<RenderContext>>()
+            .expect("No render context")
+            .clone()
+    }
+
+    fn wgpu_surface(&self) -> Rc<wgpu::SurfaceTexture> {
+        self.app_data_ref::<Rc<wgpu::SurfaceTexture>>()
+            .expect("No surface")
+            .clone()
     }
 }

@@ -326,18 +326,11 @@ impl GameMain {
                     .with_font_size(32.0)
                     .with_text_baseline(vg::Baseline::Top),
             );
-            render_context
-                .device
-                .push_error_scope(wgpu::ErrorFilter::Validation);
             let commands = canvas
                 .flush_to_surface(&surface.texture)
                 .into_iter()
                 .collect_vec();
             canvas.set_render_target(femtovg::RenderTarget::Screen); //wgpu renderer bug
-
-            if let Some(e) = block_on(render_context.device.pop_error_scope()) {
-                warn!("FemtoVG rendering error: {e}");
-            };
 
             *frame_count += 1;
 
@@ -509,9 +502,6 @@ impl GameMain {
 
         let mut commands = scenes.render(&frame_input, vgfx, surface.clone());
 
-        render_context
-            .device
-            .push_error_scope(wgpu::ErrorFilter::Validation);
         if let Some(vg_commands) = Self::render_overlays(
             vgfx,
             &frame_input,
@@ -524,10 +514,6 @@ impl GameMain {
         }
 
         commands.append(&mut transition_commands);
-
-        if let Some(e) = block_on(render_context.device.pop_error_scope()) {
-            warn!("FemtoVG rendering error: {e}");
-        };
 
         {
             profile_scope!("egui");

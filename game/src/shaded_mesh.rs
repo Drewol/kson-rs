@@ -1,5 +1,6 @@
 use std::{
-    borrow::Cow,
+    borrow::{Borrow, BorrowMut, Cow},
+    cell::{Cell, RefCell},
     collections::{BTreeMap, HashMap},
     io::Read,
     path::Path,
@@ -22,7 +23,7 @@ use palette::{stimulus::IntoStimulus, IntoColor, Srgba};
 use puffin::{profile_function, profile_scope};
 use tealr::{
     mlu::{
-        mlua::{self, ExternalResult, FromLua, Lua},
+        mlua::{self, AppDataRefMut, ExternalResult, FromLua, Lua},
         TealData, UserData,
     },
     ToTypename,
@@ -33,10 +34,10 @@ use three_d_asset::Camera;
 use wgpu::{
     naga::{self},
     util::DeviceExt,
-    BindGroupDescriptor, BindGroupEntry, BindGroupLayoutEntry, BufferUsages, CommandBuffer, Device,
-    Extent3d, FragmentState, ImageDataLayout, PrimitiveState, RenderPassColorAttachment,
-    SamplerDescriptor, ShaderModuleDescriptor, ShaderStages, SurfaceTexture, Texture,
-    TextureDescriptor, TextureFormat, TextureViewDescriptor,
+    BindGroupDescriptor, BindGroupEntry, BindGroupLayoutEntry, BlendState, BufferUsages,
+    CommandBuffer, Device, Extent3d, FragmentState, ImageDataLayout, PipelineLayout,
+    PrimitiveState, RenderPassColorAttachment, SamplerDescriptor, ShaderModuleDescriptor,
+    ShaderStages, SurfaceTexture, Texture, TextureDescriptor, TextureFormat, TextureViewDescriptor,
 };
 
 use crate::{
@@ -44,6 +45,7 @@ use crate::{
     game::{camera::WgpuCameraWrapper, graphics::CpuMesh},
     game_data,
     help::{blend_add, transform_shader, RenderContext},
+    lua_service::LuaExt,
     vg_ui::{Vgfx, VgfxSyncExt},
     FrameInput, Viewport,
 };
@@ -163,7 +165,7 @@ impl From<(wgpu::Sampler, u32)> for UniformValue {
 #[derive(UserData, ToTypename)]
 pub struct ShadedMesh {
     params: HashMap<String, ShaderParam>,
-    material: wgpu::RenderPipeline,
+    material: RefCell<HashMap<wgpu::BlendState, wgpu::RenderPipeline>>,
     state: wgpu::BlendState,
     vertex_count: usize,
     draw_mode: DrawingMode,
@@ -179,6 +181,8 @@ pub struct ShadedMesh {
     uniform_map: HashMap<String, UniformValue>,
     bind_groups: HashMap<u32, wgpu::BindGroup>,
     name: String,
+    layout: wgpu::PipelineLayout,
+    shader: wgpu::ShaderModule,
 }
 
 #[derive(ShaderType)]
@@ -393,7 +397,9 @@ impl ShadedMesh {
                 module: &shader,
                 entry_point: None,
                 compilation_options: Default::default(),
-                targets: &[Some(context.surface_config.format.into())],
+                targets: &[Some(wgpu::ColorTargetState { format: context.surface_config.format, blend: Some(
+                    BlendState::ALPHA_BLENDING
+                ), write_mask: wgpu::ColorWrites::ALL } )],
             }),
             multiview: None,
             cache: None,
@@ -405,7 +411,7 @@ impl ShadedMesh {
         }
         Ok(Self {
             params,
-            material,
+            material: RefCell::new([(wgpu::BlendState::ALPHA_BLENDING, material)].into()),
             state: wgpu::BlendState::ALPHA_BLENDING,
             vertex_count: 0,
             draw_mode: DrawingMode::Triangles,
@@ -420,6 +426,8 @@ impl ShadedMesh {
             uniform_map,
             bind_groups,
             name: name.to_string(),
+            layout: pipeline_layout,
+            shader,
         })
     }
 
@@ -675,7 +683,46 @@ impl ShadedMesh {
         }
     }
 
-    pub fn draw(&self, surface: Rc<SurfaceTexture>) -> anyhow::Result<CommandBuffer> {
+    fn set_pipeline(&self, render_pass: &mut wgpu::RenderPass) {
+        let shader = &self.shader;
+        let pipeline_layout = &self.layout;
+        let name = self.name.as_str();
+        let mut mat = self.material.borrow_mut();
+        render_pass.set_pipeline(
+        mat.entry(self.state).or_insert_with(|| {
+            self.context
+                .device
+                .create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+                    label: Some(name),
+                    layout: Some(&pipeline_layout),
+                    vertex: wgpu::VertexState {
+                        module: &shader,
+                        entry_point: None,
+                        compilation_options: Default::default(),
+                        buffers: &[wgpu::VertexBufferLayout {
+                            array_stride: GpuVertex::SHADER_SIZE.get(),
+                            step_mode: wgpu::VertexStepMode::Vertex,
+                            attributes: &wgpu::vertex_attr_array![0 => Float32x3, 1 => Float32x2, 2 => Float32x4],
+                        }],
+                    },
+                    primitive: PrimitiveState::default(),
+                    depth_stencil: None,
+                    multisample: Default::default(),
+                    fragment: Some(FragmentState {
+                        module: &shader,
+                        entry_point: None,
+                        compilation_options: Default::default(),
+                        targets: &[Some(wgpu::ColorTargetState { format: self.context.surface_config.format, blend: Some(
+                            BlendState::ALPHA_BLENDING
+                        ), write_mask: wgpu::ColorWrites::ALL } )],
+                    }),
+                    multiview: None,
+                    cache: None,
+                })
+        }).borrow());
+    }
+
+    pub fn draw(&self, render_pass: &mut wgpu::RenderPass) -> Result<(), anyhow::Error> {
         profile_function!();
         ensure!(
             !self.vertecies_pos.is_empty(),
@@ -688,23 +735,8 @@ impl ShadedMesh {
             self.name
         );
         self.use_params();
-        let mut encoder = self.context.encoder(None);
 
-        let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
-            label: Some(&self.name),
-            color_attachments: &[Some(RenderPassColorAttachment {
-                view: &surface.texture.create_view(&Default::default()),
-                resolve_target: None,
-                ops: wgpu::Operations {
-                    load: wgpu::LoadOp::Load,
-                    store: wgpu::StoreOp::Store,
-                },
-            })],
-            depth_stencil_attachment: None,
-            timestamp_writes: None,
-            occlusion_query_set: None,
-        });
-        render_pass.set_pipeline(&self.material);
+        self.set_pipeline(render_pass);
         if !self.vertecies_pos.is_empty() && !self.indecies.is_empty() {
             render_pass.set_vertex_buffer(0, self.vertex_buffer.slice(..));
             render_pass.set_index_buffer(self.index_buffer.slice(..), wgpu::IndexFormat::Uint32);
@@ -721,27 +753,26 @@ impl ShadedMesh {
 
         render_pass.draw_indexed(0..self.indecies.len() as u32, 0, 0..1);
 
-        drop(render_pass);
-        Ok(encoder.finish())
+        Ok(())
     }
 
     pub fn draw_fullscreen(
         &self,
         viewport: Viewport,
-        surface: Rc<SurfaceTexture>,
-    ) -> anyhow::Result<CommandBuffer> {
+        render_pass: &mut wgpu::RenderPass,
+    ) -> anyhow::Result<()> {
         self.use_params();
         self.use_uniform("viewport", [viewport.width as i32, viewport.height as i32]);
-        self.draw(surface)
+        self.draw(render_pass)
     }
 
     pub fn draw_camera(
         &self,
         camera: &Camera,
-        surface: Rc<SurfaceTexture>,
-    ) -> anyhow::Result<CommandBuffer> {
+        render_pass: &mut wgpu::RenderPass,
+    ) -> anyhow::Result<()> {
         self.set_camera_uniforms(camera);
-        self.draw(surface)
+        self.draw(render_pass)
     }
 
     #[inline]
@@ -758,19 +789,18 @@ impl ShadedMesh {
         instances: impl IntoIterator<Item = T>,
         set_uniforms: impl Fn(&Self, Mat4, T),
         viewport: Viewport,
-        surface: Rc<SurfaceTexture>,
-    ) -> anyhow::Result<Vec<CommandBuffer>> {
+        render_pass: &mut wgpu::RenderPass,
+    ) -> anyhow::Result<()> {
         profile_function!();
-        let mut commands = vec![];
         //TODO: Use actual instancing, may causes skin incompatibility
 
         for i in instances {
             self.set_camera_uniforms(camera);
             set_uniforms(&self, self.transform, i);
-            commands.push(self.draw(surface.clone())?);
+            self.draw(render_pass)?;
         }
 
-        Ok(commands)
+        Ok(())
     }
 
     pub fn set_data(&mut self, pos: Vec<Vec3>, uv: Vec<Vec2>, colors: Option<Vec<Vec4>>) {
@@ -825,8 +855,8 @@ impl ShadedMesh {
         &mut self,
         resolution: (u32, u32),
         vgfx: &RwLock<Vgfx>,
-        surface: Rc<SurfaceTexture>,
-    ) -> Result<wgpu::CommandBuffer, tealr::mlu::mlua::Error> {
+        render_pass: &mut wgpu::RenderPass,
+    ) -> Result<(), tealr::mlu::mlua::Error> {
         let [c0r0, c0r1, c1r0, c1r1, c2r0, c2r1] = {
             let vgfx = vgfx.write().expect("Lock error");
             let canvas = vgfx.canvas.lock().expect("Lock error");
@@ -862,7 +892,7 @@ impl ShadedMesh {
             .to_cols_array(),
         );
 
-        self.draw(surface).into_lua_err()
+        self.draw(render_pass).into_lua_err()
     }
 }
 
@@ -944,10 +974,15 @@ impl TealData for ShadedMesh {
             let vgfx = &lua
                 .app_data_ref::<RefMut<Vgfx>>()
                 .ok_or(mlua::Error::external("VGFX App data not set"))?;
-            let surface = lua
-                .app_data_ref::<Rc<SurfaceTexture>>()
-                .ok_or(mlua::Error::external("SurfaceTexture not set"))?;
-            vgfx.extend_commands(Some(this.draw_lua_skin(frame, vgfx, surface.clone())?));
+
+            let mut encoder = lua.wgpu_encoder(None);
+            let ctx = lua.render_context();
+            let surface = lua.wgpu_surface();
+            let mut rp = ctx.default_render_pass(None, &mut encoder, surface.as_ref());
+
+            this.draw_lua_skin(frame, vgfx, &mut rp)?;
+            drop(rp);
+            vgfx.extend_commands(Some(encoder.finish()));
             Ok(())
         });
         methods.add_method_mut("AddTexture", |_lua, this, params: (String, String)| {

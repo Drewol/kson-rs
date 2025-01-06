@@ -1,5 +1,6 @@
 use glam::{vec2, vec3, Mat4, Vec2, Vec3, Vec4};
 use palette::Srgba;
+use three_d_asset::Transform;
 
 use super::HoldState;
 
@@ -267,10 +268,14 @@ pub fn xy_rect(center: Vec3, size: Vec2) -> CpuMesh {
     }
 }
 
-pub(crate) fn camera_to_screen(camera: &Mat4, point: Vec3, screen: Vec2) -> Vec2 {
-    let mut screen_space = camera.project_point3(point);
+pub(crate) fn camera_to_screen(camera: &three_d_asset::Camera, point: Vec3, screen: Vec2) -> Vec2 {
+    let Vec3 { x, y, z } = point;
+    let camera_space = camera
+        .view()
+        .transform_point(three_d_asset::Point3 { x, y, z });
+    let mut screen_space = camera.projection().transform_point(camera_space);
     screen_space.y = -screen_space.y;
     screen_space *= 0.5f32;
-    screen_space += vec3(0.5, 0.5, 0.5);
+    screen_space += three_d_asset::vec3(0.5, 0.5, 0.5);
     vec2(screen_space.x * screen.x, screen_space.y * screen.y)
 }

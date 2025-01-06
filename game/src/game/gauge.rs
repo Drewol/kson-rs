@@ -200,7 +200,7 @@ impl Gauge {
 
         //Clamp
         match self {
-            Gauge::None => todo!(),
+            Gauge::None => {}
             Gauge::Normal { value, .. } => *value = value.clamp(0.0, 1.0),
             Gauge::Hard { value, .. } => *value = value.clamp(0.0, 1.0),
         }

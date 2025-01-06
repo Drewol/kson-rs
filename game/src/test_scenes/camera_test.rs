@@ -157,16 +157,18 @@ impl Scene for CameraTest {
     fn render(
         &mut self,
         _dt: f64,
-        _td_context: &RenderContext,
+        td_context: &RenderContext,
         viewport: Viewport,
         surface: Rc<SurfaceTexture>,
     ) -> std::vec::Vec<wgpu::CommandBuffer> {
+        let mut encocer = td_context.encoder(None);
+        let mut rp = td_context.default_render_pass(None, &mut encocer, surface.as_ref());
         self.camera
             .update(vec2(viewport.width as f32, viewport.height as f32));
         let camera: three_d_asset::Camera = (&self.camera).into();
-        self.track_shader
-            .draw_camera(&camera, surface)
-            .into_iter()
-            .collect_vec()
+        self.track_shader.draw_camera(&camera, &mut rp);
+
+        drop(rp);
+        vec![encocer.finish()]
     }
 }

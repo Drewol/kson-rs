@@ -48,7 +48,6 @@ use wgpu::{core::device::queue, SurfaceTexture};
 use winit::{
     dpi::PhysicalSize,
     event_loop::{ControlFlow, EventLoop},
-    platform::x11::EventLoopBuilderExtX11,
 };
 
 mod animation;
@@ -353,6 +352,8 @@ impl winit::application::ApplicationHandler<UscInputEvent> for GameState {
         render_context.process_config();
 
         if let winit::event::WindowEvent::RedrawRequested = event {
+            let now = Instant::now();
+
             puffin::GlobalProfiler::lock().new_frame();
             profile_scope!("Frame");
             let target_updates = (launch_time.elapsed().as_secs_f64() * 240.0) as u64;
@@ -363,8 +364,6 @@ impl winit::application::ApplicationHandler<UscInputEvent> for GameState {
                 game_state.update();
                 *updates += 1;
             }
-
-            let now = Instant::now();
 
             let surface = {
                 profile_scope!("Get surface");
@@ -379,7 +378,7 @@ impl winit::application::ApplicationHandler<UscInputEvent> for GameState {
             let (exiting, commands) = game_state.render(
                 FrameInput {
                     elapsed_time: frame_time.elapsed().as_secs_f64() * 1000.0,
-                    accumulated_time: frame_time.elapsed().as_secs_f64() * 1000.0,
+                    accumulated_time: launch_time.elapsed().as_secs_f64() * 1000.0,
                     viewport,
                     window_width: size.width,
                     window_height: size.height,
@@ -821,9 +820,7 @@ fn main() -> anyhow::Result<()> {
 
     let _tokio = rt.enter();
 
-    let event_loop = EventLoop::<UscInputEvent>::with_user_event()
-        .with_x11()
-        .build()?;
+    let event_loop = EventLoop::<UscInputEvent>::with_user_event().build()?;
 
     let event_proxy = event_loop.create_proxy();
 

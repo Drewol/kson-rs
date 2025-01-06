@@ -1,3 +1,4 @@
+use log::info;
 use three_d_asset::{vec2, Camera, Deg, InnerSpace, Matrix4, Rad, Transform, Vec2, Vec3, Viewport};
 
 use super::chart_view;

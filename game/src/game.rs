@@ -46,7 +46,7 @@ use std::{
 };
 use tealr::mlu::mlua::{Function, Lua, LuaSerdeExt};
 use three_d_asset::Camera;
-use wgpu::SurfaceTexture;
+use wgpu::{RenderPassDescriptor, SurfaceTexture};
 
 pub mod chart_view;
 use chart_view::*;
@@ -754,10 +754,10 @@ impl Game {
         hit_window: HitWindow,
     ) -> lua_data::LuaGameState {
         let screen = vec2(viewport.width as f32, viewport.height as f32);
-        let track_center = camera.pixel_at_position(three_d_asset::Vec3::unit_x() * 0.0);
+        let track_center = graphics::camera_to_screen(camera, Vec3::ZERO, screen);
 
-        let track_left = camera.pixel_at_position(three_d_asset::Vec3::unit_x() * -0.5);
-        let track_right = camera.pixel_at_position(three_d_asset::Vec3::unit_x() * 0.5);
+        let track_left = graphics::camera_to_screen(camera, Vec3::X * -0.5, screen);
+        let track_right = graphics::camera_to_screen(camera, Vec3::X * 0.5, screen);
         let crit_line = vec2(track_right.x, track_right.y) - vec2(track_left.x, track_left.y);
         let rotation = -crit_line.y.atan2(crit_line.x);
 
@@ -825,18 +825,21 @@ impl Game {
         }
     }
 
-    fn reset_canvas(&mut self, surface: &wgpu::SurfaceTexture) {
+    #[must_use]
+    fn reset_canvas(&mut self, surface: &wgpu::SurfaceTexture) -> Option<wgpu::CommandBuffer> {
         let Some(vgfx) = self.lua.app_data_mut::<RefMut<Vgfx>>() else {
             log::error!("VGFX app data not set");
-            return;
+            return None;
         };
 
         let vgfx = vgfx.write().expect("Lock error");
         let canvas = &mut vgfx.canvas.lock().expect("Lock error");
-        canvas.flush_to_surface(&surface.texture);
+        let command = canvas.flush_to_surface(&surface.texture);
         canvas.reset();
+        canvas.set_size(surface.texture.width(), surface.texture.height(), 1.0);
         canvas.reset_transform();
         canvas.reset_scissor();
+        command
     }
 
     fn on_hit(&mut self, hit_rating: HitRating) {
@@ -1744,6 +1747,9 @@ impl Scene for Game {
         let mut render_commands = vec![];
         profile_function!();
 
+        let mut encoder = td_context.encoder(Some("Gameplay"));
+        let mut rp = td_context.default_render_pass(Some("Track"), &mut encoder, &surface);
+
         self.camera
             .update(vec2(viewport.width as f32, viewport.height as f32));
         if self.intro_done && !self.playback.is_playing() {
@@ -1899,11 +1905,7 @@ impl Scene for Game {
                 },
             );
         }
-        render_commands.extend(
-            self.track_shader
-                .draw_camera(&td_camera, surface.clone())
-                .into_iter(),
-        );
+        self.track_shader.draw_camera(&td_camera, &mut rp);
         let render_data = match self.view.render(
             &self.chart,
             |lane, tick| self.hold_ok(lane, tick),
@@ -1931,7 +1933,7 @@ impl Scene for Game {
                 material.use_uniform("hitState", state);
             },
             viewport,
-            surface.clone(),
+            &mut rp,
         );
 
         let bt_long_commands = self.bt_long_shaders.draw_instanced_camera(
@@ -1948,7 +1950,7 @@ impl Scene for Game {
                 material.use_uniform("hitState", state);
             },
             viewport,
-            surface.clone(),
+            &mut rp,
         );
 
         let fx_chip_commands = self.fx_chip_shaders.draw_instanced_camera(
@@ -1959,7 +1961,7 @@ impl Scene for Game {
                 material.use_uniform("hasSample", if has_sample { 1 } else { 0 });
             },
             viewport,
-            surface.clone(),
+            &mut rp,
         );
 
         let bt_chip_commands = self.bt_chip_shader.draw_instanced_camera(
@@ -1969,7 +1971,7 @@ impl Scene for Game {
                 material.use_uniform("world", (transform * bt).to_cols_array())
             },
             viewport,
-            surface.clone(),
+            &mut rp,
         );
 
         let lane_beam_commands = self.lane_beam_shader.draw_instanced_camera(
@@ -1980,14 +1982,8 @@ impl Scene for Game {
                 material.use_uniform("world", (tranform * light).to_cols_array());
             },
             viewport,
-            surface.clone(),
+            &mut rp,
         );
-
-        render_commands.extend(fx_long_commands.into_iter().flatten());
-        render_commands.extend(bt_long_commands.into_iter().flatten());
-        render_commands.extend(fx_chip_commands.into_iter().flatten());
-        render_commands.extend(bt_chip_commands.into_iter().flatten());
-        render_commands.extend(lane_beam_commands.into_iter().flatten());
 
         self.laser_shaders[0][0].set_data_mesh(&render_data.lasers[0]);
         self.laser_shaders[0][1].set_data_mesh(&render_data.lasers[1]);
@@ -1995,8 +1991,11 @@ impl Scene for Game {
         self.laser_shaders[1][1].set_data_mesh(&render_data.lasers[3]);
 
         for ele in self.laser_shaders.iter().flatten() {
-            render_commands.extend(ele.draw_camera(&td_camera, surface.clone()).into_iter());
+            ele.draw_camera(&td_camera, &mut rp);
         }
+
+        drop(rp);
+        render_commands.push(encoder.finish());
 
         if !self.intro_done {
             if let Ok(func) = self.lua.globals().get::<_, Function>("render_intro") {
@@ -2016,7 +2015,7 @@ impl Scene for Game {
                 log::error!("{}", e);
             };
         }
-        self.reset_canvas(surface.as_ref());
+        render_commands.extend(self.reset_canvas(surface.as_ref()).into_iter());
 
         if let Some(fg) = self.foreground.as_mut() {
             fg.render(
@@ -2038,7 +2037,7 @@ impl Scene for Game {
                 log::error!("{}", e);
             };
         }
-        self.reset_canvas(surface.as_ref());
+        render_commands.extend(self.reset_canvas(surface.as_ref()).into_iter());
 
         if let Ok(func) = self.lua.globals().get::<_, Function>("render") {
             profile_scope!("lua render");
@@ -2046,7 +2045,7 @@ impl Scene for Game {
                 log::error!("{}", e);
             };
         }
-        self.reset_canvas(surface.as_ref());
+        render_commands.extend(self.reset_canvas(surface.as_ref()).into_iter());
         render_commands
     }
 

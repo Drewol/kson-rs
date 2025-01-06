@@ -7,6 +7,7 @@ use crate::{
     game::ChartView,
     game_data::{ExportGame, GameData, LuaPath},
     help::{transform_shader, RenderContext},
+    lua_service::LuaExt,
     shaded_mesh::ShadedMesh,
     util::lua_address,
     vg_ui::{ExportVgfx, Vgfx},
@@ -193,11 +194,15 @@ impl TealData for GameBackgroundLua {
             bg.set_param("timing", Vec3::from(data.timing));
             bg.set_param("clearTransition", data.clear_transition);
             bg.set_param("tilt", vec2(data.roll, 0.0)); //(camera roll, background spin)
-            let surface = lua
-                .app_data_ref::<Rc<SurfaceTexture>>()
-                .ok_or(mlua::Error::external("SurfaceTexture not set"))?;
 
-            bg.draw_fullscreen(data.viewport, surface.clone());
+            let mut encoder = lua.wgpu_encoder(None);
+            let ctx = lua.render_context();
+            let surface = lua.wgpu_surface();
+            let mut rp = ctx.default_render_pass(None, &mut encoder, surface.as_ref());
+
+            bg.draw_fullscreen(data.viewport, &mut rp);
+            drop(rp);
+            encoder.finish();
             Ok(())
         })
     }
