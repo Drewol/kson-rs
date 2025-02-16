@@ -48,6 +48,7 @@ use wgpu::{core::device::queue, SurfaceTexture};
 use winit::{
     dpi::PhysicalSize,
     event_loop::{ControlFlow, EventLoop},
+    platform::x11::EventLoopBuilderExtX11,
 };
 
 mod animation;
@@ -820,7 +821,9 @@ fn main() -> anyhow::Result<()> {
 
     let _tokio = rt.enter();
 
-    let event_loop = EventLoop::<UscInputEvent>::with_user_event().build()?;
+    let event_loop = EventLoop::<UscInputEvent>::with_user_event()
+        .with_x11()
+        .build()?;
 
     let event_proxy = event_loop.create_proxy();
 

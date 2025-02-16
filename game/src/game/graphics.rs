@@ -1,19 +1,17 @@
-use glam::{vec2, vec3, Mat4, Vec2, Vec3, Vec4};
-use palette::Srgba;
+use glam::{vec2, Vec2, Vec3, Vec4};
 use three_d_asset::Transform;
 
-use super::HoldState;
-
+#[derive(Default)]
 pub(crate) struct TrackRenderMeshes {
-    pub(crate) fx_hold: Vec<(Mat4, HoldState)>,
-    pub(crate) bt_hold: Vec<(Mat4, HoldState)>,
-    pub(crate) fx_chip: Vec<(Mat4, bool)>,
-    pub(crate) bt_chip: Vec<Mat4>,
+    pub(crate) fx_hold: CpuMesh,
+    pub(crate) bt_hold: CpuMesh,
+    pub(crate) fx_chip: CpuMesh,
+    pub(crate) bt_chip: CpuMesh,
     pub(crate) lasers: [CpuMesh; 4],
-    pub(crate) lane_beams: [(Mat4, Srgba<f32>); 6],
+    pub(crate) lane_beams: CpuMesh,
 }
 
-#[derive(Debug, Default)]
+#[derive(Debug, Default, Clone)]
 pub struct CpuMesh {
     pub positions: Vec<Vec3>,
     pub indices: Option<Vec<u32>>,
@@ -21,6 +19,29 @@ pub struct CpuMesh {
     pub tangents: Option<Vec<Vec3>>,
     pub uvs: Option<Vec<Vec2>>,
     pub colors: Option<Vec<Vec4>>,
+}
+
+impl CpuMesh {
+    pub fn clear(&mut self) {
+        let CpuMesh {
+            positions,
+            indices,
+            normals,
+            tangents,
+            uvs,
+            colors,
+        } = self;
+        positions.clear();
+        indices.as_mut().map(|x| x.clear());
+        normals.as_mut().map(|x| x.clear());
+        tangents.as_mut().map(|x| x.clear());
+        uvs.as_mut().map(|x| x.clear());
+        colors.as_mut().map(|x| x.clear());
+    }
+
+    pub fn extend(&mut self, other: CpuMesh) {
+        *self = extend_mesh(std::mem::take(self), other)
+    }
 }
 
 pub fn extend_mesh(a: CpuMesh, b: CpuMesh) -> CpuMesh {
@@ -68,17 +89,14 @@ pub fn extend_mesh(a: CpuMesh, b: CpuMesh) -> CpuMesh {
     }
 
     let uvs: Option<Vec<_>> = Some(uvs.iter().chain(b_uvs.iter()).flatten().copied().collect());
-
-    let mut res = CpuMesh {
+    CpuMesh {
         positions,
         indices,
         normals,
         tangents,
         uvs,
         colors,
-    };
-
-    res
+    }
 }
 
 #[derive(Debug)]

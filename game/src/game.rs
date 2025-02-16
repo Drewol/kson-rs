@@ -5,9 +5,9 @@ use crate::{
     help::{self, RenderContext},
     input_state::InputState,
     log_result,
-    lua_service::LuaProvider,
+    lua_service::{LuaExt, LuaProvider},
     scene::{Scene, SceneData},
-    shaded_mesh::ShadedMesh,
+    shaded_mesh::{self, ShadedMesh},
     songselect::Song,
     vg_ui::Vgfx,
     ControlMessage, Viewport,
@@ -17,7 +17,8 @@ use anyhow::{anyhow, ensure, Result};
 use di::{RefMut, ServiceProvider};
 use egui::epaint::Hsva;
 use egui_plot::{Line, PlotPoints};
-use glam::{vec2, vec3, vec4, Mat4, Quat, Vec3, Vec4};
+use femtovg::{Canvas, ImageFlags};
+use glam::{ivec2, vec2, vec3, vec4, Mat4, Quat, Vec3, Vec4};
 use image::GenericImageView;
 use itertools::Itertools;
 use kson::{
@@ -41,12 +42,13 @@ use std::{
     ops::Sub,
     path::PathBuf,
     rc::Rc,
-    sync::{mpsc::Sender, Arc},
+    sync::{mpsc::Sender, Arc, Mutex},
     time::{Duration, SystemTime},
+    usize,
 };
 use tealr::mlu::mlua::{Function, Lua, LuaSerdeExt};
 use three_d_asset::Camera;
-use wgpu::{RenderPassDescriptor, SurfaceTexture};
+use wgpu::{ImageCopyTextureBase, RenderPassDescriptor, SurfaceTexture};
 
 pub mod chart_view;
 use chart_view::*;
@@ -129,7 +131,8 @@ pub struct Game {
     laser_offset: f64,
     button_offset: f64,
     global_offset: f64,
-    render_context: RenderContext,
+    vg_layers: [wgpu::Texture; 2],
+    vg_layer_meshes: [ShadedMesh; 2],
 }
 
 #[derive(Clone, Copy)]
@@ -708,7 +711,14 @@ impl Game {
             button_offset: -GameConfig::get().button_offset as _,
             global_offset: -GameConfig::get().global_offset as _,
             laser_offset: -GameConfig::get().laser_offset as _,
-            render_context: td.clone(),
+            vg_layers: [
+                td.new_render_target(Some("Back")),
+                td.new_render_target(Some("Front")),
+            ],
+            vg_layer_meshes: [
+                ShadedMesh::new_fullscreen_tex(td)?,
+                ShadedMesh::new_fullscreen_tex(td)?,
+            ],
         };
         res.set_track_uniforms();
         Ok(res)
@@ -745,6 +755,9 @@ impl Game {
         self.laser_shaders[1]
             .iter_mut()
             .for_each(|rl| rl.set_param("color", self.laser_colors[1]));
+
+        self.vg_layer_meshes[0].use_texture_existing("mainTex", &self.vg_layers[0], (false, false));
+        self.vg_layer_meshes[1].use_texture_existing("mainTex", &self.vg_layers[1], (false, false));
     }
 
     fn lua_game_state(
@@ -753,6 +766,7 @@ impl Game {
         camera: &Camera,
         hit_window: HitWindow,
     ) -> lua_data::LuaGameState {
+        profile_function!();
         let screen = vec2(viewport.width as f32, viewport.height as f32);
         let track_center = graphics::camera_to_screen(camera, Vec3::ZERO, screen);
 
@@ -825,8 +839,12 @@ impl Game {
         }
     }
 
-    #[must_use]
-    fn reset_canvas(&mut self, surface: &wgpu::SurfaceTexture) -> Option<wgpu::CommandBuffer> {
+    fn flush_canvas(&mut self, i: usize) -> Option<wgpu::CommandBuffer> {
+        profile_function!();
+
+        let Some(surface) = self.vg_layers.get(i) else {
+            return None;
+        };
         let Some(vgfx) = self.lua.app_data_mut::<RefMut<Vgfx>>() else {
             log::error!("VGFX app data not set");
             return None;
@@ -834,12 +852,22 @@ impl Game {
 
         let vgfx = vgfx.write().expect("Lock error");
         let canvas = &mut vgfx.canvas.lock().expect("Lock error");
-        let command = canvas.flush_to_surface(&surface.texture);
+        Some(canvas.flush_to_surface(&surface))
+    }
+
+    fn reset_canvas(&mut self, surface: &wgpu::SurfaceTexture) {
+        profile_function!();
+        let Some(vgfx) = self.lua.app_data_mut::<RefMut<Vgfx>>() else {
+            log::error!("VGFX app data not set");
+            return;
+        };
+
+        let vgfx = vgfx.write().expect("Lock error");
+        let canvas = &mut vgfx.canvas.lock().expect("Lock error");
         canvas.reset();
         canvas.set_size(surface.texture.width(), surface.texture.height(), 1.0);
         canvas.reset_transform();
         canvas.reset_scissor();
-        command
     }
 
     fn on_hit(&mut self, hit_rating: HitRating) {
@@ -1318,6 +1346,21 @@ impl Game {
         }
         hit_rating
     }
+
+    fn copy_layer_to_surface(
+        &self,
+        surface: &SurfaceTexture,
+        i: usize,
+        encoder: &mut wgpu::CommandEncoder,
+        td: &RenderContext,
+    ) {
+        let Some(src) = self.vg_layer_meshes.get(i) else {
+            return;
+        };
+
+        let mut rp = td.default_render_pass(None, encoder, surface);
+        src.draw(&mut rp);
+    }
 }
 
 impl Scene for Game {
@@ -1623,7 +1666,7 @@ impl Scene for Game {
             ui.checkbox(&mut self.draw_axis_guides, "Draw axies guides")
         });
         Window::new("Game Data")
-            .scroll2([false, true])
+            .scroll([false, true])
             .show(ctx, |ui| {
                 egui::Grid::new("gameplay_data")
                     .num_columns(2)
@@ -1744,11 +1787,18 @@ impl Scene for Game {
         viewport: Viewport,
         surface: Rc<SurfaceTexture>,
     ) -> std::vec::Vec<wgpu::CommandBuffer> {
-        let mut render_commands = vec![];
         profile_function!();
+        // TODO:
+        // 1. render femtovg using render targets
+        // 2. submit femtovg commands
+        // 3. render bg
+        // 4. render track
+        // 5. blit crit base target to surface
+        // 6. render fg
+        // 7. blit crit overlay render target
 
-        let mut encoder = td_context.encoder(Some("Gameplay"));
-        let mut rp = td_context.default_render_pass(Some("Track"), &mut encoder, &surface);
+        self.vg_layer_meshes[0].set_param("viewport", ivec2(viewport.x as _, viewport.y as _));
+        self.vg_layer_meshes[1].set_param("viewport", ivec2(viewport.x as _, viewport.y as _));
 
         self.camera
             .update(vec2(viewport.width as f32, viewport.height as f32));
@@ -1852,26 +1902,10 @@ impl Scene for Game {
             });
         }
         let td_camera = Camera::from(&self.camera);
-        if let Some(bg) = self.background.as_mut() {
-            bg.render(
-                dt,
-                &td_camera,
-                time_ms,
-                &self.chart,
-                self.current_tick,
-                self.camera.tilt,
-                self.gauge.is_cleared(),
-                viewport,
-                surface.clone(),
-            );
-        }
-
-        self.beam_colors_current
-            .iter_mut()
-            .for_each(|c| c[3] = (c[3] - dt as f32 / 200.0).max(0.0));
 
         let new_lua_state = self.lua_game_state(viewport, &td_camera, self.hit_window);
         if new_lua_state != self.lua_game_state {
+            profile_scope!("Update lua data");
             self.lua_game_state = new_lua_state;
             let lua_game_state = match self.lua.to_value(&self.lua_game_state) {
                 Ok(s) => s,
@@ -1882,6 +1916,56 @@ impl Scene for Game {
             };
             log_result!(self.lua.globals().set("gameplay", lua_game_state));
         }
+
+        let mut render_commands = vec![];
+
+        {
+            profile_scope!("Render UI");
+
+            //TODO: Use render targets for layering instead
+            if !self.intro_done {
+                if let Ok(func) = self.lua.globals().get::<_, Function>("render_intro") {
+                    profile_scope!("lua render_intro");
+                    match func.call::<_, bool>(dt / 1000.0) {
+                        Err(e) => {
+                            log::error!("{}", e);
+                        }
+                        Ok(intro_complete) => self.intro_done = intro_complete,
+                    };
+                }
+            }
+
+            if let Ok(func) = self.lua.globals().get::<_, Function>("render_crit_base") {
+                profile_scope!("lua render_crit_base");
+                if let Err(e) = func.call::<_, ()>(dt / 1000.0) {
+                    log::error!("{}", e);
+                };
+            }
+
+            self.flush_canvas(0);
+            self.reset_canvas(surface.as_ref());
+
+            if let Ok(func) = self.lua.globals().get::<_, Function>("render_crit_overlay") {
+                profile_scope!("lua render_crit_overlay");
+                if let Err(e) = func.call::<_, ()>(dt / 1000.0) {
+                    log::error!("{}", e);
+                };
+            }
+            self.reset_canvas(surface.as_ref());
+
+            if let Ok(func) = self.lua.globals().get::<_, Function>("render") {
+                profile_scope!("lua render");
+                if let Err(e) = func.call::<_, ()>(dt / 1000.0) {
+                    log::error!("{}", e);
+                };
+            }
+            self.reset_canvas(surface.as_ref());
+            self.flush_canvas(1);
+        }
+
+        self.beam_colors_current
+            .iter_mut()
+            .for_each(|c| c[3] = (c[3] - dt as f32 / 200.0).max(0.0));
 
         //Set glow/hit states
         let object_glow = ((time_ms as f32 % 100.0) / 50.0 - 1.0).abs() * 0.5 + 0.5;
@@ -1905,120 +1989,9 @@ impl Scene for Game {
                 },
             );
         }
-        self.track_shader.draw_camera(&td_camera, &mut rp);
-        let render_data = match self.view.render(
-            &self.chart,
-            |lane, tick| self.hold_ok(lane, tick),
-            self.beam_colors_current,
-            self.chip_h,
-        ) {
-            Ok(d) => d,
-            Err(e) => {
-                log::error!("{e}");
-                return vec![];
-            }
-        };
-
-        let fx_long_commands = self.fx_long_shaders.draw_instanced_camera(
-            &td_camera,
-            render_data.fx_hold,
-            |material, transform, (hold, active)| {
-                material.use_uniform("world", (transform * hold).to_cols_array());
-                let (glow, state) = match active {
-                    HoldState::Idle => (0.6, 1),
-                    HoldState::Hit => (object_glow, hit_state), //FLIP_Y?
-                    HoldState::Miss => (0.3, 0),
-                };
-                material.use_uniform("objectGlow", glow);
-                material.use_uniform("hitState", state);
-            },
-            viewport,
-            &mut rp,
-        );
-
-        let bt_long_commands = self.bt_long_shaders.draw_instanced_camera(
-            &td_camera,
-            render_data.bt_hold,
-            |material, transform, (bt, active)| {
-                material.use_uniform("world", (transform * bt).to_cols_array());
-                let (glow, state) = match active {
-                    HoldState::Idle => (0.6, 1),
-                    HoldState::Hit => (object_glow, hit_state),
-                    HoldState::Miss => (0.3, 0),
-                };
-                material.use_uniform("objectGlow", glow);
-                material.use_uniform("hitState", state);
-            },
-            viewport,
-            &mut rp,
-        );
-
-        let fx_chip_commands = self.fx_chip_shaders.draw_instanced_camera(
-            &td_camera,
-            render_data.fx_chip,
-            |material, transform, (fx, has_sample)| {
-                material.use_uniform("world", (transform * fx).to_cols_array());
-                material.use_uniform("hasSample", if has_sample { 1 } else { 0 });
-            },
-            viewport,
-            &mut rp,
-        );
-
-        let bt_chip_commands = self.bt_chip_shader.draw_instanced_camera(
-            &td_camera,
-            render_data.bt_chip,
-            |material, transform, bt| {
-                material.use_uniform("world", (transform * bt).to_cols_array())
-            },
-            viewport,
-            &mut rp,
-        );
-
-        let lane_beam_commands = self.lane_beam_shader.draw_instanced_camera(
-            &td_camera,
-            render_data.lane_beams,
-            |material, tranform, (light, color)| {
-                material.use_uniform("color", palette::cast::into_array(color));
-                material.use_uniform("world", (tranform * light).to_cols_array());
-            },
-            viewport,
-            &mut rp,
-        );
-
-        self.laser_shaders[0][0].set_data_mesh(&render_data.lasers[0]);
-        self.laser_shaders[0][1].set_data_mesh(&render_data.lasers[1]);
-        self.laser_shaders[1][0].set_data_mesh(&render_data.lasers[2]);
-        self.laser_shaders[1][1].set_data_mesh(&render_data.lasers[3]);
-
-        for ele in self.laser_shaders.iter().flatten() {
-            ele.draw_camera(&td_camera, &mut rp);
-        }
-
-        drop(rp);
-        render_commands.push(encoder.finish());
-
-        if !self.intro_done {
-            if let Ok(func) = self.lua.globals().get::<_, Function>("render_intro") {
-                profile_scope!("lua render_intro");
-                match func.call::<_, bool>(dt / 1000.0) {
-                    Err(e) => {
-                        log::error!("{}", e);
-                    }
-                    Ok(intro_complete) => self.intro_done = intro_complete,
-                };
-            }
-        }
-
-        if let Ok(func) = self.lua.globals().get::<_, Function>("render_crit_base") {
-            profile_scope!("lua render_crit_base");
-            if let Err(e) = func.call::<_, ()>(dt / 1000.0) {
-                log::error!("{}", e);
-            };
-        }
-        render_commands.extend(self.reset_canvas(surface.as_ref()).into_iter());
-
-        if let Some(fg) = self.foreground.as_mut() {
-            fg.render(
+        let mut encoder = td_context.encoder(Some("Gameplay"));
+        if let Some(bg) = self.background.as_mut() {
+            bg.render(
                 dt,
                 &td_camera,
                 time_ms,
@@ -2027,25 +2000,81 @@ impl Scene for Game {
                 self.camera.tilt,
                 self.gauge.is_cleared(),
                 viewport,
-                surface.clone(),
+                td_context,
+                surface.as_ref(),
+                &mut encoder,
             );
         }
 
-        if let Ok(func) = self.lua.globals().get::<_, Function>("render_crit_overlay") {
-            profile_scope!("lua render_crit_overlay");
-            if let Err(e) = func.call::<_, ()>(dt / 1000.0) {
-                log::error!("{}", e);
-            };
-        }
-        render_commands.extend(self.reset_canvas(surface.as_ref()).into_iter());
+        let mut rp = td_context.default_render_pass(Some("Track"), &mut encoder, &surface);
 
-        if let Ok(func) = self.lua.globals().get::<_, Function>("render") {
-            profile_scope!("lua render");
-            if let Err(e) = func.call::<_, ()>(dt / 1000.0) {
-                log::error!("{}", e);
-            };
+        self.track_shader.draw_camera(&td_camera, &mut rp);
+        match self.view.render(
+            &self.chart,
+            |lane, tick| self.hold_ok(lane, tick),
+            self.beam_colors_current,
+            self.chip_h,
+        ) {
+            Err(e) => {
+                log::error!("{e}");
+                return vec![];
+            }
+            _ => {}
+        };
+
+        // let's just draw notes as a single mesh or with proper instanced rendering
+        // since we are forcing a shader rewrite anyway
+        // could use vertex color for hit state data
+
+        {
+            let render_data = self.view.render_data.borrow();
+
+            self.fx_chip_shaders.set_data_mesh(&render_data.fx_chip);
+            self.bt_chip_shader.set_data_mesh(&render_data.bt_chip);
+            self.fx_long_shaders.set_data_mesh(&render_data.fx_hold);
+            self.bt_long_shaders.set_data_mesh(&render_data.bt_hold);
+            self.lane_beam_shader.set_data_mesh(&render_data.lane_beams);
+
+            self.fx_long_shaders.draw_camera(&td_camera, &mut rp);
+            self.bt_long_shaders.draw_camera(&td_camera, &mut rp);
+            self.fx_chip_shaders.draw_camera(&td_camera, &mut rp);
+            self.bt_chip_shader.draw_camera(&td_camera, &mut rp);
+            self.lane_beam_shader.draw_camera(&td_camera, &mut rp);
+
+            self.laser_shaders[0][0].set_data_mesh(&render_data.lasers[0]);
+            self.laser_shaders[0][1].set_data_mesh(&render_data.lasers[1]);
+            self.laser_shaders[1][0].set_data_mesh(&render_data.lasers[2]);
+            self.laser_shaders[1][1].set_data_mesh(&render_data.lasers[3]);
         }
-        render_commands.extend(self.reset_canvas(surface.as_ref()).into_iter());
+        for ele in self.laser_shaders.iter().flatten() {
+            ele.draw_camera(&td_camera, &mut rp);
+        }
+
+        {
+            profile_scope!("Finish encoder");
+
+            drop(rp);
+            self.copy_layer_to_surface(surface.as_ref(), 0, &mut encoder, td_context);
+
+            if let Some(fg) = self.foreground.as_mut() {
+                fg.render(
+                    dt,
+                    &td_camera,
+                    time_ms,
+                    &self.chart,
+                    self.current_tick,
+                    self.camera.tilt,
+                    self.gauge.is_cleared(),
+                    viewport,
+                    td_context,
+                    surface.as_ref(),
+                    &mut encoder,
+                );
+            }
+
+            self.copy_layer_to_surface(surface.as_ref(), 1, &mut encoder, td_context);
+            render_commands.push(encoder.finish());
+        }
         render_commands
     }
 

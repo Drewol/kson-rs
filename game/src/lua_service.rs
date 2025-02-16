@@ -1,4 +1,4 @@
-use std::{rc::Rc, sync::Arc};
+use std::{marker::PhantomData, rc::Rc, sync::Arc};
 
 use crate::{
     config::GameConfig,
@@ -14,8 +14,8 @@ use di::{injectable, Ref, RefMut};
 use log::info;
 use puffin::profile_scope;
 use serde_json::json;
-use tealr::mlu::mlua::Lua;
 use tealr::mlu::mlua::LuaSerdeExt;
+use tealr::mlu::mlua::{AppDataRefMut, Lua};
 
 //TODO: Used expanded macro because of wrong dependencies, use macro when fixed
 #[injectable]
@@ -108,10 +108,30 @@ impl LuaProvider {
     }
 }
 
+pub(crate) struct LuaRenderPass<'lua, 'encoder>(&'lua Lua, PhantomData<&'encoder ()>);
+
+impl<'lua, 'encoder> Drop for LuaRenderPass<'lua, 'encoder> {
+    fn drop(&mut self) {
+        let rp = self
+            .0
+            .remove_app_data::<wgpu::RenderPass<'static>>()
+            .expect("Render pass already removed");
+
+        drop(rp);
+    }
+}
+
 pub trait LuaExt {
+    fn render_pass(&self) -> Option<AppDataRefMut<wgpu::RenderPass<'static>>>;
     fn wgpu_surface(&self) -> Rc<wgpu::SurfaceTexture>;
     fn render_context(&self) -> Arc<RenderContext>;
     fn wgpu_encoder(&self, label: Option<&str>) -> wgpu::CommandEncoder;
+    fn create_render_pass<'lua, 'encoder>(
+        &'lua self,
+        ctx: &RenderContext,
+        encoder: &'encoder mut wgpu::CommandEncoder,
+        surface: &wgpu::SurfaceTexture,
+    ) -> LuaRenderPass<'lua, 'encoder>;
 }
 
 impl LuaExt for tealr::mlu::mlua::Lua {
@@ -132,5 +152,23 @@ impl LuaExt for tealr::mlu::mlua::Lua {
         self.app_data_ref::<Rc<wgpu::SurfaceTexture>>()
             .expect("No surface")
             .clone()
+    }
+
+    fn render_pass(&self) -> Option<AppDataRefMut<wgpu::RenderPass<'static>>> {
+        self.app_data_mut()
+    }
+
+    fn create_render_pass<'lua, 'encoder>(
+        &'lua self,
+        ctx: &RenderContext,
+        encoder: &'encoder mut wgpu::CommandEncoder,
+        surface: &wgpu::SurfaceTexture,
+    ) -> LuaRenderPass<'lua, 'encoder> {
+        let rp = ctx
+            .default_render_pass(Some("Lua"), encoder, surface)
+            .forget_lifetime();
+        self.set_app_data(rp);
+
+        LuaRenderPass(self, PhantomData)
     }
 }

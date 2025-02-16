@@ -1,7 +1,9 @@
 use std::{
     marker::PhantomData,
+    mem::{ManuallyDrop, MaybeUninit},
     num::NonZeroU32,
     ops::{Add, Sub},
+    ptr,
     rc::Rc,
     sync::{
         mpsc::{channel, Receiver, Sender},
@@ -139,6 +141,26 @@ fn get_frame_duration(settings: &GameConfig) -> Duration {
 }
 
 struct LuaAppDataHandle<T: 'static>(di::RefMut<LuaArena>, PhantomData<T>);
+pub struct LuaAppDataOwnedHandle<'a, 'b, T: 'static>(&'a Lua, &'b mut T);
+
+impl<'a, 'b, T> LuaAppDataOwnedHandle<'a, 'b, T> {
+    pub fn set(lua: &'a Lua, data: &'b mut T) -> Self {
+        let lua_data = unsafe { ptr::read(data) };
+        lua.set_app_data(lua_data);
+        Self(lua, data)
+    }
+}
+
+impl<'a, 'b, T> Drop for LuaAppDataOwnedHandle<'a, 'b, T> {
+    fn drop(&mut self) {
+        let data = self
+            .0
+            .remove_app_data::<T>()
+            .expect("App data removed manually");
+
+        unsafe { std::ptr::write(self.1, data) };
+    }
+}
 
 impl<T> LuaAppDataHandle<T> {
     fn set(arena: di::RefMut<LuaArena>, surface: Rc<T>) -> Self {
@@ -326,10 +348,8 @@ impl GameMain {
                     .with_font_size(32.0)
                     .with_text_baseline(vg::Baseline::Top),
             );
-            let commands = canvas
-                .flush_to_surface(&surface.texture)
-                .into_iter()
-                .collect_vec();
+            let commands = vec![canvas.flush_to_surface(&surface.texture)];
+
             canvas.set_render_target(femtovg::RenderTarget::Screen); //wgpu renderer bug
 
             *frame_count += 1;
@@ -888,7 +908,7 @@ impl GameMain {
                     let commands = canvas.flush_to_surface(&surface.texture);
 
                     canvas.reset();
-                    commands
+                    Some(commands)
                 }
             } else {
                 None
@@ -962,5 +982,52 @@ impl GameMain {
                 window.set_fullscreen(Some(winit::window::Fullscreen::Borderless(current_monitor)))
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::{cell::OnceCell, sync::atomic};
+
+    use super::LuaAppDataOwnedHandle;
+
+    struct Foo {
+        s: String,
+        v: u32,
+    }
+
+    static C: std::sync::OnceLock<()> = std::sync::OnceLock::new();
+    impl Drop for Foo {
+        fn drop(&mut self) {
+            assert!(C.get().is_none(), "Foo already dropped");
+            _ = C.set(());
+        }
+    }
+
+    #[test]
+    fn test_lua_data_handle() {
+        let lua = crate::lua_service::LuaProvider::new_lua();
+
+        let mut data = Foo {
+            s: "Hello".to_string(),
+            v: 7,
+        };
+
+        {
+            let _handle = LuaAppDataOwnedHandle::set(&lua, &mut data);
+            let f = lua
+                .create_function::<(), _, _>(|l, _| {
+                    let mut foo = l.app_data_mut::<Foo>().unwrap();
+                    foo.s = format!("{} world", foo.s);
+                    foo.v *= foo.v;
+                    Ok(())
+                })
+                .unwrap();
+            lua.globals().set("f", f).unwrap();
+            lua.load("f()").exec().unwrap();
+        }
+
+        assert_eq!(data.s, "Hello world");
+        assert_eq!(data.v, 49);
     }
 }

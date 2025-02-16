@@ -1,4 +1,4 @@
-use std::{path::Path, rc::Rc, sync::Arc};
+use std::{cell::RefCell, path::Path, rc::Rc, sync::Arc};
 
 use crate::{
     config::GameConfig,
@@ -7,7 +7,7 @@ use crate::{
     shaded_mesh::ShadedMesh,
 };
 
-use super::graphics::{self, GlVertex};
+use super::graphics::{self, GlVertex, TrackRenderMeshes};
 
 pub struct ChartView {
     pub hispeed: f32,
@@ -15,10 +15,11 @@ pub struct ChartView {
     laser_meshes: [Vec<Vec<graphics::GlVertex>>; 2],
     track: ShadedMesh,
     distant_button_scale: f32,
+    pub render_data: RefCell<TrackRenderMeshes>,
 }
 
 use anyhow::anyhow;
-use glam::{vec2, vec3, Mat4, Vec2, Vec3};
+use glam::{vec2, vec3, vec4, Mat4, Vec2, Vec3};
 use kson::KSON_RESOLUTION;
 use openssl::sha;
 use palette::Srgba;
@@ -51,16 +52,43 @@ impl ChartView {
 
         let mut track = ShadedMesh::new(&td, "track", shader_path)?;
 
+        let base_laser_mesh = CpuMesh {
+            indices: Some(vec![]),
+            positions: vec![],
+            uvs: Some(vec![]),
+            ..Default::default()
+        };
+        let lasers = [
+            base_laser_mesh.clone(),
+            base_laser_mesh.clone(),
+            base_laser_mesh.clone(),
+            base_laser_mesh,
+        ];
+
         track.set_data_mesh(&graphics::xy_rect(
             vec3(0.0, 0.0, 0.0),
             vec2(1.0, Self::TRACK_LENGTH * 2.0),
         ));
+
+        let mut lane_beam_mesh =
+            graphics::xy_rect(Vec3::ZERO, vec2(1.0 / 6.0, Self::TRACK_LENGTH / 2.0));
+        lane_beam_mesh.colors = Some(vec![vec4(0.0, 0.0, 0.0, 0.0); 4]);
+        let single_beam = lane_beam_mesh.clone();
+        for _ in 0..5 {
+            lane_beam_mesh.extend(single_beam.clone());
+        }
+
         Ok(ChartView {
             distant_button_scale: GameConfig::get().distant_button_scale,
             cursor: 0.0,
             hispeed: 1.0,
             laser_meshes: [Vec::new(), Vec::new()],
             track,
+            render_data: RefCell::new(TrackRenderMeshes {
+                lane_beams: lane_beam_mesh,
+                lasers,
+                ..Default::default()
+            }),
         })
     }
 
@@ -145,8 +173,44 @@ impl ChartView {
         hold_ok: impl Fn(usize, u32) -> bool,
         mut beam_colors: [[f32; 4]; 6],
         chip_h: f32,
-    ) -> anyhow::Result<graphics::TrackRenderMeshes> {
+    ) -> anyhow::Result<()> {
         profile_function!();
+        let mut data = self.render_data.borrow_mut();
+        let TrackRenderMeshes {
+            fx_hold,
+            bt_hold,
+            fx_chip,
+            bt_chip,
+            lasers,
+            lane_beams,
+        } = &mut *data;
+
+        fx_hold.clear();
+        bt_hold.clear();
+        bt_chip.clear();
+        fx_chip.clear();
+        for l in lasers.iter_mut() {
+            l.clear();
+        }
+
+        //Dim FX beams
+        beam_colors[4][3] *= 0.5;
+        beam_colors[5][3] *= 0.5;
+
+        for (i, vertex_colors) in lane_beams
+            .colors
+            .as_mut()
+            .unwrap()
+            .chunks_exact_mut(4)
+            .enumerate()
+        {
+            let color = glam::Vec4::from(beam_colors[i]);
+            vertex_colors[0] = color;
+            vertex_colors[1] = color;
+            vertex_colors[2] = color;
+            vertex_colors[3] = color;
+        }
+
         let chip_h = chip_h.copysign(-1.0);
         let view_time = self.cursor;
         let view_offset = if view_time < 0.0 {
@@ -267,49 +331,6 @@ impl ChartView {
         let mut bt_hold = vec![];
         let mut fx_chip = vec![];
         let mut bt_chip = vec![];
-        let mut lasers = [
-            graphics::xy_rect(Vec3::ZERO, Vec2::ZERO),
-            graphics::xy_rect(Vec3::ZERO, Vec2::ZERO),
-            graphics::xy_rect(Vec3::ZERO, Vec2::ZERO),
-            graphics::xy_rect(Vec3::ZERO, Vec2::ZERO),
-        ];
-
-        //Dim FX beams
-        beam_colors[4][3] *= 0.5;
-        beam_colors[5][3] *= 0.5;
-
-        let lane_beams = [
-            (
-                Mat4::from_translation(vec3(-1.5 / 6.0, 0.0, 0.0))
-                    * Mat4::from_scale(vec3(1.0 / 6.0, ChartView::TRACK_LENGTH, 1.0)),
-                Srgba::from(beam_colors[0]),
-            ),
-            (
-                Mat4::from_translation(-vec3(0.5 / 6.0, 0.0, 0.0))
-                    * Mat4::from_scale(vec3(1.0 / 6.0, ChartView::TRACK_LENGTH, 1.0)),
-                Srgba::from(beam_colors[1]),
-            ),
-            (
-                Mat4::from_translation(vec3(0.5 / 6.0, 0.0, 0.0))
-                    * Mat4::from_scale(vec3(1.0 / 6.0, ChartView::TRACK_LENGTH, 1.0)),
-                Srgba::from(beam_colors[2]),
-            ),
-            (
-                Mat4::from_translation(vec3(1.5 / 6.0, 0.0, 0.0))
-                    * Mat4::from_scale(vec3(1.0 / 6.0, ChartView::TRACK_LENGTH, 1.0)),
-                Srgba::from(beam_colors[3]),
-            ),
-            (
-                Mat4::from_translation(-vec3(1.0 / 6.0, 0.0, 0.0))
-                    * Mat4::from_scale(vec3(2.0 / 6.0, ChartView::TRACK_LENGTH, 1.0)),
-                Srgba::from(beam_colors[4]),
-            ),
-            (
-                Mat4::from_translation(vec3(1.0 / 6.0, 0.0, 0.0))
-                    * Mat4::from_scale(vec3(2.0 / 6.0, ChartView::TRACK_LENGTH, 1.0)),
-                Srgba::from(beam_colors[5]),
-            ),
-        ];
 
         {
             profile_scope!("Sort notes");
@@ -374,19 +395,10 @@ impl ChartView {
                     } else {
                         0
                     };
-                    let extending = std::mem::take(&mut lasers[i * 2 + active]);
-                    let extended = graphics::extend_mesh(extending, laser_mesh);
-                    lasers[i * 2 + active] = extended;
+                    lasers[i * 2 + active].extend(laser_mesh);
                 }
             }
         }
-        Ok(graphics::TrackRenderMeshes {
-            fx_hold,
-            bt_hold,
-            fx_chip,
-            bt_chip,
-            lasers,
-            lane_beams,
-        })
+        Ok(())
     }
 }

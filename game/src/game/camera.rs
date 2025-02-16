@@ -277,19 +277,17 @@ pub trait WgpuCameraWrapper {
 impl WgpuCameraWrapper for Camera {
     fn wgpu_view(&self) -> [f32; 16] {
         let view = self.view();
-        glam::Mat4::from_cols_array(&[
+        [
             view.x.x, view.x.y, view.x.z, view.x.w, view.y.x, view.y.y, view.y.z, view.y.w,
             view.z.x, view.z.y, view.z.z, view.z.w, view.w.x, view.w.y, view.w.z, view.w.w,
-        ])
-        .to_cols_array()
+        ]
     }
 
     fn wgpu_proj(&self) -> [f32; 16] {
         let proj = self.projection();
-        (glam::Mat4::from_cols_array(&[
+        [
             proj.x.x, proj.x.y, proj.x.z, proj.x.w, proj.y.x, proj.y.y, proj.y.z, proj.y.w,
             proj.z.x, proj.z.y, proj.z.z, proj.z.w, proj.w.x, proj.w.y, proj.w.z, proj.w.w,
-        ]))
-        .to_cols_array()
+        ]
     }
 }

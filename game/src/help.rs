@@ -484,16 +484,59 @@ impl RenderContext {
         self.device
             .create_command_encoder(&wgpu::CommandEncoderDescriptor { label: desc })
     }
+
+    pub(crate) fn new_empty_screen_texture(&self, label: Option<&str>) -> wgpu::Texture {
+        self.device.create_texture(&wgpu::TextureDescriptor {
+            label,
+            size: Extent3d {
+                width: self.surface_config.width,
+                height: self.surface_config.height,
+                depth_or_array_layers: 1,
+            },
+            mip_level_count: 1,
+            sample_count: 1,
+            dimension: wgpu::TextureDimension::D2,
+            format: self.surface_config.format,
+            usage: TextureUsages::RENDER_ATTACHMENT
+                | TextureUsages::COPY_SRC
+                | TextureUsages::TEXTURE_BINDING,
+            view_formats: &self.surface_config.view_formats,
+        })
+    }
+
+    pub(crate) fn new_render_target(&self, label: Option<&str>) -> wgpu::Texture {
+        self.device.create_texture(&wgpu::TextureDescriptor {
+            label,
+            size: Extent3d {
+                width: self.surface_config.width,
+                height: self.surface_config.height,
+                depth_or_array_layers: 1,
+            },
+            mip_level_count: 1,
+            sample_count: 1,
+            dimension: wgpu::TextureDimension::D2,
+            format: self.surface_config.format,
+            usage: self.surface_config.usage | TextureUsages::COPY_DST | TextureUsages::COPY_SRC,
+            view_formats: &self.surface_config.view_formats,
+        })
+    }
 }
 
 pub(crate) const fn blend_add() -> wgpu::BlendState {
-    let add_comp = wgpu::BlendComponent {
+    let color_comp = wgpu::BlendComponent {
         src_factor: wgpu::BlendFactor::One,
         dst_factor: wgpu::BlendFactor::One,
         operation: wgpu::BlendOperation::Add,
     };
+
+    let alpha_comp = wgpu::BlendComponent {
+        src_factor: wgpu::BlendFactor::Zero,
+        dst_factor: wgpu::BlendFactor::One,
+        operation: wgpu::BlendOperation::Max,
+    };
+
     wgpu::BlendState {
-        color: add_comp,
-        alpha: add_comp,
+        color: color_comp,
+        alpha: alpha_comp,
     }
 }

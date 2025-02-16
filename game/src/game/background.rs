@@ -283,7 +283,7 @@ impl GameBackground {
         Ok(game_background)
     }
 
-    pub fn render(
+    pub fn render<'a>(
         &mut self,
         dt: f64,
         camera: &three_d_asset::Camera,
@@ -293,7 +293,9 @@ impl GameBackground {
         roll: f32,
         clear: bool,
         viewport: Viewport,
-        surface: Rc<SurfaceTexture>,
+        context: &RenderContext,
+        surface: &SurfaceTexture,
+        encoder: &mut wgpu::CommandEncoder,
     ) {
         profile_function!();
         let center = camera.pixel_at_position(
@@ -335,15 +337,23 @@ impl GameBackground {
         if !self.background {
             //TODO: put current screen in texture for shader
         }
-
+        let rp = context
+            .default_render_pass(
+                Some(if self.background { "BG" } else { "FG" }),
+                encoder,
+                surface,
+            )
+            .forget_lifetime();
+        self.lua.set_app_data(rp);
         if let Ok(render_fn) = self.lua.globals().get::<_, Function>(self.name.as_str()) {
-            self.lua.set_app_data(surface);
             if let Some(e) = render_fn.call::<_, ()>(dt / 1000.0).err() {
                 warn!("{} error: {}", &self.name, e);
             }
-            self.lua.remove_app_data::<Rc<SurfaceTexture>>(); //Drop reference
         } else {
             warn!("No render fn");
         }
+        self.lua
+            .remove_app_data::<wgpu::RenderPass<'static>>()
+            .unwrap();
     }
 }
