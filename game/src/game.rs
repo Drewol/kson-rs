@@ -64,7 +64,8 @@ pub struct Game {
     view: ChartView,
     chart: kson::Chart,
     zero_time: SystemTime,
-    duration: u32,
+    duration_secs: f32,
+    duration_ticks: u32,
     fx_long_shaders: ShadedMesh,
     bt_long_shaders: ShadedMesh,
     fx_chip_shaders: ShadedMesh,
@@ -92,7 +93,7 @@ pub struct Game {
     display_score: u64,
     combo: u64,
     max_combo: u64,
-    current_tick: u32,
+    tick_queue: VecDeque<u32>,
     input_state: InputState,
     laser_cursors: [f64; 2],
     laser_active: [bool; 2],
@@ -632,21 +633,35 @@ impl Game {
             / chart
                 .mode_bpm()
                 .ok_or(anyhow!("Failed to calculate Mode BPM"))?) as f32;
-        let duration = chart.ms_to_tick(3000.0 + chart.tick_to_ms(chart.get_last_tick()));
+        let duration_secs = ((3000.0 + chart.tick_to_ms(chart.get_last_tick())) / 1000.0) as f32;
+
         let mut slam_path = skin_root.clone();
         slam_path.push("audio");
         slam_path.push("laser_slam.wav");
 
         let score_ticks = kson::score_ticks::generate_score_ticks(&chart);
 
+        // Set up ticks to score for deterministic laser/hold scoring
+        let last_tick = chart.get_last_tick();
+        let last_processing_tick = chart.ms_to_tick(chart.tick_to_ms(last_tick) + 3000.0);
+        let mut tick_queue = VecDeque::new();
+        for i in 0.. {
+            let scored_tick = chart.ms_to_tick(i as f64 * 1000.0 / 240.0);
+            tick_queue.push_back(scored_tick);
+            if scored_tick > last_processing_tick {
+                break;
+            }
+        }
+
         let mut res = Self {
             song,
             diff_idx,
             intro_done: false,
             lua: LuaProvider::new_lua(),
+            duration_ticks: last_tick,
             chart,
             view,
-            duration,
+            duration_secs,
             zero_time: SystemTime::now(),
             bt_chip_shader,
             track_shader,
@@ -665,12 +680,12 @@ impl Game {
             score_current_max: 0,
             score_display: GameConfig::get().score_display,
             score_ticks,
+            tick_queue,
             gauge: Gauges::default(),
             real_score: 0,
             display_score: u64::MAX,
             combo: 0,
             max_combo: 0,
-            current_tick: 0,
             input_state,
             laser_cursors: [0.0, 1.0],
             laser_active: [false, false],
@@ -760,6 +775,7 @@ impl Game {
         viewport: Viewport,
         camera: &Camera,
         hit_window: HitWindow,
+        render_tick: u32,
     ) -> lua_data::LuaGameState {
         let screen = vec2(viewport.width as f32, viewport.height as f32);
         let track_center = graphics::camera_to_screen(camera, Vec3::zero(), screen);
@@ -778,10 +794,10 @@ impl Game {
             demo_mode: false,
             difficulty: self.chart.meta.difficulty,
             level: self.chart.meta.level,
-            progress: self.current_tick as f32 / self.chart.get_last_tick() as f32,
+            progress: self.current_time().as_secs_f32() as f32 / self.duration_secs,
             hispeed: self.view.hispeed,
             hispeed_adjust: 0,
-            bpm: self.chart.bpm_at_tick(self.current_tick) as f32,
+            bpm: self.chart.bpm_at_tick(render_tick) as f32,
             gauge: lua_data::LuaGauge::from(&self.gauge.active),
             hidden_cutoff: 0.0,
             sudden_cutoff: 0.0,
@@ -965,15 +981,7 @@ impl Game {
                     }
                 }
             }
-            HitRating::Miss {
-                tick,
-                delta: _,
-                time: _,
-            } if tick.y > self.current_tick => {
-                if let ScoreTick::Chip { lane } = tick.tick {
-                    self.beam_colors_current[lane] = self.get_beam_color(lane, 0, 0.0);
-                }
-            }
+
             HitRating::Miss {
                 tick,
                 delta,
@@ -1170,7 +1178,7 @@ impl Game {
                     gauge: std::mem::take(&mut self.gauge.active),
                     hit_ratings: std::mem::take(&mut self.hit_ratings),
                     autoplay: self.autoplay,
-                    duration: self.chart.tick_to_ms(self.duration) as i32,
+                    duration: (self.duration_secs * 1000.0) as i32,
                     hit_window: self.hit_window,
                     manual_exit: false,
                     max_combo: self.max_combo as _,
@@ -1190,7 +1198,7 @@ impl Game {
         matches!(self.autoplay, AutoPlay::All | AutoPlay::Lasers)
     }
 
-    fn take_laser_input(&mut self, index: usize, now: SystemTime) -> bool {
+    fn take_laser_input(&mut self, index: usize, now: SystemTime, tick: u32) -> bool {
         let Some((time_stamp, delta)) = self.laser_buffer[index].pop_front() else {
             return false;
         };
@@ -1209,13 +1217,12 @@ impl Game {
 
         self.laser_cursors[index] = if self.laser_target[index].is_some() {
             let new_pos = (self.laser_cursors[index] + delta).clamp(0.0, 1.0);
-            let target_value = self.chart.note.laser[index].value_at(self.current_tick as f64);
+            let target_value = self.chart.note.laser[index].value_at(tick as f64);
 
             //TODO: Not sure this is a good way to do laser offset but it might work
-            let target_dir_offset =
-                self.laser_offset / self.chart.tick_duration_ms_at(self.current_tick);
+            let target_dir_offset = self.laser_offset / self.chart.tick_duration_ms_at(tick);
             let target_dir = self.chart.note.laser[index]
-                .direction_at(self.current_tick as f64 + target_dir_offset)
+                .direction_at(tick as f64 + target_dir_offset)
                 .map(|x| x.total_cmp(&0.0))
                 .unwrap_or(std::cmp::Ordering::Equal);
 
@@ -1345,6 +1352,10 @@ impl Scene for Game {
 
         let playback_ms = self.playback.get_ms();
         let timing_delta = playback_ms.sub(time.as_secs_f64() * 1000.0);
+        let processing_tick = self
+            .tick_queue
+            .pop_front()
+            .unwrap_or(self.duration_ticks + 10);
         if playback_ms > 0.0 {
             self.sync_delta.push_front(timing_delta);
             if self.sync_delta.len() > AVG_DELTA_LEN {
@@ -1352,90 +1363,16 @@ impl Scene for Game {
             }
         }
 
-        let avg_delta: f64 = self.sync_delta.iter().fold(0.0, |a, c| a + c) / AVG_DELTA_LEN as f64;
+        while self.take_laser_input(0, sys_time, processing_tick) {}
+        while self.take_laser_input(1, sys_time, processing_tick) {}
 
-        if playback_ms > 0.0 && !self.score_ticks.is_empty() {
-            if avg_delta.abs() > 250.0 {
-                self.sync_delta.clear();
-                self.zero_time = SystemTime::now().sub(Duration::from_millis(playback_ms as _));
-            } else if avg_delta.abs() > 1.0 {
-                if avg_delta > 0.0 {
-                    self.zero_time -= Duration::from_nanos(50000);
-                } else {
-                    self.zero_time += Duration::from_nanos(50000);
-                }
-            }
-
-            time = self.current_time();
-        }
-
-        if self.current_tick >= self.duration && !self.results_requested {
-            self.transition_to_results()?;
-            self.results_requested = true;
-        }
-        let missed_chip_tick = self.chart.ms_to_tick(
-            self.with_offset(time.saturating_sub(self.hit_window.good).as_secs_f64() * 1000.0),
-        );
-
-        let auto_lasers = self.auto_lasers();
-
-        while self.take_laser_input(0, sys_time) {}
-        while self.take_laser_input(1, sys_time) {}
-
-        for (side, ((laser_active, laser_target), wide)) in self
-            .laser_active
-            .iter_mut()
-            .zip(self.laser_target.iter_mut())
-            .zip(self.laser_wide.iter_mut())
-            .enumerate()
-        {
-            let was_none = laser_target.is_none();
-            *laser_target = self.chart.note.laser[side].value_at(self.current_tick as f64);
-            *wide = self.chart.note.laser[side].wide_at(self.current_tick as f64);
-            *laser_active = if let Some(val) = laser_target {
-                (*val - self.laser_cursors[side]).abs() < LASER_THRESHOLD
-            } else {
-                false
-            };
-
-            if (was_none && laser_target.is_some()) || auto_lasers {
-                self.laser_assist_ticks[side] = 10;
-            }
-            //TODO: Also check ahead
-        }
-
-        let laser_freq = match self.laser_target {
-            [Some(l), Some(r)] => Some(r.mul_add(-1.0, 1.0).max(l)),
-            [Some(l), None] => Some(l),
-            [None, Some(r)] => Some(r.mul_add(-1.0, 1.0)),
-            _ => None,
-        };
-
-        let laser_effect = self
-            .laser_effects
-            .range(0..=self.current_tick)
-            .rev()
-            .map(|x| x.1)
-            .next()
-            .unwrap_or(&self.default_laser_effect);
-
-        _ = if let Some((f, s)) =
-            laser_freq.and_then(|x| laser_effect.get_biquad_state(x as _).map(|v| (x, v)))
-        {
-            self.biquad_control.send((
-                Some(s),
-                Some((1.0 - (f - 0.5).abs() * 1.99).powf(0.1) as f32),
-            ))
-        } else {
-            self.biquad_control.send((None, Some(0.0)))
-        };
-
+        // Set roll despite chart not starting to set up correct start angle
         let keep_laser = match self
             .chart
             .camera
             .tilt
             .keep
-            .binary_search_by_key(&self.current_tick, |x| x.0)
+            .binary_search_by_key(&processing_tick, |x| x.0)
         {
             Ok(i) => self.chart.camera.tilt.keep[i].1,
             Err(i) => {
@@ -1452,7 +1389,7 @@ impl Scene for Game {
             .camera
             .tilt
             .manual
-            .value_at(self.current_tick as f64)
+            .value_at(processing_tick as f64)
             .map(TargetRoll::Manual)
             .unwrap_or_else(|| {
                 let current = self.target_roll;
@@ -1486,6 +1423,87 @@ impl Scene for Game {
                 }
             });
 
+        // Chart hasn't started, don't score anything yet
+        if processing_tick == 0 && self.chart.ms_to_tick(self.with_offset(playback_ms)) == 0 {
+            self.tick_queue.push_front(0);
+            return Ok(());
+        }
+
+        let avg_delta: f64 = self.sync_delta.iter().fold(0.0, |a, c| a + c) / AVG_DELTA_LEN as f64;
+
+        if playback_ms > 0.0 && !self.score_ticks.is_empty() {
+            if avg_delta.abs() > 250.0 {
+                self.sync_delta.clear();
+                self.zero_time = SystemTime::now().sub(Duration::from_millis(playback_ms as _));
+            } else if avg_delta.abs() > 1.0 {
+                if avg_delta > 0.0 {
+                    self.zero_time -= Duration::from_nanos(50000);
+                } else {
+                    self.zero_time += Duration::from_nanos(50000);
+                }
+            }
+
+            time = self.current_time();
+        }
+
+        if self.tick_queue.is_empty() && !self.results_requested {
+            self.transition_to_results()?;
+            self.results_requested = true;
+        }
+        let missed_chip_tick = self.chart.ms_to_tick(
+            self.with_offset(time.saturating_sub(self.hit_window.good).as_secs_f64() * 1000.0),
+        );
+
+        let auto_lasers = self.auto_lasers();
+
+        for (side, ((laser_active, laser_target), wide)) in self
+            .laser_active
+            .iter_mut()
+            .zip(self.laser_target.iter_mut())
+            .zip(self.laser_wide.iter_mut())
+            .enumerate()
+        {
+            let was_none = laser_target.is_none();
+            *laser_target = self.chart.note.laser[side].value_at(processing_tick as f64);
+            *wide = self.chart.note.laser[side].wide_at(processing_tick as f64);
+            *laser_active = if let Some(val) = laser_target {
+                (*val - self.laser_cursors[side]).abs() < LASER_THRESHOLD
+            } else {
+                false
+            };
+
+            if (was_none && laser_target.is_some()) || auto_lasers {
+                self.laser_assist_ticks[side] = 10;
+            }
+            //TODO: Also check ahead
+        }
+
+        let laser_freq = match self.laser_target {
+            [Some(l), Some(r)] => Some(r.mul_add(-1.0, 1.0).max(l)),
+            [Some(l), None] => Some(l),
+            [None, Some(r)] => Some(r.mul_add(-1.0, 1.0)),
+            _ => None,
+        };
+
+        let laser_effect = self
+            .laser_effects
+            .range(0..=processing_tick)
+            .rev()
+            .map(|x| x.1)
+            .next()
+            .unwrap_or(&self.default_laser_effect);
+
+        _ = if let Some((f, s)) =
+            laser_freq.and_then(|x| laser_effect.get_biquad_state(x as _).map(|v| (x, v)))
+        {
+            self.biquad_control.send((
+                Some(s),
+                Some((1.0 - (f - 0.5).abs() * 1.99).powf(0.1) as f32),
+            ))
+        } else {
+            self.biquad_control.send((None, Some(0.0)))
+        };
+
         for (side, assist_ticks) in self.laser_assist_ticks.iter_mut().enumerate() {
             //TODO: If on straight laser, keep assist high
             let next_laser_is_slam = || {
@@ -1502,9 +1520,9 @@ impl Scene for Game {
                     })
                     .unwrap_or(u32::MAX)
             };
-            if *assist_ticks > 0 && self.current_tick < next_laser_is_slam() {
+            if *assist_ticks > 0 && processing_tick < next_laser_is_slam() {
                 self.laser_cursors[side] = self.chart.note.laser[side]
-                    .value_at(self.current_tick as f64)
+                    .value_at(processing_tick as f64)
                     .unwrap_or(self.laser_cursors[side]);
             }
             *assist_ticks = assist_ticks.saturating_sub(1);
@@ -1512,7 +1530,7 @@ impl Scene for Game {
 
         let mut i = 0;
         while i < self.score_ticks.len() {
-            if self.score_ticks[i].y > self.current_tick {
+            if self.score_ticks[i].y > processing_tick {
                 break;
             }
 
@@ -1537,10 +1555,10 @@ impl Scene for Game {
                 || self.auto_buttons(),
         );
 
-        self.camera.check_spins(self.current_tick);
+        self.camera.check_spins(processing_tick);
 
         self.gauge
-            .update_sample(GAUGE_SAMPLES * self.current_tick as usize / self.duration as usize);
+            .update_sample(GAUGE_SAMPLES * processing_tick as usize / self.duration_ticks as usize);
 
         //Laser alerts
         if self.intro_done {
@@ -1619,6 +1637,9 @@ impl Scene for Game {
     }
 
     fn debug_ui(&mut self, ctx: &egui::Context) -> anyhow::Result<()> {
+        let current_tick = self
+            .chart
+            .ms_to_tick(self.current_time().as_secs_f64() * 1000.0);
         use egui::*;
         Window::new("Camera").show(ctx, |ui| {
             self.camera.egui_widget(ui);
@@ -1632,15 +1653,13 @@ impl Scene for Game {
                     .spacing([40.0, 4.0])
                     .show(ui, |ui| {
                         ui.label("Time");
-
+                        let mut current_sec = self.current_time().as_secs_f32();
                         if ui
-                            .add(Slider::new(&mut self.current_tick, 0..=self.duration))
+                            .add(Slider::new(&mut current_sec, 0.0..=self.duration_secs))
                             .changed()
                         {
-                            let new_time = self.chart.tick_to_ms(self.current_tick);
-
                             self.zero_time =
-                                SystemTime::now().sub(Duration::from_millis(new_time as _))
+                                SystemTime::now().sub(Duration::from_secs_f32(current_sec))
                         }
 
                         ui.end_row();
@@ -1672,7 +1691,7 @@ impl Scene for Game {
                             let mut next_tick = self
                                 .score_ticks
                                 .iter()
-                                .filter(|x| x.y > self.current_tick)
+                                .filter(|x| x.y > current_tick)
                                 .find(|x| match x.tick {
                                     ScoreTick::Chip { lane } | ScoreTick::Hold { lane, .. } => {
                                         lane == i
@@ -1681,7 +1700,7 @@ impl Scene for Game {
                                 })
                                 .map(|x| x.y)
                                 .unwrap_or(u32::MAX)
-                                .saturating_sub(self.current_tick);
+                                .saturating_sub(current_tick);
                             ui.label(match i {
                                 0 => "BT A",
                                 1 => "BT B",
@@ -1701,7 +1720,7 @@ impl Scene for Game {
                         ui.label("Left");
 
                         if let Some(mut lval) =
-                            self.chart.note.laser[0].value_at(self.current_tick as f64)
+                            self.chart.note.laser[0].value_at(current_tick as f64)
                         {
                             ui.add(egui::Slider::new(&mut lval, 0.0..=1.0));
                         }
@@ -1710,7 +1729,7 @@ impl Scene for Game {
 
                         ui.label("Right");
                         if let Some(mut rval) =
-                            self.chart.note.laser[1].value_at(self.current_tick as f64)
+                            self.chart.note.laser[1].value_at(current_tick as f64)
                         {
                             ui.add(egui::Slider::new(&mut rval, 0.0..=1.0));
                         }
@@ -1723,7 +1742,7 @@ impl Scene for Game {
                         ui.label(format!(
                             "{:?}",
                             self.chart.note.laser[0]
-                                .direction_at(self.current_tick as f64)
+                                .direction_at(current_tick as f64)
                                 .map(|x| x.total_cmp(&0.0))
                         ));
                         ui.end_row();
@@ -1732,7 +1751,7 @@ impl Scene for Game {
                         ui.label(format!(
                             "{:?}",
                             self.chart.note.laser[1]
-                                .direction_at(self.current_tick as f64)
+                                .direction_at(current_tick as f64)
                                 .map(|x| x.total_cmp(&0.0))
                         ));
                         ui.end_row();
@@ -1787,10 +1806,13 @@ impl Scene for Game {
         let time = self.current_time();
         let time_ms = time.as_secs_f64() * 1000.0 + leadin_ms;
 
+        self.view.cursor = self.with_offset(time.as_secs_f64() * 1000.0);
+        let render_tick = self.chart.ms_to_tick(self.view.cursor);
+
         //Update roll
         {
             profile_scope!("Update camera");
-            let max_roll_speed = dt / kson::beat_in_ms(self.chart.bpm_at_tick(self.current_tick));
+            let max_roll_speed = dt / kson::beat_in_ms(self.chart.bpm_at_tick(render_tick));
             self.current_roll = match self.target_roll {
                 TargetRoll::Laser(target_roll) => {
                     let scale = match self
@@ -1798,7 +1820,7 @@ impl Scene for Game {
                         .camera
                         .tilt
                         .scale
-                        .binary_search_by_key(&self.current_tick, |x| x.0)
+                        .binary_search_by_key(&render_tick, |x| x.0)
                     {
                         Ok(i) => self.chart.camera.tilt.scale[i].1,
                         Err(i) => {
@@ -1832,26 +1854,17 @@ impl Scene for Game {
                 .camera
                 .spins
                 .iter()
-                .map(|x| x.roll_at(self.current_tick as f32))
+                .map(|x| x.roll_at(render_tick as f32))
                 .sum::<f32>();
-
-            self.view.cursor = self.with_offset(time.as_secs_f64() * 1000.0);
-
-            self.current_tick = self.chart.ms_to_tick(self.view.cursor);
-            self.camera.kson_radius = self
-                .chart
-                .camera
-                .cam
-                .body
-                .zoom
-                .value_at(self.current_tick as f64) as f32;
+            self.camera.kson_radius =
+                self.chart.camera.cam.body.zoom.value_at(render_tick as f64) as f32;
             self.camera.kson_angle = self
                 .chart
                 .camera
                 .cam
                 .body
                 .rotation_x
-                .value_at(self.current_tick as f64) as f32;
+                .value_at(render_tick as f64) as f32;
 
             self.camera.shakes.retain_mut(|x| {
                 x.tick(dt as _);
@@ -1865,7 +1878,7 @@ impl Scene for Game {
                 &td_camera,
                 time_ms,
                 &self.chart,
-                self.current_tick,
+                render_tick,
                 self.camera.tilt,
                 self.gauge.is_cleared(),
             );
@@ -1875,7 +1888,7 @@ impl Scene for Game {
             .iter_mut()
             .for_each(|c| c[3] = (c[3] - dt as f32 / 200.0).max(0.0));
 
-        let new_lua_state = self.lua_game_state(viewport, &td_camera, self.hit_window);
+        let new_lua_state = self.lua_game_state(viewport, &td_camera, self.hit_window, render_tick);
         if new_lua_state != self.lua_game_state {
             self.lua_game_state = new_lua_state;
             let lua_game_state = match self.lua.to_value(&self.lua_game_state) {
@@ -2013,7 +2026,7 @@ impl Scene for Game {
                 &td_camera,
                 time_ms,
                 &self.chart,
-                self.current_tick,
+                render_tick,
                 self.camera.tilt,
                 self.gauge.is_cleared(),
             );
