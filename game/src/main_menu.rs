@@ -6,7 +6,7 @@ use std::{
 
 use anyhow::{anyhow, Result};
 use di::ServiceProvider;
-use game_loop::winit::event::{ElementState, Event, WindowEvent};
+use winit::event::{ElementState, Event, WindowEvent};
 use tealr::{
     mlu::{
         mlua::{self, AppDataRef, Function, Lua},

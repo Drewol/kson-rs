@@ -27,7 +27,7 @@ anyhow = { workspace = true }
 egui = { workspace = true }
 rand = { workspace = true }
 
-egui_plot = "0.27"
+egui_plot = "0.31"
 femtovg = { git = 'https://github.com/Drewol/femtovg', branch = "cache-experiment-1", default-features = false, features = [
     "image",
     "image-loading",
@@ -44,7 +44,7 @@ tealr = { git = "https://github.com/Drewol/tealr.git", branch = "nil-option", fe
     "mlua_vendored",
     "mlua_serialize",
 ] }
-three-d = "0.17"
+three-d = { git = "https://github.com/asny/three-d.git", rev = "2683e0fea70c0c0da579550d4412880ff7fb09fd" }
 bitflags = "1"
 once_cell = "1"
 walkdir = "*"
@@ -57,7 +57,7 @@ poll-promise = { git = "https://github.com/EmbarkStudios/poll-promise", features
 tokio = { version = "1", features = ["rt-multi-thread", "fs"] }
 toml = "0.8.12"
 reqwest = { version = "0.12", features = ["json", "rustls-tls", "blocking"] }
-three-d-asset = { version = "0.7.0", features = [
+three-d-asset = { version = "0.9.0", features = [
     "image",
     "png",
     "jpeg",
@@ -66,12 +66,9 @@ three-d-asset = { version = "0.7.0", features = [
 ] }
 directories = "5.0.1"
 zip = "2"
-game-loop = { git = "https://github.com/Drewol/game-loop.git", features = [
-    "winit",
-] }
-glutin = "0.31.2"
-glutin-winit = "0.4"
-glow = "0.13"
+glutin = "0.32"
+glutin-winit = "0.5"
+glow = "0.16"
 raw-window-handle = "0.5.2"
 rusc_database = { path = "./rusc_database" }
 itertools = { workspace = true }
@@ -107,7 +104,7 @@ log4rs = { version = "1.3.0", features = [
 ], default-features = false }
 
 [dependencies.winit]
-version = "0.29"
+version = "0.30"
 features = ["serde"]
 
 [target.'cfg(unix)'.dependencies]

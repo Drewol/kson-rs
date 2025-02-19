@@ -2,7 +2,7 @@ use std::{sync::mpsc::Sender, time::SystemTime};
 
 use anyhow::Result;
 use di::ServiceProvider;
-use game_loop::winit::event::Event;
+use winit::event::Event;
 use three_d::{RenderTarget, Viewport};
 
 use crate::{
