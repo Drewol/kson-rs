@@ -4,8 +4,8 @@ use std::{
     time::SystemTime,
 };
 
-use winit::event::ElementState;
 use kson::Side;
+use winit::event::ElementState;
 
 use crate::button_codes::{LaserAxis, LaserState, UscButton, UscInputEvent};
 
@@ -13,12 +13,12 @@ use crate::button_codes::{LaserAxis, LaserState, UscButton, UscInputEvent};
 pub struct InputState {
     text_input_active: Arc<AtomicBool>,
     laser_state: Arc<RwLock<LaserState>>,
-    gilrs: Arc<Mutex<gilrs::Gilrs>>,
+    gilrs: Arc<Mutex<Option<gilrs::Gilrs>>>,
     buttons_held: Arc<RwLock<HashMap<UscButton, SystemTime>>>,
 }
 
 impl InputState {
-    pub fn new(gilrs: Arc<Mutex<gilrs::Gilrs>>) -> Self {
+    pub fn new(gilrs: Arc<Mutex<Option<gilrs::Gilrs>>>) -> Self {
         Self {
             text_input_active: Arc::new(AtomicBool::new(false)),
             laser_state: Arc::new(RwLock::new(LaserState::default())),
@@ -63,7 +63,7 @@ impl InputState {
         self.laser_state.read().expect("Lock error").get_axis(side)
     }
 
-    pub fn lock_gilrs(&self) -> std::sync::MutexGuard<'_, gilrs::Gilrs> {
+    pub fn lock_gilrs(&self) -> std::sync::MutexGuard<'_, Option<gilrs::Gilrs>> {
         self.gilrs.lock().expect("Lock error")
     }
 

@@ -95,7 +95,7 @@ adjustScreen = function(x, y)
   elseif x >= y and landscapeStandardRatio <= a and a <= landscapeWidescreenRatio then
     aspectRatio = "landscapeWidescreen"
     aspectFloat = 1.2
-  elseif x <= y and portraitWidescreenRatio <= a and a < landscapeStandardRatio then
+  elseif x <= y and a < landscapeStandardRatio then
     aspectRatio = "PortraitWidescreen"
     aspectFloat = 0.5
   else

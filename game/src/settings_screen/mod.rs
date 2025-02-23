@@ -13,11 +13,12 @@ use winit::{
     monitor::MonitorHandle,
 };
 
+#[cfg(not(target_os = "android"))]
+use crate::help::AsyncPicker;
 use crate::{
     config::{Fullscreen, GameConfig, ScoreDisplayMode, ScoreScreenshot},
     game::HitWindow,
     game_main::ControlMessage,
-    help::AsyncPicker,
     input_state::InputState,
     scene::Scene,
     skin_settings::SkinSettingValue,
@@ -47,7 +48,10 @@ impl SettingsScreen {
         let input_state = InputState::clone(&services.get_required());
         let controllers = {
             let lock_gilrs = input_state.lock_gilrs();
-            lock_gilrs
+            let gilrs = lock_gilrs
+                .as_ref()
+                .expect("Controllers not supported on platform");
+            gilrs
                 .gamepads()
                 .map(|(id, pad)| (id, pad.name().to_string()))
                 .collect()
@@ -152,6 +156,7 @@ impl Scene for SettingsScreen {
         true
     }
 
+    #[cfg(not(target_os = "android"))]
     fn render_egui(&mut self, ctx: &egui::Context) -> anyhow::Result<()> {
         egui::panel::TopBottomPanel::bottom("settings_buttons").show(ctx, |ui| {
             if ui.button("Cancel").clicked() {
@@ -342,6 +347,7 @@ impl Scene for SettingsScreen {
                         .to_string();
 
                     ui.label("Screenshots path");
+
                     AsyncPicker::new().folder().show(
                         "screenshot_folder".into(),
                         &mut screenshot_path,

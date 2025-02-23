@@ -125,35 +125,13 @@ async fn handle_connection(
 impl CompanionServer {
     pub fn new(event_proxy: winit::event_loop::EventLoopProxy<UscInputEvent>) -> Self {
         let (event_bus, _) = tokio::sync::broadcast::channel(8);
-        let client_bus = event_bus.clone();
+        let client_bus: tokio::sync::broadcast::Sender<GameState> = event_bus.clone();
 
-        let _listener = if let Some(addr) = GameConfig::get().companion_address.as_ref() {
-            let addr = addr.clone();
-            poll_promise::Promise::spawn_async(async move {
-                let listener = TcpListener::bind(&addr)
-                    .await
-                    .expect("Can't start companion server");
+        #[cfg(not(target_os = "android"))]
+        let _listener = start_listener(event_proxy, client_bus);
 
-                while let Ok((stream, _)) = listener.accept().await {
-                    let peer = stream
-                        .peer_addr()
-                        .expect("connected streams should have a peer address");
-                    info!("Peer address: {}", peer);
-
-                    #[cfg(not(target_os = "macos"))]
-                    {
-                        tokio::spawn(accept_connection(
-                            peer,
-                            stream,
-                            event_proxy.clone(),
-                            client_bus.subscribe(),
-                        ));
-                    }
-                }
-            })
-        } else {
-            poll_promise::Promise::from_ready(())
-        };
+        #[cfg(target_os = "android")]
+        let _listener = poll_promise::Promise::from_ready(());
 
         Self {
             event_bus,
@@ -165,6 +143,40 @@ impl CompanionServer {
     pub fn send_state(&self, state: GameState) {
         _ = self.event_bus.send(state);
     }
+}
+
+fn start_listener(
+    event_proxy: winit::event_loop::EventLoopProxy<UscInputEvent>,
+    client_bus: tokio::sync::broadcast::Sender<GameState>,
+) -> poll_promise::Promise<()> {
+    let _listener = if let Some(addr) = GameConfig::get().companion_address.as_ref() {
+        let addr = addr.clone();
+        poll_promise::Promise::spawn_async(async move {
+            let listener = TcpListener::bind(&addr)
+                .await
+                .expect("Can't start companion server");
+
+            while let Ok((stream, _)) = listener.accept().await {
+                let peer = stream
+                    .peer_addr()
+                    .expect("connected streams should have a peer address");
+                info!("Peer address: {}", peer);
+
+                #[cfg(not(target_os = "macos"))]
+                {
+                    tokio::spawn(accept_connection(
+                        peer,
+                        stream,
+                        event_proxy.clone(),
+                        client_bus.subscribe(),
+                    ));
+                }
+            }
+        })
+    } else {
+        poll_promise::Promise::from_ready(())
+    };
+    _listener
 }
 
 impl WorkerService for CompanionServer {

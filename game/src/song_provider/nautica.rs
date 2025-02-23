@@ -17,7 +17,7 @@ use rodio::Source;
 
 use crate::{
     async_service::AsyncService,
-    project_dirs,
+    default_game_dir, project_dirs,
     results::Score,
     song_provider::SongFilterType,
     songselect::{Difficulty, Song},
@@ -152,7 +152,7 @@ impl Datum {
             tags: _,
         } = self;
 
-        let mut song_path = project_dirs().cache_dir().to_path_buf();
+        let mut song_path = cache_dir();
         song_path.push(id.as_hyphenated().to_string());
 
         std::fs::create_dir_all(&song_path);
@@ -177,6 +177,16 @@ impl Datum {
             ),
         }
     }
+}
+
+fn cache_dir() -> PathBuf {
+    project_dirs()
+        .map(|x| x.cache_dir().to_path_buf())
+        .unwrap_or_else(|| {
+            let mut p = default_game_dir();
+            p.push("cache");
+            p
+        })
 }
 
 impl Chart {
@@ -234,7 +244,7 @@ async fn next_songs(path: String) -> Result<NauticaSongs> {
     //TODO: Async requests
     let nautica_songs = reqwest::get(&path).await?.json::<NauticaSongs>().await?;
     for x in &nautica_songs.data {
-        let mut song_path = project_dirs().cache_dir().to_path_buf();
+        let mut song_path = cache_dir();
         song_path.push(x.id.hyphenated().to_string());
         std::fs::create_dir_all(&song_path)?;
         if x.jacket_url.ends_with("png") {
@@ -344,7 +354,7 @@ impl WorkerService for NauticaSongProvider {
                     self.events
                         .push_back(SongProviderEvent::SongsAdded(new_songs));
                 }
-                Ok(Err(e)) => log::error!("{}", e),
+                Ok(Err(e)) => log::error!("{:?}", e),
                 Err(next) => self.next = Some(next),
             }
         } else {
@@ -379,7 +389,7 @@ impl WorkerService for NauticaSongProvider {
 }
 
 fn cache_path() -> PathBuf {
-    let mut path = project_dirs().cache_dir().to_path_buf();
+    let mut path = cache_dir();
     path.push("nautica_cache.json");
     path
 }
@@ -464,7 +474,7 @@ impl SongProvider for NauticaSongProvider {
 
         let song_uuid = Uuid::parse_str(song_id)?;
 
-        let mut song_path = project_dirs().cache_dir().to_path_buf();
+        let mut song_path = cache_dir();
 
         song_path.push(song_uuid.hyphenated().to_string());
         log::info!("Writing song cache {:?}", &song_path);
@@ -504,7 +514,7 @@ impl SongProvider for NauticaSongProvider {
 
             let song_uuid = Uuid::parse_str(&song_id)?;
 
-            let mut song_path = project_dirs().cache_dir().to_path_buf();
+            let mut song_path = cache_dir();
 
             song_path.push(song_uuid.hyphenated().to_string());
             log::info!("Writing song cache {:?}", &song_path);
@@ -568,7 +578,7 @@ impl SongProvider for NauticaSongProvider {
 
 fn download_song(id: Uuid, diff: u8, on_loaded: Sender<Datum>) -> anyhow::Result<LoadSongFn> {
     Ok(Box::new(move || {
-        let mut song_path = project_dirs().cache_dir().to_path_buf();
+        let mut song_path = cache_dir();
 
         song_path.push(id.hyphenated().to_string());
         song_path.push("data.zip");
