@@ -70,6 +70,20 @@ pub enum BtLane {
     D,
 }
 
+impl TryFrom<usize> for BtLane {
+    type Error = usize;
+
+    fn try_from(value: usize) -> Result<Self, Self::Error> {
+        match value {
+            0 => Ok(BtLane::A),
+            1 => Ok(BtLane::B),
+            2 => Ok(BtLane::C),
+            3 => Ok(BtLane::D),
+            _ => Err(value),
+        }
+    }
+}
+
 #[derive(Debug, Hash, PartialEq, Eq, Clone, Copy)]
 pub enum Track {
     BT(BtLane),

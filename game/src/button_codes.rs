@@ -6,12 +6,12 @@ use std::{
     time::{Duration, SystemTime},
 };
 
-use winit::event::ElementState;
 use gilrs::{
     ev::{filter::FilterFn, Code},
     Axis, Button, Event,
 };
 use kson::{BtLane, Side};
+use winit::event::ElementState;
 
 pub struct RuscFilter {
     button_map: HashMap<u32, Button>,
