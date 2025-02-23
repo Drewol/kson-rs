@@ -1,0 +1,4 @@
+android:
+  manifest:
+    uses_permission:
+      - name: android.permission.INTERNET

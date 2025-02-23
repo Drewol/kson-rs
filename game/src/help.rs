@@ -8,6 +8,7 @@ use anyhow::anyhow;
 use di::{transient_factory, RefMut, ServiceCollection};
 use femtovg::rgb::ComponentSlice;
 use itertools::Itertools;
+#[cfg(not(target_os = "android"))]
 use rfd::AsyncFileDialog;
 use tealr::{
     mlu::{
@@ -107,9 +108,10 @@ impl ServiceHelper for ServiceCollection {
         }))
     }
 }
-
+#[cfg(not(target_os = "android"))]
 pub struct AsyncPicker(rfd::AsyncFileDialog, bool);
 
+#[cfg(not(target_os = "android"))]
 #[allow(unused)]
 impl AsyncPicker {
     pub fn new() -> Self {

@@ -24,7 +24,10 @@ pub struct BindingUi {
 impl BindingUi {
     pub fn new(controller: GamepadId, input_state: InputState) -> Self {
         let uuid = {
-            let gilrs = input_state.lock_gilrs();
+            let lock_gilrs = input_state.lock_gilrs();
+            let gilrs = lock_gilrs
+                .as_ref()
+                .expect("Controllers not supported on this platform");
             let uuid = gilrs.gamepad(controller).uuid();
             uuid::Uuid::from_bytes(uuid)
         };
@@ -39,7 +42,10 @@ impl BindingUi {
 
     pub fn run_checks(&mut self, settings: &mut GameConfig) {
         let lock_gilrs = self.input_state.lock_gilrs();
-        let gamepad = lock_gilrs.gamepad(self.controller);
+        let gilrs = lock_gilrs
+            .as_ref()
+            .expect("Controllers not supported on platform");
+        let gamepad = gilrs.gamepad(self.controller);
         let state = gamepad.state();
         let bindings = settings.controller_binds.entry(self.uuid).or_default();
 
@@ -115,8 +121,11 @@ impl BindingUi {
         };
 
         let axes_states = || {
-            self.input_state
-                .lock_gilrs()
+            let lock_gilrs = self.input_state.lock_gilrs();
+            let gilrs = lock_gilrs
+                .as_ref()
+                .expect("Controllers not supported on platform");
+            gilrs
                 .gamepad(self.controller)
                 .state()
                 .axes()

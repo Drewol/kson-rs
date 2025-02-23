@@ -44,6 +44,7 @@ pub fn create_window(event_loop: &ActiveEventLoop) -> anyhow::Result<WindowCreat
         .with_resizable(true)
         .with_title("USC Game");
 
+    #[cfg(not(target_os = "android"))]
     let window_builder = match settings.fullscreen {
         crate::config::Fullscreen::Windowed { pos, size } => {
             window_builder.with_position(pos).with_inner_size(size)
@@ -72,11 +73,11 @@ pub fn create_window(event_loop: &ActiveEventLoop) -> anyhow::Result<WindowCreat
         }
     };
 
-    let template = ConfigTemplateBuilder::new()
-        .with_alpha_size(8)
-        .with_multisampling(settings.anti_alias);
+    let template = ConfigTemplateBuilder::new();
 
-    let display_builder = DisplayBuilder::new().with_window_attributes(Some(window_builder));
+    let display_builder = DisplayBuilder::new()
+        .with_preference(glutin_winit::ApiPreference::PreferEgl)
+        .with_window_attributes(Some(window_builder));
 
     let (window, gl_config) = display_builder
         .build(event_loop, template, |configs| {

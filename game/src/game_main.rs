@@ -10,13 +10,12 @@ use std::{
 };
 
 use di::{RefMut, ServiceProvider};
-use egui_glow::EguiGlow;
+use egui_glow::{egui_winit::accesskit_winit::WindowEvent, EguiGlow};
 use femtovg::Paint;
 use winit::{
     dpi::{PhysicalPosition, PhysicalSize},
     event,
-    keyboard::{Key, NamedKey},
-    platform::modifier_supplement::KeyEventExtModifierSupplement,
+    keyboard::{Key, NamedKey, PhysicalKey},
     window::Window,
 };
 
@@ -26,13 +25,14 @@ use glutin::{
 };
 use puffin::{profile_function, profile_scope};
 
-use td::{FrameOutput, Modifiers};
+use crate::{button_codes::UscButton, FrameInput};
+use td::Modifiers;
 use tealr::mlu::mlua::Lua;
-use three_d::FrameInput;
 
 use femtovg as vg;
 use three_d as td;
 
+use crate::app::LuaArena;
 use crate::{
     button_codes::{LaserState, UscInputEvent},
     companion_interface::{self},
@@ -52,7 +52,7 @@ use crate::{
     vg_ui::Vgfx,
     window::find_monitor,
     worker_service::WorkerService,
-    LuaArena, RuscMixer, Scenes, FRAME_ACC_SIZE,
+    RuscMixer, Scenes, FRAME_ACC_SIZE,
 };
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -246,7 +246,7 @@ impl GameMain {
         window: &winit::window::Window,
         surface: &glutin::surface::Surface<glutin::surface::WindowSurface>,
         gl_context: &PossiblyCurrentContext,
-    ) -> FrameOutput {
+    ) -> bool {
         let GameMain {
             lua_arena,
             scenes,
@@ -301,12 +301,7 @@ impl GameMain {
             );
             canvas.flush();
             *frame_count += 1;
-
-            return FrameOutput {
-                swap_buffers: true,
-                wait_next_event: false,
-                ..Default::default()
-            };
+            return false;
         }
         if *frame_count == 1 {
             lua_provider
@@ -494,17 +489,9 @@ impl GameMain {
             crate::help::wait_until(*frame_end);
             *frame_end = SystemTime::now() + *frame_duration;
         }
-        FrameOutput {
-            exit,
-            swap_buffers: true,
-            wait_next_event: false,
-        }
+        exit
     }
-    pub fn handle(
-        &mut self,
-        window: &Window,
-        event: &winit::event::Event<UscInputEvent>,
-    ) {
+    pub fn handle(&mut self, window: &Window, event: &winit::event::Event<UscInputEvent>) {
         use winit::event::*;
         if let Event::WindowEvent {
             window_id: _,
@@ -574,6 +561,37 @@ impl GameMain {
                 self.mousex = position.x;
                 self.mousey = position.y;
             }
+            Event::WindowEvent {
+                window_id,
+                event: WindowEvent::Touch(t),
+            } => {
+                self.mousex = t.location.x;
+                self.mousey = t.location.y;
+                if t.phase == TouchPhase::Ended {
+                    self.handle(
+                        window,
+                        &Event::WindowEvent {
+                            window_id: *window_id,
+                            event: WindowEvent::MouseInput {
+                                device_id: DeviceId::dummy(),
+                                state: ElementState::Pressed,
+                                button: MouseButton::Left,
+                            },
+                        },
+                    );
+                    self.handle(
+                        window,
+                        &Event::WindowEvent {
+                            window_id: *window_id,
+                            event: WindowEvent::MouseInput {
+                                device_id: DeviceId::dummy(),
+                                state: ElementState::Released,
+                                button: MouseButton::Left,
+                            },
+                        },
+                    );
+                }
+            }
 
             Event::WindowEvent {
                 event: WindowEvent::ModifiersChanged(mods),
@@ -594,7 +612,7 @@ impl GameMain {
                 event: WindowEvent::KeyboardInput { event: key, .. },
                 ..
             } if key.state == ElementState::Pressed
-                && key.key_without_modifiers() == Key::Character("d".into())
+                && key.physical_key == PhysicalKey::Code(winit::keyboard::KeyCode::KeyD)
                 && self.modifiers.alt
                 && !text_input_active =>
             {
@@ -620,6 +638,7 @@ impl GameMain {
                             KeyEvent {
                                 physical_key,
                                 state,
+                                logical_key,
                                 ..
                             },
                         ..
@@ -645,6 +664,23 @@ impl GameMain {
                                 },
                             );
                             transformed_event = Some(Event::UserEvent(button));
+                        }
+                    }
+
+                    #[cfg(target_os = "android")]
+                    {
+                        let button = match logical_key {
+                            Key::Named(NamedKey::BrowserBack) => Some(UscButton::Back),
+                            //TODO: Figure out gamepad input
+                            _ => None,
+                        };
+
+                        if let Some(btn) = button {
+                            transformed_event = Some(Event::UserEvent(UscInputEvent::Button(
+                                btn,
+                                *state,
+                                SystemTime::now(),
+                            )));
                         }
                     }
                 }
@@ -760,7 +796,7 @@ impl GameMain {
 
     fn render_overlays(
         vgfx: &Arc<RwLock<Vgfx>>,
-        frame_input: &td::FrameInput,
+        frame_input: &crate::FrameInput,
         fps: f64,
         fps_paint: &vg::Paint,
         show_fps: bool,
@@ -792,7 +828,7 @@ impl GameMain {
         game_data: &Arc<RwLock<GameData>>,
         mousex: f64,
         mousey: f64,
-        frame_input: &td::FrameInput,
+        frame_input: &crate::FrameInput,
         input_state: InputState,
     ) {
         profile_function!();
@@ -853,9 +889,7 @@ impl GameMain {
                     };
                 }
 
-                window.set_fullscreen(Some(winit::window::Fullscreen::Borderless(
-                    current_monitor,
-                )))
+                window.set_fullscreen(Some(winit::window::Fullscreen::Borderless(current_monitor)))
             }
         }
     }
