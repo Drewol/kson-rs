@@ -24,6 +24,7 @@ mod song_provider;
 mod songselect;
 mod take_duration_fade;
 mod test_scenes;
+mod touch;
 mod transition;
 mod util;
 mod vg_ui;

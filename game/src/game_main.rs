@@ -12,6 +12,7 @@ use std::{
 use di::{RefMut, ServiceProvider};
 use egui_glow::{egui_winit::accesskit_winit::WindowEvent, EguiGlow};
 use femtovg::Paint;
+use log::info;
 use winit::{
     dpi::{PhysicalPosition, PhysicalSize},
     event,
@@ -25,7 +26,7 @@ use glutin::{
 };
 use puffin::{profile_function, profile_scope};
 
-use crate::{button_codes::UscButton, FrameInput};
+use crate::{button_codes::UscButton, touch::TouchHelper, FrameInput};
 use td::Modifiers;
 use tealr::mlu::mlua::Lua;
 
@@ -129,6 +130,7 @@ pub struct GameMain {
     show_fps: bool,
     frame_end: std::time::SystemTime,
     frame_duration: Duration,
+    touch_tracker: TouchHelper,
 }
 
 fn get_frame_duration(settings: &GameConfig) -> Duration {
@@ -178,6 +180,7 @@ impl GameMain {
             companion_update: 0,
             frame_end: SystemTime::UNIX_EPOCH,
             frame_duration: get_frame_duration(&GameConfig::get()),
+            touch_tracker: TouchHelper::new(egui::accesskit::Vec2::new(500.0, 500.0)),
         }
     }
 
@@ -212,7 +215,7 @@ impl GameMain {
 
         self.companion_update -= 1;
 
-        if GameConfig::get().keyboard_knobs {
+        if GameConfig::get().keyboard_knobs || cfg!(target_os = "android") {
             let mut ls = LaserState::default();
             for l in [kson::Side::Left, kson::Side::Right] {
                 for d in [kson::Side::Left, kson::Side::Right] {
@@ -275,6 +278,7 @@ impl GameMain {
             companion_update: _,
             frame_end,
             frame_duration,
+            touch_tracker,
         } = self;
 
         knob_state.zero_deltas();
@@ -542,6 +546,13 @@ impl GameMain {
                 if let Fullscreen::Windowed { size, .. } = windowed {
                     *size = *physical_size;
                 }
+                self.touch_tracker = TouchHelper::new(egui::accesskit::Vec2::new(
+                    physical_size.width as f64,
+                    physical_size.height as f64,
+                ));
+
+                info!("{:?}", &self.touch_tracker);
+
                 self.reset_viewport_size(physical_size)
             }
             Event::WindowEvent {
@@ -565,31 +576,13 @@ impl GameMain {
                 window_id,
                 event: WindowEvent::Touch(t),
             } => {
-                self.mousex = t.location.x;
-                self.mousey = t.location.y;
-                if t.phase == TouchPhase::Ended {
-                    self.handle(
-                        window,
-                        &Event::WindowEvent {
-                            window_id: *window_id,
-                            event: WindowEvent::MouseInput {
-                                device_id: DeviceId::dummy(),
-                                state: ElementState::Pressed,
-                                button: MouseButton::Left,
-                            },
-                        },
-                    );
-                    self.handle(
-                        window,
-                        &Event::WindowEvent {
-                            window_id: *window_id,
-                            event: WindowEvent::MouseInput {
-                                device_id: DeviceId::dummy(),
-                                state: ElementState::Released,
-                                button: MouseButton::Left,
-                            },
-                        },
-                    );
+                info!("{:?}", t);
+                if let Some((e, opt)) = self.touch_tracker.update(t) {
+                    info!("{:?}, {:?}", e, opt);
+                    self.handle(window, &Event::UserEvent(e));
+                    if let Some(e) = opt {
+                        self.handle(window, &Event::UserEvent(e));
+                    }
                 }
             }
 
