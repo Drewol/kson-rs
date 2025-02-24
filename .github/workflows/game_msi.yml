@@ -36,7 +36,7 @@ jobs:
           AWS_DEFAULT_REGION: weur
         run: aws s3 sync . s3://${{ secrets.R2_BUCKET }}/${{ github.ref_name }} --endpoint-url ${{ secrets.S3_ENDPOINT }} --exclude "*" --include "*.tar" --include "*.deb"
         continue-on-error: true
-      - uses: actions/upload-artifact@v3
+      - uses: actions/upload-artifact@v4
         with:
           name: ${{ runner.os }}-${{ runner.arch }}-Bundle
           path: ${{ matrix.os.artifact }}
@@ -58,7 +58,7 @@ jobs:
           AWS_DEFAULT_REGION: weur
         run: aws s3 sync . s3://${{ secrets.R2_BUCKET }}/${{ github.ref_name }} --endpoint-url ${{ secrets.S3_ENDPOINT }} --exclude "*" --include "*.msi"
         continue-on-error: true
-      - uses: actions/upload-artifact@v3
+      - uses: actions/upload-artifact@v4
         with:
           name: Windows installer
           path: target/**/*.msi
@@ -88,7 +88,7 @@ jobs:
           AWS_DEFAULT_REGION: weur
         run: aws s3 sync . s3://${{ secrets.R2_BUCKET }}/${{ github.ref_name }} --endpoint-url ${{ secrets.S3_ENDPOINT }} --exclude "*" --include "*.zip"
         continue-on-error: true
-      - uses: actions/upload-artifact@v3
+      - uses: actions/upload-artifact@v4
         with:
           name: Windows portable
           path: ${{ github.workspace }}/kson-win-portable.zip
