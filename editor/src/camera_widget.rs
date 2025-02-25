@@ -267,7 +267,13 @@ impl Widget for CameraView {
         let view_rect = response.rect;
         let size = view_rect.size();
         let projection = self.camera.matrix(size);
-        painter.rect(ui.max_rect(), 0.0, Color32::from_rgb(0, 0, 0), Stroke::NONE);
+        painter.rect(
+            ui.max_rect(),
+            0.0,
+            Color32::from_rgb(0, 0, 0),
+            Stroke::NONE,
+            eframe::egui::StrokeKind::Outside,
+        );
 
         for mesh in self.meshes {
             let proj = projection.to_cols_array();

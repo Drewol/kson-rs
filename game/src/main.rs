@@ -2,7 +2,7 @@ use std::{
     path::{Path, PathBuf},
     rc::Rc,
     sync::{mpsc::channel, Arc, Mutex, RwLock},
-    time::Duration,
+    time::{Duration, Instant},
 };
 
 use crate::{
@@ -18,14 +18,17 @@ use crate::{
 };
 use anyhow::{anyhow, bail};
 use async_service::AsyncService;
-use button_codes::CustomBindingFilter;
+use button_codes::{CustomBindingFilter, UscInputEvent};
 use clap::Parser;
+use companion_interface::CompanionServer;
 use directories::ProjectDirs;
 
 use femtovg as vg;
 
 use game_main::ControlMessage;
 
+use gilrs::Gilrs;
+use glow::Context;
 use glutin_winit::GlWindow;
 use help::ServiceHelper;
 use kson::Ksh;
@@ -44,7 +47,8 @@ use test_scenes::camera_test;
 use three_d as td;
 
 use di::*;
-use glutin::prelude::*;
+use glutin::{context::PossiblyCurrentContext, prelude::*};
+use winit::event::WindowEvent;
 
 mod animation;
 mod async_service;
@@ -382,6 +386,363 @@ pub const FRAME_ACC_SIZE: usize = 16;
 
 struct LuaArena(Vec<Rc<Lua>>);
 
+struct UscApp {
+    state: Option<(
+        GameMain,
+        ServiceProvider,
+        winit::window::Window,
+        glutin::surface::Surface<glutin::surface::WindowSurface>,
+        PossiblyCurrentContext,
+        td::Context,
+    )>,
+    frame_tracker: FrameTracker,
+    update_tracker: UpdateTracker,
+    gilrs: Arc<Mutex<Gilrs>>,
+    mixer_controls: RuscMixer,
+    sink: Option<rodio::Sink>,
+    companion_service: Option<RwLock<CompanionServer>>,
+    offset_tx: std::sync::mpsc::Sender<i32>,
+}
+
+struct FrameTracker {
+    rendered_frames: u64,
+    last_render: Instant,
+    app_start: Instant,
+    last_frame_sec: f64,
+    accum_sec: f64,
+}
+struct UpdateTracker {
+    target_time: Instant,
+    current_update: Instant,
+}
+
+impl UpdateTracker {
+    pub const RATE: u64 = 240;
+    pub fn set(&mut self) {
+        self.target_time = Instant::now();
+    }
+
+    pub fn new() -> Self {
+        Self {
+            current_update: Instant::now(),
+            target_time: Instant::now(),
+        }
+    }
+}
+
+impl Iterator for UpdateTracker {
+    type Item = ();
+
+    fn next(&mut self) -> Option<Self::Item> {
+        if self.current_update < self.target_time {
+            self.current_update = self
+                .current_update
+                .checked_add(Duration::from_nanos(1_000_000_000 / Self::RATE))
+                .expect("Could not set update target time");
+            Some(())
+        } else {
+            None
+        }
+    }
+}
+
+impl UscApp {
+    fn init(&mut self, event_loop: &winit::event_loop::ActiveEventLoop) -> anyhow::Result<()> {
+        if self.state.is_some() {
+            return Ok(());
+        }
+
+        let (window, surface, canvas, gl_context, window_gl) =
+            window::create_window(event_loop).expect("Failed to create window");
+
+        {
+            if GameConfig::get().mouse_knobs {
+                window.set_cursor_visible(false)
+            }
+        }
+        let companion_service = self.companion_service.take().unwrap();
+        let mixer_controls = self.mixer_controls.clone();
+        let gl_context = Arc::new(gl_context);
+        let context = td::Context::from_gl_context(gl_context.clone())?;
+        let service_context = context.clone();
+        let gui = egui_glow::EguiGlow::new(&event_loop, gl_context.clone(), None, None, false);
+        let gilrs_state = self.gilrs.clone();
+        let services = ServiceCollection::new()
+            .add(existing_as_self(companion_service))
+            .add(existing_as_self(self.sink.take().unwrap()))
+            .add(AsyncService::singleton().as_mut())
+            .add_worker::<AsyncService>()
+            .add(existing_as_self(Mutex::new(canvas)))
+            .add(existing_as_self(service_context.clone()))
+            .add(singleton_factory(|_| {
+                RefMut::new(block_on!(song_provider::FileSongProvider::new()).into())
+            }))
+            .add(singleton_factory(|x| {
+                RefMut::new(song_provider::NauticaSongProvider::new(x.get_required_mut()).into())
+            }))
+            .add(transient_factory::<
+                RwLock<dyn song_provider::SongProvider>,
+                _,
+            >(|sp| {
+                if GameConfig::get().songs_path.eq(&PathBuf::from("nautica")) {
+                    sp.get_required_mut::<song_provider::NauticaSongProvider>()
+                } else {
+                    sp.get_required_mut::<song_provider::FileSongProvider>()
+                }
+            }))
+            .add(transient_factory::<
+                RwLock<dyn song_provider::ScoreProvider>,
+                _,
+            >(|sp| {
+                sp.get_required_mut::<song_provider::FileSongProvider>()
+            }))
+            .add_worker::<FileSongProvider>()
+            .add_worker::<NauticaSongProvider>()
+            .add_worker::<companion_interface::CompanionServer>()
+            .add(singleton_factory(move |_| mixer_controls.clone()))
+            .add(Vgfx::singleton().as_mut())
+            .add(singleton_factory(|_| {
+                RefMut::new(LuaArena(Vec::new()).into())
+            }))
+            .add(singleton_factory(move |_| {
+                Arc::new(InputState::new(gilrs_state.clone()))
+            }))
+            .add(game_data::GameData::singleton().as_mut())
+            .add(LuaProvider::scoped())
+            .build_provider()
+            .expect("Failed to build service provider");
+
+        let _lua_provider: Arc<LuaProvider> = services.get_required();
+        let vgfx = services.get_required_mut::<Vgfx>();
+
+        let mut scenes = Scenes::new();
+
+        if GameConfig::get().args.chart.as_ref().is_none() {
+            let mut title = Box::new(main_menu::MainMenu::new(services.create_scope()));
+            title.suspend();
+            scenes.loaded.push(title);
+            if GameConfig::get().args.notitle {
+                let songsel = Box::new(songselect::SongSelectScene::new(
+                    Box::new(songselect::SongSelect::new()),
+                    services.create_scope(),
+                ));
+                scenes.loaded.push(songsel);
+            }
+        }
+
+        if let Some(chart_path) = GameConfig::get().args.chart.as_ref() {
+            let chart_path = PathBuf::from(chart_path);
+            let chart = kson::Chart::from_ksh(&std::io::read_to_string(std::fs::File::open(
+                &chart_path,
+            )?)?)?;
+
+            let song = Song {
+                title: chart.meta.title.clone(),
+                artist: chart.meta.artist.clone(),
+                bpm: chart.meta.disp_bpm.clone(),
+                id: SongId::default(),
+                difficulties: Arc::new(
+                    vec![Difficulty {
+                        jacket_path: chart_path.with_file_name(&chart.meta.jacket_filename),
+                        level: chart.meta.level,
+                        difficulty: chart.meta.difficulty,
+                        id: DiffId::default(),
+                        effector: chart.meta.chart_author.clone(),
+                        top_badge: 0,
+                        hash: None,
+                        scores: vec![],
+                        illustrator: String::new(),
+                    }]
+                    .into(),
+                ),
+            };
+
+            let audio = rodio::Decoder::new(std::fs::File::open(
+                chart_path.with_file_name(chart.audio.bgm.filename.clone()),
+            )?)?;
+
+            let skin_folder = { vgfx.read().expect("Lock error").skin_folder() };
+
+            scenes.loaded.push(
+                Box::new(game::GameData::new(
+                    Arc::new(song),
+                    0,
+                    chart,
+                    skin_folder,
+                    Box::new(audio.convert_samples()),
+                    game_main::AutoPlay::None,
+                )?)
+                .make_scene(services.create_scope())?,
+            );
+        }
+
+        if GameConfig::get().args.sound_test {
+            scenes.loaded.push(Box::new(audio_test::AudioTest::new(
+                services.create_scope(),
+            )));
+        }
+
+        if GameConfig::get().args.camera_test {
+            scenes.loaded.push(Box::new(camera_test::CameraTest::new(
+                services.create_scope(),
+                GameConfig::get().skin_path(),
+            )))
+        }
+        let service_scope = services.create_scope();
+
+        if GameConfig::get().args.settings {
+            scenes
+                .loaded
+                .push(Box::new(settings_screen::SettingsScreen::new(
+                    service_scope,
+                    channel().0,
+                    &window,
+                )));
+        }
+
+        let mut last_offset = { GameConfig::get().global_offset };
+        let fps_paint = vg::Paint::color(vg::Color::white()).with_text_align(vg::Align::Right);
+
+        let game = GameMain::new(
+            scenes,
+            fps_paint,
+            gui,
+            GameConfig::get().args.debug,
+            services.create_scope(),
+        );
+
+        self.state = Some((game, services, window, surface, window_gl, context));
+        Ok(())
+    }
+}
+
+impl FrameTracker {
+    pub fn new() -> Self {
+        Self {
+            rendered_frames: 0,
+            last_render: Instant::now(),
+            app_start: Instant::now(),
+            last_frame_sec: 1.0,
+            accum_sec: 0.0,
+        }
+    }
+
+    fn before_render(&mut self) {
+        let now = Instant::now();
+        let frame_dur = now - self.last_render;
+        self.last_frame_sec = frame_dur.as_secs_f64();
+        self.accum_sec = (now - self.app_start).as_secs_f64();
+        self.last_render = now;
+    }
+
+    fn last_frame_time(&mut self) -> f64 {
+        self.last_frame_sec
+    }
+
+    fn accumulated_time(&mut self) -> f64 {
+        self.accum_sec
+    }
+
+    fn number_of_renders(&mut self) -> u64 {
+        self.rendered_frames
+    }
+
+    fn after_render(&mut self) {
+        self.rendered_frames += 1;
+    }
+}
+
+impl winit::application::ApplicationHandler<UscInputEvent> for UscApp {
+    fn resumed(&mut self, event_loop: &winit::event_loop::ActiveEventLoop) {
+        self.init(event_loop)
+            .expect("Failed to initialize game state");
+    }
+
+    fn window_event(
+        &mut self,
+        event_loop: &winit::event_loop::ActiveEventLoop,
+        window_id: winit::window::WindowId,
+        event: winit::event::WindowEvent,
+    ) {
+        let Some((game, services, window, surface, window_gl, context)) = self.state.as_mut()
+        else {
+            return;
+        };
+        let g = &mut self.frame_tracker;
+
+        if let WindowEvent::RedrawRequested = event {
+            self.update_tracker.set();
+            for _ in &mut self.update_tracker {
+                game.update();
+            }
+            g.before_render();
+            let frame_input = FrameInput {
+                events: vec![],
+                elapsed_time: g.last_frame_time() * 1000.0,
+                accumulated_time: g.accumulated_time() * 1000.0,
+                viewport: Viewport {
+                    x: 0,
+                    y: 0,
+                    width: window.inner_size().width,
+                    height: window.inner_size().height,
+                },
+                window_width: window.outer_size().width,
+                window_height: window.outer_size().height,
+                device_pixel_ratio: 1.0,
+                first_frame: g.number_of_renders() == 0,
+                context: context.clone(),
+            };
+            g.after_render();
+
+            let frame_out = game.render(frame_input, window, surface, &window_gl);
+            surface.swap_buffers(window_gl);
+            window.request_redraw();
+            if frame_out.exit {
+                event_loop.exit();
+            }
+        } else {
+            if let WindowEvent::Resized(_) = event {
+                window.resize_surface(surface, &window_gl);
+            }
+
+            game.handle(
+                window,
+                &winit::event::Event::WindowEvent { window_id, event },
+            );
+        }
+    }
+
+    fn user_event(
+        &mut self,
+        event_loop: &winit::event_loop::ActiveEventLoop,
+        event: UscInputEvent,
+    ) {
+        let Some((game, services, window, surface, window_gl, context)) = self.state.as_mut()
+        else {
+            return;
+        };
+
+        game.handle(window, &winit::event::Event::UserEvent(event));
+    }
+
+    fn device_event(
+        &mut self,
+        event_loop: &winit::event_loop::ActiveEventLoop,
+        device_id: winit::event::DeviceId,
+        event: winit::event::DeviceEvent,
+    ) {
+        let Some((game, services, window, surface, window_gl, context)) = self.state.as_mut()
+        else {
+            return;
+        };
+
+        game.handle(
+            window,
+            &winit::event::Event::DeviceEvent { device_id, event },
+        );
+    }
+}
+
 fn get_log_config(level: log::LevelFilter) -> log4rs::Config {
     use log4rs::append::file::FileAppender;
     use log4rs::config::*;
@@ -412,6 +773,8 @@ fn get_log_config(level: log::LevelFilter) -> log4rs::Config {
 }
 
 fn main() -> anyhow::Result<()> {
+    let eventloop = winit::event_loop::EventLoop::<UscInputEvent>::with_user_event().build()?;
+
     let _logger_handle =
         log4rs::init_config(get_log_config(LevelFilter::Info)).expect("Failed to get logger");
     let mut config_path = default_game_dir();
@@ -462,16 +825,6 @@ fn main() -> anyhow::Result<()> {
 
     let _tokio = rt.enter();
 
-    let (window, surface, canvas, gl_context, eventloop, window_gl) = window::create_window()?;
-
-    {
-        if GameConfig::get().mouse_knobs {
-            window.set_cursor_visible(false)
-        }
-    }
-
-    let gl_context = Arc::new(gl_context);
-
     let mut input = gilrs::GilrsBuilder::default()
         .add_included_mappings(false)
         .with_default_filters(false)
@@ -481,66 +834,18 @@ fn main() -> anyhow::Result<()> {
 
     while input.next_event().is_some() {} //empty events
 
-    let context = td::Context::from_gl_context(gl_context.clone())?;
-
     input
         .gamepads()
         .for_each(|(_, g)| info!("{} uuid: {}", g.name(), uuid::Uuid::from_bytes(g.uuid())));
     let input = Arc::new(Mutex::new(input));
     let gilrs_state = input.clone();
-    let service_context = context.clone();
     let companion_service = RwLock::new(companion_interface::CompanionServer::new(
         eventloop.create_proxy(),
     ));
 
-    let services = ServiceCollection::new()
-        .add(existing_as_self(companion_service))
-        .add(existing_as_self(sink))
-        .add(AsyncService::singleton().as_mut())
-        .add_worker::<AsyncService>()
-        .add(existing_as_self(Mutex::new(canvas)))
-        .add(existing_as_self(service_context.clone()))
-        .add(singleton_factory(|_| {
-            RefMut::new(block_on!(song_provider::FileSongProvider::new()).into())
-        }))
-        .add(singleton_factory(|x| {
-            RefMut::new(song_provider::NauticaSongProvider::new(x.get_required_mut()).into())
-        }))
-        .add(transient_factory::<
-            RwLock<dyn song_provider::SongProvider>,
-            _,
-        >(|sp| {
-            if GameConfig::get().songs_path.eq(&PathBuf::from("nautica")) {
-                sp.get_required_mut::<song_provider::NauticaSongProvider>()
-            } else {
-                sp.get_required_mut::<song_provider::FileSongProvider>()
-            }
-        }))
-        .add(transient_factory::<
-            RwLock<dyn song_provider::ScoreProvider>,
-            _,
-        >(|sp| {
-            sp.get_required_mut::<song_provider::FileSongProvider>()
-        }))
-        .add_worker::<FileSongProvider>()
-        .add_worker::<NauticaSongProvider>()
-        .add_worker::<companion_interface::CompanionServer>()
-        .add(singleton_factory(move |_| mixer_controls.clone()))
-        .add(Vgfx::singleton().as_mut())
-        .add(singleton_factory(|_| {
-            RefMut::new(LuaArena(Vec::new()).into())
-        }))
-        .add(singleton_factory(move |_| {
-            Arc::new(InputState::new(gilrs_state.clone()))
-        }))
-        .add(game_data::GameData::singleton().as_mut())
-        .add(LuaProvider::scoped())
-        .build_provider()?;
-
     let _mousex = 0.0;
     let _mousey = 0.0;
-    let _lua_provider: Arc<LuaProvider> = services.get_required();
-    let vgfx = services.get_required_mut::<Vgfx>();
+
     let event_proxy = eventloop.create_proxy();
     let (mut rusc_filter, offset_tx) = RuscFilter::new(GameConfig::get().global_offset as _);
 
@@ -550,8 +855,8 @@ fn main() -> anyhow::Result<()> {
         loop {
             rusc_filter.update();
             use button_codes::*;
-            use game_loop::winit::event::ElementState::*;
             use gilrs::*;
+            use winit::event::ElementState::*;
             let e = {
                 if let Ok(mut input) = input.lock() {
                     input
@@ -605,152 +910,20 @@ fn main() -> anyhow::Result<()> {
     // Export luals definitions
     export_luals_defs()?;
 
-    let gui = egui_glow::EguiGlow::new(&eventloop, gl_context, None, None);
-
     let _frame_times = [16.0; FRAME_ACC_SIZE];
     let _frame_time_index = 0;
 
-    let fps_paint = vg::Paint::color(vg::Color::white()).with_text_align(vg::Align::Right);
+    eventloop.run_app(&mut UscApp {
+        state: None,
+        gilrs: gilrs_state,
+        mixer_controls,
+        sink: Some(sink),
+        companion_service: Some(companion_service),
+        offset_tx,
+        frame_tracker: FrameTracker::new(),
+        update_tracker: UpdateTracker::new(),
+    });
 
-    let mut scenes = Scenes::new();
-
-    if GameConfig::get().args.chart.as_ref().is_none() {
-        let mut title = Box::new(main_menu::MainMenu::new(services.create_scope()));
-        title.suspend();
-        scenes.loaded.push(title);
-        if GameConfig::get().args.notitle {
-            let songsel = Box::new(songselect::SongSelectScene::new(
-                Box::new(songselect::SongSelect::new()),
-                services.create_scope(),
-            ));
-            scenes.loaded.push(songsel);
-        }
-    }
-
-    if let Some(chart_path) = GameConfig::get().args.chart.as_ref() {
-        let chart_path = PathBuf::from(chart_path);
-        let chart =
-            kson::Chart::from_ksh(&std::io::read_to_string(std::fs::File::open(&chart_path)?)?)?;
-
-        let song = Song {
-            title: chart.meta.title.clone(),
-            artist: chart.meta.artist.clone(),
-            bpm: chart.meta.disp_bpm.clone(),
-            id: SongId::default(),
-            difficulties: Arc::new(
-                vec![Difficulty {
-                    jacket_path: chart_path.with_file_name(&chart.meta.jacket_filename),
-                    level: chart.meta.level,
-                    difficulty: chart.meta.difficulty,
-                    id: DiffId::default(),
-                    effector: chart.meta.chart_author.clone(),
-                    top_badge: 0,
-                    hash: None,
-                    scores: vec![],
-                    illustrator: String::new(),
-                }]
-                .into(),
-            ),
-        };
-
-        let audio = rodio::Decoder::new(std::fs::File::open(
-            chart_path.with_file_name(chart.audio.bgm.filename.clone()),
-        )?)?;
-
-        let skin_folder = { vgfx.read().expect("Lock error").skin_folder() };
-
-        scenes.loaded.push(
-            Box::new(game::GameData::new(
-                Arc::new(song),
-                0,
-                chart,
-                skin_folder,
-                Box::new(audio.convert_samples()),
-                game_main::AutoPlay::None,
-            )?)
-            .make_scene(services.create_scope())?,
-        );
-    }
-
-    if GameConfig::get().args.sound_test {
-        scenes.loaded.push(Box::new(audio_test::AudioTest::new(
-            services.create_scope(),
-        )));
-    }
-
-    if GameConfig::get().args.camera_test {
-        scenes.loaded.push(Box::new(camera_test::CameraTest::new(
-            services.create_scope(),
-            GameConfig::get().skin_path(),
-        )))
-    }
-    let service_scope = services.create_scope();
-
-    if GameConfig::get().args.settings {
-        scenes
-            .loaded
-            .push(Box::new(settings_screen::SettingsScreen::new(
-                service_scope,
-                channel().0,
-                &window,
-            )));
-    }
-
-    let game = GameMain::new(scenes, fps_paint, gui, show_debug_ui, services);
-
-    let mut last_offset = { GameConfig::get().global_offset };
-
-    game_loop::game_loop(
-        eventloop,
-        Arc::new(window),
-        game,
-        240,
-        0.1,
-        move |g| g.game.update(),
-        move |g| {
-            // Check for offset changes
-            {
-                let current_offset = GameConfig::get().global_offset;
-                if current_offset != last_offset {
-                    log_result!(offset_tx.send(current_offset));
-                    last_offset = current_offset;
-                }
-            }
-
-            let frame_out = g.game.render(
-                FrameInput {
-                    events: vec![],
-                    elapsed_time: g.last_frame_time() * 1000.0,
-                    accumulated_time: g.accumulated_time() * 1000.0,
-                    viewport: Viewport {
-                        x: 0,
-                        y: 0,
-                        width: g.window.inner_size().width,
-                        height: g.window.inner_size().height,
-                    },
-                    window_width: g.window.outer_size().width,
-                    window_height: g.window.outer_size().height,
-                    device_pixel_ratio: 1.0,
-                    first_frame: g.number_of_renders() == 0,
-                    context: context.clone(),
-                },
-                &g.window,
-                &surface,
-                &window_gl,
-            );
-            surface
-                .swap_buffers(&window_gl)
-                .expect("Failed to swap buffer");
-
-            //TODO: Only do on resize
-            g.window.resize_surface(&surface, &window_gl);
-
-            if frame_out.exit {
-                g.exit()
-            }
-        },
-        move |g, e| g.game.handle(&g.window, e),
-    )?;
     Ok(())
 }
 

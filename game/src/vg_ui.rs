@@ -21,6 +21,7 @@ use tealr::{
 };
 
 use tealr::mlu::mlua;
+use three_d::Vector3;
 
 use crate::{
     animation::VgAnimation, config::GameConfig, default_game_dir, help::add_lua_static_method,

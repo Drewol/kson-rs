@@ -1759,7 +1759,7 @@ impl Scene for Game {
                         ui.label("Stats");
                         ui.add(
                             egui::Label::new(format!("{:#?}", &self.beam_colors_current))
-                                .wrap(false),
+                                .wrap_mode(TextWrapMode::Extend),
                         )
                     });
             });
@@ -1924,7 +1924,8 @@ impl Scene for Game {
             );
         }
 
-        target.render(&td_camera, [&self.track_shader], &[]);
+        self.track_shader.draw_camera(&td_camera);
+
         let render_data = match self.view.render(
             &self.chart,
             td_context,
@@ -1998,7 +1999,9 @@ impl Scene for Game {
         self.laser_shaders[1][0].set_data_mesh(&render_data.lasers[2]);
         self.laser_shaders[1][1].set_data_mesh(&render_data.lasers[3]);
 
-        target.render(&td_camera, self.laser_shaders.iter().flatten(), &[]);
+        for ele in self.laser_shaders.iter().flatten() {
+            ele.draw_camera(&td_camera);
+        }
 
         if !self.intro_done {
             if let Ok(func) = self.lua.globals().get::<_, Function>("render_intro") {
@@ -2053,13 +2056,8 @@ impl Scene for Game {
         }
     }
 
-    fn on_event(
-        &mut self,
-        event: &game_loop::winit::event::Event<crate::button_codes::UscInputEvent>,
-    ) {
-        if let game_loop::winit::event::Event::UserEvent(UscInputEvent::Laser(ls, timestamp)) =
-            event
-        {
+    fn on_event(&mut self, event: &winit::event::Event<crate::button_codes::UscInputEvent>) {
+        if let winit::event::Event::UserEvent(UscInputEvent::Laser(ls, timestamp)) = event {
             //TODO: Slam detection, or always handle slam ticks in ticking function?
 
             for (side, index) in [(kson::Side::Left, 0), (kson::Side::Right, 1)] {

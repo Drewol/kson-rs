@@ -6,7 +6,7 @@ use std::{
     time::{Duration, SystemTime},
 };
 
-use game_loop::winit::event::ElementState;
+use winit::event::ElementState;
 use gilrs::{
     ev::{filter::FilterFn, Code},
     Axis, Button, Event,
