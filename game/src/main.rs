@@ -120,8 +120,21 @@ pub fn default_game_dir() -> PathBuf {
         .expect("Failed to get directories")
         .home_dir()
         .to_path_buf();
-    game_dir.push(".usc");
+    game_dir.push(".local");
+    game_dir.push("share");
+    game_dir.push("usc");
     game_dir
+}
+
+fn is_install_dir(dir: impl AsRef<Path>) -> Option<PathBuf> {
+    let dir = dir.as_ref();
+    let font_dir = dir.join("fonts");
+    let skin_dir = dir.join("skins");
+    if font_dir.exists() && skin_dir.exists() {
+        Some(dir.to_path_buf())
+    } else {
+        None
+    }
 }
 
 pub fn init_game_dir(game_dir: impl AsRef<Path>) -> anyhow::Result<()> {
@@ -130,52 +143,51 @@ pub fn init_game_dir(game_dir: impl AsRef<Path>) -> anyhow::Result<()> {
         return Ok(());
     }
 
+    let mut candidates = vec![];
+
     let cargo_dir = std::env::var("CARGO_MANIFEST_DIR");
 
-    let mut install_dir = if let Ok(manifest_dir) = &cargo_dir {
-        PathBuf::from(manifest_dir) // should be correct when started from `cargo run`
-    } else {
-        std::env::current_dir()?
-    };
+    if let Ok(dir) = &cargo_dir {
+        candidates.push(PathBuf::from(dir));
+    }
 
-    install_dir.push("fonts");
+    candidates.push(std::env::current_dir()?);
 
-    if !install_dir.exists() {
-        install_dir = std::env::current_exe()?;
-        install_dir.pop();
-        #[cfg(target_os = "macos")]
-        {
-            //if app bundle
-            if install_dir.with_file_name("Resources").exists() {
-                install_dir.set_file_name("Resources");
-            }
+    let mut candidate_dir = std::env::current_exe()?;
+    candidate_dir.pop();
+    candidates.push(candidate_dir.clone());
+    #[cfg(target_os = "macos")]
+    {
+        //if app bundle
+        if candidate_dir.with_file_name("Resources").exists() {
+            candidate_dir.set_file_name("Resources");
         }
-        #[cfg(target_os = "linux")]
-        {
-            //deb installs files to usr/lib/rusc/game
-            let dir_temp = install_dir.clone();
-            // assume starting at usr/bin after popping exe
-            install_dir.pop(); // usr
-            install_dir.push("lib");
-            install_dir.push("rusc");
-            install_dir.push("game");
-            install_dir.push("fonts");
-            if install_dir.exists() {
-                install_dir.pop();
-            } else {
-                install_dir = dir_temp;
-            }
-        }
+    }
+    #[cfg(target_os = "linux")]
+    {
+        //deb installs files to usr/lib/rusc/game
+        // assume starting at usr/bin after popping exe
+        candidate_dir.pop(); // usr
+        candidate_dir.push("lib");
+        candidate_dir.push("rusc");
+        candidate_dir.push("game");
+    }
 
-        install_dir.push("fonts");
+    candidates.push(candidate_dir);
 
-        if !install_dir.exists() {
-            bail!("Could not find installed assets at {install_dir:?}.")
-        }
+    let install_dir = candidates
+        .iter()
+        .filter_map(|x| is_install_dir(x))
+        .next()
+        .ok_or(anyhow!("Failed to find installed files"))?;
+
+    if install_dir.as_path() == game_dir.as_ref() {
+        info!("Running from install dir");
+        return Ok(());
     }
 
     std::fs::create_dir_all(&game_dir)?;
-    install_dir.pop();
+
     let r = install_dir.read_dir()?;
     for ele in r.into_iter() {
         let ele = ele?;
