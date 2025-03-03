@@ -17,7 +17,7 @@ impl Serialize for SettingsColor {
 
 struct ColorVisitor;
 
-impl<'de> Visitor<'de> for ColorVisitor {
+impl Visitor<'_> for ColorVisitor {
     type Value = Color32;
 
     fn expecting(&self, formatter: &mut std::fmt::Formatter) -> std::fmt::Result {

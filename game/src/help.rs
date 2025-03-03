@@ -5,10 +5,9 @@ use std::{
 };
 
 use anyhow::anyhow;
-use di::{transient_factory, RefMut, ServiceCollection};
+use di::{transient_factory, ServiceCollection};
 use femtovg::rgb::ComponentSlice;
 use itertools::Itertools;
-use mlua::{self, FromLuaMulti, IntoLuaMulti, Lua, MaybeSend, Result, UserDataMethods};
 use rfd::AsyncFileDialog;
 use winit::event::ElementState;
 

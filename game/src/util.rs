@@ -24,7 +24,7 @@ pub fn back_pixels(context: &three_d::Context, viewport: Viewport) -> Vec<[u8; 4
 }
 
 pub fn lua_address(lua: &Lua) -> usize {
-    let ptr = &*lua as *const _;
+    let ptr = lua as *const _;
     ptr as usize
 }
 

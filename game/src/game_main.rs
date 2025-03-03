@@ -473,7 +473,7 @@ impl GameMain {
             scenes.render_egui(ctx);
 
             if *show_debug_ui {
-                Self::debug_ui(ctx, scenes, &vgfx);
+                Self::debug_ui(ctx, scenes, vgfx);
             }
         });
         gui.paint(window);

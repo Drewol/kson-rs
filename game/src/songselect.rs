@@ -22,7 +22,6 @@ use winit::event::{ElementState, Event, Ime, WindowEvent};
 use itertools::Itertools;
 use kson_rodio_sources::owned_source::{self, owned_source};
 use log::warn;
-use mlua::UserData;
 use mlua::{self, Function, Lua, LuaSerdeExt};
 use puffin::{profile_function, profile_scope};
 use rodio::Source;

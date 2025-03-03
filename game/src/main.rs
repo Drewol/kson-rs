@@ -16,7 +16,7 @@ use crate::{
     transition::Transition,
     vg_ui::Vgfx,
 };
-use anyhow::{anyhow, bail};
+use anyhow::anyhow;
 use async_service::AsyncService;
 use button_codes::{CustomBindingFilter, UscInputEvent};
 use clap::Parser;
@@ -28,7 +28,6 @@ use femtovg as vg;
 use game_main::ControlMessage;
 
 use gilrs::Gilrs;
-use glow::Context;
 use glutin_winit::GlWindow;
 use help::ServiceHelper;
 use kson::Ksh;
@@ -177,7 +176,7 @@ pub fn init_game_dir(game_dir: impl AsRef<Path>) -> anyhow::Result<()> {
 
     let install_dir = candidates
         .iter()
-        .filter_map(|x| is_install_dir(x))
+        .filter_map(is_install_dir)
         .next()
         .ok_or(anyhow!("Failed to find installed files"))?;
 
@@ -477,7 +476,7 @@ impl UscApp {
         let gl_context = Arc::new(gl_context);
         let context = td::Context::from_gl_context(gl_context.clone())?;
         let service_context = context.clone();
-        let gui = egui_glow::EguiGlow::new(&event_loop, gl_context.clone(), None, None, false);
+        let gui = egui_glow::EguiGlow::new(event_loop, gl_context.clone(), None, None, false);
         let gilrs_state = self.gilrs.clone();
         let services = ServiceCollection::new()
             .add(existing_as_self(companion_service))
@@ -612,7 +611,7 @@ impl UscApp {
                 )));
         }
 
-        let mut last_offset = { GameConfig::get().global_offset };
+        let last_offset = { GameConfig::get().global_offset };
         let fps_paint = vg::Paint::color(vg::Color::white()).with_text_align(vg::Align::Right);
 
         let game = GameMain::new(
@@ -706,7 +705,7 @@ impl winit::application::ApplicationHandler<UscInputEvent> for UscApp {
             };
             g.after_render();
 
-            let frame_out = game.render(frame_input, window, surface, &window_gl);
+            let frame_out = game.render(frame_input, window, surface, window_gl);
             surface.swap_buffers(window_gl);
             window.request_redraw();
             if frame_out.exit {
@@ -714,7 +713,7 @@ impl winit::application::ApplicationHandler<UscInputEvent> for UscApp {
             }
         } else {
             if let WindowEvent::Resized(_) = event {
-                window.resize_surface(surface, &window_gl);
+                window.resize_surface(surface, window_gl);
             }
 
             game.handle(

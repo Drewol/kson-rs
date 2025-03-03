@@ -558,8 +558,7 @@ impl Scene for SongResult {
                         self.lua.globals().get("get_capture_rect").ok();
 
                     let capture_rect = get_capture_rect
-                        .map(|f| f.call::<(usize, usize, usize, usize)>(()).ok())
-                        .flatten()
+                        .and_then(|f| f.call::<(usize, usize, usize, usize)>(()).ok())
                         .map(|(x, y, w, h)| ((x, y), (w, h)));
 
                     let vgfx = self.lua.app_data_ref::<RefMut<Vgfx>>().unwrap();

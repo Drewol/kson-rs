@@ -1,11 +1,10 @@
 use std::{
-    borrow::Borrow,
     collections::HashMap,
     hash::{Hash, Hasher},
     io::BufReader,
-    ops::{Deref, DerefMut},
+    ops::DerefMut,
     path::PathBuf,
-    sync::{Arc, Mutex, RwLock},
+    sync::{Arc, Mutex},
 };
 
 const COMPAT_TEXT_SCALE: f32 = 21.5 / 30.0; // Needed because old usc has two different text rendering methods for text, and fasttext/labels
@@ -19,13 +18,12 @@ use poll_promise::Promise;
 use puffin::profile_scope;
 
 type LuaError = mlua::Error;
-use three_d::Vector3;
 
 use crate::{
     animation::VgAnimation, config::GameConfig, default_game_dir, log_result, lua_service::LuaKey,
-    settings_screen::skin_select::SkinMeta, shaded_mesh::ShadedMesh, util::lua_address,
+    settings_screen::skin_select::SkinMeta, shaded_mesh::ShadedMesh,
 };
-use mlua::{self, Lua, UserData};
+use mlua::{self};
 
 const FALLBACK_ID: u32 = u32::MAX;
 
@@ -622,7 +620,6 @@ impl VgfxLua {
     ) -> Result<(), mlua::Error> {
         let mut _vgfx_lock = _vgfx.write().expect("Lock error");
         let _vgfx = _vgfx_lock.deref_mut();
-        let name = name;
         if let (Some(font_id), Some(paint)) = (_vgfx.fonts.get(&name), _vgfx.fill_paint.as_mut()) {
             paint.set_font(&[*font_id]);
             _vgfx.label_font = *font_id;
@@ -648,7 +645,6 @@ impl VgfxLua {
     ) -> Result<(), mlua::Error> {
         let mut _vgfx_lock = _vgfx.write().expect("Lock error");
         let _vgfx = _vgfx_lock.deref_mut();
-        let name = name;
         if let (Some(font_id), Some(paint)) = (_vgfx.fonts.get(&name), _vgfx.fill_paint.as_mut()) {
             paint.set_font(&[*font_id]);
             _vgfx.label_font = *font_id;
@@ -1600,7 +1596,7 @@ impl VgfxLua {
         r: u8,
         g: u8,
         b: u8,
-    ) -> mlua::Result<(u32)> {
+    ) -> mlua::Result<u32> {
         let mut _vgfx_lock = _vgfx.write().expect("Lock error");
         let _vgfx = _vgfx_lock.deref_mut();
 

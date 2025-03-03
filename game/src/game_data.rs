@@ -1,7 +1,6 @@
 use std::{
     collections::HashMap,
     ops::DerefMut,
-    path::PathBuf,
     sync::{atomic::AtomicUsize, Arc},
     time::Duration,
 };
@@ -10,7 +9,7 @@ use di::{Activator, InjectBuilder, Injectable, RefMut};
 use egui::epaint::Hsva;
 use log::warn;
 
-use mlua::{AppDataRef, Lua, UserData, UserDataFields, UserDataMethods};
+use mlua::{UserData, UserDataFields, UserDataMethods};
 use puffin::{ProfilerScope, ThreadProfiler};
 use rodio::Source;
 

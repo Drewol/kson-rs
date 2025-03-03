@@ -6,7 +6,7 @@ use serde::{Deserialize, Serialize};
 use std::{collections::HashMap, str::FromStr};
 
 use mlua::{
-    self, FromLuaMulti, Function, Lua, LuaSerdeExt, RegistryKey, UserData, UserDataMethods,
+    self, Function, Lua, LuaSerdeExt, RegistryKey, UserData, UserDataMethods,
 };
 
 #[derive(Default)]
