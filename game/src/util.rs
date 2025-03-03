@@ -17,7 +17,7 @@ pub fn back_pixels(context: &three_d::Context, viewport: Viewport) -> Vec<[u8; 4
             viewport.height as i32,
             context::RGBA,
             context::UNSIGNED_BYTE,
-            context::PixelPackData::Slice(&mut bytes),
+            context::PixelPackData::Slice(Some(&mut bytes)),
         );
     }
     unsafe { bytes.align_to::<[u8; 4]>() }.1.to_vec()

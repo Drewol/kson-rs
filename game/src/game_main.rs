@@ -12,7 +12,7 @@ use std::{
 use di::{RefMut, ServiceProvider};
 use egui_glow::EguiGlow;
 use femtovg::Paint;
-use game_loop::winit::{
+use winit::{
     dpi::{PhysicalPosition, PhysicalSize},
     event,
     keyboard::{Key, NamedKey},
@@ -243,7 +243,7 @@ impl GameMain {
     pub fn render(
         &mut self,
         frame_input: FrameInput,
-        window: &game_loop::winit::window::Window,
+        window: &winit::window::Window,
         surface: &glutin::surface::Surface<glutin::surface::WindowSurface>,
         gl_context: &PossiblyCurrentContext,
     ) -> FrameOutput {
@@ -431,7 +431,7 @@ impl GameMain {
                         Fullscreen::Windowed { .. } => None,
                         Fullscreen::Borderless { monitor } => {
                             let m = find_monitor(window.available_monitors(), monitor);
-                            Some(game_loop::winit::window::Fullscreen::Borderless(m))
+                            Some(winit::window::Fullscreen::Borderless(m))
                         }
                         Fullscreen::Exclusive {
                             monitor,
@@ -444,7 +444,7 @@ impl GameMain {
                                         .max_by_key(|x| x.refresh_rate_millihertz())
                                 });
 
-                            m.map(game_loop::winit::window::Fullscreen::Exclusive)
+                            m.map(winit::window::Fullscreen::Exclusive)
                         }
                     });
 
@@ -503,9 +503,9 @@ impl GameMain {
     pub fn handle(
         &mut self,
         window: &Window,
-        event: &game_loop::winit::event::Event<UscInputEvent>,
+        event: &winit::event::Event<UscInputEvent>,
     ) {
-        use game_loop::winit::event::*;
+        use winit::event::*;
         if let Event::WindowEvent {
             window_id: _,
             event,
@@ -650,7 +650,7 @@ impl GameMain {
                 }
             }
             Event::DeviceEvent {
-                event: game_loop::winit::event::DeviceEvent::MouseMotion { delta },
+                event: winit::event::DeviceEvent::MouseMotion { delta },
                 ..
             } if !text_input_active && GameConfig::get().mouse_knobs => {
                 {
@@ -853,7 +853,7 @@ impl GameMain {
                     };
                 }
 
-                window.set_fullscreen(Some(game_loop::winit::window::Fullscreen::Borderless(
+                window.set_fullscreen(Some(winit::window::Fullscreen::Borderless(
                     current_monitor,
                 )))
             }

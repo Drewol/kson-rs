@@ -4,7 +4,7 @@ use std::{
 };
 
 use clap::Parser;
-use game_loop::winit::keyboard::PhysicalKey;
+use winit::keyboard::PhysicalKey;
 use log::{error, info};
 use once_cell::sync::OnceCell;
 use serde::{Deserialize, Serialize};

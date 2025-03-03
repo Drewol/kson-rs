@@ -90,7 +90,8 @@ fn load_texture(gl: &Context, texture: &[u8]) -> Result<Texture, String> {
             0,
             glow::RGBA,
             glow::UNSIGNED_BYTE,
-            Some(&DynamicImage::ImageRgba8(img.into_rgba8()).into_bytes()),
+            glow::PixelUnpackData::Slice(
+            Some(&DynamicImage::ImageRgba8(img.into_rgba8()).into_bytes())),
         );
 
         gl.generate_mipmap(glow::TEXTURE_2D);

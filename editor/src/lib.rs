@@ -531,7 +531,7 @@ impl AppState {
         Grid::new("hotkey_grid").striped(true).show(ui, |ui| {
             for (key, event) in binding_vec {
                 ui.label(format!("{}", event));
-                ui.add(Label::new(format!("{}", key)).wrap(false));
+                ui.add(Label::new(format!("{}", key)).wrap_mode(egui::TextWrapMode::Extend));
                 ui.end_row();
             }
         });
@@ -958,7 +958,7 @@ pub fn main() -> eframe::Result<()> {
             app.editor.screen.beats_per_col = config.beats_per_column;
             cc.egui_ctx.set_visuals(Visuals::dark());
 
-            Box::new(app)
+            Ok(Box::new(app))
         }),
     )
 }

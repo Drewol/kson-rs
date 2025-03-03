@@ -6,8 +6,8 @@ use std::{
 
 use anyhow::{anyhow, Result};
 use di::ServiceProvider;
-use game_loop::winit::event::{ElementState, Event, WindowEvent};
 use mlua::{self, Function, Lua};
+use winit::event::{ElementState, Event, WindowEvent};
 
 use crate::{
     button_codes::{LaserState, UscInputEvent},

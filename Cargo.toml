@@ -20,10 +20,10 @@ strip = true
 serde = { version = "1", features = ["derive"] }
 puffin = "0.19"
 puffin_http = "0.16.0"
-egui = "0.27"
-emath = "0.27"
-egui_glow = "0.27"
-eframe = { version = "0.27", features = ["persistence"] }
+egui = "0.31"
+emath = "0.31"
+egui_glow = "0.31"
+eframe = { version = "0.31", features = ["persistence"] }
 simple_logger = "4.0.0"
 image = { version = "0.25", default_features = false, features = [
     "png",

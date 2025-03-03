@@ -102,10 +102,10 @@ pub struct ShadedMesh {
     state: RenderStates,
     vertex_count: usize,
     draw_mode: DrawingMode,
-    indecies: ElementBuffer,
-    vertecies_pos: VertexBuffer,
-    vertecies_uv: VertexBuffer,
-    vertecies_color: Option<VertexBuffer>,
+    indecies: ElementBuffer<u32>,
+    vertecies_pos: VertexBuffer<Vector3<f32>>,
+    vertecies_uv: VertexBuffer<Vector2<f32>>,
+    vertecies_color: Option<VertexBuffer<Vector4<f32>>>,
     aabb: AxisAlignedBoundingBox,
     transform: Mat4,
     context: Context,
@@ -253,7 +253,6 @@ impl ShadedMesh {
         };
 
         self.indecies.fill(&indecies);
-
         Ok(())
     }
 
@@ -388,7 +387,7 @@ impl ShadedMesh {
         self.material.draw_arrays(self.state, viewport, 3)
     }
 
-    pub fn draw_camera(&self, camera: &three_d::Camera) {
+    pub fn draw_camera(&self, camera: &dyn three_d::Viewer) {
         self.set_camera_uniforms(camera);
 
         self.material
@@ -396,7 +395,7 @@ impl ShadedMesh {
     }
 
     #[inline]
-    fn set_camera_uniforms(&self, camera: &three_d_asset::Camera) {
+    fn set_camera_uniforms(&self, camera: &dyn three_d::Viewer) {
         self.material.use_uniform("proj", camera.projection());
         self.material.use_uniform("camera", camera.view());
         self.material.use_uniform("world", self.transform);
@@ -432,11 +431,11 @@ impl ShadedMesh {
         }
     }
 
-    pub fn set_data<T: BufferDataType, U: BufferDataType, V: BufferDataType>(
+    pub fn set_data(
         &mut self,
-        pos: &[T],
-        uv: &[U],
-        colors: &Option<Vec<V>>,
+        pos: &[Vector3<f32>],
+        uv: &[Vector2<f32>],
+        colors: &Option<Vec<Vector4<f32>>>,
     ) {
         self.set_data_indexed(pos, uv, &[] as &[u32], colors);
         self.update_indecies().expect("Bad mesh data");
@@ -465,17 +464,12 @@ impl ShadedMesh {
         }
     }
 
-    pub fn set_data_indexed<
-        T: BufferDataType,
-        U: BufferDataType,
-        V: ElementBufferDataType,
-        W: BufferDataType,
-    >(
+    pub fn set_data_indexed(
         &mut self,
-        pos: &[T],
-        uv: &[U],
-        indecies: &[V],
-        colors: &Option<Vec<W>>,
+        pos: &[Vector3<f32>],
+        uv: &[Vector2<f32>],
+        indecies: &[u32],
+        colors: &Option<Vec<Vector4<f32>>>,
     ) {
         profile_function!();
 
@@ -555,7 +549,7 @@ impl Geometry for ShadedMesh {
     fn render_with_material(
         &self,
         _material: &dyn three_d::Material,
-        camera: &three_d::Camera,
+        camera: &dyn three_d::Viewer,
         _lights: &[&dyn three_d::Light],
     ) {
         self.draw_camera(camera);
@@ -565,38 +559,32 @@ impl Geometry for ShadedMesh {
         three_d::AxisAlignedBoundingBox::EMPTY
     }
 
-    fn draw(
-        &self,
-        camera: &three_d::Camera,
-        _program: &Program,
-        _render_states: RenderStates,
-        _attributes: three_d::FragmentAttributes,
-    ) {
+    fn draw(&self, camera: &dyn three_d::Viewer, _program: &Program, _render_states: RenderStates) {
         self.draw_camera(camera);
     }
 
-    fn vertex_shader_source(&self, _required_attributes: three_d::FragmentAttributes) -> String {
+    fn vertex_shader_source(&self) -> String {
         todo!()
     }
 
-    fn id(&self, _required_attributes: three_d::FragmentAttributes) -> u16 {
+    fn id(&self) -> three_d::GeometryId {
         todo!()
     }
 
     fn render_with_effect(
         &self,
-        _material: &dyn three_d::Effect,
-        _camera: &three_d::Camera,
-        _lights: &[&dyn three_d::Light],
-        _color_texture: Option<three_d::ColorTexture>,
-        _depth_texture: Option<three_d::DepthTexture>,
+        material: &dyn three_d::Effect,
+        viewer: &dyn three_d::Viewer,
+        lights: &[&dyn three_d::Light],
+        color_texture: Option<three_d::ColorTexture>,
+        depth_texture: Option<three_d::DepthTexture>,
     ) {
         todo!()
     }
 }
 
 impl Object for ShadedMesh {
-    fn render(&self, camera: &three_d::Camera, _lights: &[&dyn three_d::Light]) {
+    fn render(&self, camera: &dyn three_d::Viewer, _lights: &[&dyn three_d::Light]) {
         self.draw_camera(camera);
     }
 
@@ -732,7 +720,7 @@ impl UserData for ShadedMesh {
             this.vertex_count = verts.len();
             let (pos, uv): (Vec<_>, Vec<_>) = verts
                 .iter()
-                .map(|vert| (vec2(vert.0 .0, vert.0 .1), vec2(vert.1 .0, vert.1 .1)))
+                .map(|vert| (vec3(vert.0 .0, vert.0 .1, 0.0), vec2(vert.1 .0, vert.1 .1)))
                 .unzip();
 
             let context = &lua

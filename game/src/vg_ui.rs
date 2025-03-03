@@ -19,6 +19,8 @@ use poll_promise::Promise;
 use puffin::profile_scope;
 
 type LuaError = mlua::Error;
+use three_d::Vector3;
+
 use crate::{
     animation::VgAnimation, config::GameConfig, default_game_dir, log_result, lua_service::LuaKey,
     settings_screen::skin_select::SkinMeta, shaded_mesh::ShadedMesh, util::lua_address,

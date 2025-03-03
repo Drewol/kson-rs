@@ -2,11 +2,6 @@ use std::num::NonZeroU32;
 
 use anyhow::anyhow;
 use femtovg::{renderer::OpenGl, Canvas};
-use game_loop::winit::{
-    self,
-    event_loop::{EventLoop, EventLoopBuilder},
-    window::WindowBuilder,
-};
 use glow::Context;
 use glutin::{
     config::ConfigTemplateBuilder,
@@ -17,6 +12,11 @@ use glutin::{
 };
 use glutin_winit::DisplayBuilder;
 use raw_window_handle::HasRawWindowHandle;
+use winit::{
+    self,
+    event_loop::{ActiveEventLoop, EventLoop, EventLoopBuilder},
+    raw_window_handle::HasWindowHandle,
+};
 use winit::{dpi::PhysicalPosition, monitor::MonitorHandle};
 
 use crate::{button_codes::UscInputEvent, config::GameConfig};
@@ -33,17 +33,14 @@ type WindowCreation = (
     glutin::surface::Surface<WindowSurface>,
     Canvas<OpenGl>,
     Context,
-    EventLoop<UscInputEvent>,
     PossiblyCurrentContext,
 );
 
 /// Mostly borrowed code from femtovg/examples
-pub fn create_window() -> anyhow::Result<WindowCreation> {
+pub fn create_window(event_loop: &ActiveEventLoop) -> anyhow::Result<WindowCreation> {
     let settings = &GameConfig::get().graphics;
 
-    let event_loop = EventLoopBuilder::<UscInputEvent>::with_user_event().build()?;
-
-    let window_builder = WindowBuilder::new()
+    let window_builder = winit::window::Window::default_attributes()
         .with_resizable(true)
         .with_title("USC Game");
 
@@ -79,10 +76,10 @@ pub fn create_window() -> anyhow::Result<WindowCreation> {
         .with_alpha_size(8)
         .with_multisampling(settings.anti_alias);
 
-    let display_builder = DisplayBuilder::new().with_window_builder(Some(window_builder));
+    let display_builder = DisplayBuilder::new().with_window_attributes(Some(window_builder));
 
     let (window, gl_config) = display_builder
-        .build(&event_loop, template, |configs| {
+        .build(event_loop, template, |configs| {
             // Find the config with the maximum number of samples, so our triangle will
             // be smooth.
             configs
@@ -105,10 +102,8 @@ pub fn create_window() -> anyhow::Result<WindowCreation> {
 
     let window = window.ok_or(anyhow!("No window"))?;
 
-    let raw_window_handle = Some(window.raw_window_handle());
-
     let gl_display = gl_config.display();
-
+    let raw_window_handle = window.window_handle().ok().map(|x| x.as_raw());
     let context_attributes = ContextAttributesBuilder::new().build(raw_window_handle);
     let fallback_context_attributes = ContextAttributesBuilder::new()
         .with_context_api(ContextApi::Gles(Some(glutin::context::Version {
@@ -127,9 +122,8 @@ pub fn create_window() -> anyhow::Result<WindowCreation> {
     });
 
     let (width, height): (u32, u32) = window.inner_size().into();
-    let raw_window_handle = window.raw_window_handle();
     let attrs = SurfaceAttributesBuilder::<WindowSurface>::new().build(
-        raw_window_handle,
+        raw_window_handle.ok_or(anyhow!("No window handle"))?,
         NonZeroU32::new(width).ok_or(anyhow!("Zero width"))?,
         NonZeroU32::new(height).ok_or(anyhow!("Zero height"))?,
     );
@@ -166,5 +160,5 @@ pub fn create_window() -> anyhow::Result<WindowCreation> {
         },
     )?;
 
-    Ok((window, surface, canvas, context, event_loop, gl_context))
+    Ok((window, surface, canvas, context, gl_context))
 }
