@@ -30,6 +30,7 @@ use kson_rodio_sources::{
 };
 
 use log::{info, warn};
+use mlua::{Function, Lua, LuaSerdeExt};
 use puffin::{profile_function, profile_scope};
 use rodio::{dynamic_mixer::DynamicMixerController, source::Buffered, Decoder, Source};
 use std::{
@@ -42,7 +43,6 @@ use std::{
     sync::{mpsc::Sender, Arc},
     time::{Duration, SystemTime},
 };
-use tealr::mlu::mlua::{Function, Lua, LuaSerdeExt};
 use three_d::{vec2, vec3, Blend, Camera, Mat4, Matrix4, Vec3, Vec4, Viewport, Zero};
 use three_d_asset::vec4;
 
@@ -794,7 +794,7 @@ impl Game {
             demo_mode: false,
             difficulty: self.chart.meta.difficulty,
             level: self.chart.meta.level,
-            progress: self.current_time().as_secs_f32() as f32 / self.duration_secs,
+            progress: self.current_time().as_secs_f32() / self.duration_secs,
             hispeed: self.view.hispeed,
             hispeed_adjust: 0,
             bpm: self.chart.bpm_at_tick(render_tick) as f32,
@@ -890,8 +890,8 @@ impl Game {
         };
 
         if combo_updated {
-            if let Ok(update_combo) = self.lua.globals().get::<_, Function>("update_combo") {
-                crate::log_result!(update_combo.call::<_, ()>(self.combo));
+            if let Ok(update_combo) = self.lua.globals().get::<Function>("update_combo") {
+                crate::log_result!(update_combo.call::<()>(self.combo));
             }
         }
 
@@ -905,7 +905,7 @@ impl Game {
                     self.beam_colors_current[lane] = self.get_beam_color(lane, 2, delta);
                 }
                 ScoreTick::Slam { lane, start, end } => {
-                    let laser_slam_hit = self.lua.globals().get::<_, Function>("laser_slam_hit");
+                    let laser_slam_hit = self.lua.globals().get::<Function>("laser_slam_hit");
 
                     let signum = (end - start).signum() as i32;
                     self.camera.shakes.push(CameraShake::new(
@@ -959,7 +959,7 @@ impl Game {
                     }
 
                     if let Ok(laser_slam_hit) = laser_slam_hit {
-                        log_result!(laser_slam_hit.call::<_, ()>((
+                        log_result!(laser_slam_hit.call::<()>((
                             end - start,
                             start - 0.5,
                             end - 0.5,
@@ -976,8 +976,8 @@ impl Game {
             } => {
                 if let ScoreTick::Chip { lane } = tick.tick {
                     self.beam_colors_current[lane] = self.get_beam_color(lane, 1, delta);
-                    if let Ok(near_hit) = self.lua.globals().get::<_, Function>("near_hit") {
-                        log_result!(near_hit.call::<_, ()>(delta < 0.0));
+                    if let Ok(near_hit) = self.lua.globals().get::<Function>("near_hit") {
+                        log_result!(near_hit.call::<()>(delta < 0.0));
                     }
                 }
             }
@@ -1001,12 +1001,12 @@ impl Game {
     }
 
     fn get_beam_color(&mut self, lane: usize, rating: usize, delta: f64) -> [f32; 4] {
-        let button_hit = self.lua.globals().get::<_, Function>("button_hit");
+        let button_hit = self.lua.globals().get::<Function>("button_hit");
 
         let mut beam_color: [f32; 4] = (self.beam_colors[rating] / 255.0).into();
         if let Ok(button_hit) = &button_hit {
             let (r, g, b) = button_hit
-                .call::<_, (Option<u8>, Option<u8>, Option<u8>)>((lane, rating, delta))
+                .call::<(Option<u8>, Option<u8>, Option<u8>)>((lane, rating, delta))
                 .inspect_err(|e| warn!("{e}"))
                 .unwrap_or_default();
 
@@ -1577,8 +1577,8 @@ impl Scene for Game {
                     && !self.chart.note.laser[side as usize].is_empty()
                 {
                     if self.laser_target[side as usize].is_none() {
-                        if let Ok(f) = self.lua.globals().get::<_, Function>("laser_alert") {
-                            log_result!(f.call::<_, ()>(side == Side::Right));
+                        if let Ok(f) = self.lua.globals().get::<Function>("laser_alert") {
+                            log_result!(f.call::<()>(side == Side::Right));
                         }
                     }
                     self.laser_alert[side as usize] = next_laser;
@@ -1590,8 +1590,8 @@ impl Scene for Game {
         let display_score = self.calculate_display_score();
         if display_score != self.display_score {
             self.display_score = display_score;
-            if let Ok(update_score) = self.lua.globals().get::<_, Function>("update_score") {
-                crate::log_result!(update_score.call::<_, ()>(display_score));
+            if let Ok(update_score) = self.lua.globals().get::<Function>("update_score") {
+                crate::log_result!(update_score.call::<()>(display_score));
             }
         }
 
@@ -2004,9 +2004,9 @@ impl Scene for Game {
         }
 
         if !self.intro_done {
-            if let Ok(func) = self.lua.globals().get::<_, Function>("render_intro") {
+            if let Ok(func) = self.lua.globals().get::<Function>("render_intro") {
                 profile_scope!("lua render_intro");
-                match func.call::<_, bool>(dt / 1000.0) {
+                match func.call::<bool>(dt / 1000.0) {
                     Err(e) => {
                         log::error!("{}", e);
                     }
@@ -2015,9 +2015,9 @@ impl Scene for Game {
             }
         }
 
-        if let Ok(func) = self.lua.globals().get::<_, Function>("render_crit_base") {
+        if let Ok(func) = self.lua.globals().get::<Function>("render_crit_base") {
             profile_scope!("lua render_crit_base");
-            if let Err(e) = func.call::<_, ()>(dt / 1000.0) {
+            if let Err(e) = func.call::<()>(dt / 1000.0) {
                 log::error!("{}", e);
             };
         }
@@ -2035,17 +2035,17 @@ impl Scene for Game {
             );
         }
 
-        if let Ok(func) = self.lua.globals().get::<_, Function>("render_crit_overlay") {
+        if let Ok(func) = self.lua.globals().get::<Function>("render_crit_overlay") {
             profile_scope!("lua render_crit_overlay");
-            if let Err(e) = func.call::<_, ()>(dt / 1000.0) {
+            if let Err(e) = func.call::<()>(dt / 1000.0) {
                 log::error!("{}", e);
             };
         }
         self.reset_canvas();
 
-        if let Ok(func) = self.lua.globals().get::<_, Function>("render") {
+        if let Ok(func) = self.lua.globals().get::<Function>("render") {
             profile_scope!("lua render");
-            if let Err(e) = func.call::<_, ()>(dt / 1000.0) {
+            if let Err(e) = func.call::<()>(dt / 1000.0) {
                 log::error!("{}", e);
             };
         }

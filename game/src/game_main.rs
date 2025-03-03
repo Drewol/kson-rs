@@ -27,7 +27,7 @@ use glutin::{
 use puffin::{profile_function, profile_scope};
 
 use td::{FrameOutput, Modifiers};
-use tealr::mlu::mlua::Lua;
+use mlua::Lua;
 use three_d::FrameInput;
 
 use femtovg as vg;
@@ -473,7 +473,7 @@ impl GameMain {
             scenes.render_egui(ctx);
 
             if *show_debug_ui {
-                Self::debug_ui(ctx, scenes, &vgfx);
+                Self::debug_ui(ctx, scenes, vgfx);
             }
         });
         gui.paint(window);

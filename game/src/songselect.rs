@@ -22,6 +22,7 @@ use winit::event::{ElementState, Event, Ime, WindowEvent};
 use itertools::Itertools;
 use kson_rodio_sources::owned_source::{self, owned_source};
 use log::warn;
+use mlua::{self, Function, Lua, LuaSerdeExt};
 use puffin::{profile_function, profile_scope};
 use rodio::Source;
 use serde::Serialize;
@@ -38,13 +39,6 @@ use std::{
     },
     time::{Duration, SystemTime},
 };
-use tealr::{
-    mlu::{
-        mlua::{self, Function, Lua, LuaSerdeExt},
-        TealData, UserData,
-    },
-    SingleType, ToTypename,
-};
 use winit::{
     event::KeyEvent,
     keyboard::{Key, NamedKey},
@@ -53,7 +47,7 @@ use winit::{
 mod song_collection;
 use song_collection::*;
 
-#[derive(Debug, ToTypename, Clone, Serialize, UserData)]
+#[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Difficulty {
     pub jacket_path: PathBuf,
@@ -67,25 +61,7 @@ pub struct Difficulty {
     pub illustrator: String,
 }
 
-impl TealData for Difficulty {
-    fn add_fields<'lua, F: tealr::mlu::TealDataFields<'lua, Self>>(fields: &mut F) {
-        fields.add_field_method_get("jacketPath", |_, diff| {
-            diff.jacket_path
-                .clone()
-                .into_os_string()
-                .into_string()
-                .map_err(|_| mlua::Error::external("Bad path"))
-        });
-        fields.add_field_method_get("level", |_, diff| Ok(diff.level));
-        fields.add_field_method_get("difficulty", |_, diff| Ok(diff.difficulty));
-        fields.add_field_method_get("id", |_, diff| Ok(diff.id.clone()));
-        fields.add_field_method_get("effector", |_, diff| Ok(diff.effector.clone()));
-        fields.add_field_method_get("topBadge", |_, diff| Ok(diff.top_badge));
-        fields.add_field_method_get("scores", |_, diff| Ok(diff.scores.clone()));
-    }
-}
-
-#[derive(Debug, ToTypename, UserData, Clone, Serialize, Default)]
+#[derive(Debug, Clone, Serialize, Default)]
 pub struct Song {
     pub title: String,
     pub artist: String,
@@ -94,20 +70,7 @@ pub struct Song {
     pub difficulties: Arc<RwLock<Vec<Difficulty>>>, //array of all difficulties for this song
 }
 
-//Keep tealdata for generating type definitions
-impl TealData for Song {
-    fn add_fields<'lua, F: tealr::mlu::TealDataFields<'lua, Self>>(fields: &mut F) {
-        fields.add_field_method_get("title", |_, song| Ok(song.title.clone()));
-        fields.add_field_method_get("artist", |_, song| Ok(song.artist.clone()));
-        fields.add_field_method_get("bpm", |_, song| Ok(song.bpm.clone()));
-        fields.add_field_method_get("id", |_, song| Ok(song.id.clone()));
-        fields.add_field_method_get("difficulties", |_, song| {
-            Ok(song.difficulties.read().expect("Lock error").clone())
-        });
-    }
-}
-
-#[derive(Serialize, UserData)]
+#[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct SongSelect {
     songs: SongCollection,
@@ -119,31 +82,6 @@ pub struct SongSelect {
     preview_countdown: f64,
     preview_finished: Arc<AtomicUsize>,
     preview_playing: Arc<AtomicU64>,
-}
-
-impl TealData for SongSelect {
-    fn add_fields<'lua, F: tealr::mlu::TealDataFields<'lua, Self>>(fields: &mut F) {
-        fields.add_field_method_get("songs", |_, _| Ok([] as [Song; 0]));
-        fields.add_field_method_get("searchInputActive", |_, songwheel| {
-            Ok(songwheel.search_input_active)
-        });
-        fields.add_field_method_get("searchText", |_, songwheel| {
-            Ok(songwheel.search_text.clone())
-        });
-        fields.add_field_method_get(
-            "searchStatus",
-            |_, _| -> Result<Option<String>, tealr::mlu::mlua::Error> { Ok(None) },
-        );
-    }
-}
-
-impl ToTypename for SongSelect {
-    fn to_typename() -> tealr::Type {
-        tealr::Type::Single(SingleType {
-            name: tealr::Name(std::borrow::Cow::Borrowed("songwheel")),
-            kind: tealr::KindOfType::External,
-        })
-    }
 }
 
 impl SongSelect {
@@ -499,7 +437,7 @@ impl Scene for SongSelectScene {
 
                                 let set_song_idx: Function = self.lua.globals().get("set_index")?;
 
-                                set_song_idx.call::<_, i32>(state.selected_index + 1)?;
+                                set_song_idx.call::<i32>(state.selected_index + 1)?;
                             }
                         }
                         ui.end_row();
@@ -693,7 +631,7 @@ impl Scene for SongSelectScene {
 
             if index_dirty {
                 let set_song_idx: Function = self.lua.globals().get("set_index")?;
-                set_song_idx.call::<_, i32>(self.state.selected_index + 1)?;
+                set_song_idx.call::<i32>(self.state.selected_index + 1)?;
             }
 
             let diff = self.state.selected_diff_index;
@@ -713,7 +651,7 @@ impl Scene for SongSelectScene {
 
             if diff != self.state.selected_diff_index {
                 let set_diff_idx: Function = self.lua.globals().get("set_diff")?;
-                set_diff_idx.call::<_, ()>(self.state.selected_diff_index + 1)?;
+                set_diff_idx.call::<()>(self.state.selected_diff_index + 1)?;
             }
         }
 
@@ -731,7 +669,7 @@ impl Scene for SongSelectScene {
                     if song_advance_steps != 0 {
                         let set_song_idx: Function = self.lua.globals().get("set_index")?;
 
-                        set_song_idx.call::<_, ()>(self.state.selected_index + 1)?;
+                        set_song_idx.call::<()>(self.state.selected_index + 1)?;
                     }
 
                     if diff_advance_steps != 0 || song_advance_steps != 0 {
@@ -749,7 +687,7 @@ impl Scene for SongSelectScene {
 
                         if prev_diff != self.state.selected_diff_index {
                             let set_diff_idx: Function = self.lua.globals().get("set_diff")?;
-                            set_diff_idx.call::<_, ()>(self.state.selected_diff_index + 1)?;
+                            set_diff_idx.call::<()>(self.state.selected_diff_index + 1)?;
                         }
                     }
                 }
@@ -985,8 +923,8 @@ impl Scene for SongSelectScene {
                 }
 
                 if let MenuState::Folders | MenuState::Levels = self.menu_state {
-                    if let Ok(set_mode) = self.filter_lua.globals().get::<_, Function>("set_mode") {
-                        _ = set_mode.call::<_, ()>(self.menu_state == MenuState::Folders);
+                    if let Ok(set_mode) = self.filter_lua.globals().get::<Function>("set_mode") {
+                        _ = set_mode.call::<()>(self.menu_state == MenuState::Folders);
                     }
                 }
             }
@@ -1037,8 +975,8 @@ impl Scene for SongSelectScene {
             };
 
             if let MenuState::Folders | MenuState::Levels = self.menu_state {
-                if let Ok(set_mode) = self.filter_lua.globals().get::<_, Function>("set_mode") {
-                    _ = set_mode.call::<_, ()>(self.menu_state == MenuState::Folders);
+                if let Ok(set_mode) = self.filter_lua.globals().get::<Function>("set_mode") {
+                    _ = set_mode.call::<()>(self.menu_state == MenuState::Folders);
                 }
             }
         }

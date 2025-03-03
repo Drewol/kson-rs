@@ -28,16 +28,10 @@ use crate::{
     vg_ui::Vgfx,
     ControlMessage,
 };
+use mlua::{Function, Lua, LuaSerdeExt};
 use serde_with::*;
-use tealr::{
-    mlu::{
-        mlua::{Function, Lua, LuaSerdeExt},
-        TealData, UserData,
-    },
-    ToTypename,
-};
 
-#[derive(Debug, ToTypename, Clone, Serialize, Default, ToLuaLsType)]
+#[derive(Debug, Clone, Serialize, Default, ToLuaLsType)]
 #[serde(rename_all = "camelCase")]
 struct HidSud {}
 
@@ -375,7 +369,7 @@ impl SceneData for SongResultData {
     }
 }
 
-#[derive(Debug, ToTypename, Clone, Serialize, Default, ToLuaLsType)]
+#[derive(Debug, Clone, Serialize, Default, ToLuaLsType)]
 #[serde(rename_all = "camelCase")]
 struct HitStat {
     rating: i32,    // 0 for miss, 1 for near, 2 for crit
@@ -424,7 +418,7 @@ impl TryFrom<HitRating> for HitStat {
     }
 }
 
-#[derive(Debug, ToTypename, Clone, Serialize, UserData, Default, ToLuaLsType)]
+#[derive(Debug, Clone, Serialize, Default, ToLuaLsType)]
 #[serde(rename_all = "camelCase")]
 pub struct Score {
     ///range 0.0 -> 1.0
@@ -501,8 +495,6 @@ impl From<&SongResultData> for Score {
     }
 }
 
-impl TealData for Score {}
-
 enum ScreenshotState {
     NotRendered,
     Rendered,
@@ -534,8 +526,8 @@ impl Scene for SongResult {
             .globals()
             .set("result", self.lua.to_value(&self.data)?)?;
 
-        if let Ok(result_set) = self.lua.globals().get::<_, Function>("result_set") {
-            result_set.call::<_, ()>(())?;
+        if let Ok(result_set) = self.lua.globals().get::<Function>("result_set") {
+            result_set.call::<()>(())?;
         }
         self.control_tx = Some(app_control_tx);
         Ok(())
@@ -566,8 +558,7 @@ impl Scene for SongResult {
                         self.lua.globals().get("get_capture_rect").ok();
 
                     let capture_rect = get_capture_rect
-                        .map(|f| f.call::<_, (usize, usize, usize, usize)>(()).ok())
-                        .flatten()
+                        .and_then(|f| f.call::<(usize, usize, usize, usize)>(()).ok())
                         .map(|(x, y, w, h)| ((x, y), (w, h)));
 
                     let vgfx = self.lua.app_data_ref::<RefMut<Vgfx>>().unwrap();
@@ -578,9 +569,8 @@ impl Scene for SongResult {
                             let screenshot_captured: Option<Function> =
                                 self.lua.globals().get("screenshot_captured").ok();
 
-                            screenshot_captured.and_then(|x| {
-                                x.call::<_, ()>(p.as_os_str().to_string_lossy()).ok()
-                            });
+                            screenshot_captured
+                                .and_then(|x| x.call::<()>(p.as_os_str().to_string_lossy()).ok());
                         }
                         Err(e) => log::warn!("Failed to save screenshot: {e}"),
                     }

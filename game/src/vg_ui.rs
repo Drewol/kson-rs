@@ -2,31 +2,28 @@ use std::{
     collections::HashMap,
     hash::{Hash, Hasher},
     io::BufReader,
+    ops::DerefMut,
     path::PathBuf,
-    sync::{Arc, Mutex, RwLock},
+    sync::{Arc, Mutex},
 };
 
 const COMPAT_TEXT_SCALE: f32 = 21.5 / 30.0; // Needed because old usc has two different text rendering methods for text, and fasttext/labels
 
 use anyhow::anyhow;
-use di::{Activator, InjectBuilder, Injectable};
+use di::{Activator, InjectBuilder, Injectable, RefMut};
 use femtovg::{renderer::OpenGl, Canvas, Color, FontId, ImageFlags, ImageId, Paint, Path};
 
 use log::warn;
 use poll_promise::Promise;
 use puffin::profile_scope;
-use tealr::{
-    mlu::{TealData, UserData, UserDataProxy},
-    SingleType, ToTypename,
-};
 
-use tealr::mlu::mlua;
-use three_d::Vector3;
+type LuaError = mlua::Error;
 
 use crate::{
-    animation::VgAnimation, config::GameConfig, default_game_dir, help::add_lua_static_method,
-    log_result, settings_screen::skin_select::SkinMeta, shaded_mesh::ShadedMesh, util::lua_address,
+    animation::VgAnimation, config::GameConfig, default_game_dir, log_result, lua_service::LuaKey,
+    settings_screen::skin_select::SkinMeta, shaded_mesh::ShadedMesh,
 };
+use mlua::{self};
 
 const FALLBACK_ID: u32 = u32::MAX;
 
@@ -121,7 +118,6 @@ struct VgfxPoint {
     image_tint: Option<Color>,
 }
 
-#[derive(UserData)]
 pub struct Vgfx {
     pub canvas: Arc<Mutex<Canvas<OpenGl>>>,
     skin: String,
@@ -157,20 +153,11 @@ impl Injectable for Vgfx {
     }
 }
 
-impl ToTypename for Vgfx {
-    fn to_typename() -> tealr::Type {
-        tealr::Type::Single(SingleType {
-            name: tealr::Name(std::borrow::Cow::Borrowed("gfx")),
-            kind: tealr::KindOfType::External,
-        })
-    }
-}
-
 #[derive(Clone, Debug)]
 struct Label {
     text: String,
     size: i32,
-    _monospace: bool, //TODO
+    _monospace: bool,
     font: FontId,
 }
 
@@ -290,1959 +277,1585 @@ impl Vgfx {
     }
 }
 
-impl TealData for Vgfx {
-    fn add_methods<'lua, T: tealr::mlu::TealDataMethods<'lua, Self>>(methods: &mut T) {
-        //BeginPath
-        add_lua_static_method(methods, "BeginPath", |_, _vgfx, _: ()| {
-            _vgfx.path = Some(Path::new());
-            _vgfx.label_color = Color::white();
+use mlua_bridge::mlua_bridge;
 
-            Ok(())
-        });
+pub struct VgfxLua;
 
-        //Rect
-        tealr::mlu::create_named_parameters!(RectParams with
-          x : f32,
-          y : f32,
-          w : f32,
-          h : f32,
+#[mlua_bridge(rename_funcs = "PascalCase", no_auto_fields)]
+impl VgfxLua {
+    fn begin_path(_vgfx: &RefMut<Vgfx>) -> Result<(), LuaError> {
+        let mut _vgfx_lock = _vgfx.write().expect("Lock error");
+        let _vgfx = _vgfx_lock.deref_mut();
 
-        );
-        add_lua_static_method(methods, "Rect", |_, _vgfx, p: RectParams| {
-            let RectParams { x, y, w, h } = p;
-            match _vgfx.path.as_mut() {
-                Some(p) => {
-                    p.rect(x, y, w, h);
-                    Ok(())
-                }
-                None => Err(mlua::Error::external("No path begun".to_string())),
-            }
-        });
+        _vgfx.path = Some(Path::new());
+        _vgfx.label_color = Color::white();
 
-        //FastRect
-        tealr::mlu::create_named_parameters!(FastRectParams with
-          x : f32,
-          y : f32,
-          w : f32,
-          h : f32,
+        Ok(())
+    }
 
-        );
-        add_lua_static_method(methods, "FastRect", |_, _vgfx, p: FastRectParams| {
-            let FastRectParams { x, y, w, h } = p;
-            if let Some(paint) = _vgfx.fill_paint.as_ref() {
-                let mut p = Path::new();
+    fn rect(_vgfx: &RefMut<Vgfx>, x: f32, y: f32, w: f32, h: f32) -> Result<(), mlua::Error> {
+        let mut _vgfx_lock = _vgfx.write().expect("Lock error");
+        let _vgfx = _vgfx_lock.deref_mut();
+
+        match _vgfx.path.as_mut() {
+            Some(p) => {
                 p.rect(x, y, w, h);
-                _vgfx
-                    .canvas
-                    .lock()
-                    .expect("Lock error")
-                    .fill_path(&p, paint);
-            }
-            Ok(())
-        });
-
-        //Fill
-        add_lua_static_method(methods, "Fill", |_, _vgfx, _: ()| {
-            match (_vgfx.path.as_ref(), _vgfx.fill_paint.as_ref()) {
-                (Some(path), Some(paint)) => {
-                    let path = {
-                        profile_scope!("Path Cache");
-                        let path_hash = hash_path(path);
-                        _vgfx.path_cache.entry(path_hash).or_insert(path.clone())
-                    };
-                    let canvas = &mut _vgfx
-                        .canvas
-                        .try_lock()
-                        .map_err(|_| mlua::Error::external("Canvas in use".to_string()))?;
-                    canvas.fill_path(path, paint);
-                    Ok(())
-                }
-                (None, None) => Err(mlua::Error::external(
-                    "No path begun and no paint set".to_string(),
-                )),
-                (None, Some(_)) => Err(mlua::Error::external("No path begun".to_string())),
-                (Some(_), None) => Err(mlua::Error::external("No paint set".to_string())),
-            }
-        });
-
-        //FillColor
-        tealr::mlu::create_named_parameters!(FillColorParams with
-          r : u8,
-          g : u8,
-          b : u8,
-          a : Option<u8>,
-
-        );
-        add_lua_static_method(methods, "FillColor", |_, _vgfx, p: FillColorParams| {
-            let FillColorParams { r, g, b, a } = p;
-            let color = Color::rgba(r, g, b, a.unwrap_or(255));
-            _vgfx.label_color = color;
-            if let Some(paint) = _vgfx.fill_paint.as_mut() {
-                paint.set_color(color);
-            } else {
-                _vgfx.fill_paint = Some(Paint::color(color));
-            }
-            Ok(())
-        });
-
-        //CreateImage
-        tealr::mlu::create_named_parameters!(CreateImageParams with
-          filename : String,
-          imageflags : u32,
-
-        );
-        add_lua_static_method(
-            methods,
-            "CreateImage",
-            |lua, _vgfx, p: CreateImageParams| {
-                let CreateImageParams {
-                    filename,
-                    imageflags,
-                } = p;
-
-                let Ok(img) = _vgfx
-                    .with_canvas(|canvas| {
-                        canvas.load_image_file(
-                            &filename,
-                            ImageFlags::from_bits(imageflags).unwrap_or(ImageFlags::empty()),
-                        )
-                    })?
-                    .map_err(mlua::Error::external)
-                else {
-                    return Ok(0);
-                };
-
-                let this_id = _vgfx.next_img_id;
-                _vgfx.next_img_id += 1;
-                _vgfx
-                    .scoped_assets
-                    .get_mut(&lua_address(lua))
-                    .ok_or(mlua::Error::external("Assets not initialized"))?
-                    .images
-                    .insert(this_id, VgImage::Static(img));
-                Ok(this_id)
-            },
-        );
-
-        //CreateSkinImage
-        tealr::mlu::create_named_parameters!(CreateSkinImageParams with
-          filename : String,
-          imageflags : u32,
-
-        );
-        add_lua_static_method(
-            methods,
-            "CreateSkinImage",
-            |lua, _vgfx, p: CreateSkinImageParams| {
-                let CreateSkinImageParams {
-                    filename,
-                    imageflags,
-                } = p;
-
-                let mut path = _vgfx.game_folder.clone();
-                path.push("skins");
-                path.push(&_vgfx.skin);
-                path.push("textures");
-                path.push(&filename);
-                let img = match _vgfx.with_canvas(|canvas| {
-                    canvas
-                        .load_image_file(
-                            &path,
-                            ImageFlags::from_bits(imageflags).unwrap_or(ImageFlags::empty()),
-                        )
-                        .or_else(|_| {
-                            profile_scope!("reformat image");
-                            let img = image::open(&path)?;
-                            canvas.create_image(
-                                femtovg::ImageSource::try_from(&image::DynamicImage::ImageRgba8(
-                                    img.to_rgba8(),
-                                ))
-                                .expect("Bad image format"),
-                                ImageFlags::from_bits(imageflags).unwrap_or(ImageFlags::empty()),
-                            )
-                        })
-                })? {
-                    Ok(img) => img,
-                    Err(err) => {
-                        log::error!("Failed to load image \"{}\": {:?}", &filename, err);
-                        return Ok(None);
-                    }
-                };
-
-                let this_id = _vgfx.next_img_id;
-                _vgfx.next_img_id += 1;
-                _vgfx
-                    .scoped_assets
-                    .get_mut(&lua_address(lua))
-                    .ok_or(mlua::Error::external("Assets not initialized"))?
-                    .images
-                    .insert(this_id, VgImage::Static(img));
-                Ok(Some(this_id))
-            },
-        );
-
-        //ImageRect
-        tealr::mlu::create_named_parameters!(ImageRectParams with
-          x : f32,
-          y : f32,
-          w : f32,
-          h : f32,
-          image : u32,
-          alpha : f32,
-          angle : f32,
-
-        );
-        add_lua_static_method(methods, "ImageRect", |lua, _vgfx, p: ImageRectParams| {
-            let ImageRectParams {
-                x,
-                y,
-                w,
-                h,
-                image,
-                alpha,
-                angle,
-            } = p;
-
-            if image == FALLBACK_ID {
-                return Ok(());
-            }
-
-            if let Some(img_id) = _vgfx.scoped_assets[&lua_address(lua)]
-                .images
-                .get(&image)
-                .and_then(|x| x.current_id())
-            {
-                let tint = _vgfx.image_tint;
-                _vgfx.with_canvas(|canvas| {
-                    canvas.save_with(|canvas| {
-                        let (img_w, img_h) = canvas
-                            .image_size(img_id)
-                            .map_err(mlua::Error::external)
-                            .unwrap_or((1, 1));
-                        let scale_x = w / img_w as f32;
-                        let scale_y = h / img_h as f32;
-                        canvas.translate(x, y);
-                        canvas.rotate(angle);
-                        canvas.scale(scale_x, scale_y);
-                        let paint = if let Some(mut tint) = tint {
-                            tint.set_alphaf(alpha);
-                            Paint::image_tint(
-                                img_id,
-                                0.0,
-                                0.0,
-                                img_w as f32,
-                                img_h as f32,
-                                0.0,
-                                tint,
-                            )
-                        } else {
-                            Paint::image_tint(
-                                img_id,
-                                0.0,
-                                0.0,
-                                img_w as f32,
-                                img_h as f32,
-                                0.0,
-                                Color {
-                                    r: 1.0,
-                                    g: 1.0,
-                                    b: 1.0,
-                                    a: alpha,
-                                },
-                            )
-                        };
-                        let mut rect = Path::new();
-                        rect.rect(0.0, 0.0, img_w as f32, img_h as f32);
-                        canvas.fill_path(&rect, &paint);
-                    });
-                })
-            } else {
                 Ok(())
             }
-        });
+            None => Err(mlua::Error::external("No path begun".to_string())),
+        }
+    }
 
-        //Text
-        tealr::mlu::create_named_parameters!(TextParams with
-          s : Option<String>,
-          x : f32,
-          y : f32,
+    fn fast_rect(_vgfx: &RefMut<Vgfx>, x: f32, y: f32, w: f32, h: f32) -> Result<(), mlua::Error> {
+        let mut _vgfx_lock = _vgfx.write().expect("Lock error");
+        let _vgfx = _vgfx_lock.deref_mut();
 
-        );
-        add_lua_static_method(methods, "Text", |_, _vgfx, p: TextParams| {
-            let TextParams { s, x, y } = p;
-            let Some(s) = s else {
-                return Ok(());
-            };
-            match _vgfx.fill_paint.as_ref() {
-                Some(fill_paint) => {
-                    let canvas = &mut _vgfx
-                        .canvas
-                        .try_lock()
-                        .map_err(|_| mlua::Error::external("Canvas in use".to_string()))?;
-
-                    canvas
-                        .fill_text(x, y, s, fill_paint)
-                        .map_err(mlua::Error::external)?;
-                    Ok(())
-                }
-                None => todo!(),
-            }
-        });
-
-        //TextAlign
-        tealr::mlu::create_named_parameters!(TextAlignParams with
-          align : u32,
-
-        );
-        add_lua_static_method(methods, "TextAlign", |_, _vgfx, p: TextAlignParams| {
-            let align = TextAlign::from_bits(p.align)
-                .unwrap_or(TextAlign::ALIGN_BASELINE | TextAlign::ALIGN_LEFT);
-            let vertical = match align & TextAlign::VERTICAL {
-                TextAlign::ALIGN_BOTTOM => femtovg::Baseline::Bottom,
-                TextAlign::ALIGN_MIDDLE => femtovg::Baseline::Middle,
-                TextAlign::ALIGN_TOP => femtovg::Baseline::Top,
-                _ => femtovg::Baseline::Alphabetic,
-            };
-
-            let horizontal = match align & TextAlign::HORIZONTAL {
-                TextAlign::ALIGN_CENTER => femtovg::Align::Center,
-                TextAlign::ALIGN_RIGHT => femtovg::Align::Right,
-                _ => femtovg::Align::Left,
-            };
-
-            _vgfx.label_align = (horizontal, vertical);
-            _vgfx.stroke_paint.set_text_align(horizontal);
-            _vgfx.stroke_paint.set_text_baseline(vertical);
-            if let Some(text_paint) = _vgfx.fill_paint.as_mut() {
-                text_paint.set_text_align(horizontal);
-                text_paint.set_text_baseline(vertical);
-            }
-            Ok(())
-        });
-
-        //FontFace
-        tealr::mlu::create_named_parameters!(FontFaceParams with
-          s : String,
-
-        );
-        add_lua_static_method(methods, "FontFace", |_, _vgfx, p: FontFaceParams| {
-            if let Some(font_id) = _vgfx.fonts.get(&p.s) {
-                _vgfx.label_font = *font_id;
-                if let Some(text_paint) = _vgfx.fill_paint.as_mut() {
-                    text_paint.set_font(&[*font_id]);
-                }
-            } else {
-                warn!("No loaded font named: {}", &p.s)
-            }
-            Ok(())
-        });
-
-        //FontSize
-        tealr::mlu::create_named_parameters!(FontSizeParams with
-          size : f32,
-
-        );
-        add_lua_static_method(methods, "FontSize", |_, _vgfx, p: FontSizeParams| {
-            if let Some(text_paint) = _vgfx.fill_paint.as_mut() {
-                text_paint.set_font_size(p.size * COMPAT_TEXT_SCALE);
-            }
-            Ok(())
-        });
-
-        //Translate
-        tealr::mlu::create_named_parameters!(TranslateParams with
-          x : f32,
-          y : f32,
-
-        );
-        add_lua_static_method(methods, "Translate", |_, _vgfx, p: TranslateParams| {
-            let TranslateParams { x, y } = p;
-            _vgfx.with_canvas(|canvas| canvas.translate(x, y))?;
-            Ok(())
-        });
-
-        //Scale
-        tealr::mlu::create_named_parameters!(ScaleParams with
-          x : f32,
-          y : f32,
-
-        );
-        add_lua_static_method(methods, "Scale", |_, _vgfx, p: ScaleParams| {
-            let ScaleParams { x, y } = p;
-            _vgfx.with_canvas(|canvas| canvas.scale(x, y))?;
-            Ok(())
-        });
-
-        //Rotate
-        tealr::mlu::create_named_parameters!(RotateParams with
-          angle : f32,
-
-        );
-        add_lua_static_method(methods, "Rotate", |_, _vgfx, p: RotateParams| {
-            _vgfx.with_canvas(|canvas| canvas.rotate(p.angle))?;
-            Ok(())
-        });
-
-        //ResetTransform
-        add_lua_static_method(methods, "ResetTransform", |_, _vgfx, _: ()| {
-            _vgfx.with_canvas(|canvas| canvas.reset_transform())?;
-            Ok(())
-        });
-
-        //LoadFont
-        tealr::mlu::create_named_parameters!(LoadFontParams with
-          name : String,
-          filename : Option<String>,
-
-        );
-        add_lua_static_method(methods, "LoadFont", |_, _vgfx, p: LoadFontParams| {
-            let name = p.name;
-            if let (Some(font_id), Some(paint)) =
-                (_vgfx.fonts.get(&name), _vgfx.fill_paint.as_mut())
-            {
-                paint.set_font(&[*font_id]);
-                _vgfx.label_font = *font_id;
-            } else {
-                let path = p.filename.unwrap_or_else(|| name.clone());
-                let font_id = _vgfx
-                    .with_canvas(|canvas| canvas.add_font(&path))?
-                    .map_err(mlua::Error::external)?;
-                _vgfx.label_font = font_id;
-                if let Some(paint) = _vgfx.fill_paint.as_mut() {
-                    paint.set_font(&[font_id]);
-                }
-                _vgfx.fonts.insert(name, font_id);
-            }
-
-            Ok(())
-        });
-
-        //LoadSkinFont
-        tealr::mlu::create_named_parameters!(LoadSkinFontParams with
-          name : String,
-          filename : Option<String>,
-
-        );
-        add_lua_static_method(
-            methods,
-            "LoadSkinFont",
-            |_, _vgfx, p: LoadSkinFontParams| {
-                let name = p.name;
-                if let (Some(font_id), Some(paint)) =
-                    (_vgfx.fonts.get(&name), _vgfx.fill_paint.as_mut())
-                {
-                    paint.set_font(&[*font_id]);
-                    _vgfx.label_font = *font_id;
-                } else {
-                    let path = p.filename.unwrap_or_else(|| name.clone());
-                    let mut font_path = _vgfx.game_folder.clone();
-                    font_path.push("skins");
-                    font_path.push(&_vgfx.skin);
-                    font_path.push("fonts");
-                    font_path.push(path);
-
-                    let font_id = _vgfx
-                        .with_canvas(|canvas| canvas.add_font(&font_path))?
-                        .map_err(mlua::Error::external)?;
-                    _vgfx.label_font = font_id;
-
-                    if let Some(paint) = _vgfx.fill_paint.as_mut() {
-                        paint.set_font(&[font_id]);
-                    }
-                    _vgfx.fonts.insert(name, font_id);
-                }
-
-                Ok(())
-            },
-        );
-
-        //FastText
-        tealr::mlu::create_named_parameters!(FastTextParams with
-          input_text : String,
-          x : f32,
-          y : f32,
-
-        );
-        add_lua_static_method(methods, "FastText", |_, _vgfx, p: FastTextParams| {
-            let FastTextParams { input_text, x, y } = p;
-            match _vgfx.fill_paint.as_ref() {
-                Some(fill_paint) => {
-                    let canvas = &mut _vgfx
-                        .canvas
-                        .try_lock()
-                        .map_err(|_| mlua::Error::external("Canvas in use".to_string()))?;
-                    canvas
-                        .fill_text(
-                            x,
-                            y,
-                            input_text,
-                            &fill_paint
-                                .clone()
-                                .with_font_size(fill_paint.font_size() / COMPAT_TEXT_SCALE),
-                        )
-                        .map_err(mlua::Error::external)?;
-                    Ok(())
-                }
-                None => todo!(),
-            }
-        });
-
-        //CreateLabel
-        tealr::mlu::create_named_parameters!(CreateLabelParams with
-          text : Option<String>,
-          size : i32,
-          monospace : bool,
-
-        );
-        add_lua_static_method(
-            methods,
-            "CreateLabel",
-            |lua, _vgfx, p: CreateLabelParams| {
-                let CreateLabelParams {
-                    text,
-                    size,
-                    monospace,
-                } = p;
-
-                _vgfx
-                    .scoped_assets
-                    .get_mut(&lua_address(lua))
-                    .ok_or(mlua::Error::external("Assets not initialized"))?
-                    .labels
-                    .insert(
-                        _vgfx.next_label_id,
-                        Label {
-                            text: text.unwrap_or_default(),
-                            size,
-                            _monospace: monospace,
-                            font: _vgfx.label_font,
-                        },
-                    );
-
-                let id = _vgfx.next_label_id;
-                _vgfx.next_label_id += 1;
-
-                Ok(id)
-            },
-        );
-
-        //DrawLabel
-        tealr::mlu::create_named_parameters!(DrawLabelParams with
-          label_id : u32,
-          x : f32,
-          y : f32,
-          max_width : Option<f32>,
-
-        );
-        add_lua_static_method(methods, "DrawLabel", |lua, _vgfx, p: DrawLabelParams| {
-            let DrawLabelParams {
-                label_id,
-                x,
-                y,
-                max_width,
-            } = p;
-
-            if let Some(label) = _vgfx.scoped_assets[&lua_address(lua)].labels.get(&label_id) {
-                let canvas = &mut _vgfx
-                    .canvas
-                    .try_lock()
-                    .map_err(|_| mlua::Error::external("Canvas in use".to_string()))?;
-                let mut paint = _vgfx
-                    .fill_paint
-                    .clone()
-                    .unwrap_or_else(|| _vgfx.stroke_paint.clone())
-                    .with_font(&[label.font])
-                    .with_font_size(label.size as f32)
-                    .with_color(_vgfx.label_color)
-                    .with_text_align(_vgfx.label_align.0)
-                    .with_text_baseline(_vgfx.label_align.1);
-
-                let text_measure = canvas
-                    .measure_text(x, y, &label.text, &paint)
-                    .map_err(mlua::Error::external)?;
-
-                let x_scale = match max_width {
-                    Some(max_width) if max_width <= 0.0 => 1.0,
-                    Some(max_width) => (max_width / text_measure.width()).min(1.0),
-                    None => 1.0,
-                };
-
-                paint.set_font_size(label.size as f32 * x_scale);
-
-                canvas
-                    .fill_text(x, y, &label.text, &paint)
-                    .map_err(mlua::Error::external)?;
-            }
-            Ok(())
-        });
-
-        //MoveTo
-        tealr::mlu::create_named_parameters!(MoveToParams with
-          x : f32,
-          y : f32,
-
-        );
-        add_lua_static_method(methods, "MoveTo", |_lua_index, _vgfx, p: MoveToParams| {
-            let MoveToParams { x, y } = p;
-            if let Some(path) = _vgfx.path.as_mut() {
-                path.move_to(x, y);
-                Ok(())
-            } else {
-                Err(mlua::Error::external("No path started".to_string()))
-            }
-        });
-
-        //LineTo
-        tealr::mlu::create_named_parameters!(LineToParams with
-          x : f32,
-          y : f32,
-
-        );
-        add_lua_static_method(methods, "LineTo", |_lua_index, _vgfx, p: LineToParams| {
-            let LineToParams { x, y } = p;
-            if let Some(path) = _vgfx.path.as_mut() {
-                path.line_to(x, y);
-                Ok(())
-            } else {
-                Err(mlua::Error::external("No path started".to_string()))
-            }
-        });
-
-        //BezierTo
-        tealr::mlu::create_named_parameters!(BezierToParams with
-          c_1x : f32,
-          c_1y : f32,
-          c_2x : f32,
-          c_2y : f32,
-          x : f32,
-          y : f32,
-
-        );
-        add_lua_static_method(
-            methods,
-            "BezierTo",
-            |_lua_index, _vgfx, p: BezierToParams| {
-                let BezierToParams {
-                    c_1x,
-                    c_1y,
-                    c_2x,
-                    c_2y,
-                    x,
-                    y,
-                } = p;
-                if let Some(path) = _vgfx.path.as_mut() {
-                    path.bezier_to(c_1x, c_1y, c_2x, c_2y, x, y);
-                    Ok(())
-                } else {
-                    Err(mlua::Error::external("No path started".to_string()))
-                }
-            },
-        );
-
-        //QuadTo
-        tealr::mlu::create_named_parameters!(QuadToParams with
-          cx : f32,
-          cy : f32,
-          x : f32,
-          y : f32,
-
-        );
-        add_lua_static_method(methods, "QuadTo", |_lua_index, _vgfx, p: QuadToParams| {
-            let QuadToParams { cx, cy, x, y } = p;
-            if let Some(path) = _vgfx.path.as_mut() {
-                path.quad_to(cx, cy, x, y);
-                Ok(())
-            } else {
-                Err(mlua::Error::external("No path started".to_string()))
-            }
-        });
-
-        //ArcTo
-        tealr::mlu::create_named_parameters!(ArcToParams with
-          x_1 : f32,
-          y_1 : f32,
-          x_2 : f32,
-          y_2 : f32,
-          radius : f32,
-
-        );
-        add_lua_static_method(methods, "ArcTo", |_lua_index, _vgfx, p: ArcToParams| {
-            let ArcToParams {
-                x_1,
-                y_1,
-                x_2,
-                y_2,
-                radius,
-            } = p;
-            if let Some(path) = _vgfx.path.as_mut() {
-                path.arc_to(x_1, y_1, x_2, y_2, radius);
-                Ok(())
-            } else {
-                Err(mlua::Error::external("No path started".to_string()))
-            }
-        });
-
-        //ClosePath
-        add_lua_static_method(methods, "ClosePath", |_lua_index, _vgfx, _: ()| {
-            if let Some(path) = _vgfx.path.as_mut() {
-                path.close();
-                Ok(())
-            } else {
-                Err(mlua::Error::external("No path started".to_string()))
-            }
-        });
-
-        //MiterLimit
-        tealr::mlu::create_named_parameters!(MiterLimitParams with
-          limit : f32,
-
-        );
-        add_lua_static_method(
-            methods,
-            "MiterLimit",
-            |_lua_index, _vgfx, p: MiterLimitParams| {
-                _vgfx.stroke_paint.set_miter_limit(p.limit);
-                Ok(())
-            },
-        );
-
-        //StrokeWidth
-        tealr::mlu::create_named_parameters!(StrokeWidthParams with
-          size : f32,
-
-        );
-        add_lua_static_method(
-            methods,
-            "StrokeWidth",
-            |_lua_index, _vgfx, p: StrokeWidthParams| {
-                _vgfx.stroke_paint.set_line_width(p.size);
-                Ok(())
-            },
-        );
-
-        //LineCap
-        tealr::mlu::create_named_parameters!(LineCapParams with
-          cap : u8,
-
-        );
-        add_lua_static_method(methods, "LineCap", |_lua_index, _vgfx, p: LineCapParams| {
+        if let Some(paint) = _vgfx.fill_paint.as_ref() {
+            let mut p = Path::new();
+            p.rect(x, y, w, h);
             _vgfx
-                .stroke_paint
-                .set_line_cap(unsafe { std::mem::transmute::<u8, femtovg::LineCap>(p.cap) });
-            Ok(())
-        });
+                .canvas
+                .lock()
+                .expect("Lock error")
+                .fill_path(&p, paint);
+        }
+        Ok(())
+    }
 
-        //LineJoin
-        tealr::mlu::create_named_parameters!(LineJoinParams with
-          join : u8,
-
-        );
-        add_lua_static_method(
-            methods,
-            "LineJoin",
-            |_lua_index, _vgfx, p: LineJoinParams| {
-                _vgfx
-                    .stroke_paint
-                    .set_line_join(unsafe { std::mem::transmute::<u8, femtovg::LineJoin>(p.join) });
-                Ok(())
-            },
-        );
-
-        //Stroke
-        add_lua_static_method(methods, "Stroke", |_lua_index, _vgfx, _: ()| {
-            if let Some(path) = _vgfx.path.as_mut() {
+    fn fill(_vgfx: &RefMut<Vgfx>) -> Result<(), LuaError> {
+        let mut _vgfx_lock = _vgfx.write().expect("Lock error");
+        let _vgfx = _vgfx_lock.deref_mut();
+        match (_vgfx.path.as_ref(), _vgfx.fill_paint.as_ref()) {
+            (Some(path), Some(paint)) => {
                 let path = {
                     profile_scope!("Path Cache");
                     let path_hash = hash_path(path);
                     _vgfx.path_cache.entry(path_hash).or_insert(path.clone())
                 };
-
                 let canvas = &mut _vgfx
                     .canvas
                     .try_lock()
                     .map_err(|_| mlua::Error::external("Canvas in use".to_string()))?;
-                canvas.stroke_path(path, &_vgfx.stroke_paint);
-            }
-            Ok(())
-        });
-
-        //StrokeColor
-        tealr::mlu::create_named_parameters!(StrokeColorParams with
-          r : u8,
-          g : u8,
-          b : u8,
-          a : Option<u8>,
-
-        );
-        add_lua_static_method(
-            methods,
-            "StrokeColor",
-            |_lua_index, _vgfx, p: StrokeColorParams| {
-                let StrokeColorParams { r, g, b, a } = p;
-                _vgfx
-                    .stroke_paint
-                    .set_color(Color::rgba(r, g, b, a.unwrap_or(255))); //TODO
+                canvas.fill_path(path, paint);
                 Ok(())
-            },
-        );
+            }
+            (None, None) => Err(mlua::Error::external(
+                "No path begun and no paint set".to_string(),
+            )),
+            (None, Some(_)) => Err(mlua::Error::external("No path begun".to_string())),
+            (Some(_), None) => Err(mlua::Error::external("No paint set".to_string())),
+        }
+    }
 
-        //UpdateLabel
-        tealr::mlu::create_named_parameters!(UpdateLabelParams with
-          label_id : u32,
-          text : String,
-          size : i32,
+    fn fill_color(
+        _vgfx: &RefMut<Vgfx>,
+        r: u8,
+        g: u8,
+        b: u8,
+        a: Option<u8>,
+    ) -> Result<(), mlua::Error> {
+        let mut _vgfx_lock = _vgfx.write().expect("Lock error");
+        let _vgfx = _vgfx_lock.deref_mut();
 
-        );
-        add_lua_static_method(
-            methods,
-            "UpdateLabel",
-            |lua, _vgfx, p: UpdateLabelParams| {
-                if let Some(label) = _vgfx
-                    .scoped_assets
-                    .get_mut(&lua_address(lua))
-                    .ok_or(mlua::Error::external("Assets not initialized"))?
-                    .labels
-                    .get_mut(&p.label_id)
-                {
-                    label.text = p.text;
-                    label.size = p.size;
-                    label.font = _vgfx.label_font;
-                    Ok(())
-                } else {
-                    Err(mlua::Error::external(format!(
-                        "No label with id {}",
-                        p.label_id
-                    )))
-                }
-            },
-        );
+        let color = Color::rgba(r, g, b, a.unwrap_or(255));
+        _vgfx.label_color = color;
+        if let Some(paint) = _vgfx.fill_paint.as_mut() {
+            paint.set_color(color);
+        } else {
+            _vgfx.fill_paint = Some(Paint::color(color));
+        }
+        Ok(())
+    }
 
-        //DrawGauge
-        tealr::mlu::create_named_parameters!(DrawGaugeParams with
-          rate : f32,
-          x : f32,
-          y : f32,
-          w : f32,
-          h : f32,
-          delta_time : f32,
+    fn create_image(
+        lua: &LuaKey,
+        _vgfx: &RefMut<Vgfx>,
+        filename: String,
+        imageflags: u32,
+    ) -> Result<u32, mlua::Error> {
+        let mut _vgfx_lock = _vgfx.write().expect("Lock error");
+        let _vgfx = _vgfx_lock.deref_mut();
 
-        );
-        add_lua_static_method(
-            methods,
-            "DrawGauge",
-            |_lua_index, _vgfx, _: DrawGaugeParams| -> Result<(), mlua::Error> {
-                Err(mlua::Error::external("Function removed".to_string()))
-            },
-        );
+        let Ok(img) = _vgfx
+            .with_canvas(|canvas| {
+                canvas.load_image_file(
+                    &filename,
+                    ImageFlags::from_bits(imageflags).unwrap_or(ImageFlags::empty()),
+                )
+            })?
+            .map_err(mlua::Error::external)
+        else {
+            return Ok(0);
+        };
 
-        //SetGaugeColor
-        tealr::mlu::create_named_parameters!(SetGaugeColorParams with
-          colorindex : i32,
-          r : i32,
-          g : i32,
-          b : i32,
+        let this_id = _vgfx.next_img_id;
+        _vgfx.next_img_id += 1;
+        _vgfx
+            .scoped_assets
+            .get_mut(&lua.key())
+            .ok_or(mlua::Error::external("Assets not initialized"))?
+            .images
+            .insert(this_id, VgImage::Static(img));
+        Ok(this_id)
+    }
 
-        );
-        add_lua_static_method(
-            methods,
-            "SetGaugeColor",
-            |_lua_index, _vgfx, _: SetGaugeColorParams| -> Result<(), mlua::Error> {
-                Err(mlua::Error::external("Function removed".to_string()))
-            },
-        );
+    fn create_skin_image(
+        lua: &LuaKey,
+        _vgfx: &RefMut<Vgfx>,
+        filename: String,
+        imageflags: u32,
+    ) -> Result<std::option::Option<u32>, mlua::Error> {
+        let mut _vgfx_lock = _vgfx.write().expect("Lock error");
+        let _vgfx = _vgfx_lock.deref_mut();
 
-        //RoundedRect
-        tealr::mlu::create_named_parameters!(RoundedRectParams with
-          x : f32,
-          y : f32,
-          w : f32,
-          h : f32,
-          r : f32,
+        let mut path = _vgfx.game_folder.clone();
+        path.push("skins");
+        path.push(&_vgfx.skin);
+        path.push("textures");
+        path.push(&filename);
+        let img = match _vgfx.with_canvas(|canvas| {
+            canvas
+                .load_image_file(
+                    &path,
+                    ImageFlags::from_bits(imageflags).unwrap_or(ImageFlags::empty()),
+                )
+                .or_else(|_| {
+                    profile_scope!("reformat image");
+                    let img = image::open(&path)?;
+                    canvas.create_image(
+                        femtovg::ImageSource::try_from(&image::DynamicImage::ImageRgba8(
+                            img.to_rgba8(),
+                        ))
+                        .expect("Bad image format"),
+                        ImageFlags::from_bits(imageflags).unwrap_or(ImageFlags::empty()),
+                    )
+                })
+        })? {
+            Ok(img) => img,
+            Err(err) => {
+                log::error!("Failed to load image \"{}\": {:?}", &filename, err);
+                return Ok(None);
+            }
+        };
 
-        );
-        add_lua_static_method(
-            methods,
-            "RoundedRect",
-            |_lua_index, _vgfx, p: RoundedRectParams| {
-                let RoundedRectParams { x, y, w, h, r } = p;
-                if let Some(path) = _vgfx.path.as_mut() {
-                    path.rounded_rect(x, y, w, h, r);
-                    Ok(())
-                } else {
-                    Err(mlua::Error::external("No path started".to_string()))
-                }
-            },
-        );
+        let this_id = _vgfx.next_img_id;
+        _vgfx.next_img_id += 1;
+        _vgfx
+            .scoped_assets
+            .get_mut(&lua.key())
+            .ok_or(mlua::Error::external("Assets not initialized"))?
+            .images
+            .insert(this_id, VgImage::Static(img));
+        Ok(Some(this_id))
+    }
 
-        //RoundedRectVarying
-        tealr::mlu::create_named_parameters!(RoundedRectVaryingParams with
-          x : f32,
-          y : f32,
-          w : f32,
-          h : f32,
-          rad_top_left : f32,
-          rad_top_right : f32,
-          rad_bottom_right : f32,
-          rad_bottom_left : f32,
+    fn image_rect(
+        lua: &LuaKey,
+        _vgfx: &RefMut<Vgfx>,
+        x: f32,
+        y: f32,
+        w: f32,
+        h: f32,
+        image: u32,
+        alpha: f32,
+        angle: f32,
+    ) -> Result<(), mlua::Error> {
+        let mut _vgfx_lock = _vgfx.write().expect("Lock error");
+        let _vgfx = _vgfx_lock.deref_mut();
+        if image == FALLBACK_ID {
+            return Ok(());
+        }
 
-        );
-        add_lua_static_method(
-            methods,
-            "RoundedRectVarying",
-            |_lua_index, _vgfx, p: RoundedRectVaryingParams| {
-                let RoundedRectVaryingParams {
-                    x,
-                    y,
-                    w,
-                    h,
-                    rad_top_left,
-                    rad_top_right,
-                    rad_bottom_right,
-                    rad_bottom_left,
-                } = p;
-                if let Some(path) = _vgfx.path.as_mut() {
-                    path.rounded_rect_varying(
+        if let Some(img_id) = _vgfx.scoped_assets[&lua.key()]
+            .images
+            .get(&image)
+            .and_then(|x| x.current_id())
+        {
+            let tint = _vgfx.image_tint;
+            _vgfx.with_canvas(|canvas| {
+                canvas.save_with(|canvas| {
+                    let (img_w, img_h) = canvas
+                        .image_size(img_id)
+                        .map_err(mlua::Error::external)
+                        .unwrap_or((1, 1));
+                    let scale_x = w / img_w as f32;
+                    let scale_y = h / img_h as f32;
+                    canvas.translate(x, y);
+                    canvas.rotate(angle);
+                    canvas.scale(scale_x, scale_y);
+                    let paint = if let Some(mut tint) = tint {
+                        tint.set_alphaf(alpha);
+                        Paint::image_tint(img_id, 0.0, 0.0, img_w as f32, img_h as f32, 0.0, tint)
+                    } else {
+                        Paint::image_tint(
+                            img_id,
+                            0.0,
+                            0.0,
+                            img_w as f32,
+                            img_h as f32,
+                            0.0,
+                            Color {
+                                r: 1.0,
+                                g: 1.0,
+                                b: 1.0,
+                                a: alpha,
+                            },
+                        )
+                    };
+                    let mut rect = Path::new();
+                    rect.rect(0.0, 0.0, img_w as f32, img_h as f32);
+                    canvas.fill_path(&rect, &paint);
+                });
+            })
+        } else {
+            Ok(())
+        }
+    }
+
+    fn text(_vgfx: &RefMut<Vgfx>, s: Option<String>, x: f32, y: f32) -> Result<(), mlua::Error> {
+        let mut _vgfx_lock = _vgfx.write().expect("Lock error");
+        let _vgfx = _vgfx_lock.deref_mut();
+        let Some(s) = s else {
+            return Ok(());
+        };
+        match _vgfx.fill_paint.as_ref() {
+            Some(fill_paint) => {
+                let canvas = &mut _vgfx
+                    .canvas
+                    .try_lock()
+                    .map_err(|_| mlua::Error::external("Canvas in use".to_string()))?;
+
+                canvas
+                    .fill_text(x, y, s, fill_paint)
+                    .map_err(mlua::Error::external)?;
+                Ok(())
+            }
+            None => todo!(),
+        }
+    }
+
+    fn text_align(_vgfx: &RefMut<Vgfx>, align: u32) -> Result<(), mlua::Error> {
+        let mut _vgfx_lock = _vgfx.write().expect("Lock error");
+        let _vgfx = _vgfx_lock.deref_mut();
+        let align = TextAlign::from_bits(align)
+            .unwrap_or(TextAlign::ALIGN_BASELINE | TextAlign::ALIGN_LEFT);
+        let vertical = match align & TextAlign::VERTICAL {
+            TextAlign::ALIGN_BOTTOM => femtovg::Baseline::Bottom,
+            TextAlign::ALIGN_MIDDLE => femtovg::Baseline::Middle,
+            TextAlign::ALIGN_TOP => femtovg::Baseline::Top,
+            _ => femtovg::Baseline::Alphabetic,
+        };
+
+        let horizontal = match align & TextAlign::HORIZONTAL {
+            TextAlign::ALIGN_CENTER => femtovg::Align::Center,
+            TextAlign::ALIGN_RIGHT => femtovg::Align::Right,
+            _ => femtovg::Align::Left,
+        };
+
+        _vgfx.label_align = (horizontal, vertical);
+        _vgfx.stroke_paint.set_text_align(horizontal);
+        _vgfx.stroke_paint.set_text_baseline(vertical);
+        if let Some(text_paint) = _vgfx.fill_paint.as_mut() {
+            text_paint.set_text_align(horizontal);
+            text_paint.set_text_baseline(vertical);
+        }
+        Ok(())
+    }
+
+    fn font_face(_vgfx: &RefMut<Vgfx>, s: String) -> Result<(), mlua::Error> {
+        let mut _vgfx_lock = _vgfx.write().expect("Lock error");
+        let _vgfx = _vgfx_lock.deref_mut();
+        if let Some(font_id) = _vgfx.fonts.get(&s) {
+            _vgfx.label_font = *font_id;
+            if let Some(text_paint) = _vgfx.fill_paint.as_mut() {
+                text_paint.set_font(&[*font_id]);
+            }
+        } else {
+            warn!("No loaded font named: {}", &s)
+        }
+        Ok(())
+    }
+
+    fn font_size(_vgfx: &RefMut<Vgfx>, size: f32) -> Result<(), mlua::Error> {
+        let mut _vgfx_lock = _vgfx.write().expect("Lock error");
+        let _vgfx = _vgfx_lock.deref_mut();
+        if let Some(text_paint) = _vgfx.fill_paint.as_mut() {
+            text_paint.set_font_size(size * COMPAT_TEXT_SCALE);
+        }
+        Ok(())
+    }
+
+    fn translate(_vgfx: &RefMut<Vgfx>, x: f32, y: f32) -> Result<(), mlua::Error> {
+        let mut _vgfx_lock = _vgfx.write().expect("Lock error");
+        let _vgfx = _vgfx_lock.deref_mut();
+        _vgfx.with_canvas(|canvas| canvas.translate(x, y))?;
+        Ok(())
+    }
+
+    fn scale(_vgfx: &RefMut<Vgfx>, x: f32, y: f32) -> Result<(), mlua::Error> {
+        let mut _vgfx_lock = _vgfx.write().expect("Lock error");
+        let _vgfx = _vgfx_lock.deref_mut();
+        _vgfx.with_canvas(|canvas| canvas.scale(x, y))?;
+        Ok(())
+    }
+
+    fn rotate(_vgfx: &RefMut<Vgfx>, angle: f32) -> Result<(), mlua::Error> {
+        let mut _vgfx_lock = _vgfx.write().expect("Lock error");
+        let _vgfx = _vgfx_lock.deref_mut();
+        _vgfx.with_canvas(|canvas| canvas.rotate(angle))?;
+        Ok(())
+    }
+
+    fn reset_transform(_vgfx: &RefMut<Vgfx>) -> Result<(), LuaError> {
+        let mut _vgfx_lock = _vgfx.write().expect("Lock error");
+        let _vgfx = _vgfx_lock.deref_mut();
+        _vgfx.with_canvas(|canvas| canvas.reset_transform())?;
+        Ok(())
+    }
+
+    fn load_font(
+        _vgfx: &RefMut<Vgfx>,
+        name: String,
+        filename: Option<String>,
+    ) -> Result<(), mlua::Error> {
+        let mut _vgfx_lock = _vgfx.write().expect("Lock error");
+        let _vgfx = _vgfx_lock.deref_mut();
+        if let (Some(font_id), Some(paint)) = (_vgfx.fonts.get(&name), _vgfx.fill_paint.as_mut()) {
+            paint.set_font(&[*font_id]);
+            _vgfx.label_font = *font_id;
+        } else {
+            let path = filename.unwrap_or_else(|| name.clone());
+            let font_id = _vgfx
+                .with_canvas(|canvas| canvas.add_font(&path))?
+                .map_err(mlua::Error::external)?;
+            _vgfx.label_font = font_id;
+            if let Some(paint) = _vgfx.fill_paint.as_mut() {
+                paint.set_font(&[font_id]);
+            }
+            _vgfx.fonts.insert(name, font_id);
+        }
+
+        Ok(())
+    }
+
+    fn load_skin_font(
+        _vgfx: &RefMut<Vgfx>,
+        name: String,
+        filename: Option<String>,
+    ) -> Result<(), mlua::Error> {
+        let mut _vgfx_lock = _vgfx.write().expect("Lock error");
+        let _vgfx = _vgfx_lock.deref_mut();
+        if let (Some(font_id), Some(paint)) = (_vgfx.fonts.get(&name), _vgfx.fill_paint.as_mut()) {
+            paint.set_font(&[*font_id]);
+            _vgfx.label_font = *font_id;
+        } else {
+            let path = filename.unwrap_or_else(|| name.clone());
+            let mut font_path = _vgfx.game_folder.clone();
+            font_path.push("skins");
+            font_path.push(&_vgfx.skin);
+            font_path.push("fonts");
+            font_path.push(path);
+
+            let font_id = _vgfx
+                .with_canvas(|canvas| canvas.add_font(&font_path))?
+                .map_err(mlua::Error::external)?;
+            _vgfx.label_font = font_id;
+
+            if let Some(paint) = _vgfx.fill_paint.as_mut() {
+                paint.set_font(&[font_id]);
+            }
+            _vgfx.fonts.insert(name, font_id);
+        }
+
+        Ok(())
+    }
+
+    fn fast_text(
+        _vgfx: &RefMut<Vgfx>,
+        input_text: String,
+        x: f32,
+        y: f32,
+    ) -> Result<(), mlua::Error> {
+        let mut _vgfx_lock = _vgfx.write().expect("Lock error");
+        let _vgfx = _vgfx_lock.deref_mut();
+        match _vgfx.fill_paint.as_ref() {
+            Some(fill_paint) => {
+                let canvas = &mut _vgfx
+                    .canvas
+                    .try_lock()
+                    .map_err(|_| mlua::Error::external("Canvas in use".to_string()))?;
+                canvas
+                    .fill_text(
                         x,
                         y,
-                        w,
-                        h,
-                        rad_top_left,
-                        rad_top_right,
-                        rad_bottom_right,
-                        rad_bottom_left,
-                    );
-                    Ok(())
-                } else {
-                    Err(mlua::Error::external("No path started".to_string()))
-                }
-            },
-        );
-
-        //Ellipse
-        tealr::mlu::create_named_parameters!(EllipseParams with
-          cx : f32,
-          cy : f32,
-          rx : f32,
-          ry : f32,
-
-        );
-        add_lua_static_method(methods, "Ellipse", |_lua_index, _vgfx, p: EllipseParams| {
-            let EllipseParams { cx, cy, rx, ry } = p;
-            if let Some(path) = _vgfx.path.as_mut() {
-                path.ellipse(cx, cy, rx, ry);
+                        input_text,
+                        &fill_paint
+                            .clone()
+                            .with_font_size(fill_paint.font_size() / COMPAT_TEXT_SCALE),
+                    )
+                    .map_err(mlua::Error::external)?;
                 Ok(())
-            } else {
-                Err(mlua::Error::external("No path started".to_string()))
             }
-        });
+            None => todo!(),
+        }
+    }
 
-        //Circle
-        tealr::mlu::create_named_parameters!(CircleParams with
-          cx : f32,
-          cy : f32,
-          r : f32,
+    fn create_label(
+        lua: &LuaKey,
+        _vgfx: &RefMut<Vgfx>,
+        text: Option<String>,
+        size: i32,
+        monospace: bool,
+    ) -> Result<u32, mlua::Error> {
+        let mut _vgfx_lock = _vgfx.write().expect("Lock error");
+        let _vgfx = _vgfx_lock.deref_mut();
+        _vgfx
+            .scoped_assets
+            .get_mut(&lua.key())
+            .ok_or(mlua::Error::external("Assets not initialized"))?
+            .labels
+            .insert(
+                _vgfx.next_label_id,
+                Label {
+                    text: text.unwrap_or_default(),
+                    size,
+                    _monospace: monospace,
+                    font: _vgfx.label_font,
+                },
+            );
 
-        );
-        add_lua_static_method(methods, "Circle", |_lua_index, _vgfx, p: CircleParams| {
-            let CircleParams { cx, cy, r } = p;
-            if let Some(path) = _vgfx.path.as_mut() {
-                path.circle(cx, cy, r);
-                Ok(())
-            } else {
-                Err(mlua::Error::external("No path started".to_string()))
-            }
-        });
+        let id = _vgfx.next_label_id;
+        _vgfx.next_label_id += 1;
 
-        //SkewX
-        tealr::mlu::create_named_parameters!(SkewXParams with
-          angle : f32,
+        Ok(id)
+    }
 
-        );
-        add_lua_static_method(methods, "SkewX", |_lua_index, _vgfx, p: SkewXParams| {
-            _vgfx.with_canvas(|canvas| canvas.skew_x(p.angle))?;
-            Ok(())
-        });
-
-        //SkewY
-        tealr::mlu::create_named_parameters!(SkewYParams with
-          angle : f32,
-
-        );
-        add_lua_static_method(methods, "SkewY", |_lua_index, _vgfx, p: SkewYParams| {
-            _vgfx.with_canvas(|canvas| canvas.skew_y(p.angle))?;
-            Ok(())
-        });
-
-        //LinearGradient
-        tealr::mlu::create_named_parameters!(LinearGradientParams with
-          sx : f32,
-          sy : f32,
-          ex : f32,
-          ey : f32,
-
-        );
-        add_lua_static_method(
-            methods,
-            "LinearGradient",
-            |lua, _vgfx, p: LinearGradientParams| {
-                let LinearGradientParams { sx, sy, ex, ey } = p;
-
-                _vgfx
-                    .scoped_assets
-                    .get_mut(&lua_address(lua))
-                    .ok_or(mlua::Error::external("Assets not initialized"))?
-                    .paints
-                    .insert(
-                        _vgfx.next_paint_id,
-                        Paint::linear_gradient(
-                            sx,
-                            sy,
-                            ex,
-                            ey,
-                            _vgfx.gradient_colors[0],
-                            _vgfx.gradient_colors[1],
-                        ),
-                    );
-                let id = _vgfx.next_paint_id;
-                _vgfx.next_paint_id += 1;
-
-                Ok(id)
-            },
-        );
-
-        //BoxGradient
-        tealr::mlu::create_named_parameters!(BoxGradientParams with
-          x : f32,
-          y : f32,
-          w : f32,
-          h : f32,
-          r : f32,
-          f : f32,
-
-        );
-        add_lua_static_method(
-            methods,
-            "BoxGradient",
-            |_lua_index, _vgfx, p: BoxGradientParams| {
-                let BoxGradientParams { x, y, w, h, r, f } = p;
-                _vgfx.fill_paint = Some(Paint::box_gradient(
-                    x,
-                    y,
-                    w,
-                    h,
-                    r,
-                    f,
-                    _vgfx.gradient_colors[0],
-                    _vgfx.gradient_colors[1],
-                ));
-                Ok(())
-            },
-        );
-
-        //RadialGradient
-        tealr::mlu::create_named_parameters!(RadialGradientParams with
-          cx : f32,
-          cy : f32,
-          inr : f32,
-          outr : f32,
-
-        );
-        add_lua_static_method(
-            methods,
-            "RadialGradient",
-            |lua, _vgfx, p: RadialGradientParams| {
-                let RadialGradientParams { cx, cy, inr, outr } = p;
-
-                _vgfx
-                    .scoped_assets
-                    .get_mut(&lua_address(lua))
-                    .ok_or(mlua::Error::external("Assets not initialized"))?
-                    .paints
-                    .insert(
-                        _vgfx.next_paint_id,
-                        Paint::radial_gradient(
-                            cx,
-                            cy,
-                            inr,
-                            outr,
-                            _vgfx.gradient_colors[0],
-                            _vgfx.gradient_colors[0],
-                        ),
-                    );
-                let id = _vgfx.next_paint_id;
-                _vgfx.next_paint_id += 1;
-
-                Ok(id)
-            },
-        );
-
-        //ImagePattern
-        tealr::mlu::create_named_parameters!(ImagePatternParams with
-          ox : f32,
-          oy : f32,
-          ex : f32,
-          ey : f32,
-          angle : f32,
-          image : u32,
-          alpha : f32,
-
-        );
-        add_lua_static_method(
-            methods,
-            "ImagePattern",
-            |lua, _vgfx, p: ImagePatternParams| {
-                let ImagePatternParams {
-                    ox,
-                    oy,
-                    ex,
-                    ey,
-                    angle,
-                    image,
-                    alpha,
-                } = p;
-
-                if image == FALLBACK_ID {
-                    return Ok(FALLBACK_ID);
-                }
-
-                if let Some(id) = _vgfx.scoped_assets[&lua_address(lua)]
-                    .images
-                    .get(&image)
-                    .and_then(|x| x.current_id())
-                {
-                    let paint = Paint::image(id, ox, oy, ex, ey, angle, alpha);
-                    _vgfx
-                        .scoped_assets
-                        .get_mut(&lua_address(lua))
-                        .ok_or(mlua::Error::external("Assets not initialized"))?
-                        .paints
-                        .insert(_vgfx.next_paint_id, paint);
-                    let paint_id = _vgfx.next_paint_id;
-                    _vgfx.next_paint_id += 1;
-                    _vgfx
-                        .scoped_assets
-                        .get_mut(&lua_address(lua))
-                        .ok_or(mlua::Error::external("Assets not initialized"))?
-                        .paint_imgs
-                        .insert(paint_id, id);
-                    Ok(paint_id)
-                } else {
-                    Err(mlua::Error::external(format!("No image with id {image}")))
-                }
-            },
-        );
-
-        //UpdateImagePattern
-        tealr::mlu::create_named_parameters!(UpdateImagePatternParams with
-          paint : u32,
-          ox : f32,
-          oy : f32,
-          ex : f32,
-          ey : f32,
-          angle : f32,
-          alpha : f32,
-        );
-        add_lua_static_method(
-            methods,
-            "UpdateImagePattern",
-            |lua, _vgfx, p: UpdateImagePatternParams| {
-                let UpdateImagePatternParams {
-                    paint,
-                    ox,
-                    oy,
-                    ex,
-                    ey,
-                    angle,
-                    alpha,
-                } = p;
-
-                let assets = _vgfx
-                    .scoped_assets
-                    .get_mut(&lua_address(lua))
-                    .ok_or(mlua::Error::external("Assets not initialized"))?;
-                if let (Some(pattern_paint), Some(img)) =
-                    (assets.paints.get_mut(&paint), assets.paint_imgs.get(&paint))
-                {
-                    *pattern_paint = Paint::image(*img, ox, oy, ex, ey, angle, alpha);
-                }
-                Ok(())
-            },
-        );
-
-        //GradientColors
-        tealr::mlu::create_named_parameters!(GradientColorsParams with
-          ri : i32,
-          gi : i32,
-          bi : i32,
-          ai : i32,
-          ro : i32,
-          go : i32,
-          bo : i32,
-          ao : i32,
-
-        );
-        add_lua_static_method(
-            methods,
-            "GradientColors",
-            |_lua_index, _vgfx, p: GradientColorsParams| {
-                let GradientColorsParams {
-                    ri,
-                    gi,
-                    bi,
-                    ai,
-                    ro,
-                    go,
-                    bo,
-                    ao,
-                } = p;
-                _vgfx.gradient_colors = [
-                    Color::rgba(ri as u8, gi as u8, bi as u8, ai as u8),
-                    Color::rgba(ro as u8, go as u8, bo as u8, ao as u8),
-                ];
-                Ok(())
-            },
-        );
-
-        //FillPaint
-        tealr::mlu::create_named_parameters!(FillPaintParams with
-          paint : u32,
-
-        );
-        add_lua_static_method(methods, "FillPaint", |lua, _vgfx, p: FillPaintParams| {
-            if let Some(paint) = _vgfx.scoped_assets[&lua_address(lua)].paints.get(&p.paint) {
-                _vgfx.fill_paint = Some(paint.clone());
-            }
-            Ok(())
-        });
-
-        //StrokePaint
-        tealr::mlu::create_named_parameters!(StrokePaintParams with
-          paint : u32,
-
-        );
-        add_lua_static_method(
-            methods,
-            "StrokePaint",
-            |lua, _vgfx, p: StrokePaintParams| {
-                if let Some(paint) = _vgfx.scoped_assets[&lua_address(lua)].paints.get(&p.paint) {
-                    _vgfx.stroke_paint = paint.clone();
-                }
-
-                Ok(())
-            },
-        );
-
-        //Save
-        add_lua_static_method(methods, "Save", |_, _vgfx, _: ()| {
-            _vgfx.with_canvas(|canvas| canvas.save())?;
-            _vgfx.restore_stack.push(VgfxPoint {
-                image_tint: _vgfx.image_tint,
-                path: _vgfx.path.clone(),
-                fill_paint: _vgfx.fill_paint.clone(),
-                stroke_paint: _vgfx.stroke_paint.clone(),
-            });
-            //TODO: stacks for custom stuff
-            Ok(())
-        });
-
-        //Restore
-        add_lua_static_method(methods, "Restore", |_lua_index, _vgfx, _: ()| {
-            _vgfx.with_canvas(|canvas| canvas.restore())?;
-
-            if let Some(restore) = _vgfx.restore_stack.pop() {
-                let VgfxPoint {
-                    path,
-                    fill_paint,
-                    stroke_paint,
-                    image_tint,
-                } = restore;
-                _vgfx.image_tint = image_tint;
-                _vgfx.path = path;
-                _vgfx.fill_paint = fill_paint;
-                _vgfx.stroke_paint = stroke_paint;
-            }
-
-            //TODO: stacks for custom stuff
-            Ok(())
-        });
-
-        //Reset
-        add_lua_static_method(methods, "Reset", |_lua_index, _vgfx, _: ()| {
-            _vgfx.restore_stack.clear();
-            _vgfx.image_tint = None;
-            _vgfx.with_canvas(|canvas| canvas.reset())
-        });
-
-        //PathWinding
-        tealr::mlu::create_named_parameters!(PathWindingParams with
-          dir : i32,
-
-        );
-        add_lua_static_method(
-            methods,
-            "PathWinding",
-            |_lua_index, _vgfx, _p: PathWindingParams| unimplemented(),
-        );
-
-        //ForceRender
-        add_lua_static_method(methods, "ForceRender", |_lua_index, _vgfx, _: ()| {
-            //TODO: Flush game render as well
-            //_vgfx.with_canvas(|canvas| canvas.flush())?;
-            Ok(())
-        });
-
-        //LoadImageJob
-        tealr::mlu::create_named_parameters!(LoadImageJobParams with
-          path : String,
-          placeholder : Option<u32>,
-          w : Option<u32>,
-          h : Option<u32>,
-
-        );
-        add_lua_static_method(
-            methods,
-            "LoadImageJob",
-            |lua, _vgfx, p: LoadImageJobParams| {
-                let LoadImageJobParams {
-                    path,
-                    placeholder,
-                    w,
-                    h,
-                } = p;
-
-                if let Some((key, job)) = _vgfx.image_jobs.remove_entry(&path) {
-                    match job.try_take() {
-                        Ok(img) if img.width() > 0 => {
-                            let img_id = _vgfx.with_canvas(|c| {
-                                c.create_image(
-                                    femtovg::ImageSource::try_from(&img)
-                                        .map_err(mlua::Error::external)?,
-                                    ImageFlags::empty(),
-                                )
-                                .map_err(mlua::Error::external)
-                            })??;
-
-                            _vgfx
-                                .scoped_assets
-                                .get_mut(&lua_address(lua))
-                                .ok_or(mlua::Error::external("Assets not initialized"))?
-                                .images
-                                .insert(_vgfx.next_img_id, VgImage::Static(img_id));
-                            _vgfx
-                                .scoped_assets
-                                .get_mut(&lua_address(lua))
-                                .ok_or(mlua::Error::external("Assets not initialized"))?
-                                .job_imgs
-                                .insert(key, _vgfx.next_img_id);
-                            _vgfx.next_img_id += 1;
-                        }
-                        Ok(_) => {}
-                        Err(job) => {
-                            _vgfx.image_jobs.insert(key, job);
-                        }
-                    }
-                }
-
-                let key = path.clone();
-                if !_vgfx.scoped_assets[&lua_address(lua)]
-                    .job_imgs
-                    .contains_key(&path)
-                {
-                    _vgfx
-                        .image_jobs
-                        .entry(path.clone())
-                        .or_insert_with(move || {
-                            Promise::spawn_thread("load image", move || {
-                                image::open(key)
-                                    .map(|img| {
-                                        if let (Some(w), Some(h)) = (w, h) {
-                                            img.resize(
-                                                w,
-                                                h,
-                                                image::imageops::FilterType::CatmullRom,
-                                            )
-                                        } else {
-                                            img
-                                        }
-                                    })
-                                    .unwrap_or_default()
-                            })
-                        });
-                    _vgfx
-                        .scoped_assets
-                        .get_mut(&lua_address(lua))
-                        .ok_or(mlua::Error::external("Assets not initialized"))?
-                        .job_imgs
-                        .insert(path.clone(), placeholder.unwrap_or_default());
-                }
-
-                Ok(*_vgfx.scoped_assets[&lua_address(lua)]
-                    .job_imgs
-                    .get(&path)
-                    .unwrap_or(&placeholder.unwrap_or_default()))
-            },
-        );
-
-        //LoadWebImageJob
-        tealr::mlu::create_named_parameters!(LoadWebImageJobParams with
-          url : String,
-          placeholder : i32,
-          w : i32,
-          h : i32,
-
-        );
-        add_lua_static_method(
-            methods,
-            "LoadWebImageJob",
-            |_lua_index, _vgfx, _p: LoadWebImageJobParams| unimplemented(),
-        );
-
-        //Scissor
-        tealr::mlu::create_named_parameters!(ScissorParams with
-          x : f32,
-          y : f32,
-          w : f32,
-          h : f32,
-
-        );
-        add_lua_static_method(methods, "Scissor", |_lua_index, _vgfx, p: ScissorParams| {
-            let ScissorParams { x, y, w, h } = p;
-            _vgfx.with_canvas(|canvas| canvas.scissor(x, y, w, h))?;
-
-            Ok(())
-        });
-
-        //IntersectScissor
-        tealr::mlu::create_named_parameters!(IntersectScissorParams with
-          x : f32,
-          y : f32,
-          w : f32,
-          h : f32,
-
-        );
-        add_lua_static_method(
-            methods,
-            "IntersectScissor",
-            |_lua_index, _vgfx, p: IntersectScissorParams| {
-                let IntersectScissorParams { x, y, w, h } = p;
-                _vgfx.with_canvas(|canvas| canvas.intersect_scissor(x, y, w, h))?;
-                Ok(())
-            },
-        );
-
-        //ResetScissor
-        add_lua_static_method(methods, "ResetScissor", |_lua_index, _vgfx, _: ()| {
-            _vgfx.with_canvas(|canvas| canvas.reset_scissor())?;
-            Ok(())
-        });
-
-        //TextBounds
-        tealr::mlu::create_named_parameters!(TextBoundsParams with
-          x : f32,
-          y : f32,
-          s : String,
-
-        );
-        add_lua_static_method(
-            methods,
-            "TextBounds",
-            |_lua_index, _vgfx, p: TextBoundsParams| {
-                let TextBoundsParams { x, y, s } = p;
-
-                if let Some(paint) = _vgfx.fill_paint.as_ref() {
-                    let canvas = &mut _vgfx
-                        .canvas
-                        .try_lock()
-                        .map_err(|_| mlua::Error::external("Canvas in use".to_string()))?;
-
-                    let bounds = canvas
-                        .measure_text(x, y, s, paint)
-                        .map_err(mlua::Error::external)?;
-                    Ok((
-                        bounds.x,
-                        bounds.y,
-                        bounds.x + bounds.width(),
-                        bounds.y + bounds.height(),
-                    ))
-                } else {
-                    Err(mlua::Error::external("No text paint set".to_string()))
-                }
-            },
-        );
-
-        //LabelSize
-        tealr::mlu::create_named_parameters!(LabelSizeParams with
-          label : u32,
-
-        );
-        add_lua_static_method(methods, "LabelSize", |lua, _vgfx, p: LabelSizeParams| {
+    fn draw_label(
+        lua: &LuaKey,
+        _vgfx: &RefMut<Vgfx>,
+        label_id: u32,
+        x: f32,
+        y: f32,
+        max_width: Option<f32>,
+    ) -> Result<(), mlua::Error> {
+        let mut _vgfx_lock = _vgfx.write().expect("Lock error");
+        let _vgfx = _vgfx_lock.deref_mut();
+        if let Some(label) = _vgfx.scoped_assets[&lua.key()].labels.get(&label_id) {
+            let canvas = &mut _vgfx
+                .canvas
+                .try_lock()
+                .map_err(|_| mlua::Error::external("Canvas in use".to_string()))?;
             let mut paint = _vgfx
                 .fill_paint
                 .clone()
-                .unwrap_or_else(|| _vgfx.stroke_paint.clone());
+                .unwrap_or_else(|| _vgfx.stroke_paint.clone())
+                .with_font(&[label.font])
+                .with_font_size(label.size as f32)
+                .with_color(_vgfx.label_color)
+                .with_text_align(_vgfx.label_align.0)
+                .with_text_baseline(_vgfx.label_align.1);
 
-            let canvas = _vgfx.canvas.lock().expect("Lock error");
-            if let Some(label) = _vgfx.scoped_assets[&lua_address(lua)].labels.get(&p.label) {
-                paint.set_font(&[label.font]);
-                paint.set_font_size(label.size as f32);
-                paint.set_text_align(_vgfx.label_align.0);
-                paint.set_text_baseline(_vgfx.label_align.1);
-                let size = canvas
-                    .measure_text(0.0, 0.0, &label.text, &paint)
-                    .map_err(mlua::Error::external)?;
-                Ok((size.width(), size.height()))
-            } else {
-                Err(mlua::Error::RuntimeError(format!(
-                    "No label with id: {}",
-                    p.label
-                )))
-            }
+            let text_measure = canvas
+                .measure_text(x, y, &label.text, &paint)
+                .map_err(mlua::Error::external)?;
+
+            let x_scale = match max_width {
+                Some(max_width) if max_width <= 0.0 => 1.0,
+                Some(max_width) => (max_width / text_measure.width()).min(1.0),
+                None => 1.0,
+            };
+
+            paint.set_font_size(label.size as f32 * x_scale);
+
+            canvas
+                .fill_text(x, y, &label.text, &paint)
+                .map_err(mlua::Error::external)?;
+        }
+        Ok(())
+    }
+
+    fn move_to(
+        _lua_index: &LuaKey,
+        _vgfx: &RefMut<Vgfx>,
+        x: f32,
+        y: f32,
+    ) -> Result<(), mlua::Error> {
+        let mut _vgfx_lock = _vgfx.write().expect("Lock error");
+        let _vgfx = _vgfx_lock.deref_mut();
+        if let Some(path) = _vgfx.path.as_mut() {
+            path.move_to(x, y);
+            Ok(())
+        } else {
+            Err(mlua::Error::external("No path started".to_string()))
+        }
+    }
+
+    fn line_to(
+        _lua_index: &LuaKey,
+        _vgfx: &RefMut<Vgfx>,
+        x: f32,
+        y: f32,
+    ) -> Result<(), mlua::Error> {
+        let mut _vgfx_lock = _vgfx.write().expect("Lock error");
+        let _vgfx = _vgfx_lock.deref_mut();
+        if let Some(path) = _vgfx.path.as_mut() {
+            path.line_to(x, y);
+            Ok(())
+        } else {
+            Err(mlua::Error::external("No path started".to_string()))
+        }
+    }
+
+    fn bezier_to(
+        _lua_index: &LuaKey,
+        _vgfx: &RefMut<Vgfx>,
+        c_1x: f32,
+        c_1y: f32,
+        c_2x: f32,
+        c_2y: f32,
+        x: f32,
+        y: f32,
+    ) -> Result<(), mlua::Error> {
+        let mut _vgfx_lock = _vgfx.write().expect("Lock error");
+        let _vgfx = _vgfx_lock.deref_mut();
+        if let Some(path) = _vgfx.path.as_mut() {
+            path.bezier_to(c_1x, c_1y, c_2x, c_2y, x, y);
+            Ok(())
+        } else {
+            Err(mlua::Error::external("No path started".to_string()))
+        }
+    }
+
+    fn quad_to(
+        _lua_index: &LuaKey,
+        _vgfx: &RefMut<Vgfx>,
+        cx: f32,
+        cy: f32,
+        x: f32,
+        y: f32,
+    ) -> Result<(), mlua::Error> {
+        let mut _vgfx_lock = _vgfx.write().expect("Lock error");
+        let _vgfx = _vgfx_lock.deref_mut();
+        if let Some(path) = _vgfx.path.as_mut() {
+            path.quad_to(cx, cy, x, y);
+            Ok(())
+        } else {
+            Err(mlua::Error::external("No path started".to_string()))
+        }
+    }
+
+    fn arc_to(
+        _lua_index: &LuaKey,
+        _vgfx: &RefMut<Vgfx>,
+        x_1: f32,
+        y_1: f32,
+        x_2: f32,
+        y_2: f32,
+        radius: f32,
+    ) -> mlua::Result<()> {
+        let mut _vgfx_lock = _vgfx.write().expect("Lock error");
+        let _vgfx = _vgfx_lock.deref_mut();
+        if let Some(path) = _vgfx.path.as_mut() {
+            path.arc_to(x_1, y_1, x_2, y_2, radius);
+            Ok(())
+        } else {
+            Err(mlua::Error::external("No path started".to_string()))
+        }
+    }
+
+    fn close_path(_lua_index: &LuaKey, _vgfx: &RefMut<Vgfx>) -> Result<(), mlua::Error> {
+        let mut _vgfx_lock = _vgfx.write().expect("Lock error");
+        let _vgfx = _vgfx_lock.deref_mut();
+        if let Some(path) = _vgfx.path.as_mut() {
+            path.close();
+            Ok(())
+        } else {
+            Err(mlua::Error::external("No path started".to_string()))
+        }
+    }
+
+    fn miter_limit(_lua_index: &LuaKey, _vgfx: &RefMut<Vgfx>, limit: f32) -> mlua::Result<()> {
+        let mut _vgfx_lock = _vgfx.write().expect("Lock error");
+        let _vgfx = _vgfx_lock.deref_mut();
+
+        _vgfx.stroke_paint.set_miter_limit(limit);
+        Ok(())
+    }
+
+    fn stroke_width(_lua_index: &LuaKey, _vgfx: &RefMut<Vgfx>, size: f32) -> mlua::Result<()> {
+        let mut _vgfx_lock = _vgfx.write().expect("Lock error");
+        let _vgfx = _vgfx_lock.deref_mut();
+
+        _vgfx.stroke_paint.set_line_width(size);
+        Ok(())
+    }
+
+    fn line_cap(_lua_index: &LuaKey, _vgfx: &RefMut<Vgfx>, cap: u8) -> mlua::Result<()> {
+        let mut _vgfx_lock = _vgfx.write().expect("Lock error");
+        let _vgfx = _vgfx_lock.deref_mut();
+
+        _vgfx
+            .stroke_paint
+            .set_line_cap(unsafe { std::mem::transmute::<u8, femtovg::LineCap>(cap) });
+        Ok(())
+    }
+
+    fn line_join(_lua_index: &LuaKey, _vgfx: &RefMut<Vgfx>, join: u8) -> mlua::Result<()> {
+        let mut _vgfx_lock = _vgfx.write().expect("Lock error");
+        let _vgfx = _vgfx_lock.deref_mut();
+
+        _vgfx
+            .stroke_paint
+            .set_line_join(unsafe { std::mem::transmute::<u8, femtovg::LineJoin>(join) });
+        Ok(())
+    }
+
+    fn stroke(_lua_index: &LuaKey, _vgfx: &RefMut<Vgfx>) -> Result<(), LuaError> {
+        let mut _vgfx_lock = _vgfx.write().expect("Lock error");
+        let _vgfx = _vgfx_lock.deref_mut();
+        if let Some(path) = _vgfx.path.as_mut() {
+            let path = {
+                profile_scope!("Path Cache");
+                let path_hash = hash_path(path);
+                _vgfx.path_cache.entry(path_hash).or_insert(path.clone())
+            };
+
+            let canvas = &mut _vgfx
+                .canvas
+                .try_lock()
+                .map_err(|_| mlua::Error::external("Canvas in use".to_string()))?;
+            canvas.stroke_path(path, &_vgfx.stroke_paint);
+        }
+        Ok(())
+    }
+
+    fn stroke_color(
+        _lua_index: &LuaKey,
+        _vgfx: &RefMut<Vgfx>,
+        r: u8,
+        g: u8,
+        b: u8,
+        a: Option<u8>,
+    ) -> mlua::Result<()> {
+        let mut _vgfx_lock = _vgfx.write().expect("Lock error");
+        let _vgfx = _vgfx_lock.deref_mut();
+
+        _vgfx
+            .stroke_paint
+            .set_color(Color::rgba(r, g, b, a.unwrap_or(255)));
+        Ok(())
+    }
+
+    fn update_label(
+        lua: &LuaKey,
+        _vgfx: &RefMut<Vgfx>,
+        label_id: u32,
+        text: String,
+        size: i32,
+    ) -> mlua::Result<()> {
+        let mut _vgfx_lock = _vgfx.write().expect("Lock error");
+        let _vgfx = _vgfx_lock.deref_mut();
+        if let Some(label) = _vgfx
+            .scoped_assets
+            .get_mut(&lua.key())
+            .ok_or(mlua::Error::external("Assets not initialized"))?
+            .labels
+            .get_mut(&label_id)
+        {
+            label.text = text;
+            label.size = size;
+            label.font = _vgfx.label_font;
+            Ok(())
+        } else {
+            Err(mlua::Error::external(format!(
+                "No label with id {}",
+                label_id
+            )))
+        }
+    }
+
+    fn draw_gauge(_lua_index: &LuaKey, _vgfx: &RefMut<Vgfx>) -> Result<(), mlua::Error> {
+        let mut _vgfx_lock = _vgfx.write().expect("Lock error");
+        let _vgfx = _vgfx_lock.deref_mut();
+        Err(mlua::Error::external("Function removed".to_string()))
+    }
+
+    fn set_gauge_color(_lua_index: &LuaKey, _vgfx: &RefMut<Vgfx>) -> Result<(), mlua::Error> {
+        let mut _vgfx_lock = _vgfx.write().expect("Lock error");
+        let _vgfx = _vgfx_lock.deref_mut();
+        Err(mlua::Error::external("Function removed".to_string()))
+    }
+
+    fn rounded_rect(
+        _lua_index: &LuaKey,
+        _vgfx: &RefMut<Vgfx>,
+        x: f32,
+        y: f32,
+        w: f32,
+        h: f32,
+        r: f32,
+    ) -> mlua::Result<()> {
+        let mut _vgfx_lock = _vgfx.write().expect("Lock error");
+        let _vgfx = _vgfx_lock.deref_mut();
+
+        if let Some(path) = _vgfx.path.as_mut() {
+            path.rounded_rect(x, y, w, h, r);
+            Ok(())
+        } else {
+            Err(mlua::Error::external("No path started".to_string()))
+        }
+    }
+
+    fn rounded_rect_varying(
+        _lua_index: &LuaKey,
+        _vgfx: &RefMut<Vgfx>,
+        x: f32,
+        y: f32,
+        w: f32,
+        h: f32,
+        rad_top_left: f32,
+        rad_top_right: f32,
+        rad_bottom_right: f32,
+        rad_bottom_left: f32,
+    ) -> mlua::Result<()> {
+        let mut _vgfx_lock = _vgfx.write().expect("Lock error");
+        let _vgfx = _vgfx_lock.deref_mut();
+
+        if let Some(path) = _vgfx.path.as_mut() {
+            path.rounded_rect_varying(
+                x,
+                y,
+                w,
+                h,
+                rad_top_left,
+                rad_top_right,
+                rad_bottom_right,
+                rad_bottom_left,
+            );
+            Ok(())
+        } else {
+            Err(mlua::Error::external("No path started".to_string()))
+        }
+    }
+
+    fn ellipse(
+        _lua_index: &LuaKey,
+        _vgfx: &RefMut<Vgfx>,
+        cx: f32,
+        cy: f32,
+        rx: f32,
+        ry: f32,
+    ) -> mlua::Result<()> {
+        let mut _vgfx_lock = _vgfx.write().expect("Lock error");
+        let _vgfx = _vgfx_lock.deref_mut();
+
+        if let Some(path) = _vgfx.path.as_mut() {
+            path.ellipse(cx, cy, rx, ry);
+            Ok(())
+        } else {
+            Err(mlua::Error::external("No path started".to_string()))
+        }
+    }
+
+    fn circle(
+        _lua_index: &LuaKey,
+        _vgfx: &RefMut<Vgfx>,
+        cx: f32,
+        cy: f32,
+        r: f32,
+    ) -> mlua::Result<()> {
+        let mut _vgfx_lock = _vgfx.write().expect("Lock error");
+        let _vgfx = _vgfx_lock.deref_mut();
+
+        if let Some(path) = _vgfx.path.as_mut() {
+            path.circle(cx, cy, r);
+            Ok(())
+        } else {
+            Err(mlua::Error::external("No path started".to_string()))
+        }
+    }
+
+    fn skew_x(_lua_index: &LuaKey, _vgfx: &RefMut<Vgfx>, angle: f32) -> mlua::Result<()> {
+        let mut _vgfx_lock = _vgfx.write().expect("Lock error");
+        let _vgfx = _vgfx_lock.deref_mut();
+
+        _vgfx.with_canvas(|canvas| canvas.skew_x(angle))?;
+        Ok(())
+    }
+
+    fn skew_y(_lua_index: &LuaKey, _vgfx: &RefMut<Vgfx>, angle: f32) -> mlua::Result<()> {
+        let mut _vgfx_lock = _vgfx.write().expect("Lock error");
+        let _vgfx = _vgfx_lock.deref_mut();
+
+        _vgfx.with_canvas(|canvas| canvas.skew_y(angle))?;
+        Ok(())
+    }
+
+    fn linear_gradient(
+        lua: &LuaKey,
+        _vgfx: &RefMut<Vgfx>,
+        sx: f32,
+        sy: f32,
+        ex: f32,
+        ey: f32,
+    ) -> mlua::Result<u32> {
+        let mut _vgfx_lock = _vgfx.write().expect("Lock error");
+        let _vgfx = _vgfx_lock.deref_mut();
+
+        _vgfx
+            .scoped_assets
+            .get_mut(&lua.key())
+            .ok_or(mlua::Error::external("Assets not initialized"))?
+            .paints
+            .insert(
+                _vgfx.next_paint_id,
+                Paint::linear_gradient(
+                    sx,
+                    sy,
+                    ex,
+                    ey,
+                    _vgfx.gradient_colors[0],
+                    _vgfx.gradient_colors[1],
+                ),
+            );
+        let id = _vgfx.next_paint_id;
+        _vgfx.next_paint_id += 1;
+
+        Ok(id)
+    }
+
+    fn box_gradient(
+        _lua_index: &LuaKey,
+        _vgfx: &RefMut<Vgfx>,
+        x: f32,
+        y: f32,
+        w: f32,
+        h: f32,
+        r: f32,
+        f: f32,
+    ) -> mlua::Result<()> {
+        let mut _vgfx_lock = _vgfx.write().expect("Lock error");
+        let _vgfx = _vgfx_lock.deref_mut();
+
+        _vgfx.fill_paint = Some(Paint::box_gradient(
+            x,
+            y,
+            w,
+            h,
+            r,
+            f,
+            _vgfx.gradient_colors[0],
+            _vgfx.gradient_colors[1],
+        ));
+        Ok(())
+    }
+
+    fn radial_gradient(
+        lua: &LuaKey,
+        _vgfx: &RefMut<Vgfx>,
+        cx: f32,
+        cy: f32,
+        inr: f32,
+        outr: f32,
+    ) -> mlua::Result<u32> {
+        let mut _vgfx_lock = _vgfx.write().expect("Lock error");
+        let _vgfx = _vgfx_lock.deref_mut();
+
+        _vgfx
+            .scoped_assets
+            .get_mut(&lua.key())
+            .ok_or(mlua::Error::external("Assets not initialized"))?
+            .paints
+            .insert(
+                _vgfx.next_paint_id,
+                Paint::radial_gradient(
+                    cx,
+                    cy,
+                    inr,
+                    outr,
+                    _vgfx.gradient_colors[0],
+                    _vgfx.gradient_colors[0],
+                ),
+            );
+        let id = _vgfx.next_paint_id;
+        _vgfx.next_paint_id += 1;
+
+        Ok(id)
+    }
+
+    fn image_pattern(
+        lua: &LuaKey,
+        _vgfx: &RefMut<Vgfx>,
+        ox: f32,
+        oy: f32,
+        ex: f32,
+        ey: f32,
+        angle: f32,
+        image: u32,
+        alpha: f32,
+    ) -> mlua::Result<u32> {
+        let mut _vgfx_lock = _vgfx.write().expect("Lock error");
+        let _vgfx = _vgfx_lock.deref_mut();
+
+        if image == FALLBACK_ID {
+            return Ok(FALLBACK_ID);
+        }
+
+        if let Some(id) = _vgfx.scoped_assets[&lua.key()]
+            .images
+            .get(&image)
+            .and_then(|x| x.current_id())
+        {
+            let paint = Paint::image(id, ox, oy, ex, ey, angle, alpha);
+            _vgfx
+                .scoped_assets
+                .get_mut(&lua.key())
+                .ok_or(mlua::Error::external("Assets not initialized"))?
+                .paints
+                .insert(_vgfx.next_paint_id, paint);
+            let paint_id = _vgfx.next_paint_id;
+            _vgfx.next_paint_id += 1;
+            _vgfx
+                .scoped_assets
+                .get_mut(&lua.key())
+                .ok_or(mlua::Error::external("Assets not initialized"))?
+                .paint_imgs
+                .insert(paint_id, id);
+            Ok(paint_id)
+        } else {
+            Err(mlua::Error::external(format!("No image with id {image}")))
+        }
+    }
+
+    fn update_image_pattern(
+        lua: &LuaKey,
+        _vgfx: &RefMut<Vgfx>,
+        paint: u32,
+        ox: f32,
+        oy: f32,
+        ex: f32,
+        ey: f32,
+        angle: f32,
+        alpha: f32,
+    ) -> mlua::Result<()> {
+        let mut _vgfx_lock = _vgfx.write().expect("Lock error");
+        let _vgfx = _vgfx_lock.deref_mut();
+        let assets = _vgfx
+            .scoped_assets
+            .get_mut(&lua.key())
+            .ok_or(mlua::Error::external("Assets not initialized"))?;
+        if let (Some(pattern_paint), Some(img)) =
+            (assets.paints.get_mut(&paint), assets.paint_imgs.get(&paint))
+        {
+            *pattern_paint = Paint::image(*img, ox, oy, ex, ey, angle, alpha);
+        }
+        Ok(())
+    }
+
+    fn gradient_colors(
+        _lua_index: &LuaKey,
+        _vgfx: &RefMut<Vgfx>,
+        ri: i32,
+        gi: i32,
+        bi: i32,
+        ai: i32,
+        ro: i32,
+        go: i32,
+        bo: i32,
+        ao: i32,
+    ) -> mlua::Result<()> {
+        let mut _vgfx_lock = _vgfx.write().expect("Lock error");
+        let _vgfx = _vgfx_lock.deref_mut();
+        _vgfx.gradient_colors = [
+            Color::rgba(ri as u8, gi as u8, bi as u8, ai as u8),
+            Color::rgba(ro as u8, go as u8, bo as u8, ao as u8),
+        ];
+        Ok(())
+    }
+
+    fn fill_paint(lua: &LuaKey, _vgfx: &RefMut<Vgfx>, paint: u32) -> mlua::Result<()> {
+        let mut _vgfx_lock = _vgfx.write().expect("Lock error");
+        let _vgfx = _vgfx_lock.deref_mut();
+
+        if let Some(paint) = _vgfx.scoped_assets[&lua.key()].paints.get(&paint) {
+            _vgfx.fill_paint = Some(paint.clone());
+        }
+        Ok(())
+    }
+
+    fn stroke_paint(lua: &LuaKey, _vgfx: &RefMut<Vgfx>, paint: u32) -> mlua::Result<()> {
+        let mut _vgfx_lock = _vgfx.write().expect("Lock error");
+        let _vgfx = _vgfx_lock.deref_mut();
+
+        if let Some(paint) = _vgfx.scoped_assets[&lua.key()].paints.get(&paint) {
+            _vgfx.stroke_paint = paint.clone();
+        }
+
+        Ok(())
+    }
+
+    fn save(_vgfx: &RefMut<Vgfx>) -> Result<(), LuaError> {
+        let mut _vgfx_lock = _vgfx.write().expect("Lock error");
+        let _vgfx = _vgfx_lock.deref_mut();
+        _vgfx.with_canvas(|canvas| canvas.save())?;
+        _vgfx.restore_stack.push(VgfxPoint {
+            image_tint: _vgfx.image_tint,
+            path: _vgfx.path.clone(),
+            fill_paint: _vgfx.fill_paint.clone(),
+            stroke_paint: _vgfx.stroke_paint.clone(),
         });
+        //TODO: stacks for custom stuff
+        Ok(())
+    }
 
-        //FastTextSize
-        tealr::mlu::create_named_parameters!(FastTextSizeParams with
-          text : String,
+    fn restore(_lua_index: &LuaKey, _vgfx: &RefMut<Vgfx>) -> Result<(), LuaError> {
+        let mut _vgfx_lock = _vgfx.write().expect("Lock error");
+        let _vgfx = _vgfx_lock.deref_mut();
+        _vgfx.with_canvas(|canvas| canvas.restore())?;
 
-        );
-        add_lua_static_method(
-            methods,
-            "FastTextSize",
-            |_lua_index, _vgfx, _p: FastTextSizeParams| unimplemented(),
-        );
+        if let Some(restore) = _vgfx.restore_stack.pop() {
+            let VgfxPoint {
+                path,
+                fill_paint,
+                stroke_paint,
+                image_tint,
+            } = restore;
+            _vgfx.image_tint = image_tint;
+            _vgfx.path = path;
+            _vgfx.fill_paint = fill_paint;
+            _vgfx.stroke_paint = stroke_paint;
+        }
 
-        //ImageSize
-        tealr::mlu::create_named_parameters!(ImageSizeParams with
-          image : u32,
+        //TODO: stacks for custom stuff
+        Ok(())
+    }
 
-        );
-        add_lua_static_method(methods, "ImageSize", |lua, _vgfx, p: ImageSizeParams| {
-            if p.image == FALLBACK_ID {
-                return Ok((1, 1));
+    fn reset(_lua_index: &LuaKey, _vgfx: &RefMut<Vgfx>) -> Result<(), LuaError> {
+        let mut _vgfx_lock = _vgfx.write().expect("Lock error");
+        let _vgfx = _vgfx_lock.deref_mut();
+        _vgfx.restore_stack.clear();
+        _vgfx.image_tint = None;
+        _vgfx.with_canvas(|canvas| canvas.reset())
+    }
+
+    fn path_winding(_lua_index: &LuaKey, _vgfx: &RefMut<Vgfx>, dir: i32) -> mlua::Result<()> {
+        let mut _vgfx_lock = _vgfx.write().expect("Lock error");
+        let _vgfx = _vgfx_lock.deref_mut();
+        unimplemented()
+    }
+
+    fn force_render(_lua_index: &LuaKey, _vgfx: &RefMut<Vgfx>) -> Result<(), LuaError> {
+        let mut _vgfx_lock = _vgfx.write().expect("Lock error");
+        let _vgfx = _vgfx_lock.deref_mut();
+        //TODO: Flush game render as well
+        //_vgfx.with_canvas(|canvas| canvas.flush())?;
+        Ok(())
+    }
+
+    fn load_image_job(
+        lua: &LuaKey,
+        _vgfx: &RefMut<Vgfx>,
+        path: String,
+        placeholder: Option<u32>,
+        w: Option<u32>,
+        h: Option<u32>,
+    ) -> mlua::Result<u32> {
+        let mut _vgfx_lock = _vgfx.write().expect("Lock error");
+        let _vgfx = _vgfx_lock.deref_mut();
+        if let Some((key, job)) = _vgfx.image_jobs.remove_entry(&path) {
+            match job.try_take() {
+                Ok(img) if img.width() > 0 => {
+                    let img_id = _vgfx.with_canvas(|c| {
+                        c.create_image(
+                            femtovg::ImageSource::try_from(&img).map_err(mlua::Error::external)?,
+                            ImageFlags::empty(),
+                        )
+                        .map_err(mlua::Error::external)
+                    })??;
+
+                    _vgfx
+                        .scoped_assets
+                        .get_mut(&lua.key())
+                        .ok_or(mlua::Error::external("Assets not initialized"))?
+                        .images
+                        .insert(_vgfx.next_img_id, VgImage::Static(img_id));
+                    _vgfx
+                        .scoped_assets
+                        .get_mut(&lua.key())
+                        .ok_or(mlua::Error::external("Assets not initialized"))?
+                        .job_imgs
+                        .insert(key, _vgfx.next_img_id);
+                    _vgfx.next_img_id += 1;
+                }
+                Ok(_) => {}
+                Err(job) => {
+                    _vgfx.image_jobs.insert(key, job);
+                }
             }
+        }
 
-            if let Some(id) = _vgfx.scoped_assets[&lua_address(lua)]
-                .images
-                .get(&p.image)
-                .and_then(|x| x.current_id())
-            {
-                _vgfx
-                    .with_canvas(|canvas| canvas.image_size(id))?
-                    .map_err(mlua::Error::external)
-            } else {
-                Err(mlua::Error::external(format!(
-                    "No image with id {}",
-                    p.image
-                )))
-            }
-        });
+        let key = path.clone();
+        if !_vgfx.scoped_assets[&lua.key()].job_imgs.contains_key(&path) {
+            _vgfx
+                .image_jobs
+                .entry(path.clone())
+                .or_insert_with(move || {
+                    Promise::spawn_thread("load image", move || {
+                        image::open(key)
+                            .map(|img| {
+                                if let (Some(w), Some(h)) = (w, h) {
+                                    img.resize(w, h, image::imageops::FilterType::CatmullRom)
+                                } else {
+                                    img
+                                }
+                            })
+                            .unwrap_or_default()
+                    })
+                });
+            _vgfx
+                .scoped_assets
+                .get_mut(&lua.key())
+                .ok_or(mlua::Error::external("Assets not initialized"))?
+                .job_imgs
+                .insert(path.clone(), placeholder.unwrap_or_default());
+        }
 
-        //Arc
-        tealr::mlu::create_named_parameters!(ArcParams with
-          cx : f32,
-          cy : f32,
-          r : f32,
-          a_0 : f32,
-          a_1 : f32,
-          dir : i32,
+        Ok(*_vgfx.scoped_assets[&lua.key()]
+            .job_imgs
+            .get(&path)
+            .unwrap_or(&placeholder.unwrap_or_default()))
+    }
 
-        );
-        add_lua_static_method(methods, "Arc", |_lua_index, _vgfx, p: ArcParams| {
-            let ArcParams {
+    fn load_web_image_job(
+        _lua_index: &LuaKey,
+        _vgfx: &RefMut<Vgfx>,
+        url: String,
+        placeholder: i32,
+        w: i32,
+        h: i32,
+    ) -> mlua::Result<()> {
+        let mut _vgfx_lock = _vgfx.write().expect("Lock error");
+        let _vgfx = _vgfx_lock.deref_mut();
+        unimplemented()
+    }
+
+    fn scissor(
+        _lua_index: &LuaKey,
+        _vgfx: &RefMut<Vgfx>,
+        x: f32,
+        y: f32,
+        w: f32,
+        h: f32,
+    ) -> mlua::Result<()> {
+        let mut _vgfx_lock = _vgfx.write().expect("Lock error");
+        let _vgfx = _vgfx_lock.deref_mut();
+        _vgfx.with_canvas(|canvas| canvas.scissor(x, y, w, h))?;
+
+        Ok(())
+    }
+
+    fn intersect_scissor(
+        _lua_index: &LuaKey,
+        _vgfx: &RefMut<Vgfx>,
+        x: f32,
+        y: f32,
+        w: f32,
+        h: f32,
+    ) -> mlua::Result<()> {
+        let mut _vgfx_lock = _vgfx.write().expect("Lock error");
+        let _vgfx = _vgfx_lock.deref_mut();
+        _vgfx.with_canvas(|canvas| canvas.intersect_scissor(x, y, w, h))?;
+        Ok(())
+    }
+
+    fn reset_scissor(_lua_index: &LuaKey, _vgfx: &RefMut<Vgfx>) -> Result<(), LuaError> {
+        let mut _vgfx_lock = _vgfx.write().expect("Lock error");
+        let _vgfx = _vgfx_lock.deref_mut();
+        _vgfx.with_canvas(|canvas| canvas.reset_scissor())?;
+        Ok(())
+    }
+
+    fn text_bounds(
+        _lua_index: &LuaKey,
+        _vgfx: &RefMut<Vgfx>,
+        x: f32,
+        y: f32,
+        s: String,
+    ) -> mlua::Result<(f32, f32, f32, f32)> {
+        let mut _vgfx_lock = _vgfx.write().expect("Lock error");
+        let _vgfx = _vgfx_lock.deref_mut();
+        if let Some(paint) = _vgfx.fill_paint.as_ref() {
+            let canvas = &mut _vgfx
+                .canvas
+                .try_lock()
+                .map_err(|_| mlua::Error::external("Canvas in use".to_string()))?;
+
+            let bounds = canvas
+                .measure_text(x, y, s, paint)
+                .map_err(mlua::Error::external)?;
+            Ok((
+                bounds.x,
+                bounds.y,
+                bounds.x + bounds.width(),
+                bounds.y + bounds.height(),
+            ))
+        } else {
+            Err(mlua::Error::external("No text paint set".to_string()))
+        }
+    }
+
+    fn label_size(lua: &LuaKey, _vgfx: &RefMut<Vgfx>, label: u32) -> mlua::Result<(f32, f32)> {
+        let mut _vgfx_lock = _vgfx.write().expect("Lock error");
+        let _vgfx = _vgfx_lock.deref_mut();
+
+        let mut paint = _vgfx
+            .fill_paint
+            .clone()
+            .unwrap_or_else(|| _vgfx.stroke_paint.clone());
+
+        let canvas = _vgfx.canvas.lock().expect("Lock error");
+        if let Some(label) = _vgfx.scoped_assets[&lua.key()].labels.get(&label) {
+            paint.set_font(&[label.font]);
+            paint.set_font_size(label.size as f32);
+            paint.set_text_align(_vgfx.label_align.0);
+            paint.set_text_baseline(_vgfx.label_align.1);
+            let size = canvas
+                .measure_text(0.0, 0.0, &label.text, &paint)
+                .map_err(mlua::Error::external)?;
+            Ok((size.width(), size.height()))
+        } else {
+            Err(mlua::Error::RuntimeError(format!(
+                "No label with id: {}",
+                label
+            )))
+        }
+    }
+
+    fn fast_text_size(_lua_index: &LuaKey, _vgfx: &RefMut<Vgfx>, text: String) -> mlua::Result<()> {
+        let mut _vgfx_lock = _vgfx.write().expect("Lock error");
+        let _vgfx = _vgfx_lock.deref_mut();
+        unimplemented()
+    }
+
+    fn image_size(lua: &LuaKey, _vgfx: &RefMut<Vgfx>, image: u32) -> mlua::Result<(usize, usize)> {
+        let mut _vgfx_lock = _vgfx.write().expect("Lock error");
+        let _vgfx = _vgfx_lock.deref_mut();
+
+        if image == FALLBACK_ID {
+            return Ok((1, 1));
+        }
+
+        if let Some(id) = _vgfx.scoped_assets[&lua.key()]
+            .images
+            .get(&image)
+            .and_then(|x| x.current_id())
+        {
+            _vgfx
+                .with_canvas(|canvas| canvas.image_size(id))?
+                .map_err(mlua::Error::external)
+        } else {
+            Err(mlua::Error::external(format!("No image with id {}", image)))
+        }
+    }
+
+    fn arc(
+        _lua_index: &LuaKey,
+        _vgfx: &RefMut<Vgfx>,
+        cx: f32,
+        cy: f32,
+        r: f32,
+        a_0: f32,
+        a_1: f32,
+        dir: i32,
+    ) -> mlua::Result<()> {
+        let mut _vgfx_lock = _vgfx.write().expect("Lock error");
+        let _vgfx = _vgfx_lock.deref_mut();
+
+        if let Some(path) = _vgfx.path.as_mut() {
+            path.arc(
                 cx,
                 cy,
                 r,
                 a_0,
                 a_1,
-                dir,
-            } = p;
-            if let Some(path) = _vgfx.path.as_mut() {
-                path.arc(
-                    cx,
-                    cy,
-                    r,
-                    a_0,
-                    a_1,
-                    if dir == 0 {
-                        femtovg::Solidity::Solid
-                    } else {
-                        femtovg::Solidity::Hole
-                    },
-                );
-                Ok(())
-            } else {
-                Err(mlua::Error::external("No path started".to_string()))
+                if dir == 0 {
+                    femtovg::Solidity::Solid
+                } else {
+                    femtovg::Solidity::Hole
+                },
+            );
+            Ok(())
+        } else {
+            Err(mlua::Error::external("No path started".to_string()))
+        }
+    }
+
+    fn set_image_tint(
+        _lua_index: &LuaKey,
+        _vgfx: &RefMut<Vgfx>,
+        r: u8,
+        g: u8,
+        b: u8,
+    ) -> mlua::Result<u32> {
+        let mut _vgfx_lock = _vgfx.write().expect("Lock error");
+        let _vgfx = _vgfx_lock.deref_mut();
+
+        if let Some(_paint) = _vgfx.fill_paint.as_mut() {
+            _vgfx.image_tint = Some(Color::rgb(r, g, b));
+        }
+        Ok(0)
+    }
+
+    fn global_composite_operation(
+        _lua_index: &LuaKey,
+        _vgfx: &RefMut<Vgfx>,
+        op: u8,
+    ) -> mlua::Result<()> {
+        let mut _vgfx_lock = _vgfx.write().expect("Lock error");
+        let _vgfx = _vgfx_lock.deref_mut();
+
+        if op <= femtovg::CompositeOperation::Xor as u8 {
+            unsafe {
+                _vgfx.with_canvas(|canvas| {
+                    canvas.global_composite_operation(std::mem::transmute::<
+                        u8,
+                        femtovg::CompositeOperation,
+                    >(op))
+                })?
             }
-        });
+        }
 
-        //SetImageTint
-        tealr::mlu::create_named_parameters!(SetImageTintParams with
-          r : u8,
-          g : u8,
-          b : u8,
-
-        );
-        add_lua_static_method(
-            methods,
-            "SetImageTint",
-            |_lua_index, _vgfx, _p: SetImageTintParams| {
-                let SetImageTintParams { r, g, b } = _p;
-                if let Some(_paint) = _vgfx.fill_paint.as_mut() {
-                    _vgfx.image_tint = Some(Color::rgb(r, g, b));
-                }
-                Ok(0)
-            },
-        );
-
-        //GlobalCompositeOperation
-        tealr::mlu::create_named_parameters!(GlobalCompositeOperationParams with
-          op : u8,
-
-        );
-        add_lua_static_method(
-            methods,
-            "GlobalCompositeOperation",
-            |_lua_index, _vgfx, p: GlobalCompositeOperationParams| {
-                if p.op <= femtovg::CompositeOperation::Xor as u8 {
-                    unsafe {
-                        _vgfx.with_canvas(|canvas| {
-                            canvas.global_composite_operation(std::mem::transmute::<
-                                u8,
-                                femtovg::CompositeOperation,
-                            >(p.op))
-                        })?
-                    }
-                }
-
-                Ok(())
-            },
-        );
-
-        //GlobalCompositeBlendFunc
-        tealr::mlu::create_named_parameters!(GlobalCompositeBlendFuncParams with
-          sfactor : u8,
-          dfactor : u8,
-
-        );
-        add_lua_static_method(
-            methods,
-            "GlobalCompositeBlendFunc",
-            |_lua_index, _vgfx, p: GlobalCompositeBlendFuncParams| {
-                let last_factor = femtovg::BlendFactor::SrcAlphaSaturate as u8;
-                if p.dfactor <= last_factor && p.sfactor <= last_factor {
-                    unsafe {
-                        _vgfx.with_canvas(|canvas| {
-                            canvas.global_composite_blend_func(
-                                std::mem::transmute::<u8, femtovg::BlendFactor>(p.sfactor),
-                                std::mem::transmute::<u8, femtovg::BlendFactor>(p.dfactor),
-                            )
-                        })?
-                    }
-                }
-
-                Ok(())
-            },
-        );
-
-        //GlobalCompositeBlendFuncSeparate
-        tealr::mlu::create_named_parameters!(GlobalCompositeBlendFuncSeparateParams with
-          src_rgb : i32,
-          dst_rgb : i32,
-          src_alpha : i32,
-          dst_alpha : i32,
-
-        );
-        add_lua_static_method(
-            methods,
-            "GlobalCompositeBlendFuncSeparate",
-            |_lua_index, _vgfx, _p: GlobalCompositeBlendFuncSeparateParams| unimplemented(),
-        );
-
-        //LoadAnimation
-        tealr::mlu::create_named_parameters!(LoadAnimationParams with
-          path : String,
-          frametime : f64,
-          loopcount : Option<usize>,
-          compressed : Option<bool>,
-
-        );
-        add_lua_static_method(
-            methods,
-            "LoadAnimation",
-            |lua, _vgfx, p: LoadAnimationParams| {
-                let LoadAnimationParams {
-                    path,
-                    frametime,
-                    loopcount,
-                    compressed,
-                } = p;
-
-                let anim = VgAnimation::new(
-                    path,
-                    frametime,
-                    _vgfx.canvas.clone(),
-                    loopcount.unwrap_or_default(),
-                    compressed.unwrap_or_default(),
-                )
-                .map_err(mlua::Error::external)?;
-                _vgfx
-                    .scoped_assets
-                    .get_mut(&lua_address(lua))
-                    .ok_or(mlua::Error::external("Assets not initialized"))?
-                    .images
-                    .insert(_vgfx.next_img_id, VgImage::Animation(anim));
-                let res = _vgfx.next_img_id;
-                _vgfx.next_img_id += 1;
-
-                Ok(res)
-            },
-        );
-
-        //GlobalAlpha
-        tealr::mlu::create_named_parameters!(GlobalAlphaParams with
-          alpha : f32,
-
-        );
-        add_lua_static_method(
-            methods,
-            "GlobalAlpha",
-            |_lua_index, _vgfx, p: GlobalAlphaParams| {
-                _vgfx
-                    .canvas
-                    .lock()
-                    .expect("Lock error")
-                    .set_global_alpha(p.alpha);
-                Ok(())
-            },
-        );
-
-        //LoadSkinAnimation
-        add_lua_static_method(
-            methods,
-            "LoadSkinAnimation",
-            |lua, _vgfx, p: LoadAnimationParams| {
-                let LoadAnimationParams {
-                    path,
-                    frametime,
-                    loopcount,
-                    compressed,
-                } = p;
-
-                let mut skinned_path = _vgfx.game_folder.clone();
-                skinned_path.push("skins");
-                skinned_path.push(&_vgfx.skin);
-                skinned_path.push("textures");
-                skinned_path.push(path);
-
-                let anim = VgAnimation::new(
-                    skinned_path,
-                    frametime,
-                    _vgfx.canvas.clone(),
-                    loopcount.unwrap_or_default(),
-                    compressed.unwrap_or_default(),
-                )
-                .map_err(mlua::Error::external)?;
-                _vgfx
-                    .scoped_assets
-                    .get_mut(&lua_address(lua))
-                    .ok_or(mlua::Error::external("Assets not initialized"))?
-                    .images
-                    .insert(_vgfx.next_img_id, VgImage::Animation(anim));
-                let res = _vgfx.next_img_id;
-                _vgfx.next_img_id += 1;
-
-                Ok(res)
-            },
-        );
-
-        //TickAnimation
-        tealr::mlu::create_named_parameters!(TickAnimationParams with
-          animation : u32,
-          delta_time : f64,
-
-        );
-        add_lua_static_method(
-            methods,
-            "TickAnimation",
-            |lua, _vgfx, p: TickAnimationParams| {
-                let TickAnimationParams {
-                    animation,
-                    delta_time,
-                } = p;
-
-                if let Some(VgImage::Animation(anim)) = _vgfx
-                    .scoped_assets
-                    .get_mut(&lua_address(lua))
-                    .ok_or(mlua::Error::external("Assets not initialized"))?
-                    .images
-                    .get_mut(&animation)
-                {
-                    anim.tick(delta_time)
-                }
-                Ok(())
-            },
-        );
-
-        //LoadSharedTexture
-        tealr::mlu::create_named_parameters!(LoadSharedTextureParams with
-          key : String,
-          path : String,
-
-        );
-        add_lua_static_method(
-            methods,
-            "LoadSharedTexture",
-            |_lua_index, _vgfx, _p: LoadSharedTextureParams| unimplemented(),
-        );
-
-        //LoadSharedSkinTexture
-        tealr::mlu::create_named_parameters!(LoadSharedSkinTextureParams with
-          key : String,
-          path : String,
-
-        );
-        add_lua_static_method(
-            methods,
-            "LoadSharedSkinTexture",
-            |_, _vgfx, _p: LoadSharedSkinTextureParams| unimplemented(),
-        );
-
-        //GetSharedTexture
-        tealr::mlu::create_named_parameters!(GetSharedTextureParams with
-          key : String,
-
-        );
-        add_lua_static_method(
-            methods,
-            "GetSharedTexture",
-            |_, _vgfx, _p: GetSharedTextureParams| unimplemented(),
-        );
-
-        tealr::mlu::create_named_parameters!(CreateShadedMeshParams with
-            material: Option<String>,
-            path: Option<String>,
-        );
-
-        methods.add_function_mut("CreateShadedMesh", |lua, p: CreateShadedMeshParams| {
-            let context = &lua
-                .app_data_ref::<Arc<three_d::Context>>()
-                .ok_or(mlua::Error::external("three_d Context app date not set"))?;
-            let vgfx = &lua
-                .app_data_ref::<Arc<RwLock<Vgfx>>>()
-                .ok_or(mlua::Error::external("VGFX app data not set"))?;
-            let vgfx = vgfx.write().expect("Lock error");
-
-            let mut shader_path = vgfx.game_folder.clone();
-            shader_path.push("skins");
-            shader_path.push(&vgfx.skin);
-            shader_path.push("shaders");
-
-            ShadedMesh::new(
-                context,
-                &p.material.unwrap_or_else(|| "guiTex".to_string()),
-                p.path.map(PathBuf::from).unwrap_or(shader_path),
-            )
-            .map_err(mlua::Error::external)
-        })
+        Ok(())
     }
-    fn add_fields<'lua, F: tealr::mlu::TealDataFields<'lua, Self>>(fields: &mut F) {
-        fields.add_field_function_get("TEXT_ALIGN_BASELINE", |_, _| {
-            Ok(TextAlign::ALIGN_BASELINE.bits())
-        }); // NVGalign::NVG_ALIGN_BASELINE
-        fields.add_field_function_get("TEXT_ALIGN_BOTTOM", |_, _| {
-            Ok(TextAlign::ALIGN_BOTTOM.bits())
-        }); // NVGalign::NVG_ALIGN_BOTTOM
-        fields.add_field_function_get("TEXT_ALIGN_CENTER", |_, _| {
-            Ok(TextAlign::ALIGN_CENTER.bits())
-        }); // NVGalign::NVG_ALIGN_CENTER
-        fields.add_field_function_get("TEXT_ALIGN_LEFT", |_, _| Ok(TextAlign::ALIGN_LEFT.bits())); // NVGalign::NVG_ALIGN_LEFT
-        fields.add_field_function_get("TEXT_ALIGN_MIDDLE", |_, _| {
-            Ok(TextAlign::ALIGN_MIDDLE.bits())
-        }); // NVGalign::NVG_ALIGN_MIDDLE
-        fields.add_field_function_get("TEXT_ALIGN_RIGHT", |_, _| Ok(TextAlign::ALIGN_RIGHT.bits())); // NVGalign::NVG_ALIGN_RIGHT
-        fields.add_field_function_get("TEXT_ALIGN_TOP", |_, _| Ok(TextAlign::ALIGN_TOP.bits())); // NVGalign::NVG_ALIGN_TOP
-        fields.add_field_function_get("LINE_BEVEL", |_, _| Ok(femtovg::LineJoin::Bevel as u8)); // NVGlineCap::NVG_BEVEL
-        fields.add_field_function_get("LINE_BUTT", |_, _| Ok(femtovg::LineCap::Butt as u8)); // NVGlineCap::NVG_BUTT
-        fields.add_field_function_get("LINE_MITER", |_, _| Ok(femtovg::LineJoin::Miter as u8)); // NVGlineCap::NVG_MITER
-        fields.add_field_function_get("LINE_ROUND", |_, _| Ok(femtovg::LineCap::Round as u8)); // NVGlineCap::NVG_ROUND
-        fields.add_field_function_get("LINE_SQUARE", |_, _| Ok(femtovg::LineCap::Square as u8)); // NVGlineCap::NVG_SQUARE
-        fields.add_field_function_get("IMAGE_GENERATE_MIPMAPS", |_, _| {
-            Ok(ImageFlags::GENERATE_MIPMAPS.bits())
-        }); // NVGimageFlags::NVG_IMAGE_GENERATE_MIPMAPS
-        fields.add_field_function_get("IMAGE_REPEATX", |_, _| Ok(ImageFlags::REPEAT_X.bits())); // NVGimageFlags::NVG_IMAGE_REPEATX
-        fields.add_field_function_get("IMAGE_REPEATY", |_, _| Ok(ImageFlags::REPEAT_Y.bits())); // NVGimageFlags::NVG_IMAGE_REPEATY
-        fields.add_field_function_get("IMAGE_FLIPY", |_, _| Ok(ImageFlags::FLIP_Y.bits())); // NVGimageFlags::NVG_IMAGE_FLIPY
-        fields.add_field_function_get("IMAGE_PREMULTIPLIED", |_, _| {
-            Ok(ImageFlags::PREMULTIPLIED.bits())
-        }); // NVGimageFlags::NVG_IMAGE_PREMULTIPLIED
-        fields.add_field_function_get("IMAGE_NEAREST", |_, _| Ok(ImageFlags::NEAREST.bits()));
-        // NVGimageFlags::NVG_IMAGE_NEAREST
 
-        //Blend flags
-        fields.add_field_function_get("BLEND_ZERO", |_, _| Ok(femtovg::BlendFactor::Zero as u8));
-        fields.add_field_function_get("BLEND_ONE", |_, _| Ok(femtovg::BlendFactor::One as u8));
-        fields.add_field_function_get("BLEND_SRC_COLOR", |_, _| {
-            Ok(femtovg::BlendFactor::SrcColor as u8)
-        });
-        fields.add_field_function_get("BLEND_ONE_MINUS_SRC_COLOR", |_, _| {
-            Ok(femtovg::BlendFactor::OneMinusSrcColor as u8)
-        });
-        fields.add_field_function_get("BLEND_DST_COLOR", |_, _| {
-            Ok(femtovg::BlendFactor::DstColor as u8)
-        });
-        fields.add_field_function_get("BLEND_ONE_MINUS_DST_COLOR", |_, _| {
-            Ok(femtovg::BlendFactor::OneMinusDstColor as u8)
-        });
-        fields.add_field_function_get("BLEND_SRC_ALPHA", |_, _| {
-            Ok(femtovg::BlendFactor::SrcAlpha as u8)
-        });
-        fields.add_field_function_get("BLEND_ONE_MINUS_SRC_ALPHA", |_, _| {
-            Ok(femtovg::BlendFactor::OneMinusSrcAlpha as u8)
-        });
-        fields.add_field_function_get("BLEND_DST_ALPHA", |_, _| {
-            Ok(femtovg::BlendFactor::DstAlpha as u8)
-        });
-        fields.add_field_function_get("BLEND_ONE_MINUS_DST_ALPHA", |_, _| {
-            Ok(femtovg::BlendFactor::OneMinusDstAlpha as u8)
-        });
-        fields.add_field_function_get("BLEND_SRC_ALPHA_SATURATE", |_, _| {
-            Ok(femtovg::BlendFactor::SrcAlphaSaturate as u8)
-        });
+    fn global_composite_blend_func(
+        _lua_index: &LuaKey,
+        _vgfx: &RefMut<Vgfx>,
+        sfactor: u8,
+        dfactor: u8,
+    ) -> mlua::Result<()> {
+        let mut _vgfx_lock = _vgfx.write().expect("Lock error");
+        let _vgfx = _vgfx_lock.deref_mut();
 
-        //Blend operations
-        fields.add_field_function_get("BLEND_OP_SOURCE_OVER", |_, _| {
-            Ok(femtovg::CompositeOperation::SourceOver as u8)
-        }); //<<<<< default
-        fields.add_field_function_get("BLEND_OP_SOURCE_IN", |_, _| {
-            Ok(femtovg::CompositeOperation::SourceIn as u8)
-        });
-        fields.add_field_function_get("BLEND_OP_SOURCE_OUT", |_, _| {
-            Ok(femtovg::CompositeOperation::SourceOut as u8)
-        });
-        fields.add_field_function_get("BLEND_OP_ATOP", |_, _| {
-            Ok(femtovg::CompositeOperation::Atop as u8)
-        });
-        fields.add_field_function_get("BLEND_OP_DESTINATION_OVER", |_, _| {
-            Ok(femtovg::CompositeOperation::DestinationOver as u8)
-        });
-        fields.add_field_function_get("BLEND_OP_DESTINATION_IN", |_, _| {
-            Ok(femtovg::CompositeOperation::DestinationIn as u8)
-        });
-        fields.add_field_function_get("BLEND_OP_DESTINATION_OUT", |_, _| {
-            Ok(femtovg::CompositeOperation::DestinationOut as u8)
-        });
-        fields.add_field_function_get("BLEND_OP_DESTINATION_ATOP", |_, _| {
-            Ok(femtovg::CompositeOperation::DestinationAtop as u8)
-        });
-        fields.add_field_function_get("BLEND_OP_LIGHTER", |_, _| {
-            Ok(femtovg::CompositeOperation::Lighter as u8)
-        });
-        fields.add_field_function_get("BLEND_OP_COPY", |_, _| {
-            Ok(femtovg::CompositeOperation::Copy as u8)
-        });
-        fields.add_field_function_get("BLEND_OP_XOR", |_, _| {
-            Ok(femtovg::CompositeOperation::Xor as u8)
-        });
+        let last_factor = femtovg::BlendFactor::SrcAlphaSaturate as u8;
+        if dfactor <= last_factor && sfactor <= last_factor {
+            unsafe {
+                _vgfx.with_canvas(|canvas| {
+                    canvas.global_composite_blend_func(
+                        std::mem::transmute::<u8, femtovg::BlendFactor>(sfactor),
+                        std::mem::transmute::<u8, femtovg::BlendFactor>(dfactor),
+                    )
+                })?
+            }
+        }
+
+        Ok(())
     }
+
+    fn global_composite_blend_func_separate(
+        _lua_index: &LuaKey,
+        _vgfx: &RefMut<Vgfx>,
+        src_rgb: i32,
+        dst_rgb: i32,
+        src_alpha: i32,
+        dst_alpha: i32,
+    ) -> mlua::Result<()> {
+        let mut _vgfx_lock = _vgfx.write().expect("Lock error");
+        let _vgfx = _vgfx_lock.deref_mut();
+        unimplemented()
+    }
+
+    fn load_animation(
+        lua: &LuaKey,
+        _vgfx: &RefMut<Vgfx>,
+        path: String,
+        frametime: f64,
+        loopcount: Option<usize>,
+        compressed: Option<bool>,
+    ) -> mlua::Result<u32> {
+        let mut _vgfx_lock = _vgfx.write().expect("Lock error");
+        let _vgfx = _vgfx_lock.deref_mut();
+        let anim = VgAnimation::new(
+            path,
+            frametime,
+            _vgfx.canvas.clone(),
+            loopcount.unwrap_or_default(),
+            compressed.unwrap_or_default(),
+        )
+        .map_err(mlua::Error::external)?;
+        _vgfx
+            .scoped_assets
+            .get_mut(&lua.key())
+            .ok_or(mlua::Error::external("Assets not initialized"))?
+            .images
+            .insert(_vgfx.next_img_id, VgImage::Animation(anim));
+        let res = _vgfx.next_img_id;
+        _vgfx.next_img_id += 1;
+
+        Ok(res)
+    }
+
+    fn global_alpha(_lua_index: &LuaKey, _vgfx: &RefMut<Vgfx>, alpha: f32) -> mlua::Result<()> {
+        let mut _vgfx_lock = _vgfx.write().expect("Lock error");
+        let _vgfx = _vgfx_lock.deref_mut();
+
+        _vgfx
+            .canvas
+            .lock()
+            .expect("Lock error")
+            .set_global_alpha(alpha);
+        Ok(())
+    }
+
+    fn load_skin_animation(
+        lua: &LuaKey,
+        _vgfx: &RefMut<Vgfx>,
+        path: String,
+        frametime: f64,
+        loopcount: Option<usize>,
+        compressed: Option<bool>,
+    ) -> Result<u32, LuaError> {
+        let mut _vgfx_lock = _vgfx.write().expect("Lock error");
+        let _vgfx = _vgfx_lock.deref_mut();
+        let mut skinned_path = _vgfx.game_folder.clone();
+        skinned_path.push("skins");
+        skinned_path.push(&_vgfx.skin);
+        skinned_path.push("textures");
+        skinned_path.push(path);
+
+        let anim = VgAnimation::new(
+            skinned_path,
+            frametime,
+            _vgfx.canvas.clone(),
+            loopcount.unwrap_or_default(),
+            compressed.unwrap_or_default(),
+        )
+        .map_err(mlua::Error::external)?;
+        _vgfx
+            .scoped_assets
+            .get_mut(&lua.key())
+            .ok_or(mlua::Error::external("Assets not initialized"))?
+            .images
+            .insert(_vgfx.next_img_id, VgImage::Animation(anim));
+        let res = _vgfx.next_img_id;
+        _vgfx.next_img_id += 1;
+
+        Ok(res)
+    }
+
+    fn tick_animation(
+        lua: &LuaKey,
+        _vgfx: &RefMut<Vgfx>,
+        animation: u32,
+        delta_time: f64,
+    ) -> mlua::Result<()> {
+        let mut _vgfx_lock = _vgfx.write().expect("Lock error");
+        let _vgfx = _vgfx_lock.deref_mut();
+        if let Some(VgImage::Animation(anim)) = _vgfx
+            .scoped_assets
+            .get_mut(&lua.key())
+            .ok_or(mlua::Error::external("Assets not initialized"))?
+            .images
+            .get_mut(&animation)
+        {
+            anim.tick(delta_time)
+        }
+        Ok(())
+    }
+
+    fn load_shared_texture(
+        _lua_index: &LuaKey,
+        _vgfx: &RefMut<Vgfx>,
+        key: String,
+        path: String,
+    ) -> mlua::Result<()> {
+        let mut _vgfx_lock = _vgfx.write().expect("Lock error");
+        let _vgfx = _vgfx_lock.deref_mut();
+        unimplemented()
+    }
+
+    fn load_shared_skin_texture(
+        _vgfx: &RefMut<Vgfx>,
+        key: String,
+        path: String,
+    ) -> mlua::Result<()> {
+        let mut _vgfx_lock = _vgfx.write().expect("Lock error");
+        let _vgfx = _vgfx_lock.deref_mut();
+        unimplemented()
+    }
+
+    fn _get_shared_texture(_vgfx: &RefMut<Vgfx>, key: String) -> mlua::Result<()> {
+        let mut _vgfx_lock = _vgfx.write().expect("Lock error");
+        let _vgfx = _vgfx_lock.deref_mut();
+        unimplemented()
+    }
+
+    fn create_shaded_mesh(
+        lua: &LuaKey,
+        context: &Arc<three_d::Context>,
+        vgfx: &RefMut<Vgfx>,
+        material: Option<String>,
+        path: Option<String>,
+    ) -> Result<ShadedMesh, mlua::Error> {
+        let vgfx = vgfx.write().expect("Lock error");
+
+        let mut shader_path = vgfx.game_folder.clone();
+        shader_path.push("skins");
+        shader_path.push(&vgfx.skin);
+        shader_path.push("shaders");
+
+        ShadedMesh::new(
+            context,
+            &material.unwrap_or_else(|| "guiTex".to_string()),
+            path.map(PathBuf::from).unwrap_or(shader_path),
+        )
+        .map_err(mlua::Error::external)
+    }
+
+    const TEXT_ALIGN_BASELINE: u32 = TextAlign::ALIGN_BASELINE.bits(); // NVGalign::NVG_ALIGN_BASELINE
+    const TEXT_ALIGN_BOTTOM: u32 = TextAlign::ALIGN_BOTTOM.bits(); // NVGalign::NVG_ALIGN_BOTTOM
+    const TEXT_ALIGN_CENTER: u32 = TextAlign::ALIGN_CENTER.bits(); // NVGalign::NVG_ALIGN_CENTER
+    const TEXT_ALIGN_LEFT: u32 = TextAlign::ALIGN_LEFT.bits(); // NVGalign::NVG_ALIGN_LEFT
+    const TEXT_ALIGN_MIDDLE: u32 = TextAlign::ALIGN_MIDDLE.bits(); // NVGalign::NVG_ALIGN_MIDDLE
+    const TEXT_ALIGN_RIGHT: u32 = TextAlign::ALIGN_RIGHT.bits(); // NVGalign::NVG_ALIGN_RIGHT
+    const TEXT_ALIGN_TOP: u32 = TextAlign::ALIGN_TOP.bits(); // NVGalign::NVG_ALIGN_TOP
+    const LINE_BEVEL: u8 = femtovg::LineJoin::Bevel as u8; // NVGlineCap::NVG_BEVEL
+    const LINE_BUTT: u8 = femtovg::LineCap::Butt as u8; // NVGlineCap::NVG_BUTT
+    const LINE_MITER: u8 = femtovg::LineJoin::Miter as u8; // NVGlineCap::NVG_MITER
+    const LINE_ROUND: u8 = femtovg::LineCap::Round as u8; // NVGlineCap::NVG_ROUND
+    const LINE_SQUARE: u8 = femtovg::LineCap::Square as u8; // NVGlineCap::NVG_SQUARE
+    const IMAGE_GENERATE_MIPMAPS: u32 = ImageFlags::GENERATE_MIPMAPS.bits(); // NVGimageFlags::NVG_IMAGE_GENERATE_MIPMAPS
+    const IMAGE_REPEATX: u32 = ImageFlags::REPEAT_X.bits(); // NVGimageFlags::NVG_IMAGE_REPEATX
+    const IMAGE_REPEATY: u32 = ImageFlags::REPEAT_Y.bits(); // NVGimageFlags::NVG_IMAGE_REPEATY
+    const IMAGE_FLIPY: u32 = ImageFlags::FLIP_Y.bits(); // NVGimageFlags::NVG_IMAGE_FLIPY
+    const IMAGE_PREMULTIPLIED: u32 = ImageFlags::PREMULTIPLIED.bits(); // NVGimageFlags::NVG_IMAGE_PREMULTIPLIED
+    const IMAGE_NEAREST: u32 = ImageFlags::NEAREST.bits(); // NVGimageFlags::NVG_IMAGE_NEAREST
+
+    //Blend flags
+    const BLEND_ZERO: u8 = femtovg::BlendFactor::Zero as u8;
+    const BLEND_ONE: u8 = femtovg::BlendFactor::One as u8;
+    const BLEND_SRC_COLOR: u8 = femtovg::BlendFactor::SrcColor as u8;
+    const BLEND_ONE_MINUS_SRC_COLOR: u8 = femtovg::BlendFactor::OneMinusSrcColor as u8;
+    const BLEND_DST_COLOR: u8 = femtovg::BlendFactor::DstColor as u8;
+    const BLEND_ONE_MINUS_DST_COLOR: u8 = femtovg::BlendFactor::OneMinusDstColor as u8;
+    const BLEND_SRC_ALPHA: u8 = femtovg::BlendFactor::SrcAlpha as u8;
+    const BLEND_ONE_MINUS_SRC_ALPHA: u8 = femtovg::BlendFactor::OneMinusSrcAlpha as u8;
+    const BLEND_DST_ALPHA: u8 = femtovg::BlendFactor::DstAlpha as u8;
+    const BLEND_ONE_MINUS_DST_ALPHA: u8 = femtovg::BlendFactor::OneMinusDstAlpha as u8;
+    const BLEND_SRC_ALPHA_SATURATE: u8 = femtovg::BlendFactor::SrcAlphaSaturate as u8;
+
+    //Blend operations
+    const BLEND_OP_SOURCE_OVER: u8 = femtovg::CompositeOperation::SourceOver as u8; //<<<<< default
+    const BLEND_OP_SOURCE_IN: u8 = femtovg::CompositeOperation::SourceIn as u8;
+    const BLEND_OP_SOURCE_OUT: u8 = femtovg::CompositeOperation::SourceOut as u8;
+    const BLEND_OP_ATOP: u8 = femtovg::CompositeOperation::Atop as u8;
+    const BLEND_OP_DESTINATION_OVER: u8 = femtovg::CompositeOperation::DestinationOver as u8;
+    const BLEND_OP_DESTINATION_IN: u8 = femtovg::CompositeOperation::DestinationIn as u8;
+    const BLEND_OP_DESTINATION_OUT: u8 = femtovg::CompositeOperation::DestinationOut as u8;
+    const BLEND_OP_DESTINATION_ATOP: u8 = femtovg::CompositeOperation::DestinationAtop as u8;
+    const BLEND_OP_LIGHTER: u8 = femtovg::CompositeOperation::Lighter as u8;
+    const BLEND_OP_COPY: u8 = femtovg::CompositeOperation::Copy as u8;
+    const BLEND_OP_XOR: u8 = femtovg::CompositeOperation::Xor as u8;
 }
 
 bitflags::bitflags! {
@@ -2258,21 +1871,5 @@ bitflags::bitflags! {
         const ALIGN_BOTTOM = 1<<5; // Align text vertically to bottom.
         const ALIGN_BASELINE = 1<<6; // Default, align text vertically to baseline.
         const VERTICAL = Self::ALIGN_TOP.bits | Self::ALIGN_MIDDLE.bits | Self::ALIGN_BOTTOM.bits | Self::ALIGN_BASELINE.bits;
-    }
-}
-
-// document and expose the global proxy
-#[derive(Default)]
-pub struct ExportVgfx;
-impl tealr::mlu::ExportInstances for ExportVgfx {
-    fn add_instances<'lua, T: tealr::mlu::InstanceCollector<'lua>>(
-        self,
-        instance_collector: &mut T,
-    ) -> mlua::Result<()> {
-        instance_collector.document_instance("Documentation for the exposed static proxy");
-
-        // note that the proxy type is NOT `Example` but a special mlua type, which is represented differnetly in .d.tl as well
-        instance_collector.add_instance("gfx", UserDataProxy::<Vgfx>::new)?;
-        Ok(())
     }
 }

@@ -2,19 +2,19 @@ use std::rc::Rc;
 
 use crate::{
     config::GameConfig,
-    game_data::{self, ExportGame, LuaPath},
+    game_data::{self, GameDataLua, LuaPath},
     lua_http::{ExportLuaHttp, LuaHttp},
     util::lua_address,
-    vg_ui::{ExportVgfx, Vgfx},
+    vg_ui::{Vgfx, VgfxLua},
     InnerRuscMixer, LuaArena,
 };
 use anyhow::Result;
 use di::{injectable, Ref, RefMut};
 use log::info;
+use mlua::LuaSerdeExt;
+use mlua::{Lua, UserData};
 use puffin::profile_scope;
 use serde_json::json;
-use tealr::mlu::mlua::Lua;
-use tealr::mlu::mlua::LuaSerdeExt;
 
 //TODO: Used expanded macro because of wrong dependencies, use macro when fixed
 #[injectable]
@@ -24,6 +24,26 @@ pub struct LuaProvider {
     context: Ref<three_d::core::Context>,
     mixer: Ref<InnerRuscMixer>,
     game_data: RefMut<game_data::GameData>,
+}
+
+pub struct LuaKey(usize);
+
+impl LuaKey {
+    pub fn new(l: &Lua) -> Self {
+        Self(lua_address(l))
+    }
+
+    pub fn key(&self) -> usize {
+        self.0
+    }
+}
+
+pub fn set_global_env<T: UserData + 'static>(
+    v: T,
+    name: &str,
+    l: &Lua,
+) -> std::result::Result<(), mlua::Error> {
+    l.globals().set(name, v)
 }
 
 impl LuaProvider {
@@ -38,10 +58,10 @@ impl LuaProvider {
         let vgfx = self.vgfx.clone();
         let game_data = self.game_data.clone();
 
-        tealr::mlu::set_global_env(ExportVgfx, &lua)?;
-        tealr::mlu::set_global_env(ExportGame, &lua)?;
-        tealr::mlu::set_global_env(LuaPath, &lua)?;
-        tealr::mlu::set_global_env(ExportLuaHttp, &lua)?;
+        set_global_env(VgfxLua, "gfx", &lua)?;
+        set_global_env(GameDataLua, "game", &lua)?;
+        set_global_env(LuaPath, "path", &lua)?;
+        set_global_env(ExportLuaHttp, "http", &lua)?;
         lua.globals().set(
             "IRData",
             lua.to_value(&json!({
@@ -66,11 +86,12 @@ impl LuaProvider {
             lua.set_app_data(self.context.clone());
             lua.set_app_data(self.mixer.clone());
             lua.set_app_data(LuaHttp::default());
+            lua.set_app_data(LuaKey::new(&lua));
             //lua.gc_stop();
         }
 
         {
-            let package: tealr::mlu::mlua::Table = lua.globals().get("package")?;
+            let package: mlua::Table = lua.globals().get("package")?;
             let old_path: String = package.get("path")?;
 
             let package_path = format!(
