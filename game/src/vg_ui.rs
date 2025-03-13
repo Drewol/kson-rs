@@ -25,8 +25,10 @@ use three_d::Vector3;
 
 use crate::{
     animation::VgAnimation, config::GameConfig, default_game_dir, help::add_lua_static_method,
-    log_result, settings_screen::skin_select::SkinMeta, shaded_mesh::ShadedMesh, util::lua_address,
+    settings_screen::skin_select::SkinMeta, shaded_mesh::ShadedMesh, util::lua_address,
 };
+
+use crate::log_macro::log_result;
 
 const FALLBACK_ID: u32 = u32::MAX;
 

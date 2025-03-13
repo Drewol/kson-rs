@@ -33,7 +33,7 @@ use tealr::mlu::mlua::Lua;
 use femtovg as vg;
 use three_d as td;
 
-use crate::app::LuaArena;
+use crate::LuaArena;
 use crate::{
     button_codes::{LaserState, UscInputEvent},
     companion_interface::{self},
