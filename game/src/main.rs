@@ -262,49 +262,6 @@ pub fn init_game_dir(game_dir: impl AsRef<Path>) -> anyhow::Result<()> {
         info!("Running from install dir");
         return Ok(());
     }
-    let mut install_dir = if let Ok(manifest_dir) = &cargo_dir {
-        PathBuf::from(manifest_dir) // should be correct when started from `cargo run`
-    } else {
-        std::env::current_dir()?
-    };
-
-    install_dir = INSTALL_DIR_OVERRIDE.get().cloned().unwrap_or(install_dir);
-
-    install_dir.push("fonts");
-
-    if !install_dir.exists() {
-        install_dir = std::env::current_exe()?;
-        install_dir.pop();
-        #[cfg(target_os = "macos")]
-        {
-            //if app bundle
-            if install_dir.with_file_name("Resources").exists() {
-                install_dir.set_file_name("Resources");
-            }
-        }
-        #[cfg(target_os = "linux")]
-        {
-            //deb installs files to usr/lib/rusc/game
-            let dir_temp = install_dir.clone();
-            // assume starting at usr/bin after popping exe
-            install_dir.pop(); // usr
-            install_dir.push("lib");
-            install_dir.push("rusc");
-            install_dir.push("game");
-            install_dir.push("fonts");
-            if install_dir.exists() {
-                install_dir.pop();
-            } else {
-                install_dir = dir_temp;
-            }
-        }
-
-        install_dir.push("fonts");
-
-        if !install_dir.exists() {
-            bail!("Could not find installed assets at {install_dir:?}.")
-        }
-    }
 
     std::fs::create_dir_all(&game_dir)?;
 
@@ -616,7 +573,13 @@ impl UscApp {
                 RwLock<dyn song_provider::SongProvider>,
                 _,
             >(|sp| {
-                sp.get_required_mut::<song_provider::NauticaSongProvider>()
+                if GameConfig::get().songs_path.eq(&PathBuf::from("nautica"))
+                    || cfg!(target_os = "android")
+                {
+                    sp.get_required_mut::<song_provider::NauticaSongProvider>()
+                } else {
+                    sp.get_required_mut::<song_provider::FileSongProvider>()
+                }
             }))
             .add(transient_factory::<
                 RwLock<dyn song_provider::ScoreProvider>,
