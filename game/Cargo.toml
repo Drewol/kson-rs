@@ -14,6 +14,10 @@ name = "rusc"
 name = "kson-editor"
 
 
+[lib]
+name = "rusc"
+crate-type = ["cdylib"]
+
 [dependencies]
 egui_glow = { workspace = true, features = ["winit"] }
 puffin = { workspace = true }
@@ -43,11 +47,10 @@ mlua = { version = "0.10", features = [
     "lua53",
     "anyhow",
 ] }
-three-d = { git = "https://github.com/asny/three-d.git", rev = "2683e0fea70c0c0da579550d4412880ff7fb09fd" }
+three-d = { git = "https://github.com/asny/three-d.git", rev = "2683e0fea70c0c0da579550d4412880ff7fb09fd", default-features = false }
 bitflags = "1"
 once_cell = "1"
 walkdir = "*"
-rfd = "*"
 log = { workspace = true }
 uuid = { version = "1.2.2", features = ["serde"] }
 poll-promise = { git = "https://github.com/EmbarkStudios/poll-promise", features = [
@@ -55,7 +58,11 @@ poll-promise = { git = "https://github.com/EmbarkStudios/poll-promise", features
 ] }
 tokio = { version = "1", features = ["rt-multi-thread", "fs"] }
 toml = "0.8.12"
-reqwest = { version = "0.12", features = ["json", "rustls-tls", "blocking"] }
+reqwest = { version = "0.12", features = [
+    "json",
+    "native-tls-vendored",
+    "blocking",
+] }
 three-d-asset = { version = "0.9.0", features = [
     "image",
     "png",
@@ -101,9 +108,15 @@ log4rs = { version = "1.3.0", features = [
     "console_writer",
 ], default-features = false }
 
-[dependencies.winit]
-version = "0.30"
-features = ["serde"]
+
+[target.'cfg(target_os = "android")'.dependencies]
+android_logger = "0.13.3"
+include_dir = "0.7"
+winit = { version = "0.30", features = ["android-native-activity", "serde"] }
+
+[target.'cfg(not(target_os = "android"))'.dependencies]
+winit = { version = "0.30", features = ["serde"] }
+rfd = "*"
 
 [target.'cfg(unix)'.dependencies]
 openssl = { version = "^0.10", features = ["vendored"] }

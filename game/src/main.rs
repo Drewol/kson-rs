@@ -1,54 +1,3 @@
-use std::{
-    path::{Path, PathBuf},
-    rc::Rc,
-    sync::{mpsc::channel, Arc, Mutex, RwLock},
-    time::{Duration, Instant},
-};
-
-use crate::{
-    button_codes::{LaserState, RuscFilter},
-    config::Args,
-    config::GameConfig,
-    game_main::GameMain,
-    input_state::InputState,
-    scene::SceneData,
-    songselect::{Difficulty, Song},
-    transition::Transition,
-    vg_ui::Vgfx,
-};
-use anyhow::anyhow;
-use async_service::AsyncService;
-use button_codes::{CustomBindingFilter, UscInputEvent};
-use clap::Parser;
-use companion_interface::CompanionServer;
-use directories::ProjectDirs;
-
-use femtovg as vg;
-
-use game_main::ControlMessage;
-
-use gilrs::Gilrs;
-use glutin_winit::GlWindow;
-use help::ServiceHelper;
-use kson::Ksh;
-use log::*;
-
-use lua_service::LuaProvider;
-use luals_gen::LuaLsGen;
-use puffin::profile_function;
-use rodio::{dynamic_mixer::DynamicMixerController, Source};
-use scene::Scene;
-
-use mlua::Lua;
-pub(crate) use song_provider::{DiffId, FileSongProvider, NauticaSongProvider, SongId};
-use td::{FrameInput, Viewport};
-use test_scenes::camera_test;
-use three_d as td;
-
-use di::*;
-use glutin::{context::PossiblyCurrentContext, prelude::*};
-use winit::event::WindowEvent;
-
 mod animation;
 mod async_service;
 mod audio;
@@ -74,25 +23,128 @@ mod song_provider;
 mod songselect;
 mod take_duration_fade;
 mod test_scenes;
+mod touch;
 mod transition;
 mod util;
 mod vg_ui;
 mod window;
 mod worker_service;
 
-#[macro_export]
-macro_rules! block_on {
-    ($l:expr) => {
-        poll_promise::Promise::spawn_async(async move {
-            let x = { $l };
-            x.await
-        })
-        .block_and_take()
-    };
+use std::{
+    path::{Path, PathBuf},
+    rc::Rc,
+    sync::{mpsc::channel, Arc, Mutex, OnceLock, RwLock},
+    time::{Duration, Instant},
+};
+
+use crate::{
+    button_codes::{LaserState, RuscFilter},
+    config::Args,
+    config::GameConfig,
+    game_main::GameMain,
+    input_state::InputState,
+    scene::SceneData,
+    songselect::{Difficulty, Song},
+    transition::Transition,
+};
+use anyhow::{anyhow, bail};
+use async_service::AsyncService;
+use button_codes::{CustomBindingFilter, UscInputEvent};
+use clap::Parser;
+use companion_interface::CompanionServer;
+use directories::ProjectDirs;
+pub use vg_ui::Vgfx;
+
+use femtovg as vg;
+
+pub use game_main::ControlMessage;
+
+use gilrs::Gilrs;
+use glutin_winit::GlWindow;
+use help::ServiceHelper;
+use kson::Ksh;
+use log::*;
+
+use lua_service::LuaProvider;
+use luals_gen::LuaLsGen;
+use puffin::profile_function;
+use rodio::{dynamic_mixer::DynamicMixerController, Source};
+use scene::Scene;
+
+pub(crate) use crate::song_provider::{DiffId, FileSongProvider, NauticaSongProvider, SongId};
+use crate::test_scenes::camera_test;
+use mlua::Lua;
+use td::Viewport;
+use three_d as td;
+
+use di::*;
+use glutin::{context::PossiblyCurrentContext, prelude::*};
+pub use log_macro::log_result;
+use winit::event::WindowEvent;
+mod async_macro {
+
+    #[macro_export]
+    macro_rules! block {
+        ($l:expr) => {
+            poll_promise::Promise::spawn_async(async move {
+                let x = { $l };
+                x.await
+            })
+            .block_and_take()
+        };
+    }
+
+    pub use block as block_on;
 }
 
+pub use async_macro::block_on;
 pub type InnerRuscMixer = DynamicMixerController<f32>;
 pub type RuscMixer = Arc<InnerRuscMixer>;
+
+// Copied from three_d
+#[derive(Clone, Debug)]
+pub struct FrameInput {
+    /// A list of [events](crate::Event) which has occurred since last frame.
+    pub events: Vec<three_d::Event>,
+
+    /// Milliseconds since last frame.
+    pub elapsed_time: f64,
+
+    /// Milliseconds accumulated time since start.
+    pub accumulated_time: f64,
+
+    /// Viewport of the window in physical pixels (the size of the screen [RenderTarget] which is returned from [FrameInput::screen]).
+    pub viewport: Viewport,
+
+    /// Width of the window in logical pixels.
+    pub window_width: u32,
+
+    /// Height of the window in logical pixels.
+    pub window_height: u32,
+
+    /// Number of physical pixels for each logical pixel.
+    pub device_pixel_ratio: f32,
+
+    /// Whether or not this is the first frame. Note: also set after the window becomes (partially) visible.
+    pub first_frame: bool,
+
+    /// The graphics context for the window.
+    pub context: td::Context,
+}
+
+impl FrameInput {
+    ///
+    /// Returns the screen render target, which is used for drawing to the screen, for this window.
+    /// Same as
+    ///
+    /// ```notrust
+    /// RenderTarget::screen(&frame_input.context, frame_input.viewport.width, frame_input.viewport.height)
+    /// ```
+    ///
+    pub fn screen(&self) -> td::RenderTarget {
+        td::RenderTarget::screen(&self.context, self.viewport.width, self.viewport.height)
+    }
+}
 
 //TODO: Move to platform files
 #[cfg(all(target_os = "windows", not(feature = "portable")))]
@@ -115,14 +167,39 @@ pub fn default_game_dir() -> PathBuf {
 
 #[cfg(not(target_os = "windows"))]
 pub fn default_game_dir() -> PathBuf {
-    let mut game_dir = directories::UserDirs::new()
-        .expect("Failed to get directories")
-        .home_dir()
-        .to_path_buf();
-    game_dir.push(".local");
-    game_dir.push("share");
-    game_dir.push("usc");
-    game_dir
+    if let Some(p) = GAME_DIR_OVERRIDE.get().cloned() {
+        p
+    } else {
+        let mut game_dir = directories::UserDirs::new()
+            .expect("Failed to get directories")
+            .home_dir()
+            .to_path_buf();
+        game_dir.push(".local");
+        game_dir.push("share");
+        game_dir.push("usc");
+        game_dir
+    }
+}
+
+pub static GAME_DIR_OVERRIDE: OnceLock<PathBuf> = OnceLock::new();
+pub static INSTALL_DIR_OVERRIDE: OnceLock<PathBuf> = OnceLock::new();
+
+#[cfg(target_os = "android")]
+pub fn init_game_dir(game_dir: impl AsRef<Path>) -> anyhow::Result<()> {
+    use include_dir::*;
+    static SKIN_DIR: Dir<'_> = include_dir!("$CARGO_MANIFEST_DIR/skins");
+    static FONT_DIR: Dir<'_> = include_dir!("$CARGO_MANIFEST_DIR/fonts");
+
+    let mut p = game_dir.as_ref().to_path_buf();
+    p.push("skins");
+    std::fs::create_dir_all(&p)?;
+    SKIN_DIR.extract(p)?;
+
+    let mut p = game_dir.as_ref().to_path_buf();
+    p.push("fonts");
+    std::fs::create_dir_all(&p)?;
+    FONT_DIR.extract(p)?;
+    Ok(())
 }
 
 fn is_install_dir(dir: impl AsRef<Path>) -> Option<PathBuf> {
@@ -136,6 +213,7 @@ fn is_install_dir(dir: impl AsRef<Path>) -> Option<PathBuf> {
     }
 }
 
+#[cfg(not(target_os = "android"))]
 pub fn init_game_dir(game_dir: impl AsRef<Path>) -> anyhow::Result<()> {
     #[cfg(feature = "portable")]
     {
@@ -228,8 +306,8 @@ pub fn init_game_dir(game_dir: impl AsRef<Path>) -> anyhow::Result<()> {
     Ok(())
 }
 
-pub fn project_dirs() -> ProjectDirs {
-    directories::ProjectDirs::from("", "Drewol", "USC").expect("Failed to get project dirs")
+pub fn project_dirs() -> Option<ProjectDirs> {
+    directories::ProjectDirs::from("", "Drewol", "USC")
 }
 
 pub struct Scenes {
@@ -395,7 +473,7 @@ impl Default for Scenes {
 }
 pub const FRAME_ACC_SIZE: usize = 16;
 
-struct LuaArena(Vec<Rc<Lua>>);
+pub struct LuaArena(pub Vec<Rc<Lua>>);
 
 struct UscApp {
     state: Option<(
@@ -408,7 +486,7 @@ struct UscApp {
     )>,
     frame_tracker: FrameTracker,
     update_tracker: UpdateTracker,
-    gilrs: Arc<Mutex<Gilrs>>,
+    gilrs: Arc<Mutex<Option<Gilrs>>>,
     mixer_controls: RuscMixer,
     sink: Option<rodio::Sink>,
     companion_service: Option<RwLock<CompanionServer>>,
@@ -495,7 +573,9 @@ impl UscApp {
                 RwLock<dyn song_provider::SongProvider>,
                 _,
             >(|sp| {
-                if GameConfig::get().songs_path.eq(&PathBuf::from("nautica")) {
+                if GameConfig::get().songs_path.eq(&PathBuf::from("nautica"))
+                    || cfg!(target_os = "android")
+                {
                     sp.get_required_mut::<song_provider::NauticaSongProvider>()
                 } else {
                     sp.get_required_mut::<song_provider::FileSongProvider>()
@@ -532,7 +612,7 @@ impl UscApp {
             let mut title = Box::new(main_menu::MainMenu::new(services.create_scope()));
             title.suspend();
             scenes.loaded.push(title);
-            if GameConfig::get().args.notitle {
+            if GameConfig::get().args.notitle || cfg!(target_os = "android") {
                 let songsel = Box::new(songselect::SongSelectScene::new(
                     Box::new(songselect::SongSelect::new()),
                     services.create_scope(),
@@ -705,10 +785,10 @@ impl winit::application::ApplicationHandler<UscInputEvent> for UscApp {
             };
             g.after_render();
 
-            let frame_out = game.render(frame_input, window, surface, window_gl);
+            let exit = game.render(frame_input, window, surface, window_gl);
             surface.swap_buffers(window_gl);
             window.request_redraw();
-            if frame_out.exit {
+            if exit {
                 event_loop.exit();
             }
         } else {
@@ -783,9 +863,8 @@ fn get_log_config(level: log::LevelFilter) -> log4rs::Config {
         .expect("Failed to build log config")
 }
 
-fn main() -> anyhow::Result<()> {
-    let eventloop = winit::event_loop::EventLoop::<UscInputEvent>::with_user_event().build()?;
-
+pub fn run(eventloop: winit::event_loop::EventLoop<UscInputEvent>) -> anyhow::Result<()> {
+    #[cfg(not(target_os = "android"))]
     let _logger_handle =
         log4rs::init_config(get_log_config(LevelFilter::Info)).expect("Failed to get logger");
     let mut config_path = default_game_dir();
@@ -841,13 +920,15 @@ fn main() -> anyhow::Result<()> {
         .with_default_filters(false)
         .add_mappings(&GameConfig::get().mappings.join("\n"))
         .build()
-        .expect("Failed to create input context");
+        .ok();
 
-    while input.next_event().is_some() {} //empty events
+    while input.as_mut().and_then(|x| x.next_event()).is_some() {} //empty events
 
-    input
-        .gamepads()
-        .for_each(|(_, g)| info!("{} uuid: {}", g.name(), uuid::Uuid::from_bytes(g.uuid())));
+    if let Some(i) = input.as_ref() {
+        i.gamepads()
+            .for_each(|(_, g)| info!("{} uuid: {}", g.name(), uuid::Uuid::from_bytes(g.uuid())));
+    }
+
     let input = Arc::new(Mutex::new(input));
     let gilrs_state = input.clone();
     let companion_service = RwLock::new(companion_interface::CompanionServer::new(
@@ -869,11 +950,11 @@ fn main() -> anyhow::Result<()> {
             use gilrs::*;
             use winit::event::ElementState::*;
             let e = {
-                if let Ok(mut input) = input.lock() {
+                if let Some(input) = input.lock().unwrap().as_mut() {
                     input
                         .next_event()
-                        .filter_ev(&rusc_filter, &mut input)
-                        .filter_ev(&binding_filter, &mut input)
+                        .filter_ev(&rusc_filter, input)
+                        .filter_ev(&binding_filter, input)
                 } else {
                     None
                 }
@@ -980,12 +1061,21 @@ fn export_luals_defs() -> Result<(), anyhow::Error> {
     Ok(())
 }
 
-#[macro_export]
-macro_rules! log_result {
-    ($expression:expr) => {{
-        let _result_ = $expression;
-        if let Err(e) = &_result_ {
-            log::warn!("{e}");
-        }
-    }};
+fn main() -> anyhow::Result<()> {
+    let eventloop = winit::event_loop::EventLoop::<UscInputEvent>::with_user_event().build()?;
+    run(eventloop)
+}
+
+pub(crate) mod log_macro {
+    #[macro_export]
+    macro_rules! log_res {
+        ($expression:expr) => {{
+            let _result_ = $expression;
+            if let Err(e) = &_result_ {
+                log::warn!("{e}");
+            }
+        }};
+    }
+
+    pub use log_res as log_result;
 }
