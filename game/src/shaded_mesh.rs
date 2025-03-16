@@ -7,18 +7,13 @@ use std::{
 use anyhow::ensure;
 use di::RefMut;
 use itertools::Itertools;
+use mlua::{self, FromLua, Lua};
+use mlua::{UserData, UserDataFields, UserDataMethods};
 use puffin::profile_function;
-use tealr::{
-    mlu::{
-        mlua::{self, FromLua, Lua},
-        TealData, UserData,
-    },
-    ToTypename,
-};
 use three_d::{
-    vec2, vec3, vec4, AxisAlignedBoundingBox, Blend, BufferDataType, Context, CpuTexture,
-    ElementBuffer, ElementBufferDataType, Geometry, Mat4, Object, Program, RenderStates,
-    SquareMatrix, Texture2D, Vec2, Vec3, Vec4, VertexBuffer, Wrapping,
+    vec2, vec3, vec4, AxisAlignedBoundingBox, Blend, Context, CpuTexture, ElementBuffer, Geometry,
+    Mat4, Object, Program, RenderStates, SquareMatrix, Texture2D, Vec2, Vec3, Vec4, VertexBuffer,
+    Wrapping,
 };
 use three_d_asset::{Srgba, Vector2, Vector3, Vector4};
 
@@ -101,7 +96,6 @@ enum DrawingMode {
 }
 
 //TODO: Cloneable with Arc for gpu resources for better shader reuse
-#[derive(UserData, ToTypename)]
 pub struct ShadedMesh {
     params: HashMap<String, ShaderParam>,
     material: three_d::Program,
@@ -360,7 +354,7 @@ impl ShadedMesh {
     }
 
     #[allow(unused)]
-    pub fn draw(&self, frame: &FrameInput) -> Result<(), tealr::mlu::mlua::Error> {
+    pub fn draw(&self, frame: &FrameInput) -> Result<(), mlua::Error> {
         self.use_params();
         self.material
             .use_vertex_attribute("inPos", &self.vertecies_pos);
@@ -501,7 +495,7 @@ impl ShadedMesh {
         &mut self,
         resolution: (u32, u32),
         vgfx: &RwLock<Vgfx>,
-    ) -> Result<(), tealr::mlu::mlua::Error> {
+    ) -> Result<(), mlua::Error> {
         let [c0r0, c0r1, c1r0, c1r1, c2r0, c2r1] = {
             let vgfx = vgfx.write().expect("Lock error");
             let canvas = vgfx.canvas.lock().expect("Lock error");
@@ -599,42 +593,36 @@ impl Object for ShadedMesh {
     }
 }
 
-#[derive(Debug, ToTypename, Clone, Copy)]
+#[derive(Debug, Clone, Copy)]
 struct LuaVec2(f32, f32);
 
-impl<'lua> FromLua<'lua> for LuaVec2 {
-    fn from_lua(
-        lua_value: tealr::mlu::mlua::Value<'lua>,
-        _lua: &'lua Lua,
-    ) -> tealr::mlu::mlua::Result<Self> {
-        use tealr::mlu::mlua::Value;
+impl FromLua for LuaVec2 {
+    fn from_lua(lua_value: mlua::Value, _lua: &Lua) -> mlua::Result<Self> {
+        use mlua::Value;
         if let Value::Table(value) = lua_value {
             Ok(Self(value.get(1)?, value.get(2)?))
         } else {
-            Err(tealr::mlu::mlua::Error::FromLuaConversionError {
+            Err(mlua::Error::FromLuaConversionError {
                 from: lua_value.type_name(),
-                to: "LuaVec2",
+                to: "LuaVec2".to_owned(),
                 message: None,
             })
         }
     }
 }
 
-#[derive(Debug, ToTypename, Clone, Copy)]
+#[derive(Debug, Clone, Copy)]
 struct LuaVert2(LuaVec2, LuaVec2);
 
-impl<'lua> FromLua<'lua> for LuaVert2 {
-    fn from_lua(
-        lua_value: tealr::mlu::mlua::Value<'lua>,
-        _lua: &'lua Lua,
-    ) -> tealr::mlu::mlua::Result<Self> {
-        use tealr::mlu::mlua::Value;
+impl FromLua for LuaVert2 {
+    fn from_lua(lua_value: mlua::Value, _lua: &Lua) -> mlua::Result<Self> {
+        use mlua::Value;
         if let Value::Table(value) = lua_value {
             Ok(Self(value.get(1)?, value.get(2)?))
         } else {
-            Err(tealr::mlu::mlua::Error::FromLuaConversionError {
+            Err(mlua::Error::FromLuaConversionError {
                 from: lua_value.type_name(),
-                to: "LuaVert2",
+                to: "LuaVert2".to_owned(),
                 message: None,
             })
         }
@@ -662,8 +650,8 @@ fn create_orthographic(
 }
 
 //TODO: Move methods to struct impl for reuse in other parts of the program
-impl TealData for ShadedMesh {
-    fn add_methods<'lua, T: tealr::mlu::TealDataMethods<'lua, Self>>(methods: &mut T) {
+impl UserData for ShadedMesh {
+    fn add_methods<T: UserDataMethods<Self>>(methods: &mut T) {
         methods.add_method_mut("Draw", |lua, this, _: ()| {
             let frame = lua
                 .app_data_ref::<RefMut<game_data::GameData>>()
@@ -679,7 +667,7 @@ impl TealData for ShadedMesh {
         methods.add_method_mut("AddTexture", |_lua, this, params: (String, String)| {
             this.use_texture(params.0, params.1, (false, false), true)
                 .map(|_| ())
-                .map_err(tealr::mlu::mlua::Error::external)
+                .map_err(mlua::Error::external)
         });
         methods.add_method_mut("AddSkinTexture", |_lua, this, params: (String, String)| {
             let mut path = GameConfig::get().game_folder.clone();
@@ -691,14 +679,14 @@ impl TealData for ShadedMesh {
 
             this.use_texture(params.0, path, (false, false), true)
                 .map(|_| ())
-                .map_err(tealr::mlu::mlua::Error::external)
+                .map_err(mlua::Error::external)
         });
         methods.add_method_mut(
             "AddSharedTexture",
             |_lua, this, params: (String, String)| {
                 this.use_texture(params.0, params.1, (false, false), true)
                     .map(|_| ())
-                    .map_err(tealr::mlu::mlua::Error::external)
+                    .map_err(mlua::Error::external)
             },
         );
 
@@ -748,8 +736,7 @@ impl TealData for ShadedMesh {
                     .use_vertex_attribute("inTex", &this.vertecies_uv); //UVs
             }
 
-            this.update_indecies()
-                .map_err(tealr::mlu::mlua::Error::external)
+            this.update_indecies().map_err(mlua::Error::external)
         });
         methods.add_method_mut("SetBlendMode", |_, this, params: u8| {
             match params {
@@ -757,7 +744,7 @@ impl TealData for ShadedMesh {
                 1 => this.state.blend = Blend::ADD,
                 2 => todo!(), //Multiply
                 _ => {
-                    return Err(tealr::mlu::mlua::Error::RuntimeError(format!(
+                    return Err(mlua::Error::RuntimeError(format!(
                         "{params} is not a valid blend mode."
                     )))
                 }
@@ -779,25 +766,24 @@ impl TealData for ShadedMesh {
                 1 => this.draw_mode = DrawingMode::Strip,
                 2 => this.draw_mode = DrawingMode::Fan,
                 _ => {
-                    return Err(tealr::mlu::mlua::Error::RuntimeError(format!(
+                    return Err(mlua::Error::RuntimeError(format!(
                         "{params} is not a valid drawing mode."
                     )))
                 }
             }
 
-            this.update_indecies()
-                .map_err(tealr::mlu::mlua::Error::external)
+            this.update_indecies().map_err(mlua::Error::external)
         });
     }
 
-    fn add_fields<'lua, F: tealr::mlu::TealDataFields<'lua, Self>>(fields: &mut F) {
+    fn add_fields<F: UserDataFields<Self>>(fields: &mut F) {
         fields.add_field_function_get("PRIM_TRILIST", |_, _| Ok(0));
         fields.add_field_function_get("PRIM_TRISTRIP", |_, _| Ok(1));
         fields.add_field_function_get("PRIM_TRIFAN", |_, _| Ok(2));
 
-        fields.add_field_function_get::<_, u8, _>("PRIM_LINELIST", |_, _| lua_todo());
-        fields.add_field_function_get::<_, u8, _>("PRIM_LINESTRIP", |_, _| lua_todo());
-        fields.add_field_function_get::<_, u8, _>("PRIM_POINTLIST", |_, _| lua_todo());
+        fields.add_field_function_get::<_, u8>("PRIM_LINELIST", |_, _| lua_todo());
+        fields.add_field_function_get::<_, u8>("PRIM_LINESTRIP", |_, _| lua_todo());
+        fields.add_field_function_get::<_, u8>("PRIM_POINTLIST", |_, _| lua_todo());
 
         fields.add_field_function_get("BLEND_NORM", |_, _| Ok(0));
         fields.add_field_function_get("BLEND_ADD", |_, _| Ok(1));
@@ -805,8 +791,6 @@ impl TealData for ShadedMesh {
     }
 }
 
-fn lua_todo<T>() -> Result<T, tealr::mlu::mlua::Error> {
-    Err(tealr::mlu::mlua::Error::RuntimeError(
-        "Not implemented".into(),
-    ))
+fn lua_todo<T>() -> Result<T, mlua::Error> {
+    Err(mlua::Error::RuntimeError("Not implemented".into()))
 }

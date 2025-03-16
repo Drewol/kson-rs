@@ -5,12 +5,8 @@ use reqwest::{
 use serde::{Deserialize, Serialize};
 use std::{collections::HashMap, str::FromStr};
 
-use tealr::{
-    mlu::{
-        mlua::{self, Function, Lua, RegistryKey},
-        ExportInstances, FromToLua, TealData, UserData, UserDataProxy,
-    },
-    ToTypename,
+use mlua::{
+    self, Function, Lua, LuaSerdeExt, RegistryKey, UserData, UserDataMethods,
 };
 
 #[derive(Default)]
@@ -20,7 +16,7 @@ pub struct LuaHttp {
     next_id: i64,
 }
 
-#[derive(Debug, Serialize, Deserialize, FromToLua, ToTypename, Clone)]
+#[derive(Debug, Serialize, Deserialize, Clone)]
 struct Response {
     #[serde(skip)]
     id: i64,
@@ -111,7 +107,7 @@ impl LuaHttp {
                 Ok(data) => {
                     if let Some(key) = callbacks.remove(&data.id) {
                         if let Ok(callback) = lua.registry_value::<Function>(&key) {
-                            _ = callback.call::<_, ()>(data);
+                            _ = callback.call::<()>(lua.to_value(&data).unwrap());
                         }
                     }
                 }
@@ -132,49 +128,37 @@ impl LuaHttp {
     }
 }
 
-#[derive(Default, ToTypename, UserData)]
+#[derive(Default)]
 pub struct ExportLuaHttp;
 
-impl TealData for ExportLuaHttp {
-    fn add_methods<'lua, T: tealr::mlu::TealDataMethods<'lua, Self>>(methods: &mut T) {
-        tealr::mlu::create_named_parameters!(GetParams with
-            url : String,
-            headers : HashMap<String, String>,
-        );
-
-        tealr::mlu::create_named_parameters!(PostParams with
-            url : String,
-            content: String,
-            headers : HashMap<String, String>,
-        );
-
-        methods.add_function("Get", |_, GetParams { url, headers }: GetParams| {
-            let mut req = reqwest::blocking::Request::new(
-                Method::GET,
-                reqwest::Url::parse(&url).map_err(tealr::mlu::mlua::Error::external)?,
-            );
-
-            for (header, value) in headers.iter() {
-                req.headers_mut().append(
-                    HeaderName::from_str(header).map_err(tealr::mlu::mlua::Error::external)?,
-                    HeaderValue::from_str(value).map_err(tealr::mlu::mlua::Error::external)?,
+impl UserData for ExportLuaHttp {
+    fn add_methods<T: UserDataMethods<Self>>(methods: &mut T) {
+        methods.add_function(
+            "Get",
+            |lua, (url, headers): (String, HashMap<String, String>)| {
+                let mut req = reqwest::blocking::Request::new(
+                    Method::GET,
+                    reqwest::Url::parse(&url).map_err(mlua::Error::external)?,
                 );
-            }
 
-            reqwest::blocking::Client::new()
-                .execute(req)
-                .map(Response::from_response_blocking)
-                .map_err(tealr::mlu::mlua::Error::external)
-        });
+                for (header, value) in headers.iter() {
+                    req.headers_mut().append(
+                        HeaderName::from_str(header).map_err(mlua::Error::external)?,
+                        HeaderValue::from_str(value).map_err(mlua::Error::external)?,
+                    );
+                }
+                lua.to_value(
+                    &reqwest::blocking::Client::new()
+                        .execute(req)
+                        .map(Response::from_response_blocking)
+                        .map_err(mlua::Error::external)?,
+                )
+            },
+        );
 
         methods.add_function(
             "Post",
-            |_,
-             PostParams {
-                 url,
-                 content,
-                 headers,
-             }| {
+            |lua, (url, content, headers): (String, String, HashMap<String, String>)| {
                 let client = reqwest::blocking::Client::builder()
                     .build()
                     .map_err(mlua::Error::external)?;
@@ -186,16 +170,18 @@ impl TealData for ExportLuaHttp {
 
                 let req = req.build().map_err(mlua::Error::external)?;
 
-                client
-                    .execute(req)
-                    .map(Response::from_response_blocking)
-                    .map_err(tealr::mlu::mlua::Error::external)
+                lua.to_value(
+                    &client
+                        .execute(req)
+                        .map(Response::from_response_blocking)
+                        .map_err(mlua::Error::external)?,
+                )
             },
         );
 
         methods.add_function(
             "GetAsync",
-            |lua, (url, headers, callback): (String, HashMap<String, String>, Function<'lua>)| {
+            |lua, (url, headers, callback): (String, HashMap<String, String>, Function)| {
                 if let Some(mut http) = lua.app_data_mut::<LuaHttp>() {
                     let id = http.next_id;
                     http.callbacks
@@ -259,7 +245,7 @@ impl TealData for ExportLuaHttp {
                 String,
                 String,
                 HashMap<String, String>,
-                Function<'lua>,
+                Function,
             )| {
                 if let Some(mut http) = lua.app_data_mut::<LuaHttp>() {
                     let id = http.next_id;
@@ -316,17 +302,5 @@ impl TealData for ExportLuaHttp {
                 Ok(())
             },
         )
-    }
-
-    fn add_fields<'lua, F: tealr::mlu::TealDataFields<'lua, Self>>(_fields: &mut F) {}
-}
-
-impl ExportInstances for ExportLuaHttp {
-    fn add_instances<'lua, T: tealr::mlu::InstanceCollector<'lua>>(
-        self,
-        instance_collector: &mut T,
-    ) -> tealr::mlu::mlua::Result<()> {
-        instance_collector.add_instance("http", UserDataProxy::<ExportLuaHttp>::new)?;
-        Ok(())
     }
 }

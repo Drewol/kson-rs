@@ -222,7 +222,7 @@ impl<'de, T: Default> Deserialize<'de> for EffectParameter<T> {
             p: PhantomData<T>,
         }
 
-        impl<'de, T: Default> Visitor<'de> for EffectParameterVisitor<T> {
+        impl<T: Default> Visitor<'_> for EffectParameterVisitor<T> {
             type Value = EffectParameter<T>;
 
             fn expecting(&self, formatter: &mut std::fmt::Formatter) -> std::fmt::Result {

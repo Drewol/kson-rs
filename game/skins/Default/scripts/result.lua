@@ -150,7 +150,7 @@ result_set = function()
 
     if result.duration ~= nil then
         chartDuration = result.duration
-        chartDurationText = string.format("%dm %02d.%01ds", chartDuration / 60000, (chartDuration / 1000) % 60, (chartDuration / 100) % 10)
+        chartDurationText = string.format("%dm %02d.%01ds", chartDuration // 60000, (chartDuration // 1000) % 60, (chartDuration // 100) % 10)
         hitGraphHoverScale = math.max(chartDuration / 10000, 5)
     else
         chartDuration = 0
@@ -299,8 +299,8 @@ result_set = function()
         hitWindowGood = result.hitWindow.good
 
         if hitWindowPerfect ~= NORMAL_HIT_WINDOW_PERFECT or hitWindowGood ~= NORMAL_HIT_WINDOW_GOOD then
-            critText = string.format("%02dms CRIT", hitWindowPerfect)
-            nearText = string.format("%02dms NEAR", hitWindowGood)
+            critText = string.format("%02.1fms CRIT", hitWindowPerfect)
+            nearText = string.format("%02.1fms NEAR", hitWindowGood)
         end
     end
 
@@ -374,7 +374,7 @@ draw_score = function(score, x, y, w, h, pre)
     gfx.BeginPath()
     gfx.TextAlign(gfx.TEXT_ALIGN_RIGHT)
     gfx.FontSize(h)
-    gfx.Text(string.format("%s%04d", prefix, score / 10000), center-h/70, y)
+    gfx.Text(string.format("%s%04d", prefix, score // 10000), center-h/70, y)
     gfx.TextAlign(gfx.TEXT_ALIGN_LEFT)
     gfx.FontSize(h*0.75)
     gfx.Text(string.format("%04d", score % 10000), center+h/70, y)
@@ -660,7 +660,7 @@ draw_left_graph = function(x, y, w, h)
         hit_xscale = hitGraphHoverScale
 
         local currPos = chartDuration * ((mx - x) / w)
-        chartDurationDisp = string.format("%dm %02d.%01ds / %s" , currPos / 60000, (currPos / 1000) % 60, (currPos / 100) % 10, chartDurationText)
+        chartDurationDisp = string.format("%dm %02d.%01ds / %s" , currPos // 60000, (currPos // 1000) % 60, (currPos // 100) % 10, chartDurationText)
 
         drawLine(mx, y, mx, y+h, 1, 64, 96, 64)
     end
@@ -816,18 +816,18 @@ draw_right_graph = function(x, y, w, h)
     end
     gfx.FillColor(196, 196, 255)
     gfx.FontSize(16)
-    gfx.Text(string.format("Median: %d ms", result.medianHitDelta), x+2, y+medianY)
+    gfx.Text(string.format("Median: %.0f ms", result.medianHitDelta), x+2, y+medianY)
 
     gfx.FillColor(255, 255, 255)
     gfx.FontSize(15)
 
     gfx.BeginPath()
     gfx.TextAlign(gfx.TEXT_ALIGN_LEFT + gfx.TEXT_ALIGN_TOP)
-    gfx.Text(string.format("Earliest: %d ms", hitMinDelta), x+5, y)
+    gfx.Text(string.format("Earliest: %.0f ms", hitMinDelta), x+5, y)
 
     gfx.BeginPath()
     gfx.TextAlign(gfx.TEXT_ALIGN_LEFT + gfx.TEXT_ALIGN_BOTTOM)
-    gfx.Text(string.format("Latest: %d ms", hitMaxDelta), x+5, y+h)
+    gfx.Text(string.format("Latest: %.0f ms", hitMaxDelta), x+5, y+h)
 end
 
 draw_laser_icon = function(x, y, s)

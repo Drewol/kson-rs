@@ -14,14 +14,11 @@ use egui::util::hash;
 use kson::Chart;
 use log::LevelFilter;
 use luals_gen::ToLuaLsType;
+use mlua::UserData;
 use poll_promise::Promise;
 use rodio::Source;
 use serde::{Deserialize, Serialize};
 use serde_with::{DeserializeFromStr, SerializeDisplay};
-use tealr::{
-    mlu::{mlua::UserData, TealData, UserData},
-    ToTypename, TypeName,
-};
 
 use crate::{results::Score, songselect::Song};
 use specta::Type;
@@ -180,8 +177,6 @@ impl SongFilter {
 
 #[derive(
     Debug,
-    ToTypename,
-    UserData,
     Clone,
     Hash,
     PartialEq,
@@ -237,8 +232,6 @@ impl SongId {
     }
 }
 
-impl TealData for SongId {}
-
 impl Default for SongId {
     fn default() -> Self {
         Self::Missing
@@ -247,8 +240,6 @@ impl Default for SongId {
 
 #[derive(
     Debug,
-    ToTypename,
-    UserData,
     Clone,
     DeserializeFromStr,
     SerializeDisplay,
@@ -276,9 +267,7 @@ impl FromStr for DiffId {
     }
 }
 
-impl TealData for DiffId {}
-
-#[derive(Debug, ToTypename, UserData, Clone, ToLuaLsType, Serialize, Deserialize)]
+#[derive(Debug, Clone, ToLuaLsType, Serialize, Deserialize)]
 pub enum SongDiffId {
     Missing,
     DiffOnly(DiffId),
@@ -309,7 +298,6 @@ impl SongDiffId {
     }
 }
 
-impl TealData for SongDiffId {}
 pub type PreviewResult = anyhow::Result<(Box<dyn Source<Item = f32> + Send>, Duration, Duration)>;
 pub type LoadSongFn =
     Box<dyn FnOnce() -> anyhow::Result<(Chart, Box<dyn rodio::Source<Item = f32> + Send>)> + Send>;

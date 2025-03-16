@@ -87,6 +87,10 @@ impl ToLuaLsType for HitWindow {
             ]),
         )
     }
+
+    fn lua_ls_type_name() -> std::borrow::Cow<'static, str> {
+        "HitWindow".into()
+    }
 }
 
 impl HitWindow {

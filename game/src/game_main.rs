@@ -27,8 +27,8 @@ use glutin::{
 use puffin::{profile_function, profile_scope};
 
 use crate::{button_codes::UscButton, touch::TouchHelper, FrameInput};
+use mlua::Lua;
 use td::Modifiers;
-use tealr::mlu::mlua::Lua;
 
 use femtovg as vg;
 use three_d as td;
@@ -472,7 +472,7 @@ impl GameMain {
             scenes.render_egui(ctx);
 
             if *show_debug_ui {
-                Self::debug_ui(ctx, scenes, &vgfx);
+                Self::debug_ui(ctx, scenes, vgfx);
             }
         });
         gui.paint(window);

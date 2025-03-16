@@ -11,15 +11,14 @@ use glutin::{
     surface::{SurfaceAttributesBuilder, WindowSurface},
 };
 use glutin_winit::DisplayBuilder;
-use raw_window_handle::HasRawWindowHandle;
 use winit::{
     self,
-    event_loop::{ActiveEventLoop, EventLoop, EventLoopBuilder},
+    event_loop::ActiveEventLoop,
     raw_window_handle::HasWindowHandle,
 };
 use winit::{dpi::PhysicalPosition, monitor::MonitorHandle};
 
-use crate::{button_codes::UscInputEvent, config::GameConfig};
+use crate::config::GameConfig;
 
 pub fn find_monitor(
     mut monitors: impl Iterator<Item = MonitorHandle>,

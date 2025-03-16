@@ -8,10 +8,10 @@ use anyhow::anyhow;
 use di::{RefMut, ServiceProvider};
 
 use log::warn;
+use mlua::{Function, Lua, LuaSerdeExt};
 use poll_promise::Promise;
 use rodio::Source;
 use serde_json::json;
-use tealr::mlu::mlua::{Function, Lua, LuaSerdeExt};
 use three_d::{ColorMaterial, Gm, Mat3, Rad, Rectangle, Texture2DRef, Vec2, Zero};
 
 use crate::{
@@ -81,8 +81,8 @@ impl Transition {
 
         service_provider: ServiceProvider,
     ) -> anyhow::Result<Self> {
-        if let Ok(reset_fn) = transition_lua.globals().get::<_, Function>("reset") {
-            if let Some(e) = reset_fn.call::<(), ()>(()).err() {
+        if let Ok(reset_fn) = transition_lua.globals().get::<Function>("reset") {
+            if let Some(e) = reset_fn.call::<()>(()).err() {
                 warn!("Error resetting transition: {}", e);
             };
         }

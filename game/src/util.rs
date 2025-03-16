@@ -1,6 +1,6 @@
 use std::sync::mpsc::{self, Receiver, Sender};
 
-use tealr::mlu::mlua::Lua;
+use mlua::Lua;
 use three_d::{context::*, *};
 
 pub fn back_pixels(context: &three_d::Context, viewport: Viewport) -> Vec<[u8; 4]> {
@@ -24,7 +24,7 @@ pub fn back_pixels(context: &three_d::Context, viewport: Viewport) -> Vec<[u8; 4
 }
 
 pub fn lua_address(lua: &Lua) -> usize {
-    let ptr = &**lua as *const _;
+    let ptr = lua as *const _;
     ptr as usize
 }
 
@@ -63,7 +63,7 @@ pub fn pipe<T, U>() -> (Pipe<U, T>, Pipe<T, U>) {
 
 #[cfg(test)]
 mod tests {
-    use tealr::mlu::mlua::Lua;
+    use mlua::Lua;
 
     use super::lua_address;
 

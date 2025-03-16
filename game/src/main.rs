@@ -60,7 +60,6 @@ use femtovg as vg;
 pub use game_main::ControlMessage;
 
 use gilrs::Gilrs;
-use glow::Context;
 use glutin_winit::GlWindow;
 use help::ServiceHelper;
 use kson::Ksh;
@@ -74,8 +73,8 @@ use scene::Scene;
 
 pub(crate) use crate::song_provider::{DiffId, FileSongProvider, NauticaSongProvider, SongId};
 use crate::test_scenes::camera_test;
+use mlua::Lua;
 use td::Viewport;
-use tealr::mlu::mlua::Lua;
 use three_d as td;
 
 use di::*;
@@ -175,7 +174,9 @@ pub fn default_game_dir() -> PathBuf {
             .expect("Failed to get directories")
             .home_dir()
             .to_path_buf();
-        game_dir.push(".usc");
+        game_dir.push(".local");
+        game_dir.push("share");
+        game_dir.push("usc");
         game_dir
     }
 }
@@ -202,14 +203,65 @@ pub fn init_game_dir(game_dir: impl AsRef<Path>) -> anyhow::Result<()> {
 }
 
 #[cfg(not(target_os = "android"))]
+fn is_install_dir(dir: impl AsRef<Path>) -> Option<PathBuf> {
+    let dir = dir.as_ref();
+    let font_dir = dir.join("fonts");
+    let skin_dir = dir.join("skins");
+    if font_dir.exists() && skin_dir.exists() {
+        Some(dir.to_path_buf())
+    } else {
+        None
+    }
+}
+
 pub fn init_game_dir(game_dir: impl AsRef<Path>) -> anyhow::Result<()> {
     #[cfg(feature = "portable")]
     {
         return Ok(());
     }
 
+    let mut candidates = vec![];
+
     let cargo_dir = std::env::var("CARGO_MANIFEST_DIR");
 
+    if let Ok(dir) = &cargo_dir {
+        candidates.push(PathBuf::from(dir));
+    }
+
+    candidates.push(std::env::current_dir()?);
+
+    let mut candidate_dir = std::env::current_exe()?;
+    candidate_dir.pop();
+    candidates.push(candidate_dir.clone());
+    #[cfg(target_os = "macos")]
+    {
+        //if app bundle
+        if candidate_dir.with_file_name("Resources").exists() {
+            candidate_dir.set_file_name("Resources");
+        }
+    }
+    #[cfg(target_os = "linux")]
+    {
+        //deb installs files to usr/lib/rusc/game
+        // assume starting at usr/bin after popping exe
+        candidate_dir.pop(); // usr
+        candidate_dir.push("lib");
+        candidate_dir.push("rusc");
+        candidate_dir.push("game");
+    }
+
+    candidates.push(candidate_dir);
+
+    let install_dir = candidates
+        .iter()
+        .filter_map(is_install_dir)
+        .next()
+        .ok_or(anyhow!("Failed to find installed files"))?;
+
+    if install_dir.as_path() == game_dir.as_ref() {
+        info!("Running from install dir");
+        return Ok(());
+    }
     let mut install_dir = if let Ok(manifest_dir) = &cargo_dir {
         PathBuf::from(manifest_dir) // should be correct when started from `cargo run`
     } else {
@@ -255,7 +307,7 @@ pub fn init_game_dir(game_dir: impl AsRef<Path>) -> anyhow::Result<()> {
     }
 
     std::fs::create_dir_all(&game_dir)?;
-    install_dir.pop();
+
     let r = install_dir.read_dir()?;
     for ele in r.into_iter() {
         let ele = ele?;
@@ -545,7 +597,7 @@ impl UscApp {
         let gl_context = Arc::new(gl_context);
         let context = td::Context::from_gl_context(gl_context.clone())?;
         let service_context = context.clone();
-        let gui = egui_glow::EguiGlow::new(&event_loop, gl_context.clone(), None, None, false);
+        let gui = egui_glow::EguiGlow::new(event_loop, gl_context.clone(), None, None, false);
         let gilrs_state = self.gilrs.clone();
         let services = ServiceCollection::new()
             .add(existing_as_self(companion_service))
@@ -676,7 +728,7 @@ impl UscApp {
                 )));
         }
 
-        let mut last_offset = { GameConfig::get().global_offset };
+        let last_offset = { GameConfig::get().global_offset };
         let fps_paint = vg::Paint::color(vg::Color::white()).with_text_align(vg::Align::Right);
 
         let game = GameMain::new(
@@ -770,7 +822,7 @@ impl winit::application::ApplicationHandler<UscInputEvent> for UscApp {
             };
             g.after_render();
 
-            let exit = game.render(frame_input, window, surface, &window_gl);
+            let exit = game.render(frame_input, window, surface, window_gl);
             surface.swap_buffers(window_gl);
             window.request_redraw();
             if exit {
@@ -778,7 +830,7 @@ impl winit::application::ApplicationHandler<UscInputEvent> for UscApp {
             }
         } else {
             if let WindowEvent::Resized(_) = event {
-                window.resize_surface(surface, &window_gl);
+                window.resize_surface(surface, window_gl);
             }
 
             game.handle(
@@ -1012,17 +1064,20 @@ fn export_luals_defs() -> Result<(), anyhow::Error> {
     path.push("gfx.lua");
     let mut f = std::fs::File::create(&path)?;
     writeln!(f, "---@meta")?;
-    luals_gen_tealr::Generator::write_type::<Vgfx>("gfx", f)?;
+    // TODO:
+    // luals_gen_tealr::Generator::write_type::<crate::Vgfx>("gfx", f)?;
 
     path.set_file_name("game.lua");
     let mut f = std::fs::File::create(&path)?;
     writeln!(f, "---@meta")?;
-    luals_gen_tealr::Generator::write_type::<crate::game_data::GameData>("game", f)?;
+    // TODO:
+    // luals_gen_tealr::Generator::write_type::<crate::game_data::GameData>("game", f)?;
 
     path.set_file_name("shadedmesh.lua");
     let mut f = std::fs::File::create(&path)?;
     writeln!(f, "---@meta")?;
-    luals_gen_tealr::Generator::write_type::<crate::shaded_mesh::ShadedMesh>("ShadedMesh", f)?;
+    // TODO:
+    // luals_gen_tealr::Generator::write_type::<crate::shaded_mesh::ShadedMesh>("ShadedMesh", f)?;
 
     path.set_file_name("result.lua");
     let mut f = std::fs::File::create(&path)?;

@@ -450,7 +450,7 @@ async fn query_songs(
         None
     };
     let charts = match database
-        .get_folder_ids_query(&q, filter.level, folder, sort.into())
+        .get_folder_ids_query(q, filter.level, folder, sort.into())
         .await
     {
         Ok(charts) => charts,
@@ -482,7 +482,7 @@ impl WorkerService for FileSongProvider {
             .is_some()
             .then(|| panic!("Song file provider worker returned")); //panics if worker paniced
         let mut importer_dirty = false;
-        while let Some(ev) = self.worker_rx.try_recv().ok() {
+        while let Ok(ev) = self.worker_rx.try_recv() {
             match ev {
                 WorkerEvent::ImporterState(s) => {
                     if self.last_full_update.elapsed().unwrap().as_secs() > 2 {
