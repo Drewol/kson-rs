@@ -202,7 +202,6 @@ pub fn init_game_dir(game_dir: impl AsRef<Path>) -> anyhow::Result<()> {
     Ok(())
 }
 
-#[cfg(not(target_os = "android"))]
 fn is_install_dir(dir: impl AsRef<Path>) -> Option<PathBuf> {
     let dir = dir.as_ref();
     let font_dir = dir.join("fonts");
@@ -214,6 +213,7 @@ fn is_install_dir(dir: impl AsRef<Path>) -> Option<PathBuf> {
     }
 }
 
+#[cfg(not(target_os = "android"))]
 pub fn init_game_dir(game_dir: impl AsRef<Path>) -> anyhow::Result<()> {
     #[cfg(feature = "portable")]
     {
