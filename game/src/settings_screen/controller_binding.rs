@@ -3,6 +3,7 @@ use std::collections::HashMap;
 use egui::Stroke;
 use gilrs::{ev::Code, Axis, Button, GamepadId};
 use uuid::Uuid;
+use winit::keyboard::PhysicalKey;
 
 use crate::{button_codes::UscButton, config::GameConfig, input_state::InputState};
 
@@ -194,5 +195,56 @@ impl BindingUi {
                 }
             }
         }
+    }
+}
+
+pub struct KeyboardBindingUi {
+    currently_binding: UscButton,
+    key_names: HashMap<PhysicalKey, String>,
+}
+
+impl KeyboardBindingUi {
+    pub fn new() -> Self {
+        Self {
+            currently_binding: UscButton::Other(Button::Unknown),
+            key_names: HashMap::new(),
+        }
+    }
+
+    pub fn ui(&mut self, ui: &mut egui::Ui, settings: &mut GameConfig) {
+        ui.label("Keys:");
+        ui.end_row();
+        let stroke = Stroke::new(2.0, egui::Color32::GREEN);
+
+        for binding in UscButton::iter() {
+            ui.label(format!("{binding}:"));
+            let active = binding == self.currently_binding;
+            let old_bind = settings.keybinds[0].get(binding).unwrap();
+
+            let key_name = self
+                .key_names
+                .entry(old_bind)
+                .or_insert_with(|| match old_bind {
+                    winit::keyboard::PhysicalKey::Code(key_code) => format!("{key_code:?}")
+                        .trim_start_matches("Key")
+                        .trim_start_matches("Digit")
+                        .to_string(),
+                    winit::keyboard::PhysicalKey::Unidentified(_) => "Unk".to_owned(),
+                });
+
+            let mut button = egui::Button::new(key_name.as_str());
+            if active {
+                button = button.stroke(stroke)
+            }
+            if ui.add(button).clicked() {
+                self.currently_binding = binding
+            }
+            ui.end_row();
+        }
+    }
+
+    pub fn key_pressed(&mut self, key: PhysicalKey, settings: &mut GameConfig) {
+        settings.keybinds[0].set(self.currently_binding, key);
+        self.currently_binding = UscButton::Other(Button::Unknown);
     }
 }

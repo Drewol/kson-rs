@@ -3,6 +3,7 @@ pub mod skin_select;
 
 use std::{collections::HashMap, path::PathBuf, sync::mpsc::Sender, time::Duration};
 
+use controller_binding::KeyboardBindingUi;
 use di::ServiceProvider;
 use egui::{CollapsingResponse, InnerResponse, RichText, Separator, Slider, TextEdit, Ui};
 use gilrs::GamepadId;
@@ -16,7 +17,7 @@ use winit::{
 #[cfg(not(target_os = "android"))]
 use crate::help::AsyncPicker;
 use crate::{
-    config::{Fullscreen, GameConfig, ScoreDisplayMode, ScoreScreenshot},
+    config::{Fullscreen, GameConfig, Keybinds, ScoreDisplayMode, ScoreScreenshot},
     game::HitWindow,
     game_main::ControlMessage,
     input_state::InputState,
@@ -32,6 +33,7 @@ pub struct SettingsScreen {
     input_state: InputState,
     selected_controller: Option<GamepadId>,
     binding_ui: Option<BindingUi>,
+    key_binding_ui: KeyboardBindingUi,
     controllers: HashMap<GamepadId, String>,
     monitors: Vec<MonitorHandle>,
     primary_monitor: Option<MonitorHandle>,
@@ -46,6 +48,7 @@ impl SettingsScreen {
         window: &winit::window::Window,
     ) -> Self {
         let input_state = InputState::clone(&services.get_required());
+        input_state.set_text_input_active(true);
         let controllers = {
             let lock_gilrs = input_state.lock_gilrs();
             let gilrs = lock_gilrs
@@ -84,9 +87,12 @@ impl SettingsScreen {
                 }
             })
             .collect();
-
+        let mut altered_settings = GameConfig::get().clone();
+        if altered_settings.keybinds.is_empty() {
+            altered_settings.keybinds.push(Keybinds::default());
+        }
         Self {
-            altered_settings: GameConfig::get().clone(),
+            altered_settings,
             close: false,
             input_state,
             selected_controller: None,
@@ -96,6 +102,7 @@ impl SettingsScreen {
             primary_monitor,
             tx,
             skins,
+            key_binding_ui: KeyboardBindingUi::new(),
         }
     }
 
@@ -103,6 +110,12 @@ impl SettingsScreen {
         let mut c = GameConfig::get_mut();
         *c = self.altered_settings.clone();
         _ = self.tx.send(ControlMessage::ApplySettings);
+    }
+}
+
+impl Drop for SettingsScreen {
+    fn drop(&mut self) {
+        self.input_state.set_text_input_active(false);
     }
 }
 
@@ -185,6 +198,16 @@ impl Scene for SettingsScreen {
                     ui.end_row();
                     ui.checkbox(&mut self.altered_settings.keyboard_knobs, "Keyboard knobs");
                     ui.end_row();
+
+                    if self.altered_settings.keyboard_knobs
+                        || self.altered_settings.keyboard_buttons
+                    {
+                        settings_section("Keybinds", ui, |ui| {
+                            self.key_binding_ui.ui(ui, &mut self.altered_settings);
+                        });
+                        ui.end_row();
+                    }
+
                     ui.checkbox(&mut self.altered_settings.mouse_knobs, "Mouse knobs");
                     ui.end_row();
 
@@ -679,6 +702,20 @@ impl Scene for SettingsScreen {
         });
 
         Ok(())
+    }
+    fn on_event(&mut self, event: &winit::event::Event<crate::button_codes::UscInputEvent>) {
+        let winit::event::Event::WindowEvent { event, .. } = event else {
+            return;
+        };
+
+        let winit::event::WindowEvent::KeyboardInput { event, .. } = event else {
+            return;
+        };
+
+        if event.state.is_pressed() {
+            self.key_binding_ui
+                .key_pressed(event.physical_key, &mut self.altered_settings);
+        }
     }
 }
 

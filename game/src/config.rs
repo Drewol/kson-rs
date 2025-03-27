@@ -4,11 +4,11 @@ use std::{
 };
 
 use clap::Parser;
-use winit::keyboard::PhysicalKey;
 use log::{error, info};
 use once_cell::sync::OnceCell;
 use serde::{Deserialize, Serialize};
 use winit::dpi::{PhysicalPosition, PhysicalSize};
+use winit::keyboard::PhysicalKey;
 
 use crate::{
     button_codes::{CustomBindings, UscButton},
@@ -184,6 +184,59 @@ pub struct Keybinds {
 }
 
 impl Keybinds {
+    pub fn get(&self, button: UscButton) -> Option<PhysicalKey> {
+        match button {
+            UscButton::BT(bt_lane) => Some(match bt_lane {
+                kson::BtLane::A => self.bt_a,
+                kson::BtLane::B => self.bt_b,
+                kson::BtLane::C => self.bt_c,
+                kson::BtLane::D => self.bt_d,
+            }),
+            UscButton::FX(side) => Some(match side {
+                kson::Side::Left => self.fx_l,
+                kson::Side::Right => self.fx_r,
+            }),
+            UscButton::Start => Some(self.start),
+            UscButton::Back => Some(self.back),
+            UscButton::Refresh => Some(self.refresh),
+            UscButton::Laser(side, dir) => Some(match (side, dir) {
+                (kson::Side::Left, kson::Side::Left) => self.laser_l.0,
+                (kson::Side::Left, kson::Side::Right) => self.laser_l.1,
+                (kson::Side::Right, kson::Side::Left) => self.laser_r.0,
+                (kson::Side::Right, kson::Side::Right) => self.laser_r.1,
+            }),
+            UscButton::Other(_) => None,
+        }
+    }
+
+    pub fn set(&mut self, button: UscButton, key: PhysicalKey) {
+        let b = match button {
+            UscButton::BT(bt_lane) => Some(match bt_lane {
+                kson::BtLane::A => &mut self.bt_a,
+                kson::BtLane::B => &mut self.bt_b,
+                kson::BtLane::C => &mut self.bt_c,
+                kson::BtLane::D => &mut self.bt_d,
+            }),
+            UscButton::FX(side) => Some(match side {
+                kson::Side::Left => &mut self.fx_l,
+                kson::Side::Right => &mut self.fx_r,
+            }),
+            UscButton::Start => Some(&mut self.start),
+            UscButton::Back => Some(&mut self.back),
+            UscButton::Refresh => Some(&mut self.refresh),
+            UscButton::Laser(side, dir) => Some(match (side, dir) {
+                (kson::Side::Left, kson::Side::Left) => &mut self.laser_l.0,
+                (kson::Side::Left, kson::Side::Right) => &mut self.laser_l.1,
+                (kson::Side::Right, kson::Side::Left) => &mut self.laser_r.0,
+                (kson::Side::Right, kson::Side::Right) => &mut self.laser_r.1,
+            }),
+            UscButton::Other(_) => None,
+        };
+        if let Some(b) = b {
+            *b = key;
+        }
+    }
+
     pub fn match_button(&self, key: PhysicalKey) -> Option<UscButton> {
         let Keybinds {
             bt_a,

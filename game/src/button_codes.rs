@@ -177,6 +177,24 @@ pub enum UscButton {
 }
 
 impl UscButton {
+    pub fn iter() -> std::array::IntoIter<UscButton, 13> {
+        [
+            UscButton::Start,
+            UscButton::BT(BtLane::A),
+            UscButton::BT(BtLane::B),
+            UscButton::BT(BtLane::C),
+            UscButton::BT(BtLane::D),
+            UscButton::FX(Side::Left),
+            UscButton::FX(Side::Right),
+            UscButton::Laser(Side::Left, Side::Left),
+            UscButton::Laser(Side::Left, Side::Right),
+            UscButton::Laser(Side::Right, Side::Left),
+            UscButton::Laser(Side::Right, Side::Right),
+            UscButton::Back,
+            UscButton::Refresh,
+        ]
+        .into_iter()
+    }
     pub fn to_gilrs_code_u32(self) -> u32 {
         match self {
             UscButton::BT(bt) => match bt {
@@ -220,6 +238,12 @@ impl UscButton {
             },
             UscButton::Other(_) => "Unknown",
         }
+    }
+}
+
+impl std::fmt::Display for UscButton {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(self.as_str())
     }
 }
 

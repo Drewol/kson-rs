@@ -72,7 +72,15 @@ impl InputState {
             .load(std::sync::atomic::Ordering::Relaxed)
     }
 
-    pub fn set_text_input_active(&mut self, text_input_active: bool) {
+    pub fn set_text_input_active(&self, text_input_active: bool) {
+        log::info!(
+            "Setting text input: {}",
+            if text_input_active {
+                "active"
+            } else {
+                "inactive"
+            }
+        );
         self.text_input_active
             .store(text_input_active, std::sync::atomic::Ordering::Relaxed);
     }
