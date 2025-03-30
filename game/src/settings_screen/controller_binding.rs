@@ -5,7 +5,11 @@ use gilrs::{ev::Code, Axis, Button, GamepadId};
 use uuid::Uuid;
 use winit::keyboard::PhysicalKey;
 
-use crate::{button_codes::UscButton, config::GameConfig, input_state::InputState};
+use crate::{
+    button_codes::UscButton,
+    config::{GameConfig, Keybinds},
+    input_state::InputState,
+};
 
 #[derive(Debug, PartialEq, Default)]
 enum ActiveBinding {
@@ -199,14 +203,14 @@ impl BindingUi {
 }
 
 pub struct KeyboardBindingUi {
-    currently_binding: UscButton,
+    currently_binding: (UscButton, usize),
     key_names: HashMap<PhysicalKey, String>,
 }
 
 impl KeyboardBindingUi {
     pub fn new() -> Self {
         Self {
-            currently_binding: UscButton::Other(Button::Unknown),
+            currently_binding: (UscButton::Other(Button::Unknown), 0),
             key_names: HashMap::new(),
         }
     }
@@ -216,35 +220,51 @@ impl KeyboardBindingUi {
         ui.end_row();
         let stroke = Stroke::new(2.0, egui::Color32::GREEN);
 
-        for binding in UscButton::iter() {
-            ui.label(format!("{binding}:"));
-            let active = binding == self.currently_binding;
-            let old_bind = settings.keybinds[0].get(binding).unwrap();
+        egui::Grid::new("keybinds_ui").striped(true).show(ui, |ui| {
+            for binding in UscButton::iter() {
+                ui.label(format!("{binding}:"));
 
-            let key_name = self
-                .key_names
-                .entry(old_bind)
-                .or_insert_with(|| match old_bind {
-                    winit::keyboard::PhysicalKey::Code(key_code) => format!("{key_code:?}")
-                        .trim_start_matches("Key")
-                        .trim_start_matches("Digit")
-                        .to_string(),
-                    winit::keyboard::PhysicalKey::Unidentified(_) => "Unk".to_owned(),
-                });
+                for (i, b) in settings.keybinds.iter().enumerate() {
+                    let active =
+                        binding == self.currently_binding.0 && i == self.currently_binding.1;
+                    let old_bind = b.get(binding).unwrap();
 
-            let mut button = egui::Button::new(key_name.as_str());
-            if active {
-                button = button.stroke(stroke)
+                    let key_name =
+                        self.key_names
+                            .entry(old_bind)
+                            .or_insert_with(|| match old_bind {
+                                winit::keyboard::PhysicalKey::Code(key_code) => {
+                                    format!("{key_code:?}")
+                                        .trim_start_matches("Key")
+                                        .trim_start_matches("Digit")
+                                        .to_string()
+                                }
+                                winit::keyboard::PhysicalKey::Unidentified(_) => "Unk".to_owned(),
+                            });
+
+                    let mut button = egui::Button::new(key_name.as_str());
+                    if active {
+                        button = button.stroke(stroke)
+                    }
+                    if ui.add(button).clicked() {
+                        self.currently_binding = (binding, i)
+                    }
+                }
+                ui.end_row();
             }
-            if ui.add(button).clicked() {
-                self.currently_binding = binding
-            }
-            ui.end_row();
+        });
+        ui.end_row();
+        if ui.button("Add key set").clicked() {
+            settings.keybinds.push(Keybinds::default());
+        }
+
+        if settings.keybinds.len() > 1 && ui.button("Remove last key set").clicked() {
+            _ = settings.keybinds.pop();
         }
     }
 
     pub fn key_pressed(&mut self, key: PhysicalKey, settings: &mut GameConfig) {
-        settings.keybinds[0].set(self.currently_binding, key);
-        self.currently_binding = UscButton::Other(Button::Unknown);
+        settings.keybinds[self.currently_binding.1].set(self.currently_binding.0, key);
+        self.currently_binding = (UscButton::Other(Button::Unknown), 0);
     }
 }
