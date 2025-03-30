@@ -216,8 +216,6 @@ impl KeyboardBindingUi {
     }
 
     pub fn ui(&mut self, ui: &mut egui::Ui, settings: &mut GameConfig) {
-        ui.label("Keys:");
-        ui.end_row();
         let stroke = Stroke::new(2.0, egui::Color32::GREEN);
 
         egui::Grid::new("keybinds_ui").striped(true).show(ui, |ui| {

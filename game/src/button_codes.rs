@@ -73,47 +73,56 @@ impl FilterFn for RuscFilter {
                     _ => {
                         // apply default mapping
                         // a:b1,b:b2,x:b4,y:b3,start:b0,leftshoulder:b5,rightshoulder:b6,leftx:a0,rightx:a1
-
+                        // TODO: every match arm returns Some(ev), can probably be simplified
                         match ev.event {
                             gilrs::EventType::ButtonPressed(_, code) => {
-                                self.button_map.get(&code.into_u32()).map(|b| Event {
-                                    id: ev.id,
-                                    event: gilrs::EventType::ButtonPressed(*b, code),
-                                    time: ev.time,
-                                })
+                                ev.event = self
+                                    .button_map
+                                    .get(&code.into_u32())
+                                    .map(|b| gilrs::EventType::ButtonPressed(*b, code))
+                                    .unwrap_or(ev.event);
+
+                                Some(ev)
                             }
                             gilrs::EventType::ButtonRepeated(_, code) => {
-                                self.button_map.get(&code.into_u32()).map(|b| Event {
-                                    id: ev.id,
-                                    event: gilrs::EventType::ButtonRepeated(*b, code),
-                                    time: ev.time,
-                                })
+                                ev.event = self
+                                    .button_map
+                                    .get(&code.into_u32())
+                                    .map(|b| gilrs::EventType::ButtonRepeated(*b, code))
+                                    .unwrap_or(ev.event);
+                                Some(ev)
                             }
                             gilrs::EventType::ButtonReleased(_, code) => {
-                                self.button_map.get(&code.into_u32()).map(|b| Event {
-                                    id: ev.id,
-                                    event: gilrs::EventType::ButtonReleased(*b, code),
-                                    time: ev.time,
-                                })
+                                ev.event = self
+                                    .button_map
+                                    .get(&code.into_u32())
+                                    .map(|b| gilrs::EventType::ButtonReleased(*b, code))
+                                    .unwrap_or(ev.event);
+                                Some(ev)
                             }
                             gilrs::EventType::ButtonChanged(_, v, code) => {
-                                self.button_map.get(&code.into_u32()).map(|b| Event {
-                                    id: ev.id,
-                                    event: gilrs::EventType::ButtonChanged(*b, v, code),
-                                    time: ev.time,
-                                })
+                                ev.event = self
+                                    .button_map
+                                    .get(&code.into_u32())
+                                    .map(|b| gilrs::EventType::ButtonChanged(*b, v, code))
+                                    .unwrap_or(ev.event);
+                                Some(ev)
                             }
-                            gilrs::EventType::AxisChanged(_, v, code) => self
-                                .axis_map
-                                .get(&code.into_u32())
-                                .map(|(axis, sens)| Event {
-                                    id: ev.id,
-                                    event: gilrs::EventType::AxisChanged(*axis, *sens * v, code),
-                                    time: ev.time,
-                                }),
+                            gilrs::EventType::AxisChanged(_, v, code) => {
+                                ev.event = self
+                                    .axis_map
+                                    .get(&code.into_u32())
+                                    .copied()
+                                    .map(|(axis, sens)| {
+                                        gilrs::EventType::AxisChanged(axis, v * sens, code)
+                                    })
+                                    .unwrap_or(ev.event);
+                                Some(ev)
+                            }
                             gilrs::EventType::Connected => Some(ev),
                             gilrs::EventType::Disconnected => Some(ev),
                             gilrs::EventType::Dropped => Some(ev),
+                            _ => Some(ev),
                         }
                         .or(Some(ev))
                     }
@@ -155,6 +164,7 @@ impl FilterFn for CustomBindingFilter {
                         gilrs::EventType::Connected => {}
                         gilrs::EventType::Disconnected => {}
                         gilrs::EventType::Dropped => {}
+                        _ => {}
                     }
                 }
                 Some(ev)

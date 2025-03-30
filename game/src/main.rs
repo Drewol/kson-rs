@@ -987,6 +987,8 @@ pub fn run(eventloop: winit::event_loop::EventLoop<UscInputEvent>) -> anyhow::Re
                     EventType::Connected => None,
                     EventType::Disconnected => None,
                     EventType::Dropped => None,
+                    EventType::ForceFeedbackEffectCompleted => None,
+                    _ => None,
                 };
 
                 if let Some(Err(send_err)) = sent {
