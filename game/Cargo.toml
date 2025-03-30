@@ -75,7 +75,6 @@ zip = "2"
 glutin = "0.32"
 glutin-winit = "0.5"
 glow = "0.16"
-raw-window-handle = "0.5.2"
 rusc_database = { path = "./rusc_database" }
 itertools = { workspace = true }
 kson-music-playback = { path = "../kson-music-playback" }
