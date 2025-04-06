@@ -25,10 +25,11 @@ use super::{
 };
 use anyhow::{anyhow, bail, ensure};
 
-use futures::{executor::block_on, AsyncReadExt, StreamExt};
+use futures::{executor::block_on, AsyncReadExt, StreamExt, TryStreamExt};
 use itertools::Itertools;
 use kson::Ksh;
 use log::{info, warn};
+use opendal::{layers::LoggingLayer, Builder, Configurator, Operator};
 use puffin::profile_function;
 use rodio::Source;
 use rusc_database::{ChartEntry, LocalSongsDb, ScoreEntry};
@@ -234,6 +235,17 @@ async fn files_worker(
     }
 }
 
+fn get_operator() -> anyhow::Result<Operator> {
+    let songs_folder = songs_path();
+
+    let builder =
+        opendal::services::Compfs::default().root(songs_folder.to_str().unwrap_or_default());
+    let op = opendal::Operator::new(builder)?
+        .layer(LoggingLayer::default())
+        .finish();
+    Ok(op)
+}
+
 async fn load_db(database: &LocalSongsDb, worker_tx: &Sender<WorkerEvent>) {
     let mut diffs = database
         .get_songs()
@@ -283,35 +295,37 @@ async fn refresh_songs(
     worker_tx: &Sender<WorkerEvent>,
     worker_db: &LocalSongsDb,
 ) -> anyhow::Result<HashSet<String>> {
-    let songs_folder = songs_path();
-    info!("Refreshing song db");
-    let dir = tokio::fs::read_dir(&songs_folder).await?;
+    let op = get_operator()?;
 
-    Ok(read_song_dir(dir, worker_tx, worker_db)
+    info!("Refreshing song db");
+
+    Ok(read_song_dir(op, "/", worker_tx, worker_db)
         .await?
         .into_iter()
         .collect())
 }
 
 async fn read_song_dir(
-    mut dir: tokio::fs::ReadDir,
+    op: Operator,
+    song_dir: &str,
     worker_tx: &Sender<WorkerEvent>,
     worker_db: &LocalSongsDb,
 ) -> anyhow::Result<Vec<String>> {
     let mut chart_files = vec![];
     let mut hashes = vec![];
+    let mut dir = op.lister_with(song_dir).recursive(false).await?;
 
-    while let Some(e) = dir.next_entry().await? {
+    while let Some(Ok(e)) = dir.next().await {
         let p = e.path();
-        if p.is_dir() {
-            let msg = format!("{}", p.display());
+        if e.metadata().is_dir() && p != song_dir {
+            let msg = format!("{}", p);
             worker_tx.send(WorkerEvent::ImporterState(ImporterState::Loading(msg)));
-            let dir = tokio::fs::read_dir(p).await?;
-            if let Ok(mut r) = Box::pin(read_song_dir(dir, worker_tx, worker_db)).await {
+
+            if let Ok(mut r) = Box::pin(read_song_dir(op.clone(), p, worker_tx, worker_db)).await {
                 hashes.append(&mut r);
             }
         } else if is_chart_file(&p).is_some() {
-            chart_files.push(p);
+            chart_files.push(PathBuf::from(p));
         }
     }
 
@@ -324,6 +338,7 @@ async fn read_song_dir(
             chart_loaders.push((
                 p.clone(),
                 tokio::spawn(read_chart_file(
+                    op.clone(),
                     p,
                     worker_tx.clone(),
                     worker_db.clone(),
@@ -341,7 +356,7 @@ async fn read_song_dir(
             match t.await? {
                 Ok(hash) => hashes.push(hash),
                 Err(e) => {
-                    warn!("Failed to load chart {}: {}", p.display(), e);
+                    warn!("Failed to load chart \"{}\": {}", p.display(), e);
                 }
             }
         }
@@ -350,20 +365,23 @@ async fn read_song_dir(
     Ok(hashes)
 }
 
-fn is_chart_file(p: &PathBuf) -> Option<String> {
-    p.extension()
+fn is_chart_file(p: impl AsRef<Path>) -> Option<String> {
+    p.as_ref()
+        .extension()
         .and_then(|x| x.to_str())
         .map(|x| x.to_lowercase())
         .filter(|x| x == "ksh" || x == "kson")
 }
 
 async fn read_chart_file(
+    op: Operator,
     p: PathBuf,
     worker_tx: Sender<WorkerEvent>,
     worker_db: LocalSongsDb,
     folder_id: i64,
 ) -> anyhow::Result<String> {
-    let data = tokio::fs::read(&p).await?;
+    let data = op.read(p.to_str().unwrap_or_default()).await?.to_vec();
+
     let mut hasher = sha1_smol::Sha1::new();
     hasher.update(&data);
     let hash = hasher.digest().to_string();
@@ -408,7 +426,8 @@ fn chart_to_entry(
         artist: c.meta.artist.clone(),
         title_translit: String::new(),
         artist_translit: String::new(),
-        jacket_path: path
+        jacket_path: songs_path()
+            .join(path)
             .with_file_name(c.meta.jacket_filename.clone())
             .to_string_lossy()
             .to_string(),
@@ -583,7 +602,9 @@ impl SongProvider for FileSongProvider {
         let path = PathBuf::from(block_on!(db.get_song(_diff_index as _))?.path);
 
         Ok(Box::new(move || {
-            let data = std::fs::read(&path)?;
+            let op = get_operator()?;
+
+            let data = block_on(op.read(path.to_str().unwrap_or_default()))?.to_vec();
             let data = encoding::decode(
                 &data,
                 encoding::DecoderTrap::Strict,
@@ -594,9 +615,10 @@ impl SongProvider for FileSongProvider {
 
             let chart = kson::Chart::from_ksh(&data)?;
 
-            let audio = rodio::decoder::Decoder::new(std::fs::File::open(
-                path.with_file_name(&chart.audio.bgm.filename),
-            )?)?;
+            let audio_path = path.with_file_name(&chart.audio.bgm.filename);
+            let audio = rodio::decoder::Decoder::new(std::io::Cursor::new(
+                block_on(op.read(audio_path.to_str().unwrap_or_default()))?.to_vec(),
+            ))?;
 
             Ok((chart, Box::new(audio.convert_samples())))
         }))
@@ -616,6 +638,7 @@ impl SongProvider for FileSongProvider {
         let id = id.clone();
         poll_promise::Promise::spawn_async(async move {
             profile_function!();
+            let op = get_operator()?;
             let SongId::IntId(id) = id else {
                 bail!("Unsupported id type")
             };
@@ -624,14 +647,15 @@ impl SongProvider for FileSongProvider {
                 bail!("No chart found")
             };
 
-            let Some(path) = chart.preview_file.take() else {
+            let Some(mut path) = chart.preview_file.take() else {
                 bail!("No preview file")
             };
 
-            let source = rodio::Decoder::new(std::fs::File::open(
-                PathBuf::from(&chart.path).with_file_name(path),
-            )?)?
-            .convert_samples();
+            path.insert(0, '/');
+
+            let source =
+                rodio::Decoder::new(std::io::Cursor::new(block_on(op.read(&path))?.to_vec()))?
+                    .convert_samples();
             Ok((
                 Box::new(source) as Box<dyn Source<Item = f32> + Send>,
                 Duration::from_millis(chart.preview_offset as u64),
