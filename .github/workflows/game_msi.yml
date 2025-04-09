@@ -1,7 +1,9 @@
 name: Game Installer
 on:
   push:
-    branches: [master, windows-portable]
+    branches:
+      - master
+      - 'feat/**'
 jobs:
   bundle:
     strategy:
