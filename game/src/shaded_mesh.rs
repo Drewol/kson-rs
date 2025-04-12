@@ -1,11 +1,14 @@
 use std::{
+    any,
     collections::HashMap,
+    num::NonZeroU32,
     path::Path,
     sync::{Arc, RwLock},
 };
 
-use anyhow::ensure;
+use anyhow::{bail, ensure};
 use di::RefMut;
+use glow::HasContext;
 use itertools::Itertools;
 use mlua::{self, FromLua, Lua};
 use mlua::{UserData, UserDataFields, UserDataMethods};
@@ -111,6 +114,23 @@ pub struct ShadedMesh {
     context: Context,
     requires_in_tex: bool,
     requires_in_color: bool,
+    framebuffer_tex: Option<(
+        three_d::context::Texture,
+        three_d::context::Framebuffer,
+        i32,
+        i32,
+    )>,
+}
+
+impl Drop for ShadedMesh {
+    fn drop(&mut self) {
+        if let Some(tex) = self.framebuffer_tex {
+            unsafe {
+                self.context.delete_texture(tex.0);
+                self.context.delete_framebuffer(tex.1);
+            };
+        }
+    }
 }
 
 fn flip_image_data<T>(d: &mut [T], width: usize, height: usize) {
@@ -122,6 +142,8 @@ fn flip_image_data<T>(d: &mut [T], width: usize, height: usize) {
 }
 
 impl ShadedMesh {
+    const TEXFRAMEBUFFER_NAME: &str = "texFrameBuffer";
+
     pub fn new(
         context: &three_d::Context,
         material: &str,
@@ -167,6 +189,7 @@ impl ShadedMesh {
             context: context.clone(),
             requires_in_color,
             requires_in_tex,
+            framebuffer_tex: None,
         })
     }
 
@@ -204,6 +227,7 @@ impl ShadedMesh {
             context: context.clone(),
             requires_in_color: false,
             requires_in_tex: false,
+            framebuffer_tex: None,
         })
     }
 
@@ -214,6 +238,80 @@ impl ShadedMesh {
 
     pub fn set_blend(&mut self, blend: Blend) {
         self.state.blend = blend;
+    }
+
+    pub fn set_tex_from_framebuffer(&mut self, w: i32, h: i32) -> anyhow::Result<()> {
+        if !self.material.requires_uniform(Self::TEXFRAMEBUFFER_NAME) {
+            return Ok(()); // Doesnt use framebuffer texture
+        }
+
+        use three_d::context::*;
+        let gl = &self.context;
+        unsafe {
+            // Drop previous texture if resolution changed
+            if let Some((tex, fbo, _, _)) = self
+                .framebuffer_tex
+                .take_if(|(tex, fbo, prev_w, prev_h)| *prev_w != w || *prev_h != h)
+            {
+                gl.delete_texture(tex);
+                gl.delete_framebuffer(fbo);
+            }
+
+            let original = gl.get_parameter_i32(FRAMEBUFFER_BINDING) as u32;
+            let original = NonZeroU32::new(original).map(|x| NativeFramebuffer(x));
+
+            let (tex, fbo, _, _) = self.framebuffer_tex.get_or_insert_with(|| {
+                let fbo = gl
+                    .create_framebuffer()
+                    .expect("Could not create OpenGl framebuffer");
+                let tex = gl
+                    .create_texture()
+                    .expect("Could not create OpenGl texture");
+                gl.bind_texture(TEXTURE_2D, Some(tex));
+                // gl.tex_storage_2d(TEXTURE_2D, 0, RGBA8, w, h);
+                gl.tex_image_2d(
+                    TEXTURE_2D,
+                    0,
+                    RGBA as _,
+                    w,
+                    h,
+                    0,
+                    RGBA,
+                    UNSIGNED_BYTE,
+                    PixelUnpackData::Slice(None),
+                );
+
+                gl.tex_parameter_i32(TEXTURE_2D, TEXTURE_MIN_FILTER, LINEAR as _);
+                gl.tex_parameter_i32(TEXTURE_2D, TEXTURE_MAG_FILTER, LINEAR as _);
+
+                gl.tex_parameter_i32(TEXTURE_2D, TEXTURE_WRAP_S, CLAMP_TO_EDGE as _);
+                gl.tex_parameter_i32(TEXTURE_2D, TEXTURE_WRAP_T, CLAMP_TO_EDGE as _);
+
+                gl.bind_framebuffer(FRAMEBUFFER, Some(fbo));
+                gl.framebuffer_texture_2d(FRAMEBUFFER, COLOR_ATTACHMENT0, TEXTURE_2D, Some(tex), 0);
+
+                (tex, fbo, w, h)
+            });
+
+            gl.blit_named_framebuffer(
+                original,
+                Some(*fbo),
+                0,
+                0,
+                w,
+                h,
+                0,
+                0,
+                w,
+                h,
+                COLOR_BUFFER_BIT,
+                NEAREST,
+            );
+            gl.bind_framebuffer(FRAMEBUFFER, original);
+            gl.bind_texture(TEXTURE_2D, None);
+        }
+
+        Ok(())
     }
 
     fn update_indecies(&mut self) -> anyhow::Result<()> {
@@ -350,6 +448,14 @@ impl ShadedMesh {
                 ShaderParam::Int(v) => self.material.use_uniform(name, v),
                 ShaderParam::Texture(v) => self.material.use_texture(name, v),
             }
+        }
+
+        if let Some((tex, _, _, _)) = self.framebuffer_tex {
+            self.material.use_raw_texture(
+                Self::TEXFRAMEBUFFER_NAME,
+                three_d::context::TEXTURE_2D,
+                tex,
+            );
         }
     }
 

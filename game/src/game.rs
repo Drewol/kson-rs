@@ -530,10 +530,11 @@ impl SceneData for GameData {
                 )
                 .inspect_err(|e| log::warn!("Failed to load background: {e} \n {:?}", &bg_folder))
                 .or_else(|_| {
+                    bg_folder.set_file_name("fallback");
                     GameBackground::new(
                         &context,
                         true,
-                        bg_folder.with_file_name("fallback"),
+                        &bg_folder,
                         &chart,
                         service_provider.get_required(),
                         service_provider.get_required(),
@@ -1873,6 +1874,7 @@ impl Scene for Game {
         }
         let td_camera: Camera = Camera::from(&self.camera);
         if let Some(bg) = self.background.as_mut() {
+            bg.set_global("gameplay", &self.lua_game_state);
             bg.render(
                 dt,
                 &td_camera,
@@ -2024,6 +2026,7 @@ impl Scene for Game {
         self.reset_canvas();
 
         if let Some(fg) = self.foreground.as_mut() {
+            fg.set_global("gameplay", &self.lua_game_state);
             fg.render(
                 dt,
                 &td_camera,

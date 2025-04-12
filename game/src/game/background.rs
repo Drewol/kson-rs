@@ -13,9 +13,10 @@ use crate::{
 use di::RefMut;
 use kson::MeasureBeatLines;
 use log::warn;
-use mlua::{Function, Lua, LuaOptions, UserData, UserDataMethods};
+use mlua::{Function, Lua, LuaOptions, LuaSerdeExt, UserData, UserDataMethods};
 use puffin::profile_function;
 
+use serde::Serialize;
 use three_d_asset::{vec2, Vector2, Vector3, Viewport};
 
 #[derive(Debug, Clone, Copy)]
@@ -169,6 +170,12 @@ impl UserData for GameBackgroundLua {
             bg.set_param("timing", Vector3::from(data.timing));
             bg.set_param("clearTransition", data.clear_transition);
             bg.set_param("tilt", vec2(data.roll, 0.0)); //(camera roll, background spin)
+            if let Some(e) = bg
+                .set_tex_from_framebuffer(data.viewport.width as _, data.viewport.height as _)
+                .err()
+            {
+                warn!("Failed to set framebuffer texture: {e}");
+            };
 
             bg.draw_fullscreen(data.viewport);
             Ok(())
@@ -249,6 +256,16 @@ impl GameBackground {
         Ok(game_background)
     }
 
+    pub fn set_global(&mut self, name: &str, value: &impl Serialize) {
+        profile_function!();
+        let Ok(value) = self.lua.to_value(value) else {
+            warn!("Failed to convert input to lua");
+            return;
+        };
+
+        _ = self.lua.globals().set(name, value);
+    }
+
     pub fn render(
         &mut self,
         dt: f64,
@@ -292,10 +309,6 @@ impl GameBackground {
                     -dt / kson::beat_in_ms(bpm)
                 } as f32)
                 .clamp(0.0, 1.0);
-        }
-
-        if !self.background {
-            //TODO: put current screen in texture for shader
         }
 
         if let Ok(render_fn) = self.lua.globals().get::<Function>(self.name.as_str()) {
