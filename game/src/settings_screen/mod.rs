@@ -380,6 +380,18 @@ impl Scene for SettingsScreen {
                     self.altered_settings.screenshot_path = PathBuf::from(screenshot_path);
                 });
 
+                settings_section("Online", ui, |ui| {
+                    ui.label("IR Server");
+                    ui.text_edit_singleline(&mut self.altered_settings.ir_endpoint);
+                    ui.end_row();
+
+                    ui.label("IR Token");
+                    egui::TextEdit::singleline(&mut self.altered_settings.ir_api_token)
+                        .password(true)
+                        .show(ui);
+                    ui.end_row();
+                });
+
                 settings_section("Graphics", ui, |ui| {
                     ui.checkbox(&mut self.altered_settings.graphics.vsync, "VSync");
                     ui.end_row();

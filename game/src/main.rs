@@ -10,6 +10,7 @@ mod game_data;
 mod game_main;
 mod help;
 mod input_state;
+mod ir;
 mod lua_http;
 mod lua_service;
 mod main_menu;

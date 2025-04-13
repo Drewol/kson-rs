@@ -3,6 +3,7 @@ use std::rc::Rc;
 use crate::{
     config::GameConfig,
     game_data::{self, GameDataLua, LuaPath},
+    ir::{InternetRanking, InternetRankingLua},
     lua_http::{ExportLuaHttp, LuaHttp},
     util::lua_address,
     vg_ui::{Vgfx, VgfxLua},
@@ -62,12 +63,9 @@ impl LuaProvider {
         set_global_env(GameDataLua, "game", &lua)?;
         set_global_env(LuaPath, "path", &lua)?;
         set_global_env(ExportLuaHttp, "http", &lua)?;
-        lua.globals().set(
-            "IRData",
-            lua.to_value(&json!({
-                "Active": false
-            }))?,
-        )?;
+        set_global_env(InternetRankingLua, "IRData", &lua)?;
+        set_global_env(InternetRankingLua, "IR", &lua)?;
+
         arena
             .write()
             .expect("Could not get lock to lua arena")
@@ -86,6 +84,7 @@ impl LuaProvider {
             lua.set_app_data(self.context.clone());
             lua.set_app_data(self.mixer.clone());
             lua.set_app_data(LuaHttp::default());
+            lua.set_app_data(InternetRanking::new());
             lua.set_app_data(LuaKey::new(&lua));
             //lua.gc_stop();
         }

@@ -115,6 +115,8 @@ pub struct GameConfig {
     pub companion_address: Option<String>,
     pub score_screenshots: ScoreScreenshot,
     pub screenshot_path: PathBuf,
+    pub ir_endpoint: String,
+    pub ir_api_token: String,
 }
 
 #[derive(Debug, Deserialize, Serialize, Clone)]
@@ -336,6 +338,8 @@ impl Default for GameConfig {
             companion_address: Some("127.0.0.1:9002".to_string()),
             score_screenshots: ScoreScreenshot::default(),
             screenshot_path: PathBuf::from_iter([".", "screenshots"]),
+            ir_api_token: String::new(),
+            ir_endpoint: String::new()
         }
     }
 }

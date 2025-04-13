@@ -1195,6 +1195,7 @@ impl Game {
                     hit_window: self.hit_window,
                     manual_exit: false,
                     max_combo: self.max_combo as _,
+                    hash: self.chart.file_hash.clone(),
                 })
                 .expect("Main loop messaging error");
         } else {
