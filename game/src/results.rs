@@ -2,10 +2,9 @@ use std::{
     path::PathBuf,
     rc::Rc,
     sync::{mpsc::Sender, Arc},
-    time::SystemTime,
+    time::{Duration, SystemTime},
 };
 
-use anyhow::anyhow;
 use di::{RefMut, ServiceProvider};
 use kson::score_ticks::ScoreTick;
 use log::warn;
@@ -321,7 +320,7 @@ impl SongResultData {
             ),
             gauge_type: GaugeType::try_from(gauge)
                 .map(|x| x as u8)
-                .inspect(|e| warn!("Could not convert gauge type: {e}"))
+                .inspect_err(|e| warn!("Could not convert gauge type: {e}"))
                 .unwrap_or_default(),
             hit_window,
             playback_speed: 1.0,
@@ -355,7 +354,11 @@ impl SongResultData {
             chart_hash: hash,
             ir_description: String::new(),
             ir_scores: vec![],
-            ir_state: 0,
+            ir_state: if ir::InternetRanking::enabled() {
+                10
+            } else {
+                0
+            },
         })
     }
 }
@@ -370,10 +373,7 @@ impl SceneData for SongResultData {
 
         let ir_request = if ir::InternetRanking::enabled() {
             Some(poll_promise::Promise::spawn_async(
-                ir::InternetRanking::submit(
-                    self.chart_hash.clone(),
-                    ir::ScoreSubmission::from(self.as_ref()),
-                ),
+                ir::InternetRanking::submit(ir::ScoreSubmission::from(self.as_ref())),
             ))
         } else {
             None
@@ -563,9 +563,32 @@ impl Scene for SongResult {
                 Ok(result) => {
                     self.data.ir_description = result.description;
                     self.data.ir_state = result.status_code;
-                    if let Some(IrResponseBody::ScoreSubmit { .. }) = result.body {
-                        //TODO
+                    if let Some(IrResponseBody::ScoreSubmit(ir::ScoreSubmitResponse {
+                        mut score,
+                        mut adjacent_above,
+                        mut adjacent_below,
+                        server_record,
+                        ..
+                    })) = result.body
+                    {
+                        if server_record != score {
+                            self.data.ir_scores = vec![server_record];
+                        } else {
+                            self.data.ir_scores.clear();
+                        }
+                        score.extra.just_set = SystemTime::UNIX_EPOCH
+                            .checked_add(Duration::from_secs(score.timestamp))
+                            .and_then(|t| SystemTime::now().duration_since(t).ok())
+                            .is_some_and(|d| d.as_secs() < 60);
+                        score.extra.yours = true;
+
+                        self.data.ir_scores.append(&mut adjacent_above);
+                        self.data.ir_scores.push(score);
+                        self.data.ir_scores.append(&mut adjacent_below);
                     }
+                    self.lua
+                        .globals()
+                        .set("result", self.lua.to_value(&self.data)?)?;
                 }
                 Err(e) => {
                     warn!("Could not submit score: {e}");

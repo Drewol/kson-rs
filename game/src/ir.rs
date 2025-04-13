@@ -1,5 +1,5 @@
 use crate::{config::GameConfig, game::HitWindow};
-use log::warn;
+use log::{info, warn};
 use luals_gen::ToLuaLsType;
 use mlua::{Function, Lua, LuaSerdeExt, RegistryKey, Value};
 use mlua_bridge::mlua_bridge;
@@ -10,22 +10,45 @@ use reqwest::{
 };
 use serde::{Deserialize, Serialize};
 
-#[derive(Serialize, Deserialize, Debug, Clone, ToLuaLsType)]
+#[derive(Serialize, Deserialize, Debug, Clone, ToLuaLsType, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
 pub struct ServerScore {
-    score: i32,
-    lamp: u8,
-    timestamp: u64,
-    crit: i32,
-    near: i32,
-    error: i32,
-    ranking: i32,
-    gauge_mod: String,
-    note_mod: String,
-    username: String,
+    pub score: i32,
+    pub lamp: u8,
+    pub timestamp: u64,
+    pub crit: i32,
+    pub near: i32,
+    pub error: i32,
+    pub ranking: i32,
+    pub gauge_mod: String,
+    pub note_mod: String,
+    pub username: String,
+    #[serde(flatten, default)]
+    pub extra: ServerScoreExtra,
 }
 
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize, Deserialize, Debug, Clone, ToLuaLsType, Default, PartialEq, Eq)]
+#[serde(rename_all = "camelCase", default)]
+pub struct ServerScoreExtra {
+    pub yours: bool,
+    pub just_set: bool,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone, ToLuaLsType)]
+#[serde(rename_all = "camelCase")]
+pub struct ScoreSubmitResponse {
+    pub score: ServerScore,
+    pub server_record: ServerScore,
+    pub adjacent_above: Vec<ServerScore>,
+    pub adjacent_below: Vec<ServerScore>,
+    #[serde(rename = "isPB")]
+    pub is_pb: bool,
+    pub is_server_record: bool,
+    #[serde(default)]
+    pub send_replay: String,
+}
+
+#[derive(Serialize, Deserialize, Debug)]
 #[serde(rename_all = "camelCase", untagged)]
 pub enum IrResponseBody {
     Heartbeat {
@@ -39,19 +62,11 @@ pub enum IrResponseBody {
     Leaderboard {
         scores: Vec<ServerScore>,
     },
-    ScoreSubmit {
-        score: ServerScore,
-        server_record: ServerScore,
-        adjacent_above: Vec<ServerScore>,
-        adjacent_below: Vec<ServerScore>,
-        is_p_b: bool,
-        is_server_record: bool,
-        send_replay: bool,
-    },
+    ScoreSubmit(ScoreSubmitResponse),
     None {},
 }
 
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize, Deserialize, Debug)]
 #[serde(rename_all = "camelCase")]
 pub struct IrServerResponse {
     pub status_code: i32,
@@ -218,7 +233,7 @@ impl InternetRanking {
         !GameConfig::get().ir_endpoint.is_empty()
     }
 
-    pub async fn submit(hash: String, score: ScoreSubmission) -> anyhow::Result<IrServerResponse> {
+    pub async fn submit(score: ScoreSubmission) -> anyhow::Result<IrServerResponse> {
         let client = Self::client()?;
         let url = format!(
             "{}/scores",
