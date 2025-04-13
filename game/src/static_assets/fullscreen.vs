@@ -6,5 +6,7 @@ void main() {
     gl_Position = vec4(vertices[int(inPos.x)],0,1);
     texVp = 0.5 * gl_Position.xy + vec2(0.5);
     texVp.x *= float(viewport.x);
+    texVp.y = 1.0 - texVp.y;
     texVp.y *= float(viewport.y);
+    
 }

@@ -24,7 +24,8 @@ pub struct BackgroundData {
     screen_center: (f32, f32),
     /// (beat, offsync, playback)
     timing: (f32, f32, f32),
-    roll: f32,
+    // (laser, spin)
+    roll: (f32, f32),
     clear_transition: f32,
     speed_mult: f32,
     viewport: Viewport,
@@ -169,7 +170,7 @@ impl UserData for GameBackgroundLua {
 
             bg.set_param("timing", Vector3::from(data.timing));
             bg.set_param("clearTransition", data.clear_transition);
-            bg.set_param("tilt", vec2(data.roll, 0.0)); //(camera roll, background spin)
+            bg.set_param("tilt", vec2(data.roll.0, data.roll.1)); //(camera roll, background spin)
             if let Some(e) = bg
                 .set_tex_from_framebuffer(data.viewport.width as _, data.viewport.height as _)
                 .err()
@@ -273,11 +274,11 @@ impl GameBackground {
         chart_time: f64,
         chart: &kson::Chart,
         tick: u32,
-        roll: f32,
+        roll: (f32, f32),
         clear: bool,
     ) {
         profile_function!();
-        let center = camera.pixel_at_position(ChartView::TRACK_DIRECTION * 50.0);
+        let center = camera.pixel_at_position(ChartView::TRACK_DIRECTION * -300.0);
         let bpm = chart.bpm_at_tick(tick);
 
         {
@@ -300,7 +301,7 @@ impl GameBackground {
             data.timing.1 += data.speed_mult * (dt / kson::beat_in_ms(bpm)) as f32;
             data.timing.2 = chart_time as f32 / 1000.0;
 
-            data.roll = roll / 360.0;
+            data.roll = (roll.0 / -360.0, roll.1 / -360.0);
 
             data.clear_transition = (data.clear_transition
                 + if clear {

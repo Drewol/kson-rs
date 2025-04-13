@@ -4,6 +4,7 @@ use std::{
     collections::HashSet,
     default,
     fmt::{format, Debug, Display, Write},
+    path::PathBuf,
     str::FromStr,
     sync::Arc,
     time::Duration,
@@ -299,8 +300,13 @@ impl SongDiffId {
 }
 
 pub type PreviewResult = anyhow::Result<(Box<dyn Source<Item = f32> + Send>, Duration, Duration)>;
-pub type LoadSongFn =
-    Box<dyn FnOnce() -> anyhow::Result<(Chart, Box<dyn rodio::Source<Item = f32> + Send>)> + Send>;
+pub type LoadSongFn = Box<
+    dyn FnOnce() -> anyhow::Result<(
+            Chart,
+            Box<dyn rodio::Source<Item = f32> + Send>,
+            Option<PathBuf>,
+        )> + Send,
+>;
 
 pub trait SongProvider: Send {
     fn subscribe(&mut self) -> bus::BusReader<SongProviderEvent>;

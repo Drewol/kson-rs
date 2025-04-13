@@ -598,7 +598,11 @@ impl SongProvider for FileSongProvider {
                 path.with_file_name(&chart.audio.bgm.filename),
             )?)?;
 
-            Ok((chart, Box::new(audio.convert_samples())))
+            Ok((
+                chart,
+                Box::new(audio.convert_samples()),
+                path.parent().map(|x| x.to_path_buf()),
+            ))
         }))
     }
 

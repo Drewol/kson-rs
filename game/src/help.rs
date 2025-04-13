@@ -149,21 +149,24 @@ impl AsyncPicker {
     }
 }
 
-pub fn transform_shader(s: String) -> String {
+pub fn transform_shader(mut s: String) -> String {
+    thread_local! {
+        static LAYOUT_REGEX: std::cell::OnceCell<regex::Regex> = std::cell::OnceCell::new();
+    }
+
+    LAYOUT_REGEX
+        .try_with(|cell| {
+            let regex = cell.get_or_init(|| {
+                regex::Regex::new(r"layout\(location=[0-9]+\)\W*").expect("Failed to compile regex")
+            });
+
+            s = regex.replace_all(&s, "").into_owned();
+        })
+        .expect("Could not run shader regex");
+
     s.lines()
         .filter(|x| !x.starts_with("#version"))
         .filter(|x| !x.starts_with("#extension"))
-        .map(|x| {
-            if x.starts_with("layout") {
-                let i = x[5..]
-                    .find(" in ")
-                    .or_else(|| x[5..].find(" out "))
-                    .unwrap_or(0);
-                x[(i + 5)..].trim()
-            } else {
-                x
-            }
-        })
         .join("\n")
 }
 

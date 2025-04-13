@@ -604,7 +604,11 @@ fn download_song(id: Uuid, diff: u8, on_loaded: Sender<Datum>) -> anyhow::Result
 fn song_from_zip(
     data: impl std::io::Read + std::io::Seek,
     diff: u8,
-) -> Result<(kson::Chart, Box<dyn rodio::Source<Item = f32> + Send>)> {
+) -> Result<(
+    kson::Chart,
+    Box<dyn rodio::Source<Item = f32> + Send>,
+    Option<PathBuf>,
+)> {
     let mut archive = zip::read::ZipArchive::new(data)?;
     for i in 0..archive.len() {
         let mut file = archive.by_index(i)?;
@@ -636,6 +640,7 @@ fn song_from_zip(
                 return Ok((
                     chart,
                     Box::new(rodio::Decoder::new(bgm_cursor)?.convert_samples()),
+                    None,
                 ));
             }
         }

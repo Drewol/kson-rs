@@ -8,7 +8,7 @@ use chart_view::ChartView;
 pub struct ChartCamera {
     pub kson_radius: f32,
     pub kson_angle: f32,
-    pub tilt: f32,
+    pub tilt: (f32, f32),
     pub view_size: Vec2,
     pub shakes: Vec<CameraShake>,
     pub spins: Vec<CameraSpin>,
@@ -132,7 +132,7 @@ impl ChartCamera {
         ChartCamera {
             kson_angle: 0.0,
             kson_radius: 0.0,
-            tilt: 0.0,
+            tilt: (0.0, 0.0),
             view_size: vec2(2.0, 1.0),
             shakes: vec![],
             spins: vec![],
@@ -182,7 +182,8 @@ impl ChartCamera {
                 }
 
                 ui.label("Tilt");
-                ui.add(egui::Slider::new(&mut self.tilt, -360.0..=360.0));
+                ui.add(egui::Slider::new(&mut self.tilt.0, -360.0..=360.0));
+                ui.add(egui::Slider::new(&mut self.tilt.1, -360.0..=360.0));
                 ui.end_row();
             })
             .response
@@ -232,7 +233,8 @@ impl From<&ChartCamera> for Camera {
         let begin_dist = (-track_end - final_camera_pos).magnitude();
         let z_far = end_dist.max(begin_dist);
 
-        let roll = Matrix4::from_axis_angle(ChartView::TRACK_DIRECTION, Deg(-val.tilt));
+        let roll =
+            Matrix4::from_axis_angle(ChartView::TRACK_DIRECTION, Deg(-(val.tilt.0 + val.tilt.1)));
         let target = roll.transform_vector(target - final_camera_pos) + final_camera_pos;
         let up = roll.transform_vector(up);
         // let final_camera_pos = roll.transform_vector(final_camera_pos);

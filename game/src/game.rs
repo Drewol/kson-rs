@@ -286,6 +286,7 @@ pub struct GameData {
     skin_folder: PathBuf,
     audio: std::boxed::Box<(dyn rodio::source::Source<Item = f32> + std::marker::Send + 'static)>,
     autoplay: AutoPlay,
+    song_folder: Option<PathBuf>,
 }
 
 impl GameData {
@@ -296,6 +297,7 @@ impl GameData {
         skin_folder: PathBuf,
         audio: Box<dyn Source<Item = f32> + Send>,
         autoplay: AutoPlay,
+        song_folder: Option<PathBuf>,
     ) -> anyhow::Result<Self> {
         //TODO: Does not belong in game crate
         //TODO: Sort effects for proper overlapping sounds
@@ -308,6 +310,7 @@ impl GameData {
             song,
             audio: Box::new(audio),
             autoplay,
+            song_folder,
         })
     }
 }
@@ -324,6 +327,7 @@ impl SceneData for GameData {
             song,
             audio,
             autoplay,
+            song_folder,
         } = *self;
         profile_function!();
 
@@ -516,56 +520,64 @@ impl SceneData for GameData {
         bg_folder.push("backgrounds");
         bg_folder.push(bg);
 
+        let mut bg_folders = vec![bg_folder.with_file_name("fallback"), bg_folder.clone()];
+
+        if let Some(mut song_folder) = song_folder {
+            if let Some(name) = chart
+                .bg
+                .legacy
+                .as_ref()
+                .and_then(|x| x.layer.as_ref())
+                .and_then(|x| x.filename.as_ref())
+            {
+                song_folder.push(name);
+                bg_folders.push(song_folder);
+            }
+        }
+
+        bg_folders.reverse();
+
         let bg_enabled = !GameConfig::get().graphics.disable_bg;
 
         let background = bg_enabled
             .then(|| {
-                match GameBackground::new(
-                    &context,
-                    true,
-                    &bg_folder,
-                    &chart,
-                    service_provider.get_required(),
-                    service_provider.get_required(),
-                )
-                .inspect_err(|e| log::warn!("Failed to load background: {e} \n {:?}", &bg_folder))
-                .or_else(|_| {
-                    bg_folder.set_file_name("fallback");
-                    GameBackground::new(
-                        &context,
-                        true,
-                        &bg_folder,
-                        &chart,
-                        service_provider.get_required(),
-                        service_provider.get_required(),
-                    )
-                }) {
-                    Ok(bg) => {
-                        log::info!("Background loaded");
-                        Some(bg)
-                    }
-                    Err(e) => {
-                        log::warn!(
-                            "Failed to load fallback background: {e} \n {:?}",
-                            &bg_folder.with_file_name("fallback")
-                        );
-                        None
-                    }
-                }
+                bg_folders
+                    .iter()
+                    .filter_map(|x| {
+                        GameBackground::new(
+                            &context,
+                            true,
+                            x,
+                            &chart,
+                            service_provider.get_required(),
+                            service_provider.get_required(),
+                        )
+                        .inspect_err(|e| warn!("Failed to load background from {x:?}: {e}"))
+                        .inspect(|_| info!("Succefully loaded background from {x:?}"))
+                        .ok()
+                    })
+                    .next()
             })
             .flatten();
 
         let foreground = bg_enabled
             .then(|| {
-                GameBackground::new(
-                    &context,
-                    false,
-                    bg_folder,
-                    &chart,
-                    service_provider.get_required(),
-                    service_provider.get_required(),
-                )
-                .ok()
+                bg_folders
+                    .iter()
+                    .filter_map(|x| {
+                        GameBackground::new(
+                            &context,
+                            false,
+                            x,
+                            &chart,
+                            service_provider.get_required(),
+                            service_provider.get_required(),
+                        )
+                        .inspect_err(|e| warn!("Failed to load background from {x:?}: {e}"))
+                        .inspect(|_| info!("Succefully loaded background from {x:?}"))
+                        .ok()
+                    })
+                    .next()
             })
             .flatten();
 
@@ -1850,8 +1862,8 @@ impl Scene for Game {
                 }
             };
 
-            self.camera.tilt = self.current_roll as f32 * 12.5;
-            self.camera.tilt += self
+            self.camera.tilt.0 = self.current_roll as f32 * 12.5;
+            self.camera.tilt.1 = self
                 .camera
                 .spins
                 .iter()

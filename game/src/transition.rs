@@ -56,6 +56,7 @@ fn load_chart(
     skin_folder: PathBuf,
     audio: Box<dyn Source<Item = f32> + Send>,
     autoplay: AutoPlay,
+    chart_folder: Option<PathBuf>,
 ) -> anyhow::Result<Box<dyn SceneData + Send>> {
     Ok(Box::new(crate::game::GameData::new(
         song,
@@ -64,6 +65,7 @@ fn load_chart(
         skin_folder,
         audio,
         autoplay,
+        chart_folder,
     )?))
 }
 
@@ -231,8 +233,16 @@ impl Scene for Transition {
                         } => {
                             let skin_folder = self.vgfx.read().expect("Lock error").skin_folder();
                             Some(Promise::spawn_thread("Load song", move || {
-                                let (chart, audio) = loader()?;
-                                load_chart(chart, song, diff, skin_folder, audio, autoplay)
+                                let (chart, audio, chart_path) = loader()?;
+                                load_chart(
+                                    chart,
+                                    song,
+                                    diff,
+                                    skin_folder,
+                                    audio,
+                                    autoplay,
+                                    chart_path,
+                                )
                             }))
                         }
                         ControlMessage::Result {

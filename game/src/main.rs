@@ -662,6 +662,7 @@ impl UscApp {
                     skin_folder,
                     Box::new(audio.convert_samples()),
                     game_main::AutoPlay::None,
+                    chart_path.parent().map(|x| x.to_path_buf()),
                 )?)
                 .make_scene(services.create_scope())?,
             );
