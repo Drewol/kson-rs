@@ -856,6 +856,9 @@ fn get_log_config(level: log::LevelFilter) -> log4rs::Config {
     log4rs::Config::builder()
         .appender(Appender::builder().build("stdout", Box::new(stdout)))
         .appender(Appender::builder().build("file", Box::new(file)))
+        .logger(Logger::builder().build("tracing::span", LevelFilter::Warn))
+        .logger(Logger::builder().build("polling", LevelFilter::Warn))
+        .logger(Logger::builder().build("calloop", LevelFilter::Warn))
         .build(
             log4rs::config::Root::builder()
                 .appender("file")
