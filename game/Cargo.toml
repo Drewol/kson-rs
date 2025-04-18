@@ -124,7 +124,7 @@ openssl = { version = "^0.10", features = ["vendored"] }
 [lints.clippy]
 arc_with_non_send_sync = "allow"
 
-[package.metadata.bundle]
+[package.metadata.bundle.bin.rusc]
 name = "USC"
 identifier = "dev.kson.usc"
 resources = ["game/skins", "game/fonts"]
