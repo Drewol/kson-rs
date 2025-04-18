@@ -131,6 +131,8 @@ pub struct GameMain {
     frame_end: std::time::SystemTime,
     frame_duration: Duration,
     touch_tracker: TouchHelper,
+    mouse_knobs: bool,
+    mouse_locked: bool,
 }
 
 fn get_frame_duration(settings: &GameConfig) -> Duration {
@@ -181,6 +183,8 @@ impl GameMain {
             frame_end: SystemTime::UNIX_EPOCH,
             frame_duration: get_frame_duration(&GameConfig::get()),
             touch_tracker: TouchHelper::new(egui::accesskit::Vec2::new(500.0, 500.0)),
+            mouse_knobs: GameConfig::get().mouse_knobs,
+            mouse_locked: false,
         }
     }
 
@@ -279,6 +283,8 @@ impl GameMain {
             frame_end,
             frame_duration,
             touch_tracker,
+            mouse_knobs,
+            mouse_locked,
         } = self;
 
         knob_state.zero_deltas();
@@ -423,6 +429,7 @@ impl GameMain {
                     );
 
                     *show_fps = settings.graphics.show_fps;
+                    *mouse_knobs = settings.mouse_knobs;
 
                     *frame_duration = get_frame_duration(&settings);
 
@@ -463,6 +470,7 @@ impl GameMain {
             *mousey,
             &frame_input,
             self.input_state.clone(),
+            *mouse_knobs,
         );
 
         scenes.render(frame_input.clone(), vgfx);
@@ -488,11 +496,31 @@ impl GameMain {
             GameConfig::get().save()
         }
 
+        let lock_mouse = !gui.egui_ctx.is_pointer_over_area()
+            && *mouse_knobs
+            && !*show_debug_ui
+            && window.has_focus()
+            && !self.input_state.text_input_active();
+
+        if lock_mouse != *mouse_locked {
+            *mouse_locked = lock_mouse;
+            if lock_mouse {
+                let s = window.inner_size();
+                _ = window.set_cursor_position(PhysicalPosition::new(s.width / 2, s.height / 2));
+                _ = window.set_cursor_grab(winit::window::CursorGrabMode::Locked);
+                window.set_cursor_visible(false);
+            } else {
+                window.set_cursor_visible(true);
+                _ = window.set_cursor_grab(winit::window::CursorGrabMode::None);
+            }
+        }
+
         {
             profile_scope!("Wait on FPS limiter");
             crate::help::wait_until(*frame_end);
             *frame_end = SystemTime::now() + *frame_duration;
         }
+
         exit
     }
     pub fn handle(&mut self, window: &Window, event: &winit::event::Event<UscInputEvent>) {
@@ -550,8 +578,6 @@ impl GameMain {
                     physical_size.width as f64,
                     physical_size.height as f64,
                 ));
-
-                info!("{:?}", &self.touch_tracker);
 
                 self.reset_viewport_size(physical_size)
             }
@@ -682,21 +708,15 @@ impl GameMain {
                 event: winit::event::DeviceEvent::MouseMotion { delta },
                 ..
             } if !text_input_active && GameConfig::get().mouse_knobs => {
-                {
-                    //TODO: Move somewhere else?
-                    let s = window.inner_size();
-                    _ = window
-                        .set_cursor_position(PhysicalPosition::new(s.width / 2, s.height / 2));
-                }
-
-                let sens = GameConfig::get().mouse_ppr;
-                let mut ls = LaserState::default();
-                ls.update(kson::Side::Left, (delta.0 / sens) as _);
-                ls.update(kson::Side::Right, (delta.1 / sens) as _);
+                let sens = GameConfig::get().mouse_ppr as f32;
+                let mut state = self.input_state.clone_laser();
+                state.zero_deltas();
+                state.update_delta(kson::Side::Left, delta.0 as f32 / sens);
+                state.update_delta(kson::Side::Right, delta.1 as f32 / sens);
 
                 transformed_event = Some(Event::UserEvent(UscInputEvent::Laser(
-                    ls,
-                    SystemTime::now().sub(offset),
+                    state,
+                    SystemTime::now(),
                 )));
             }
             _ => (),
@@ -823,13 +843,18 @@ impl GameMain {
         mousey: f64,
         frame_input: &crate::FrameInput,
         input_state: InputState,
+        mouse_knobs: bool,
     ) {
         profile_function!();
         {
             let lock = game_data.write();
             if let Ok(mut game_data) = lock {
                 *game_data = GameData {
-                    mouse_pos: (mousex, mousey),
+                    mouse_pos: if mouse_knobs {
+                        (-1.0, -1.0)
+                    } else {
+                        (mousex, mousey)
+                    },
                     resolution: (frame_input.viewport.width, frame_input.viewport.height),
                     profile_stack: std::mem::take(&mut game_data.profile_stack),
                     input_state,

@@ -483,7 +483,7 @@ impl GameConfig {
     }
 
     pub fn save(&self) {
-        info!("Saving config");
+        info!("Saving config: {:?}", &self.config_file);
 
         if let Err(e) = toml::to_string_pretty(self)
             .map_err(|e| anyhow::anyhow!(e))

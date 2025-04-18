@@ -1,3 +1,4 @@
+use core::f32;
 use std::{
     borrow::BorrowMut,
     collections::HashMap,
@@ -376,6 +377,19 @@ impl LaserState {
             Side::Left => self.0,
             Side::Right => self.1,
         }
+    }
+
+    pub fn update_delta(&mut self, side: Side, delta: f32) {
+        let state = match side {
+            Side::Left => self.0.borrow_mut(),
+            Side::Right => self.1.borrow_mut(),
+        };
+        state.pos += delta;
+
+        state.pos =
+            (state.pos + f32::consts::PI).rem_euclid(f32::consts::PI * 2.0) - f32::consts::PI;
+
+        state.delta += delta;
     }
 
     pub fn update(&mut self, side: Side, new_pos: f32) {

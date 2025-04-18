@@ -84,4 +84,8 @@ impl InputState {
         self.text_input_active
             .store(text_input_active, std::sync::atomic::Ordering::Relaxed);
     }
+
+    pub fn clone_laser(&self) -> LaserState {
+        self.laser_state.read().expect("Lock error").clone()
+    }
 }
