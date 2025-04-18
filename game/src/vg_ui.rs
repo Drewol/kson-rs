@@ -370,7 +370,7 @@ impl VgfxLua {
     }
 
     fn create_image(
-        lua: &LuaKey,
+        lua_key: &LuaKey,
         _vgfx: &RefMut<Vgfx>,
         filename: String,
         imageflags: u32,
@@ -394,7 +394,7 @@ impl VgfxLua {
         _vgfx.next_img_id += 1;
         _vgfx
             .scoped_assets
-            .get_mut(&lua.key())
+            .get_mut(&lua_key.key())
             .ok_or(mlua::Error::external("Assets not initialized"))?
             .images
             .insert(this_id, VgImage::Static(img));
@@ -402,7 +402,7 @@ impl VgfxLua {
     }
 
     fn create_skin_image(
-        lua: &LuaKey,
+        lua_key: &LuaKey,
         _vgfx: &RefMut<Vgfx>,
         filename: String,
         imageflags: u32,
@@ -444,7 +444,7 @@ impl VgfxLua {
         _vgfx.next_img_id += 1;
         _vgfx
             .scoped_assets
-            .get_mut(&lua.key())
+            .get_mut(&lua_key.key())
             .ok_or(mlua::Error::external("Assets not initialized"))?
             .images
             .insert(this_id, VgImage::Static(img));
@@ -452,7 +452,7 @@ impl VgfxLua {
     }
 
     fn image_rect(
-        lua: &LuaKey,
+        lua_key: &LuaKey,
         _vgfx: &RefMut<Vgfx>,
         x: f32,
         y: f32,
@@ -468,7 +468,7 @@ impl VgfxLua {
             return Ok(());
         }
 
-        if let Some(img_id) = _vgfx.scoped_assets[&lua.key()]
+        if let Some(img_id) = _vgfx.scoped_assets[&lua_key.key()]
             .images
             .get(&image)
             .and_then(|x| x.current_id())
@@ -703,7 +703,7 @@ impl VgfxLua {
     }
 
     fn create_label(
-        lua: &LuaKey,
+        lua_key: &LuaKey,
         _vgfx: &RefMut<Vgfx>,
         text: Option<String>,
         size: i32,
@@ -713,7 +713,7 @@ impl VgfxLua {
         let _vgfx = _vgfx_lock.deref_mut();
         _vgfx
             .scoped_assets
-            .get_mut(&lua.key())
+            .get_mut(&lua_key.key())
             .ok_or(mlua::Error::external("Assets not initialized"))?
             .labels
             .insert(
@@ -733,7 +733,7 @@ impl VgfxLua {
     }
 
     fn draw_label(
-        lua: &LuaKey,
+        lua_key: &LuaKey,
         _vgfx: &RefMut<Vgfx>,
         label_id: u32,
         x: f32,
@@ -742,7 +742,7 @@ impl VgfxLua {
     ) -> Result<(), mlua::Error> {
         let mut _vgfx_lock = _vgfx.write().expect("Lock error");
         let _vgfx = _vgfx_lock.deref_mut();
-        if let Some(label) = _vgfx.scoped_assets[&lua.key()].labels.get(&label_id) {
+        if let Some(label) = _vgfx.scoped_assets[&lua_key.key()].labels.get(&label_id) {
             let canvas = &mut _vgfx
                 .canvas
                 .try_lock()
@@ -949,7 +949,7 @@ impl VgfxLua {
     }
 
     fn update_label(
-        lua: &LuaKey,
+        lua_key: &LuaKey,
         _vgfx: &RefMut<Vgfx>,
         label_id: u32,
         text: String,
@@ -959,7 +959,7 @@ impl VgfxLua {
         let _vgfx = _vgfx_lock.deref_mut();
         if let Some(label) = _vgfx
             .scoped_assets
-            .get_mut(&lua.key())
+            .get_mut(&lua_key.key())
             .ok_or(mlua::Error::external("Assets not initialized"))?
             .labels
             .get_mut(&label_id)
@@ -1094,7 +1094,7 @@ impl VgfxLua {
     }
 
     fn linear_gradient(
-        lua: &LuaKey,
+        lua_key: &LuaKey,
         _vgfx: &RefMut<Vgfx>,
         sx: f32,
         sy: f32,
@@ -1106,7 +1106,7 @@ impl VgfxLua {
 
         _vgfx
             .scoped_assets
-            .get_mut(&lua.key())
+            .get_mut(&lua_key.key())
             .ok_or(mlua::Error::external("Assets not initialized"))?
             .paints
             .insert(
@@ -1153,7 +1153,7 @@ impl VgfxLua {
     }
 
     fn radial_gradient(
-        lua: &LuaKey,
+        lua_key: &LuaKey,
         _vgfx: &RefMut<Vgfx>,
         cx: f32,
         cy: f32,
@@ -1165,7 +1165,7 @@ impl VgfxLua {
 
         _vgfx
             .scoped_assets
-            .get_mut(&lua.key())
+            .get_mut(&lua_key.key())
             .ok_or(mlua::Error::external("Assets not initialized"))?
             .paints
             .insert(
@@ -1186,7 +1186,7 @@ impl VgfxLua {
     }
 
     fn image_pattern(
-        lua: &LuaKey,
+        lua_key: &LuaKey,
         _vgfx: &RefMut<Vgfx>,
         ox: f32,
         oy: f32,
@@ -1203,7 +1203,7 @@ impl VgfxLua {
             return Ok(FALLBACK_ID);
         }
 
-        if let Some(id) = _vgfx.scoped_assets[&lua.key()]
+        if let Some(id) = _vgfx.scoped_assets[&lua_key.key()]
             .images
             .get(&image)
             .and_then(|x| x.current_id())
@@ -1211,7 +1211,7 @@ impl VgfxLua {
             let paint = Paint::image(id, ox, oy, ex, ey, angle, alpha);
             _vgfx
                 .scoped_assets
-                .get_mut(&lua.key())
+                .get_mut(&lua_key.key())
                 .ok_or(mlua::Error::external("Assets not initialized"))?
                 .paints
                 .insert(_vgfx.next_paint_id, paint);
@@ -1219,7 +1219,7 @@ impl VgfxLua {
             _vgfx.next_paint_id += 1;
             _vgfx
                 .scoped_assets
-                .get_mut(&lua.key())
+                .get_mut(&lua_key.key())
                 .ok_or(mlua::Error::external("Assets not initialized"))?
                 .paint_imgs
                 .insert(paint_id, id);
@@ -1230,7 +1230,7 @@ impl VgfxLua {
     }
 
     fn update_image_pattern(
-        lua: &LuaKey,
+        lua_key: &LuaKey,
         _vgfx: &RefMut<Vgfx>,
         paint: u32,
         ox: f32,
@@ -1244,7 +1244,7 @@ impl VgfxLua {
         let _vgfx = _vgfx_lock.deref_mut();
         let assets = _vgfx
             .scoped_assets
-            .get_mut(&lua.key())
+            .get_mut(&lua_key.key())
             .ok_or(mlua::Error::external("Assets not initialized"))?;
         if let (Some(pattern_paint), Some(img)) =
             (assets.paints.get_mut(&paint), assets.paint_imgs.get(&paint))
@@ -1275,21 +1275,21 @@ impl VgfxLua {
         Ok(())
     }
 
-    fn fill_paint(lua: &LuaKey, _vgfx: &RefMut<Vgfx>, paint: u32) -> mlua::Result<()> {
+    fn fill_paint(lua_key: &LuaKey, _vgfx: &RefMut<Vgfx>, paint: u32) -> mlua::Result<()> {
         let mut _vgfx_lock = _vgfx.write().expect("Lock error");
         let _vgfx = _vgfx_lock.deref_mut();
 
-        if let Some(paint) = _vgfx.scoped_assets[&lua.key()].paints.get(&paint) {
+        if let Some(paint) = _vgfx.scoped_assets[&lua_key.key()].paints.get(&paint) {
             _vgfx.fill_paint = Some(paint.clone());
         }
         Ok(())
     }
 
-    fn stroke_paint(lua: &LuaKey, _vgfx: &RefMut<Vgfx>, paint: u32) -> mlua::Result<()> {
+    fn stroke_paint(lua_key: &LuaKey, _vgfx: &RefMut<Vgfx>, paint: u32) -> mlua::Result<()> {
         let mut _vgfx_lock = _vgfx.write().expect("Lock error");
         let _vgfx = _vgfx_lock.deref_mut();
 
-        if let Some(paint) = _vgfx.scoped_assets[&lua.key()].paints.get(&paint) {
+        if let Some(paint) = _vgfx.scoped_assets[&lua_key.key()].paints.get(&paint) {
             _vgfx.stroke_paint = paint.clone();
         }
 
@@ -1355,7 +1355,7 @@ impl VgfxLua {
     }
 
     fn load_image_job(
-        lua: &LuaKey,
+        lua_key: &LuaKey,
         _vgfx: &RefMut<Vgfx>,
         path: String,
         placeholder: Option<u32>,
@@ -1377,13 +1377,13 @@ impl VgfxLua {
 
                     _vgfx
                         .scoped_assets
-                        .get_mut(&lua.key())
+                        .get_mut(&lua_key.key())
                         .ok_or(mlua::Error::external("Assets not initialized"))?
                         .images
                         .insert(_vgfx.next_img_id, VgImage::Static(img_id));
                     _vgfx
                         .scoped_assets
-                        .get_mut(&lua.key())
+                        .get_mut(&lua_key.key())
                         .ok_or(mlua::Error::external("Assets not initialized"))?
                         .job_imgs
                         .insert(key, _vgfx.next_img_id);
@@ -1397,7 +1397,10 @@ impl VgfxLua {
         }
 
         let key = path.clone();
-        if !_vgfx.scoped_assets[&lua.key()].job_imgs.contains_key(&path) {
+        if !_vgfx.scoped_assets[&lua_key.key()]
+            .job_imgs
+            .contains_key(&path)
+        {
             _vgfx
                 .image_jobs
                 .entry(path.clone())
@@ -1416,13 +1419,13 @@ impl VgfxLua {
                 });
             _vgfx
                 .scoped_assets
-                .get_mut(&lua.key())
+                .get_mut(&lua_key.key())
                 .ok_or(mlua::Error::external("Assets not initialized"))?
                 .job_imgs
                 .insert(path.clone(), placeholder.unwrap_or_default());
         }
 
-        Ok(*_vgfx.scoped_assets[&lua.key()]
+        Ok(*_vgfx.scoped_assets[&lua_key.key()]
             .job_imgs
             .get(&path)
             .unwrap_or(&placeholder.unwrap_or_default()))
@@ -1506,7 +1509,7 @@ impl VgfxLua {
         }
     }
 
-    fn label_size(lua: &LuaKey, _vgfx: &RefMut<Vgfx>, label: u32) -> mlua::Result<(f32, f32)> {
+    fn label_size(lua_key: &LuaKey, _vgfx: &RefMut<Vgfx>, label: u32) -> mlua::Result<(f32, f32)> {
         let mut _vgfx_lock = _vgfx.write().expect("Lock error");
         let _vgfx = _vgfx_lock.deref_mut();
 
@@ -1516,7 +1519,7 @@ impl VgfxLua {
             .unwrap_or_else(|| _vgfx.stroke_paint.clone());
 
         let canvas = _vgfx.canvas.lock().expect("Lock error");
-        if let Some(label) = _vgfx.scoped_assets[&lua.key()].labels.get(&label) {
+        if let Some(label) = _vgfx.scoped_assets[&lua_key.key()].labels.get(&label) {
             paint.set_font(&[label.font]);
             paint.set_font_size(label.size as f32);
             paint.set_text_align(_vgfx.label_align.0);
@@ -1539,7 +1542,11 @@ impl VgfxLua {
         unimplemented()
     }
 
-    fn image_size(lua: &LuaKey, _vgfx: &RefMut<Vgfx>, image: u32) -> mlua::Result<(usize, usize)> {
+    fn image_size(
+        lua_key: &LuaKey,
+        _vgfx: &RefMut<Vgfx>,
+        image: u32,
+    ) -> mlua::Result<(usize, usize)> {
         let mut _vgfx_lock = _vgfx.write().expect("Lock error");
         let _vgfx = _vgfx_lock.deref_mut();
 
@@ -1547,7 +1554,7 @@ impl VgfxLua {
             return Ok((1, 1));
         }
 
-        if let Some(id) = _vgfx.scoped_assets[&lua.key()]
+        if let Some(id) = _vgfx.scoped_assets[&lua_key.key()]
             .images
             .get(&image)
             .and_then(|x| x.current_id())
@@ -1668,7 +1675,7 @@ impl VgfxLua {
     }
 
     fn load_animation(
-        lua: &LuaKey,
+        lua_key: &LuaKey,
         _vgfx: &RefMut<Vgfx>,
         path: String,
         frametime: f64,
@@ -1687,7 +1694,7 @@ impl VgfxLua {
         .map_err(mlua::Error::external)?;
         _vgfx
             .scoped_assets
-            .get_mut(&lua.key())
+            .get_mut(&lua_key.key())
             .ok_or(mlua::Error::external("Assets not initialized"))?
             .images
             .insert(_vgfx.next_img_id, VgImage::Animation(anim));
@@ -1710,7 +1717,7 @@ impl VgfxLua {
     }
 
     fn load_skin_animation(
-        lua: &LuaKey,
+        lua_key: &LuaKey,
         _vgfx: &RefMut<Vgfx>,
         path: String,
         frametime: f64,
@@ -1735,7 +1742,7 @@ impl VgfxLua {
         .map_err(mlua::Error::external)?;
         _vgfx
             .scoped_assets
-            .get_mut(&lua.key())
+            .get_mut(&lua_key.key())
             .ok_or(mlua::Error::external("Assets not initialized"))?
             .images
             .insert(_vgfx.next_img_id, VgImage::Animation(anim));
@@ -1746,7 +1753,7 @@ impl VgfxLua {
     }
 
     fn tick_animation(
-        lua: &LuaKey,
+        lua_key: &LuaKey,
         _vgfx: &RefMut<Vgfx>,
         animation: u32,
         delta_time: f64,
@@ -1755,7 +1762,7 @@ impl VgfxLua {
         let _vgfx = _vgfx_lock.deref_mut();
         if let Some(VgImage::Animation(anim)) = _vgfx
             .scoped_assets
-            .get_mut(&lua.key())
+            .get_mut(&lua_key.key())
             .ok_or(mlua::Error::external("Assets not initialized"))?
             .images
             .get_mut(&animation)
@@ -1793,7 +1800,7 @@ impl VgfxLua {
     }
 
     fn create_shaded_mesh(
-        lua: &LuaKey,
+        lua_key: &LuaKey,
         context: &Arc<three_d::Context>,
         vgfx: &RefMut<Vgfx>,
         material: Option<String>,

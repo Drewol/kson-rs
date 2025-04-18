@@ -80,7 +80,7 @@ impl GameDataLua {
        Error = 4
     */
 
-    fn log(lua: &LuaKey, message: String, severity: i32) {
+    fn log(message: String, severity: i32) {
         use log::*;
         let d = "Lua";
         log!(
@@ -255,11 +255,7 @@ impl GameDataLua {
         Ok(())
     }
 
-    fn begin_profile(
-        lua: &LuaKey,
-        scope: Option<String>,
-        game_data: &RefMut<GameData>,
-    ) -> mlua::Result<()> {
+    fn begin_profile(scope: Option<String>, game_data: &RefMut<GameData>) -> mlua::Result<()> {
         let mut gd_lock = game_data.write().expect("Lock error");
         let game_data = gd_lock.deref_mut();
 
