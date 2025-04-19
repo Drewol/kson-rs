@@ -26,7 +26,7 @@ use glutin::{
 };
 use puffin::{profile_function, profile_scope};
 
-use crate::{button_codes::UscButton, touch::TouchHelper, FrameInput};
+use crate::{button_codes::UscButton, ir::InternetRanking, touch::TouchHelper, FrameInput};
 use mlua::Lua;
 use td::Modifiers;
 
@@ -91,6 +91,7 @@ pub enum ControlMessage {
         max_combo: i32,
         duration: i32,
         manual_exit: bool,
+        hash: String,
     },
 
     ApplySettings,
@@ -391,6 +392,7 @@ impl GameMain {
                     max_combo,
                     duration,
                     manual_exit,
+                    hash,
                 } => {
                     if let Ok(_arena) = lua_arena.read() {
                         let transition_lua = transition_lua.clone();
@@ -407,6 +409,7 @@ impl GameMain {
                                 max_combo,
                                 duration,
                                 manual_exit,
+                                hash,
                             },
                             control_tx.clone(),
                             vgfx.clone(),
@@ -749,6 +752,7 @@ impl GameMain {
             //lua.gc_collect();
             if Rc::strong_count(lua) > 1 {
                 LuaHttp::poll(lua);
+                InternetRanking::poll(lua);
                 true
             } else {
                 vgfx.drop_assets(lua_address(lua));

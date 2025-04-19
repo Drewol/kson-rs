@@ -615,16 +615,24 @@ fn song_from_zip(
         if file.is_dir() {
             continue;
         }
-        let mut chart_string = String::new();
-        let file_read = file.read_to_string(&mut chart_string);
-        if file_read.is_err() {
+        let mut buf = vec![];
+        let Ok(file_read) = file.read_to_end(&mut buf) else {
             continue;
-        }
+        };
+
+        let mut chart_hash = sha1_smol::Sha1::new();
+        chart_hash.update(&buf);
+        let chart_hash = chart_hash.digest().to_string();
+
+        let Ok(mut chart_string) = String::from_utf8(buf) else {
+            continue;
+        };
 
         let file_folder = PathBuf::from(file.name());
         drop(file);
 
-        if let Ok(chart) = kson::Chart::from_ksh(&chart_string) {
+        if let Ok(mut chart) = kson::Chart::from_ksh(&chart_string) {
+            chart.file_hash = chart_hash;
             if chart.meta.difficulty == diff {
                 let bgm_name = chart.audio.bgm.filename.clone();
                 let bgm_path = file_folder.with_file_name(bgm_name);

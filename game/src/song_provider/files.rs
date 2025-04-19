@@ -580,7 +580,9 @@ impl SongProvider for FileSongProvider {
         };
 
         let db = self.database.clone();
-        let path = PathBuf::from(block_on!(db.get_song(_diff_index as _))?.path);
+        let song = block_on!(db.get_song(_diff_index as _))?;
+        let hash = song.hash;
+        let path = PathBuf::from(song.path);
 
         Ok(Box::new(move || {
             let data = std::fs::read(&path)?;
@@ -592,7 +594,8 @@ impl SongProvider for FileSongProvider {
             .0
             .map_err(|_| anyhow!("Bad encodiing"))?;
 
-            let chart = kson::Chart::from_ksh(&data)?;
+            let mut chart = kson::Chart::from_ksh(&data)?;
+            chart.file_hash = hash;
 
             let audio = rodio::decoder::Decoder::new(std::fs::File::open(
                 path.with_file_name(&chart.audio.bgm.filename),

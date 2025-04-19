@@ -805,6 +805,8 @@ pub struct Chart {
     pub camera: camera::CameraInfo,
     pub version: String,
     pub bg: BgInfo,
+    #[serde(skip)]
+    pub file_hash: String,
 }
 
 #[derive(Serialize, Deserialize, Clone)]
@@ -913,6 +915,7 @@ impl Chart {
             camera: CameraInfo::default(),
             version: "0.7.0".to_string(),
             bg: BgInfo::new(),
+            file_hash: String::new(),
         }
     }
 

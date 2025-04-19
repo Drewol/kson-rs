@@ -2,8 +2,9 @@ use luals_gen::LuaLsType;
 use luals_gen::ToLuaLsType;
 use serde::Deserialize;
 use serde::Serialize;
+use serde_with::formats::Flexible;
 use serde_with::serde_as;
-use serde_with::DurationMilliSecondsWithFrac;
+use serde_with::DurationNanoSeconds;
 use three_d::vec3;
 
 use three_d::Vec2;
@@ -61,15 +62,15 @@ pub(crate) struct LuaGauge {
 pub struct HitWindow {
     #[serde(rename = "type")]
     pub variant: i32,
-    #[serde_as(as = "DurationMilliSecondsWithFrac<f64>")]
+    #[serde_as(as = "DurationNanoSeconds<u64, Flexible>")]
     pub perfect: Duration,
-    #[serde_as(as = "DurationMilliSecondsWithFrac<f64>")]
+    #[serde_as(as = "DurationNanoSeconds<u64, Flexible>")]
     pub good: Duration,
-    #[serde_as(as = "DurationMilliSecondsWithFrac<f64>")]
+    #[serde_as(as = "DurationNanoSeconds<u64, Flexible>")]
     pub hold: Duration,
-    #[serde_as(as = "DurationMilliSecondsWithFrac<f64>")]
+    #[serde_as(as = "DurationNanoSeconds<u64, Flexible>")]
     pub miss: Duration,
-    #[serde_as(as = "DurationMilliSecondsWithFrac<f64>")]
+    #[serde_as(as = "DurationNanoSeconds<u64, Flexible>")]
     pub slam: Duration,
 }
 

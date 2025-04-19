@@ -256,6 +256,7 @@ impl Scene for Transition {
                             max_combo,
                             duration,
                             manual_exit,
+                            hash,
                         } => Some(Promise::spawn_thread(
                             "Load song",
                             move || -> anyhow::Result<Box<dyn SceneData + Send>> {
@@ -270,6 +271,7 @@ impl Scene for Transition {
                                     max_combo,
                                     duration,
                                     manual_exit,
+                                    hash,
                                 )?))
                             },
                         )),
