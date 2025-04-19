@@ -1,3 +1,5 @@
+pub mod migrations;
+
 use std::{
     collections::HashMap, fmt::Display, fs::File, io::Read, path::PathBuf, sync::RwLock,
     time::Duration,
@@ -484,6 +486,8 @@ impl GameConfig {
         if let Err(err) = GameConfig::get_mut().init_skin_settings() {
             log::warn!("{}", err)
         };
+
+        migrations::migrate_config();
     }
 
     pub fn save(&self) {
