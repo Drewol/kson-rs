@@ -1,10 +1,11 @@
 [package]
 name = "kson"
 description = "Rust implementation of the kson sdvx chart format."
-version = "0.1.1"
+version = "0.2.0"
 authors = ["Emil Draws <emildraws@gmail.com>"]
 readme = "README.md"
 edition = "2021"
+license = "MIT"
 
 [dependencies]
 serde = { workspace = true }

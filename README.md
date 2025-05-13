@@ -11,6 +11,9 @@ Rewrite of unnamed-sdvx-clone.
 Chart editor for the KSON format with some basic Ksh support.
 
 ### KSON
+[![Latest version](https://img.shields.io/crates/v/kson.svg)](https://crates.io/crates/kson)
+[![Documentation](https://docs.rs/kson/badge.svg)](https://docs.rs/kson)
+
 Library implementing the KSON Chart format.
 
 ### kson-music-playback
