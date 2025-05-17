@@ -14,6 +14,7 @@ mod ir;
 mod lua_http;
 mod lua_service;
 mod main_menu;
+mod multiplayer;
 mod results;
 mod scene;
 mod settings_dialog;
@@ -54,6 +55,7 @@ use button_codes::{CustomBindingFilter, UscInputEvent};
 use clap::Parser;
 use companion_interface::CompanionServer;
 use directories::ProjectDirs;
+use multiplayer::MultiplayerService;
 pub use vg_ui::Vgfx;
 
 use femtovg as vg;
@@ -561,6 +563,7 @@ impl UscApp {
             .add(existing_as_self(companion_service))
             .add(existing_as_self(self.sink.take().unwrap()))
             .add(AsyncService::singleton().as_mut())
+            .add(MultiplayerService::singleton().as_mut())
             .add_worker::<AsyncService>()
             .add(existing_as_self(Mutex::new(canvas)))
             .add(existing_as_self(service_context.clone()))

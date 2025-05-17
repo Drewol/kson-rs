@@ -7,6 +7,7 @@ use std::{
 use anyhow::anyhow;
 use di::{RefMut, ServiceProvider};
 
+use futures::executor::block_on;
 use log::warn;
 use mlua::{Function, Lua, LuaSerdeExt};
 use poll_promise::Promise;
@@ -18,6 +19,7 @@ use crate::{
     game_main::AutoPlay,
     log_result,
     main_menu::MainMenuButton,
+    multiplayer::MultiplayerScreen,
     results::SongResultData,
     scene::{Scene, SceneData},
     songselect::{Song, SongSelect},
@@ -223,6 +225,15 @@ impl Scene for Transition {
                         ControlMessage::MainMenu(MainMenuButton::Start) => {
                             Some(Promise::spawn_thread("Load song select", move || {
                                 load_songs()
+                            }))
+                        }
+                        ControlMessage::MainMenu(MainMenuButton::Multiplayer) => {
+                            let scope = self.service_provider.create_scope();
+                            Some(Promise::spawn_async(async move {
+                                let service: RefMut<crate::multiplayer::MultiplayerService> =
+                                    scope.get_required();
+                                block_on(service.write().unwrap().connect())?;
+                                Ok(Box::new(service) as Box<dyn SceneData + Send>)
                             }))
                         }
                         ControlMessage::Song {

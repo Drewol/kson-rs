@@ -1,5 +1,6 @@
 pub mod migrations;
 
+use std::default;
 use std::{
     collections::HashMap, fmt::Display, fs::File, io::Read, path::PathBuf, sync::RwLock,
     time::Duration,
@@ -119,6 +120,22 @@ pub struct GameConfig {
     pub screenshot_path: PathBuf,
     pub ir_endpoint: String,
     pub ir_api_token: String,
+    pub multiplayer: MultiplayerSettings,
+}
+
+#[derive(Debug, Deserialize, Serialize, Clone)]
+pub struct MultiplayerSettings {
+    pub server: String,
+    pub name: String,
+}
+
+impl Default for MultiplayerSettings {
+    fn default() -> Self {
+        Self {
+            server: "usc-multi.drewol.me:39079".into(),
+            name: Default::default(),
+        }
+    }
 }
 
 #[derive(Debug, Deserialize, Serialize, Clone)]
@@ -341,7 +358,8 @@ impl Default for GameConfig {
             score_screenshots: ScoreScreenshot::default(),
             screenshot_path: PathBuf::from_iter([".", "screenshots"]),
             ir_api_token: String::new(),
-            ir_endpoint: String::new()
+            ir_endpoint: String::new(),
+            multiplayer: MultiplayerSettings::default()
         }
     }
 }

@@ -345,6 +345,18 @@ impl GameMain {
                             .ok()
                         }
                     }
+                    MainMenuButton::Multiplayer => {
+                        scenes.suspend_top();
+                        scenes.transition = Transition::new(
+                            transition_lua.clone(),
+                            ControlMessage::MainMenu(MainMenuButton::Multiplayer),
+                            control_tx.clone(),
+                            vgfx.clone(),
+                            frame_input.viewport,
+                            service_provider.create_scope(),
+                        )
+                        .ok();
+                    }
                     MainMenuButton::Downloads => {}
                     MainMenuButton::Exit => {
                         scenes.clear();

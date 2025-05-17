@@ -107,6 +107,7 @@ log4rs = { version = "1.3.0", features = [
     "console_writer",
 ], default-features = false }
 regex = "1.11.1"
+multiplayer-protocol = { path = "../multiplayer-protocol" }
 
 
 [target.'cfg(target_os = "android")'.dependencies]

@@ -1134,11 +1134,11 @@ mod tests {
             )),
             off: EffectParameterValue::Freq(EffectFreq::Hz(500)..=EffectFreq::Hz(500)),
             v: 0.0_f32,
-            ..Default::default()
+            shape: parameter::InterpolationShape::Logarithmic,
         };
 
         serde_test::assert_tokens(&param, &[Token::Str("500Hz>10kHz-20kHz")]);
-
+        param.shape = parameter::InterpolationShape::Linear;
         param.on = None;
         param.off =
             EffectParameterValue::Filename("e9fda14b-d635-4cd8-8c7a-ca12f8d9b78a".to_string());
