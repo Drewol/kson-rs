@@ -22,7 +22,7 @@ use crate::{
     multiplayer::MultiplayerScreen,
     results::SongResultData,
     scene::{Scene, SceneData},
-    songselect::{Song, SongSelect},
+    songselect::{Song, SongProviderSelection, SongSelect},
     util::{back_pixels, lua_address},
     ControlMessage,
 };
@@ -39,7 +39,7 @@ pub enum TransitionState {
 pub struct Transition {
     target: ControlMessage,
     target_state: Option<Promise<anyhow::Result<Box<dyn SceneData + Send>>>>,
-    control_tx: Sender<ControlMessage>,
+    loaded_scene: Option<Box<dyn Scene>>,
     pub state: TransitionState,
     transition_lua: Rc<Lua>,
     vgfx: RefMut<crate::Vgfx>,
@@ -47,8 +47,8 @@ pub struct Transition {
     service_provider: ServiceProvider,
 }
 
-fn load_songs() -> anyhow::Result<Box<dyn SceneData + Send>> {
-    Ok(Box::new(SongSelect::new()))
+fn load_songs(provider: SongProviderSelection) -> anyhow::Result<Box<dyn SceneData + Send>> {
+    Ok(Box::new(SongSelect::new(provider)))
 }
 
 fn load_chart(
@@ -76,10 +76,13 @@ impl Transition {
         self.state = TransitionState::Countdown(5);
     }
 
+    pub fn take_loaded(&mut self) -> Option<Box<dyn Scene>> {
+        self.loaded_scene.take()
+    }
+
     pub fn new(
         transition_lua: Rc<Lua>,
         target: ControlMessage,
-        control_tx: Sender<ControlMessage>,
         vgfx: RefMut<crate::Vgfx>,
         viewport: three_d::Viewport,
 
@@ -126,7 +129,7 @@ impl Transition {
             target,
             transition_lua,
             target_state: None,
-            control_tx,
+            loaded_scene: None,
             state: TransitionState::Intro,
             vgfx,
             prev_screengrab: prev_grab,
@@ -222,9 +225,14 @@ impl Scene for Transition {
                     let target = std::mem::take(&mut self.target);
 
                     self.target_state = match target {
+                        ControlMessage::SongSelect(sps) => {
+                            Some(Promise::spawn_thread("Load song select", move || {
+                                load_songs(sps)
+                            }))
+                        }
                         ControlMessage::MainMenu(MainMenuButton::Start) => {
                             Some(Promise::spawn_thread("Load song select", move || {
-                                load_songs()
+                                load_songs(SongProviderSelection::Default)
                             }))
                         }
                         ControlMessage::MainMenu(MainMenuButton::Multiplayer) => {
@@ -295,12 +303,10 @@ impl Scene for Transition {
                 render.call(dt / 1000_f64)?;
                 if let Some(target_state) = self.target_state.take() {
                     match target_state.try_take() {
-                        Ok(Ok(finished)) => self
-                            .control_tx
-                            .send(ControlMessage::TransitionComplete(
-                                finished.make_scene(self.service_provider.create_scope())?,
-                            ))
-                            .expect("Failed to communicate with main game"),
+                        Ok(Ok(finished)) => {
+                            self.loaded_scene =
+                                Some(finished.make_scene(self.service_provider.create_scope())?)
+                        }
                         Ok(Err(loading_error)) => {
                             log::error!("{}", loading_error);
                             self.state = TransitionState::Countdown(5);

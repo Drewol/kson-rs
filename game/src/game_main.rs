@@ -26,7 +26,10 @@ use glutin::{
 };
 use puffin::{profile_function, profile_scope};
 
-use crate::{button_codes::UscButton, ir::InternetRanking, touch::TouchHelper, FrameInput};
+use crate::{
+    button_codes::UscButton, ir::InternetRanking, songselect::SongProviderSelection,
+    touch::TouchHelper, FrameInput,
+};
 use mlua::Lua;
 use td::Modifiers;
 
@@ -73,13 +76,14 @@ impl AutoPlay {
 pub enum ControlMessage {
     None,
     MainMenu(MainMenuButton),
+    SongSelect(SongProviderSelection),
     Song {
         song: Arc<songselect::Song>,
         diff: usize,
         loader: song_provider::LoadSongFn,
         autoplay: AutoPlay,
     },
-    TransitionComplete(Box<dyn scene::Scene>),
+
     Result {
         song: Arc<songselect::Song>,
         diff_idx: usize,
@@ -328,6 +332,21 @@ impl GameMain {
         while let Ok(control_msg) = control_rx.try_recv() {
             match control_msg {
                 ControlMessage::None => {}
+                ControlMessage::SongSelect(song_provider_selection) => {
+                    scenes.suspend_top();
+
+                    if let Ok(_arena) = lua_arena.read() {
+                        let transition_lua = transition_lua.clone();
+                        scenes.transition = Transition::new(
+                            transition_lua,
+                            ControlMessage::SongSelect(song_provider_selection),
+                            vgfx.clone(),
+                            frame_input.viewport,
+                            service_provider.create_scope(),
+                        )
+                        .ok()
+                    }
+                }
                 ControlMessage::MainMenu(b) => match b {
                     MainMenuButton::Start => {
                         scenes.suspend_top();
@@ -337,7 +356,6 @@ impl GameMain {
                             scenes.transition = Transition::new(
                                 transition_lua,
                                 ControlMessage::MainMenu(MainMenuButton::Start),
-                                control_tx.clone(),
                                 vgfx.clone(),
                                 frame_input.viewport,
                                 service_provider.create_scope(),
@@ -350,7 +368,6 @@ impl GameMain {
                         scenes.transition = Transition::new(
                             transition_lua.clone(),
                             ControlMessage::MainMenu(MainMenuButton::Multiplayer),
-                            control_tx.clone(),
                             vgfx.clone(),
                             frame_input.viewport,
                             service_provider.create_scope(),
@@ -384,7 +401,6 @@ impl GameMain {
                                 song,
                                 autoplay,
                             },
-                            control_tx.clone(),
                             vgfx.clone(),
                             frame_input.viewport,
                             service_provider.create_scope(),
@@ -392,7 +408,6 @@ impl GameMain {
                         .ok()
                     }
                 }
-                ControlMessage::TransitionComplete(scene_data) => scenes.loaded.push(scene_data),
                 ControlMessage::Result {
                     song,
                     diff_idx,
@@ -423,7 +438,6 @@ impl GameMain {
                                 manual_exit,
                                 hash,
                             },
-                            control_tx.clone(),
                             vgfx.clone(),
                             frame_input.viewport,
                             service_provider.create_scope(),

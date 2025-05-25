@@ -15,7 +15,7 @@ use crate::{
         SongId, SongProvider, SongProviderEvent, SongSort,
     },
     take_duration_fade::take_duration_fade,
-    util, ControlMessage, RuscMixer,
+    util, ControlMessage, FileSongProvider, NauticaSongProvider, RuscMixer,
 };
 use anyhow::{anyhow, ensure, Result};
 use di::{RefMut, ServiceProvider};
@@ -72,6 +72,13 @@ pub struct Song {
 }
 
 #[derive(Serialize)]
+pub enum SongProviderSelection {
+    Default,
+    Files,
+    Nautica,
+}
+
+#[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct SongSelect {
     songs: SongCollection,
@@ -83,10 +90,11 @@ pub struct SongSelect {
     preview_countdown: f64,
     preview_finished: Arc<AtomicUsize>,
     preview_playing: Arc<AtomicU64>,
+    song_provider: SongProviderSelection,
 }
 
 impl SongSelect {
-    pub fn new() -> Self {
+    pub fn new(song_provider: SongProviderSelection) -> Self {
         Self {
             songs: Default::default(),
             search_input_active: false,
@@ -97,6 +105,7 @@ impl SongSelect {
             preview_countdown: 1500.0,
             preview_finished: Arc::new(AtomicUsize::new(0)),
             preview_playing: Arc::new(AtomicU64::new(0)),
+            song_provider,
         }
     }
 }
@@ -155,7 +164,12 @@ impl SongSelectScene {
     pub fn new(mut song_select: Box<SongSelect>, services: ServiceProvider) -> Self {
         let sample_owner = owned_source::Marker::new();
         let input_state = InputState::clone(&services.get_required());
-        let song_provider: RefMut<dyn SongProvider> = services.get_required();
+        let song_provider: RefMut<dyn SongProvider> = match song_select.song_provider {
+            SongProviderSelection::Default => services.get_required(),
+            SongProviderSelection::Files => services.get_required_mut::<FileSongProvider>(),
+            SongProviderSelection::Nautica => services.get_required_mut::<NauticaSongProvider>(),
+        };
+
         let score_provider: RefMut<dyn ScoreProvider> = services.get_required();
         let score_events = score_provider.write().expect("Lock error").subscribe();
         let song_events = song_provider.write().expect("Lock error").subscribe();

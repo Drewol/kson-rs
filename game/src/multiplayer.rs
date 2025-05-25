@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 use std::rc::Rc;
-use std::sync::atomic::{AtomicI32, AtomicU32};
+use std::sync::atomic::{AtomicBool, AtomicI32, AtomicU32};
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -18,13 +18,14 @@ use serde_json::json;
 use tokio::sync::mpsc::{channel, Receiver, Sender};
 use tokio::sync::RwLock;
 use tokio::{net::ToSocketAddrs, task::JoinHandle};
-use winit::event::ElementState;
+use winit::event::{ElementState, Event};
 
 use crate::async_service::AsyncService;
 use crate::config::GameConfig;
 use crate::input_state::InputState;
 use crate::lua_service::LuaProvider;
 use crate::scene::{Scene, SceneData};
+use crate::settings_dialog::SettingsDialog;
 use crate::song_provider::{LoadSongFn, SongDiffId, SongProvider};
 use crate::songselect::Song;
 use crate::util::laser_navigation::LaserNavigation;
@@ -228,6 +229,8 @@ pub struct MultiplayerScreen {
     laser_nav: LaserNavigation,
     selected_index: usize,
     host: bool,
+    song_dialog: SettingsDialog,
+    close_dialog: Arc<AtomicBool>,
 }
 
 impl MultiplayerScreen {
@@ -248,9 +251,11 @@ impl MultiplayerScreen {
         lua.globals().set("screenState", state.as_str())?;
 
         let topic_handlers = LuaTcp::init(&lua, service.clone());
+        let is = InputState::clone(&sp.get_required());
 
+        let close_dialog = Arc::new(AtomicBool::new(false));
         Ok(MultiplayerScreen {
-            input_state: InputState::clone(&sp.get_required()),
+            input_state: is.clone(),
             service,
             lua,
             sp,
@@ -267,6 +272,8 @@ impl MultiplayerScreen {
             laser_nav: LaserNavigation::new(),
             selected_index: 0,
             host: false,
+            close_dialog: close_dialog.clone(),
+            song_dialog: SettingsDialog::new_empty(),
         })
     }
 
@@ -409,11 +416,7 @@ impl MultiplayerScreen {
             match (cmd, &mut self.state) {
                 (MpScreenCommand::OpenSettings, _) => {}
                 (MpScreenCommand::SelectSong, _) => {
-                    // TODO: Use dedicated message for song select
-
-                    _ = self.program_control.send(ControlMessage::MainMenu(
-                        crate::main_menu::MainMenuButton::Start,
-                    ));
+                    self.song_dialog.show = true;
                 }
                 (
                     MpScreenCommand::BeginJoinWithPassword(room_id),
@@ -607,6 +610,7 @@ impl Scene for MultiplayerScreen {
 
         let f: Function = self.lua.globals().get("render")?;
         f.call::<()>(dt / 1000.0)?;
+        self.song_dialog.render(dt)?;
         Ok(())
     }
 
@@ -617,6 +621,14 @@ impl Scene for MultiplayerScreen {
         if !GameConfig::get().multiplayer.name.is_empty() {
             self.auth()?;
         }
+        self.song_dialog = SettingsDialog::song_provider_select(
+            self.input_state.clone(),
+            self.sp.create_scope(),
+            self.close_dialog.clone(),
+            app_control_tx.clone(),
+        );
+        let lua_service: Ref<LuaProvider> = self.sp.get_required();
+        self.song_dialog.init_lua(&lua_service)?;
         self.set_text_input();
         self.program_control = app_control_tx;
         Ok(())
@@ -627,6 +639,11 @@ impl Scene for MultiplayerScreen {
         _dt: f64,
         _knob_state: crate::button_codes::LaserState,
     ) -> anyhow::Result<()> {
+        if self.close_dialog.load(std::sync::atomic::Ordering::Relaxed) {
+            self.song_dialog.show = false;
+            self.close_dialog
+                .store(false, std::sync::atomic::Ordering::Relaxed);
+        }
         if self.should_suspend {
             self.suspended = true;
             self.should_suspend = false;
@@ -675,6 +692,13 @@ impl Scene for MultiplayerScreen {
     }
 
     fn on_event(&mut self, event: &winit::event::Event<crate::button_codes::UscInputEvent>) {
+        if self.song_dialog.show {
+            if let Event::UserEvent(e) = event {
+                self.song_dialog.on_input(e);
+            }
+            return;
+        }
+
         match event {
             winit::event::Event::WindowEvent { event, .. } => match event {
                 winit::event::WindowEvent::KeyboardInput { event, .. } => {
@@ -727,6 +751,11 @@ impl Scene for MultiplayerScreen {
         button: crate::button_codes::UscButton,
         _timestamp: std::time::SystemTime,
     ) {
+        if self.song_dialog.show {
+            self.song_dialog.on_button_press(button);
+            return;
+        }
+
         match button {
             crate::button_codes::UscButton::Back => self.closing = true,
             _ => {}

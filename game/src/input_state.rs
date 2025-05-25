@@ -27,6 +27,15 @@ impl InputState {
         }
     }
 
+    pub fn dummy() -> Self {
+        Self {
+            text_input_active: Arc::new(AtomicBool::default()),
+            laser_state: Arc::new(LaserState::default().into()),
+            gilrs: Arc::new(None.into()),
+            buttons_held: Arc::new(HashMap::new().into()),
+        }
+    }
+
     pub fn update(&mut self, e: &UscInputEvent) {
         if let Ok(mut laser_state) = self.laser_state.write() {
             match e {
