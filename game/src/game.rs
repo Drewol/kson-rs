@@ -5,6 +5,8 @@ use crate::{
     input_state::InputState,
     log_result,
     lua_service::LuaProvider,
+    multiplayer::{LuaTcp, MultiplayerService, MultiplayerState},
+    results::{calculate_clear_mark, ClearMark},
     scene::{Scene, SceneData},
     shaded_mesh::ShadedMesh,
     songselect::Song,
@@ -12,7 +14,7 @@ use crate::{
     ControlMessage,
 };
 
-use anyhow::{anyhow, ensure, Result};
+use anyhow::{anyhow, ensure, Context, Result};
 use di::{RefMut, ServiceProvider};
 use egui::epaint::Hsva;
 use egui_plot::{Line, PlotPoints};
@@ -30,12 +32,13 @@ use kson_rodio_sources::{
 };
 
 use log::{info, warn};
-use mlua::{Function, Lua, LuaSerdeExt};
+use mlua::{Function, Lua, LuaSerdeExt, RegistryKey};
+use multiplayer_protocol::messages::{client::ClientCommand, get_topic, types::User};
 use puffin::{profile_function, profile_scope};
 use rodio::{dynamic_mixer::DynamicMixerController, source::Buffered, Decoder, Source};
 use std::{
     cmp::Ordering,
-    collections::{BTreeMap, VecDeque},
+    collections::{BTreeMap, HashMap, VecDeque},
     f32::consts::SQRT_2,
     ops::Sub,
     path::PathBuf,
@@ -128,6 +131,7 @@ pub struct Game {
     laser_offset: f64,
     button_offset: f64,
     global_offset: f64,
+    multiplayer: GameMultiplayerState,
 }
 
 #[derive(Clone, Copy)]
@@ -156,6 +160,153 @@ pub enum HitRating {
         delta: f64,
         time: f64,
     },
+}
+
+struct GameMultiplayerState {
+    service: RefMut<MultiplayerService>,
+    sync_send: bool,
+    started: bool,
+    users: Vec<User>,
+    user_id: String,
+    active: bool,
+    topic_handlers: HashMap<String, RegistryKey>,
+    rate: i32,
+    last_send_index: i32,
+}
+
+impl GameMultiplayerState {
+    fn new(sp: &ServiceProvider) -> Self {
+        let service: RefMut<MultiplayerService> = sp.get_required();
+        let (active, user_id, rate) = {
+            let s = service.read().unwrap();
+            (
+                s.state() == MultiplayerState::Connected,
+                s.user_id(),
+                s.rate(),
+            )
+        };
+
+        Self {
+            service,
+            sync_send: false,
+            started: false,
+            active,
+            user_id,
+            users: vec![],
+            topic_handlers: HashMap::new(),
+            rate,
+            last_send_index: -1,
+        }
+    }
+
+    fn poll(&mut self, lua: &Lua) -> anyhow::Result<()> {
+        if !self.started || !self.active {
+            return Ok(());
+        }
+
+        let mut s = self.service.write().unwrap();
+        while let Some(msg) = s.poll() {
+            info!("Recieved: {msg:?}");
+
+            let Some(topic) = get_topic(&msg) else {
+                continue;
+            };
+
+            let Some(handler) = self.topic_handlers.get(&topic) else {
+                continue;
+            };
+
+            let Ok(handler) = lua.registry_value::<Function>(handler) else {
+                continue;
+            };
+
+            handler.call::<()>(lua.to_value_with(
+                &msg,
+                mlua::SerializeOptions::new().serialize_none_to_null(false),
+            ))?;
+        }
+
+        Ok(())
+    }
+
+    fn init_lua(&mut self, lua: &Lua) {
+        if self.active {
+            self.topic_handlers = LuaTcp::init(lua, self.service.clone());
+        }
+    }
+
+    fn update_score(&mut self, score: i32, time: u128) -> anyhow::Result<()> {
+        if !self.active {
+            return Ok(());
+        }
+        let mut s = self.service.write().unwrap();
+        let time = time.max(0);
+
+        let send_index = (time / self.rate as u128) as i32;
+
+        if send_index <= self.last_send_index {
+            return Ok(());
+        }
+
+        let time = send_index * self.rate;
+
+        s.send(multiplayer_protocol::messages::server::ServerCommand::ScoreUpdate { time, score })?;
+        self.last_send_index = send_index;
+        Ok(())
+    }
+
+    fn should_start(&mut self, intro_done: bool) -> bool {
+        // Begin sync after intro is done
+        if !intro_done {
+            return false;
+        }
+
+        if !self.active {
+            self.started = true;
+        }
+
+        if self.started {
+            // Sync already completed
+            true
+        } else {
+            let mut s = self.service.write().unwrap();
+
+            if !self.sync_send {
+                self.sync_send = s
+                    .send(multiplayer_protocol::messages::server::ServerCommand::Sync)
+                    .is_ok();
+            }
+
+            loop {
+                let Some(msg) = s.poll() else {
+                    break false;
+                };
+
+                let ClientCommand::SyncStart(start) = msg else {
+                    continue;
+                };
+
+                self.users = start.users;
+                self.started = true;
+                break true;
+            }
+        }
+    }
+
+    fn send_final(&self, score: i32, combo: i32, clear: ClearMark) {
+        let mut s = self.service.write().unwrap();
+        _ = s
+            .send(
+                multiplayer_protocol::messages::server::ServerCommand::ScoreFinal {
+                    score,
+                    combo,
+                    clear: clear as u8,
+                },
+            )
+            .context("Final score send")
+            .inspect_err(|e| warn!("{e}"))
+            .ok()
+    }
 }
 
 #[derive(Debug, Default, Clone, Copy)]
@@ -718,6 +869,7 @@ impl Game {
             current_roll: 0.0,
             target_roll: TargetRoll::None,
             hit_ratings: Vec::new(),
+            multiplayer: GameMultiplayerState::new(&service_provider),
             mixer: service_provider.get_required(),
             biquad_control,
             background,
@@ -789,6 +941,7 @@ impl Game {
         camera: &Camera,
         hit_window: HitWindow,
         render_tick: u32,
+        user_id: String,
     ) -> lua_data::LuaGameState {
         let screen = vec2(viewport.width as f32, viewport.height as f32);
         let track_center = graphics::camera_to_screen(camera, Vec3::zero(), screen);
@@ -857,7 +1010,7 @@ impl Game {
             },
             hit_window,
             multiplayer: false,
-            user_id: "Player".into(),
+            user_id,
             practice_setup: false,
         }
     }
@@ -1051,7 +1204,8 @@ impl Game {
     }
 
     fn hold_ok(&self, lane: usize, start_tick: u32) -> bool {
-        let is_button_held = &self.input_state.is_button_held((lane as u8).into());
+        let is_button_held: &Option<SystemTime> =
+            &self.input_state.is_button_held((lane as u8).into());
         let start_ms = self.without_offset(self.chart.tick_to_ms(start_tick));
         let hold_start = self.zero_time + Duration::from_secs_f64(start_ms / 1000.0);
         let hold_start_thres = hold_start
@@ -1150,7 +1304,7 @@ impl Game {
         }
     }
     fn current_time(&self) -> std::time::Duration {
-        if !self.intro_done {
+        if !self.intro_done || !self.multiplayer.started {
             Duration::ZERO
         } else {
             SystemTime::now()
@@ -1343,6 +1497,12 @@ impl Game {
             _ => {}
         }
         hit_rating
+    }
+
+    fn should_start(&mut self) -> bool {
+        self.intro_done
+            && !self.playback.is_playing()
+            && self.multiplayer.should_start(self.intro_done)
     }
 }
 
@@ -1600,6 +1760,9 @@ impl Scene for Game {
             }
         }
 
+        self.multiplayer
+            .update_score(self.actual_display_score() as _, time.as_millis())?;
+
         //Score display
         let display_score = self.calculate_display_score();
         if display_score != self.display_score {
@@ -1612,6 +1775,8 @@ impl Scene for Game {
         if self.gauge.is_dead() {
             self.fail_song()?;
         }
+
+        self.multiplayer.poll(&self.lua)?;
 
         Ok(())
     }
@@ -1647,6 +1812,7 @@ impl Scene for Game {
         );
         self.control_tx = Some(app_control_tx);
         lua_provider.register_libraries(self.lua.clone(), "gameplay.lua")?;
+        self.multiplayer.init_lua(&self.lua);
         Ok(())
     }
 
@@ -1792,7 +1958,7 @@ impl Scene for Game {
 
         self.camera
             .update(vec2(viewport.width as f32, viewport.height as f32));
-        if self.intro_done && !self.playback.is_playing() {
+        if self.should_start() {
             info!("Starting playback");
             self.zero_time = SystemTime::now();
             if !self.playback.play() {
@@ -1903,7 +2069,13 @@ impl Scene for Game {
             .iter_mut()
             .for_each(|c| c[3] = (c[3] - dt as f32 / 200.0).max(0.0));
 
-        let new_lua_state = self.lua_game_state(viewport, &td_camera, self.hit_window, render_tick);
+        let new_lua_state = self.lua_game_state(
+            viewport,
+            &td_camera,
+            self.hit_window,
+            render_tick,
+            self.multiplayer.user_id.clone(),
+        );
         if new_lua_state != self.lua_game_state {
             self.lua_game_state = new_lua_state;
             let lua_game_state = match self.lua.to_value(&self.lua_game_state) {
@@ -2124,5 +2296,21 @@ impl Scene for Game {
 
     fn name(&self) -> &str {
         "Game"
+    }
+}
+
+impl Drop for Game {
+    fn drop(&mut self) {
+        if self.multiplayer.active {
+            self.multiplayer.send_final(
+                self.actual_display_score() as _,
+                self.max_combo as _,
+                calculate_clear_mark(
+                    HitSummary::from(self.hit_ratings.as_slice()),
+                    false,
+                    &self.gauge.active,
+                ),
+            );
+        }
     }
 }

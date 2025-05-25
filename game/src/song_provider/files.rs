@@ -23,7 +23,7 @@ use super::{
     DiffId, LoadSongFn, ScoreProvider, ScoreProviderEvent, SongDiffId, SongFilter, SongId,
     SongProvider, SongProviderEvent, SongSort,
 };
-use anyhow::{anyhow, bail, ensure};
+use anyhow::{anyhow, bail, ensure, Context};
 
 use futures::{executor::block_on, AsyncReadExt, StreamExt};
 use itertools::Itertools;
@@ -772,6 +772,46 @@ impl SongProvider for FileSongProvider {
             self.importer_state = ImporterState::Starting;
             self.worker_tx.send(WorkerControlMessage::Refresh);
         }
+    }
+
+    fn set_multiplayer_song(
+        &self,
+        id: &SongDiffId,
+    ) -> anyhow::Result<multiplayer_protocol::messages::server::SetSong> {
+        let SongId::StringId(hash) = &id.get_diff().context("No diff")?.0 else {
+            bail!("Not a hash ID")
+        };
+
+        let chart = block_on(self.database.get_hash_id(hash))?.context("Could not find chart")?;
+        let chart = block_on(self.database.get_song(chart))?;
+
+        let songs_root = songs_path();
+        let mut folder_path = PathBuf::from(block_on(self.database.get_folder(chart.folderid))?);
+        let folder_path = folder_path.strip_prefix(songs_root)?;
+
+        Ok(multiplayer_protocol::messages::server::SetSong {
+            song: folder_path.display().to_string(),
+            diff: chart.diff_index as _,
+            level: chart.level as _,
+            hash: String::new(),
+            audio_hash: String::new(),
+            chart_hash: chart.hash,
+        })
+    }
+
+    fn get_multiplayer_song(
+        &self,
+        hash: &str,
+        path: &str,
+        diff: u32,
+        level: u32,
+    ) -> anyhow::Result<Arc<Song>> {
+        let chart_id = block_on(self.database.get_hash_id(hash))?.context("Hash not found")?;
+        let folder_id = block_on(self.database.get_folderid(chart_id))?;
+        self.all_songs
+            .get(&SongId::IntId(folder_id))
+            .cloned()
+            .context("Song not loaded in provider")
     }
 }
 

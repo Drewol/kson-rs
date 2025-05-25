@@ -10,7 +10,7 @@ use std::{
 };
 
 use di::RefMut;
-use futures::AsyncWriteExt;
+use futures::{executor::block_on, AsyncWriteExt};
 use itertools::Itertools;
 use log::warn;
 use rodio::Source;
@@ -239,49 +239,50 @@ impl Debug for NauticaSongProvider {
     }
 }
 
+async fn download_jacket(x: &Datum) -> anyhow::Result<()> {
+    let mut song_path = cache_dir();
+    song_path.push(x.id.hyphenated().to_string());
+    std::fs::create_dir_all(&song_path)?;
+    if x.jacket_url.ends_with("png") {
+        song_path.push("jacket.png");
+    } else {
+        song_path.push("jacket.jpg");
+    }
+
+    if song_path.exists() {
+        return Ok(());
+    }
+
+    let jacket_response = reqwest::get(&x.jacket_url).await?;
+
+    let jacket_path = match jacket_response
+        .headers()
+        .get(reqwest::header::CONTENT_TYPE)
+        .ok_or(anyhow!("No content type header"))?
+        .to_str()
+        .unwrap_or_default()
+    {
+        "image/jpeg" => song_path.with_extension("jpg"),
+        "image/png" => song_path.with_extension("png"),
+        "image/webp" => song_path.with_extension("webp"),
+        content_type => {
+            warn!("Can't load jackets of type: {content_type}");
+            return Ok(());
+        }
+    };
+
+    let bytes = jacket_response.bytes().await?;
+
+    tokio::fs::write(jacket_path, bytes).await;
+    Ok(())
+}
+
 async fn next_songs(path: String) -> Result<NauticaSongs> {
     log::info!("Getting more nautica songs: {}", path);
     //TODO: Async requests
     let nautica_songs = reqwest::get(&path).await?.json::<NauticaSongs>().await?;
     for x in &nautica_songs.data {
-        let mut song_path = cache_dir();
-        song_path.push(x.id.hyphenated().to_string());
-        std::fs::create_dir_all(&song_path)?;
-        if x.jacket_url.ends_with("png") {
-            song_path.push("jacket.png");
-        } else {
-            song_path.push("jacket.jpg");
-        }
-
-        if song_path.exists() {
-            continue;
-        }
-
-        let Ok(jacket_response) = reqwest::get(&x.jacket_url).await else {
-            continue;
-        };
-
-        let jacket_path = match jacket_response
-            .headers()
-            .get(reqwest::header::CONTENT_TYPE)
-            .ok_or(anyhow!("No content type header"))?
-            .to_str()
-            .unwrap_or_default()
-        {
-            "image/jpeg" => song_path.with_extension("jpg"),
-            "image/png" => song_path.with_extension("png"),
-            "image/webp" => song_path.with_extension("webp"),
-            content_type => {
-                warn!("Can't load jackets of type: {content_type}");
-                continue;
-            }
-        };
-
-        let Ok(bytes) = jacket_response.bytes().await else {
-            continue;
-        };
-
-        tokio::fs::write(jacket_path, bytes).await;
+        _ = download_jacket(x).await;
     }
     Ok(nautica_songs)
 }
@@ -394,6 +395,14 @@ fn cache_path() -> PathBuf {
     path
 }
 
+async fn single_song(id: &str) -> anyhow::Result<Song> {
+    let NauticaSong { data: nautica } = reqwest::get(format!("https://ksm.dev/app/songs/{}", id))
+        .await?
+        .json()
+        .await?;
+    Ok(nautica.as_song())
+}
+
 impl SongProvider for NauticaSongProvider {
     fn get_available_filters(&self) -> Vec<super::SongFilterType> {
         vec![
@@ -485,6 +494,8 @@ impl SongProvider for NauticaSongProvider {
             .all_songs
             .iter()
             .find(|x| x.id == SongId::StringId(song_id.clone()))
+            .cloned()
+            .or_else(|| block_on(single_song(&song_id)).map(|x| Arc::new(x)).ok())
             .ok_or(anyhow!("song id not in song list"))?;
 
         let read = &song.difficulties.read().expect("Lock error");
@@ -573,6 +584,51 @@ impl SongProvider for NauticaSongProvider {
 
     fn refresh(&mut self) {
         self.query_changed();
+    }
+
+    fn set_multiplayer_song(
+        &self,
+        id: &SongDiffId,
+    ) -> anyhow::Result<multiplayer_protocol::messages::server::SetSong> {
+        let SongDiffId::SongDiff(SongId::StringId(song_id), diff_id) = id else {
+            bail!("Bad song id")
+        };
+
+        let song = self
+            .all_songs
+            .iter()
+            .find(|x| x.id == SongId::StringId(song_id.clone()))
+            .ok_or(anyhow!("song id not in song list"))?;
+
+        let read = &song.difficulties.read().expect("Lock error");
+        let diff = read
+            .iter()
+            .find(|x| x.id == *diff_id)
+            .ok_or(anyhow!("diff id not in songs difficulties"))?;
+
+        Ok(multiplayer_protocol::messages::server::SetSong {
+            song: multiplayer_protocol::messages::server::SetSong::NAUTICA_PATH.into(),
+            diff: diff.difficulty as _,
+            level: diff.level as _,
+            hash: String::new(),
+            audio_hash: String::new(),
+            chart_hash: song_id.clone(),
+        })
+    }
+
+    fn get_multiplayer_song(
+        &self,
+        hash: &str,
+        path: &str,
+        diff: u32,
+        level: u32,
+    ) -> anyhow::Result<Arc<Song>> {
+        ensure!(path == multiplayer_protocol::messages::server::SetSong::NAUTICA_PATH);
+        let uuid = uuid::Uuid::parse_str(hash)?;
+        let song = block_on(reqwest::get(format!("https://ksm.dev/app/songs/{hash}")))?;
+        let song: NauticaSong = block_on(song.json())?;
+        _ = block_on(download_jacket(&song.data));
+        Ok(Arc::new(song.data.as_song()))
     }
 }
 

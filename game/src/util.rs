@@ -1,7 +1,19 @@
-use std::sync::mpsc::{self, Receiver, Sender};
+use std::{
+    error::Error,
+    sync::mpsc::{self, Receiver, Sender},
+};
 
+use glow::{HasContext, BACK};
+use log::warn;
 use mlua::Lua;
-use three_d::{context::*, *};
+use three_d::{context, Viewport};
+use winit::{
+    event::*,
+    keyboard::{Key, NamedKey},
+};
+pub mod laser_navigation;
+
+use crate::button_codes::UscInputEvent;
 
 pub fn back_pixels(context: &three_d::Context, viewport: Viewport) -> Vec<[u8; 4]> {
     unsafe {
@@ -75,5 +87,59 @@ mod tests {
         let b = lua_address(lua);
         println!("{a}");
         assert!(a == b);
+    }
+}
+
+pub fn do_text_event(value: &mut String, event: &winit::event::Event<UscInputEvent>) -> bool {
+    let mut updated = true;
+    match event {
+        Event::WindowEvent {
+            window_id: _,
+            event:
+                WindowEvent::KeyboardInput {
+                    event:
+                        KeyEvent {
+                            text: Some(text),
+                            state: ElementState::Pressed,
+                            ..
+                        },
+                    ..
+                },
+        } if !text.chars().any(char::is_control) => {
+            *value += text.as_str();
+        }
+        Event::WindowEvent {
+            window_id: _,
+            event: WindowEvent::Ime(Ime::Commit(s)),
+        } => value.push_str(s.as_str()),
+        Event::WindowEvent {
+            event:
+                WindowEvent::KeyboardInput {
+                    event:
+                        KeyEvent {
+                            state: ElementState::Pressed,
+                            logical_key: Key::Named(NamedKey::Backspace),
+                            ..
+                        },
+                    ..
+                },
+            ..
+        } => {
+            value.pop();
+        }
+        _ => {
+            updated = false;
+        }
+    }
+    updated
+}
+
+pub trait Warn<T> {
+    fn warn(self, context: &'static str) -> Option<T>;
+}
+
+impl<T, E: Error> Warn<T> for Result<T, E> {
+    fn warn(self, context: &'static str) -> Option<T> {
+        self.inspect_err(|e| warn!("{context}: {e}")).ok()
     }
 }

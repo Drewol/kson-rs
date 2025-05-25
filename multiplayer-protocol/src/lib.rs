@@ -1,4 +1,6 @@
 use anyhow::ensure;
+use anyhow::Context;
+use messages::server::ServerCommand;
 use tokio::io::AsyncReadExt;
 use tokio::io::AsyncWriteExt;
 use tokio::net::tcp::{OwnedReadHalf, OwnedWriteHalf};
@@ -16,13 +18,13 @@ pub async fn connect(addr: impl ToSocketAddrs) -> anyhow::Result<(MultiRx, Multi
 
 impl MultiRx {
     pub async fn read(&mut self) -> anyhow::Result<messages::client::ClientCommand> {
-        let msg_type = self.0.read_u8().await?;
+        let msg_type = self.0.read_u8().await.context("Read msg type")?;
 
         ensure!(msg_type == 1, "Not JSON_LINE");
         let mut json_str = vec![];
 
         loop {
-            let b = self.0.read_u8().await?;
+            let b = self.0.read_u8().await.context("Read msg char")?;
             if b == b'\n' {
                 break;
             }
@@ -35,7 +37,11 @@ impl MultiRx {
 
 impl MultiTx {
     pub async fn write(&mut self, cmd: &messages::server::ServerCommand) -> anyhow::Result<()> {
-        let data = serde_json::to_vec(cmd)?;
+        let data = match cmd {
+            ServerCommand::Raw(x) => Vec::from(x.trim().as_bytes()),
+            cmd => serde_json::to_vec(cmd)?,
+        };
+
         self.0.write_u8(1).await?;
         self.0.write_all(&data).await?;
         self.0.write_u8(b'\n').await?;

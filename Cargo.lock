@@ -5186,6 +5186,7 @@ dependencies = [
  "sha1_smol",
  "specta",
  "statrs",
+ "strum",
  "three-d",
  "three-d-asset",
  "tokio",

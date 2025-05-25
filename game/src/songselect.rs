@@ -6,6 +6,7 @@ use crate::{
     help::await_task,
     input_state::InputState,
     lua_service::LuaProvider,
+    multiplayer::{self, MultiplayerState},
     results::Score,
     scene::{Scene, SceneData},
     settings_dialog::SettingsDialog,
@@ -14,11 +15,10 @@ use crate::{
         SongId, SongProvider, SongProviderEvent, SongSort,
     },
     take_duration_fade::take_duration_fade,
-    ControlMessage, RuscMixer,
+    util, ControlMessage, RuscMixer,
 };
 use anyhow::{anyhow, ensure, Result};
 use di::{RefMut, ServiceProvider};
-use winit::event::{ElementState, Event, Ime, WindowEvent};
 use itertools::Itertools;
 use kson_rodio_sources::owned_source::{self, owned_source};
 use log::warn;
@@ -39,6 +39,7 @@ use std::{
     },
     time::{Duration, SystemTime},
 };
+use winit::event::{ElementState, Event, Ime, WindowEvent};
 use winit::{
     event::KeyEvent,
     keyboard::{Key, NamedKey},
@@ -147,6 +148,7 @@ pub struct SongSelectScene {
     filters: Vec<song_provider::SongFilterType>,
     sorts: Vec<song_provider::SongSort>,
     auto_rx: Receiver<crate::game_main::AutoPlay>,
+    multiplayer: RefMut<multiplayer::MultiplayerService>,
 }
 
 impl SongSelectScene {
@@ -184,6 +186,7 @@ impl SongSelectScene {
                 auto_tx,
             ),
             async_worker: services.get_required(),
+            multiplayer: services.get_required(),
             song_events,
             score_events,
             song_provider,
@@ -293,15 +296,38 @@ impl SongSelectScene {
 
     fn start_song(&mut self, autoplay: AutoPlay) {
         let state = &self.state;
-        let song = self.state.songs.get(state.selected_index as usize).cloned();
+        let Some(song) = self.state.songs.get(state.selected_index as usize).cloned() else {
+            return;
+        };
 
-        if let (Some(pc), Some(song)) = (&self.program_control, song) {
-            let diff = state.selected_diff_index as usize;
-            let song_diff = SongDiffId::SongDiff(song.id.clone(), {
-                song.difficulties.read().expect("Lock error")[diff]
-                    .id
-                    .clone()
-            });
+        let diff = state.selected_diff_index as usize;
+        let song_diff = SongDiffId::SongDiff(song.id.clone(), {
+            song.difficulties.read().expect("Lock error")[diff]
+                .id
+                .clone()
+        });
+
+        let mut multi = self.multiplayer.write().unwrap();
+        if multi.state() == MultiplayerState::Connected {
+            let Ok(multi_song) = self
+                .song_provider
+                .write()
+                .unwrap()
+                .set_multiplayer_song(&song_diff)
+                .inspect_err(|e| warn!("Could not find song {song_diff:?}: {e}"))
+            else {
+                self.closed = true;
+                return;
+            };
+
+            _ = multi
+                .send(multiplayer_protocol::messages::server::ServerCommand::SetSong(multi_song));
+
+            self.closed = true;
+            return;
+        }
+
+        if let Some(pc) = &self.program_control {
             match self
                 .song_provider
                 .read()
@@ -835,47 +861,7 @@ impl Scene for SongSelectScene {
 
         if self.state.search_input_active {
             //Text input handling
-            let mut updated = true;
-            match event {
-                Event::WindowEvent {
-                    window_id: _,
-                    event:
-                        WindowEvent::KeyboardInput {
-                            event:
-                                KeyEvent {
-                                    text: Some(text),
-                                    state: ElementState::Pressed,
-                                    ..
-                                },
-                            ..
-                        },
-                } if !text.chars().any(char::is_control) => {
-                    self.state.search_text += text.as_str();
-                }
-                Event::WindowEvent {
-                    window_id: _,
-                    event: WindowEvent::Ime(Ime::Commit(s)),
-                } => self.state.search_text.push_str(s.as_str()),
-                Event::WindowEvent {
-                    event:
-                        WindowEvent::KeyboardInput {
-                            event:
-                                KeyEvent {
-                                    state: ElementState::Pressed,
-                                    logical_key: Key::Named(NamedKey::Backspace),
-                                    ..
-                                },
-                            ..
-                        },
-                    ..
-                } => {
-                    self.state.search_text.pop();
-                }
-                _ => {
-                    updated = false;
-                }
-            }
-
+            let updated = util::do_text_event(&mut self.state.search_text, event);
             if updated {
                 self.on_search();
             }

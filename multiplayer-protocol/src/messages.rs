@@ -4,6 +4,8 @@ use serde::{
 };
 
 pub mod types {
+    use std::default;
+
     use serde::{Deserialize, Serialize};
 
     #[derive(Debug, Serialize, Deserialize)]
@@ -24,18 +26,8 @@ pub mod types {
         pub join_token: Option<String>,
     }
 
-    #[repr(u8)]
-    #[derive(Debug, Serialize, Deserialize)]
-    pub enum Clear {
-        Exited = 0,
-        Failed = 1,
-        Clear = 2,
-        HardClear = 3,
-        FullCombo = 4,
-        Perfect = 5,
-    }
-
-    #[derive(Debug, Serialize, Deserialize)]
+    #[derive(Debug, Default, Serialize, Deserialize)]
+    #[serde(default)]
     pub struct User {
         // The UUID of this user
         pub id: String,
@@ -47,13 +39,13 @@ pub mod types {
         pub missing_map: bool,
         // User's selected level for the current song<br/>
         // 0 = no selected level
-        pub level: i32,
+        pub level: Option<i32>,
         // User's last final score<br/>
         // If no score, this field will not be present
-        pub score: i32,
+        pub score: Option<i32>,
         // User's last max combo<br/>
         // If no score, this field will not be present
-        pub combo: i32,
+        pub combo: Option<i32>,
         // User's clear status<br/>
         // 0: Exited<br/>
         // 1: Failed<br/>
@@ -62,9 +54,9 @@ pub mod types {
         // 4: Full Combo<br/>
         // 5: Perfect<br/>
         // If no score, this field will not be present
-        pub clear: Clear,
+        pub clear: Option<u8>,
         // Exists if the user has provided any extra data.
-        pub extra_data: String,
+        pub extra_data: Option<String>,
     }
 
     #[derive(Debug, Serialize, Deserialize)]
@@ -98,7 +90,7 @@ pub mod client {
 
     #[derive(Debug, Serialize, Deserialize)]
     pub struct Rooms {
-        pub rooms: Vec<types::Room>,
+        pub rooms: Option<Vec<types::Room>>,
     }
 
     #[derive(Debug, Serialize, Deserialize)]
@@ -143,17 +135,18 @@ pub mod client {
         SyncStart(Start),
     }
 
-    #[derive(Debug, Serialize, Deserialize)]
+    #[derive(Debug, Default, Serialize, Deserialize)]
+    #[serde(default)]
     pub struct Update {
         pub users: Vec<types::User>,
         pub do_rotate: bool,
         pub start_soon: bool,
-        pub song: String,
-        pub diff: u32,
-        pub level: u32,
-        pub hash: String,
-        pub audio_hash: String,
-        pub chart_hash: String,
+        pub song: Option<String>,
+        pub diff: Option<u32>,
+        pub level: Option<u32>,
+        pub hash: Option<String>,
+        pub audio_hash: Option<String>,
+        pub chart_hash: Option<String>,
         pub host: String,
         pub hard_mode: bool,
     }
@@ -423,8 +416,6 @@ pub fn get_topic(v: impl Serialize) -> Option<String> {
 pub mod server {
     use serde::{Deserialize, Serialize};
 
-    use super::types::Clear;
-
     #[derive(Debug, Serialize, Deserialize)]
     pub struct Join {
         pub id: Option<String>,
@@ -447,7 +438,7 @@ pub mod server {
 
     #[derive(Debug, Serialize, Deserialize)]
     pub struct Level {
-        pub level: i32,
+        pub level: u32,
     }
 
     #[derive(Debug, Serialize, Deserialize)]
@@ -471,6 +462,10 @@ pub mod server {
         pub chart_hash: String,
     }
 
+    impl SetSong {
+        pub const NAUTICA_PATH: &'static str = "__nautica__";
+    }
+
     #[derive(Debug, Serialize, Deserialize)]
     #[serde(tag = "topic")]
     pub enum ServerCommand {
@@ -483,6 +478,8 @@ pub mod server {
         RoomJoin(Join),
         #[serde(rename = "server.room.new")]
         RoomNew(New),
+        #[serde(rename = "room.sync.ready")]
+        Sync,
 
         // User
         #[serde(rename = "user.auth")]
@@ -494,11 +491,10 @@ pub mod server {
         #[serde(rename = "user.hard.toggle")]
         Hard,
         #[serde(rename = "user.song.level")]
-        Song(Level),
+        Level(Level),
         #[serde(rename = "user.nomap")]
         Nomap {},
-        #[serde(rename = "user.hard.ready")]
-        Sync,
+
         #[serde(rename = "user.extra.set")]
         Extra(Extra),
 
@@ -512,16 +508,22 @@ pub mod server {
         #[serde(rename = "room.setsong")]
         SetSong(SetSong),
         #[serde(rename = "room.score.update")]
-        ScoreUpdate { time: i32, score: i32 },
+        ScoreUpdate {
+            time: i32,
+            score: i32,
+        },
         #[serde(rename = "room.score.final")]
         ScoreFinal {
             score: i32,
             combo: i32,
-            clear: Clear,
+            clear: u8,
         },
         #[serde(rename = "room.update.get")]
         GetUpdate,
         #[serde(rename = "room.set.host")]
-        SetHost { host: String },
+        SetHost {
+            host: String,
+        },
+        Raw(String),
     }
 }

@@ -21,7 +21,7 @@ use rodio::Source;
 use serde::{Deserialize, Serialize};
 use serde_with::{DeserializeFromStr, SerializeDisplay};
 
-use crate::{results::Score, songselect::Song};
+use crate::{multiplayer, results::Score, songselect::Song};
 use specta::Type;
 mod files;
 mod nautica;
@@ -317,6 +317,18 @@ pub trait SongProvider: Send {
     fn set_filter(&mut self, filter: SongFilter);
     fn set_current_index(&mut self, index: u64);
     fn load_song(&self, id: &SongDiffId) -> anyhow::Result<LoadSongFn>;
+    fn set_multiplayer_song(
+        &self,
+        id: &SongDiffId,
+    ) -> anyhow::Result<multiplayer_protocol::messages::server::SetSong>;
+
+    fn get_multiplayer_song(
+        &self,
+        hash: &str,
+        path: &str,
+        diff: u32,
+        level: u32,
+    ) -> anyhow::Result<Arc<Song>>;
     fn add_score(&self, id: SongDiffId, score: Score);
     /// Returns: `(music, skip, duration)`
     fn get_preview(&self, id: &SongId) -> Promise<PreviewResult>;
