@@ -701,4 +701,16 @@ impl LocalSongsDb {
             .execute(&self.sqlite_pool)
             .await
     }
+
+    pub async fn get_folder(&self, id: i64) -> Result<String, sqlx::Error> {
+        query_scalar!("SELECT path FROM Folders WHERE rowid=?", id)
+            .fetch_one(&self.sqlite_pool)
+            .await
+    }
+
+    pub async fn get_folderid(&self, id: i64) -> Result<i64, sqlx::Error> {
+        query_scalar!("SELECT folderid FROM Charts WHERE rowid=?", id)
+            .fetch_one(&self.sqlite_pool)
+            .await
+    }
 }

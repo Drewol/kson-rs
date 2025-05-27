@@ -6,7 +6,7 @@ members = [
     "editor",
     "game",
     "game/rusc_database",
-    "kson-rodio-sources",
+    "kson-rodio-sources", "multiplayer-protocol",
 ]
 resolver = "2"
 

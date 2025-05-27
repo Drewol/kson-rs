@@ -1,0 +1,168 @@
+// These are the packets a client can send to the server
+// Unathenticated users can only send <a href="server.html#.user.auth">user.auth</a>
+syntax = "proto2";
+
+message server {
+
+    // Have the server send the client the list of rooms. Responds with <a href="client.html#.server.rooms">server.rooms</a>
+    message rooms {
+    }
+
+    message room {
+        // Join a room by a given UUID. Responds with <a href="client.html#.server.room.join">server.room.join</a>
+        message join {
+            // UUID of the room to join
+            optional string id = 1;
+            // Password for the string if has one
+            optional string password = 2;
+            // Use a token instead of and id and password to join a room
+            optional string token = 3;
+        }
+
+        // Create a new room and join the user as the host
+        message new {
+            // Name for the room
+            required string name = 1;
+            // Password for the room
+            optional string password = 2;
+        }
+    }
+}
+
+message user {
+
+    // Authenticate the user. Responds with <a href="client.html#.server.rooms">server.rooms</a>
+    message auth {
+        // Password to authenticate with 
+        // <em>Future:</em> This will be moved to a digest system
+        required string password = 1;
+
+        // The display name for the user
+        required string name = 2;
+
+        // Current version of the client
+        required string version = 3;
+    }
+
+    message ready {
+    // Toggle the user's ready state
+    message toggle {
+
+    }}
+
+    message mirror {
+    // Toggle the mirror option for the user
+    message toggle {
+
+    }}
+
+    message hard {
+    // Toggle the excessive rate for the user
+    message toggle {
+
+    }}
+
+    message song {
+    // Select which level the user is playing
+    message level {
+        // The level to play
+        required int32 level = 1;
+
+    }}
+
+    // Tell the server the client could not find the map
+    message nomap {
+    }
+
+    message sync {
+    // Tell the server that the client is ready sync
+    message ready {
+
+    }}
+
+    message extra {
+    // Attach or update a string of extra data to your user
+    message set {
+        // The data too attach. The specific format of this data is user defined
+        required string data = 1;
+    }}
+}
+
+
+message room {
+
+    // Leave the current room
+    message leave {
+    }
+
+    // Select a song as host
+    // <em>Future:</em> This will be changing to better find songs
+    message setsong {
+        // The folder name of the selected song
+        required string song = 1;
+        // The index of the chosen difficulty
+        required int32 diff = 2;
+        // The level of the chosen difficulty
+        required int32 level = 3;
+        // Selective hash of the song file (0x8000 bytes) *Deprecated
+        required string hash = 4;
+        // Selective hash of the song file (0x8000 bytes) *Deprecated
+        required string audio_hash = 5;
+        // Normalized hash of chart file (see USC for more details) 
+        required string chart_hash = 6;
+        
+    }
+
+    // Toggle host rotation for the room
+    message option{
+    message rotation{
+    message toggle {
+
+    }}}
+
+    // Start the game, triggers a 6 second countdown
+    message game{
+    message start{
+
+    }}
+
+    message score {
+
+        // Tell the server user's current score
+        message update {
+            // The map time for the last score tick
+            required int32 time = 1;
+            // The current score at the chosen score tick
+            required int32 score = 2;
+        }
+
+        // Tell the server the user's final score
+        message final {
+            // The user's final score at the end of the game
+            required int32 score = 1;
+            // The user's max combo during the game
+            required int32 combo = 2;
+            // The user's clear status for the game<br/>
+            // 0: Exited<br/>
+            // 1: Failed<br/>
+            // 2: Clear<br/>
+            // 3: Hard Clear<br/>
+            // 4: Full Combo<br/>
+            // 5: Perfect
+            required int32 clear = 3;
+        }
+    }
+
+    message update {
+    // Have the server send the lobby status. Responds with <a href="client.html#.room.update">room.update</a>
+    message get {
+
+    }}
+
+    message host {
+    // Change the room's host
+    message set {
+        // The UUID of the user to make host
+        required string host = 1;
+    }}
+}

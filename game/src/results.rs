@@ -95,6 +95,7 @@ pub struct SongResultData {
 }
 
 #[repr(u8)]
+#[derive(Clone, Copy, strum::FromRepr)]
 pub enum ClearMark {
     None = 0,
     Played,

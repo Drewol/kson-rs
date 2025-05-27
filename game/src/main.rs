@@ -14,6 +14,7 @@ mod ir;
 mod lua_http;
 mod lua_service;
 mod main_menu;
+mod multiplayer;
 mod results;
 mod scene;
 mod settings_dialog;
@@ -54,6 +55,8 @@ use button_codes::{CustomBindingFilter, UscInputEvent};
 use clap::Parser;
 use companion_interface::CompanionServer;
 use directories::ProjectDirs;
+use multiplayer::MultiplayerService;
+use songselect::SongProviderSelection;
 pub use vg_ui::Vgfx;
 
 use femtovg as vg;
@@ -351,6 +354,9 @@ impl Scenes {
         self.active.retain(|x| !x.closed());
         if let Some(t) = self.transition.as_mut() {
             log_result!(t.tick(dt, knob_state));
+            if let Some(s) = t.take_loaded() {
+                self.loaded.push(s);
+            }
         }
 
         if self.transition.as_ref().is_some_and(|x| x.closed()) {
@@ -561,6 +567,7 @@ impl UscApp {
             .add(existing_as_self(companion_service))
             .add(existing_as_self(self.sink.take().unwrap()))
             .add(AsyncService::singleton().as_mut())
+            .add(MultiplayerService::singleton().as_mut())
             .add_worker::<AsyncService>()
             .add(existing_as_self(Mutex::new(canvas)))
             .add(existing_as_self(service_context.clone()))
@@ -615,7 +622,7 @@ impl UscApp {
             scenes.loaded.push(title);
             if GameConfig::get().args.notitle || cfg!(target_os = "android") {
                 let songsel = Box::new(songselect::SongSelectScene::new(
-                    Box::new(songselect::SongSelect::new()),
+                    Box::new(songselect::SongSelect::new(SongProviderSelection::Nautica)),
                     services.create_scope(),
                 ));
                 scenes.loaded.push(songsel);

@@ -1,7 +1,7 @@
 use std::{
     rc::Rc,
     sync::{
-        atomic::{AtomicI32, AtomicU32},
+        atomic::{AtomicBool, AtomicI32, AtomicU32},
         Arc,
     },
 };
@@ -21,6 +21,7 @@ use crate::{
     lua_service::LuaProvider,
     settings_screen::HitFrames,
     songselect::KNOB_NAV_THRESHOLD,
+    ControlMessage,
 };
 
 type Setter<T> = Box<dyn Fn(T) + Send>;
@@ -614,6 +615,69 @@ impl SettingsDialog {
                     ],
                 ),
             ],
+            input_state,
+            services,
+        )
+    }
+
+    pub fn new_empty() -> Self {
+        Self {
+            show: false,
+            tabs: vec![],
+            input_state: InputState::dummy(),
+            current_tab: 0,
+            lua: Rc::new(Lua::new()),
+            setting_advance: 0.0,
+            async_service: Arc::new(AsyncService::new().into()),
+        }
+    }
+
+    pub fn song_provider_select(
+        input_state: InputState,
+        services: di::ServiceProvider,
+        close_dialog: Arc<AtomicBool>,
+        program_control: Sender<ControlMessage>,
+    ) -> Self {
+        let files_pc = program_control.clone();
+        let files_close = close_dialog.clone();
+        let naut_close = files_close.clone();
+
+        Self::new(
+            vec![SettingsDialogTab::new(
+                "Select Song Provider",
+                vec![
+                    (
+                        "Files".into(),
+                        SettingsDialogSetting::Button {
+                            action: Box::new(move || {
+                                _ = files_pc.send(ControlMessage::SongSelect(
+                                    crate::songselect::SongProviderSelection::Files,
+                                ));
+                                files_close.store(true, std::sync::atomic::Ordering::Relaxed);
+                            }),
+                        },
+                    ),
+                    (
+                        "Nautica".into(),
+                        SettingsDialogSetting::Button {
+                            action: Box::new(move || {
+                                _ = program_control.send(ControlMessage::SongSelect(
+                                    crate::songselect::SongProviderSelection::Nautica,
+                                ));
+                                naut_close.store(true, std::sync::atomic::Ordering::Relaxed);
+                            }),
+                        },
+                    ),
+                    (
+                        "Cancel".into(),
+                        SettingsDialogSetting::Button {
+                            action: Box::new(move || {
+                                close_dialog.store(true, std::sync::atomic::Ordering::Relaxed);
+                            }),
+                        },
+                    ),
+                ],
+            )],
             input_state,
             services,
         )

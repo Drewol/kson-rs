@@ -191,7 +191,7 @@ draw_user = function(user, x, y, buttonWidth, rank)
     local rx = x - (buttonWidth / 2);
     local ty = y - (buttonHeight / 2);
     gfx.BeginPath();
-    gfx.FillColor(256,128,255);
+    gfx.FillColor(255,128,255);
 
     gfx.Rect(rx - buttonBorder,
         ty - buttonBorder,
