@@ -381,6 +381,22 @@ impl Scene for SettingsScreen {
                 });
 
                 settings_section("Online", ui, |ui| {
+                    ui.heading("Multiplayer");
+                    ui.end_row();
+
+                    ui.label("Server");
+                    ui.text_edit_singleline(&mut self.altered_settings.multiplayer.server);
+                    ui.end_row();
+
+                    ui.label("Username");
+                    ui.text_edit_singleline(&mut self.altered_settings.multiplayer.name);
+                    ui.end_row();
+
+                    ui.add(Separator::default().grow(0.0).spacing(5.0).horizontal());
+
+                    ui.heading("Internet Ranking");
+                    ui.end_row();
+
                     ui.label("IR Server");
                     ui.text_edit_singleline(&mut self.altered_settings.ir_endpoint);
                     ui.end_row();
