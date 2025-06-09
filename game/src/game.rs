@@ -63,6 +63,14 @@ pub mod graphics;
 const LASER_THRESHOLD: f64 = 1.0 / 12.0;
 const LEADIN: Duration = Duration::from_secs(3);
 
+#[repr(u8)]
+#[derive(Debug, Clone, Copy)]
+enum ComboState {
+    Normal,
+    FullCombo,
+    Perfect,
+}
+
 pub struct Game {
     view: ChartView,
     chart: kson::Chart,
@@ -79,6 +87,7 @@ pub struct Game {
     camera: ChartCamera,
     lua_game_state: lua_data::LuaGameState,
     hit_window: HitWindow,
+    combo_state: ComboState,
     lua: Rc<Lua>,
     intro_done: bool,
     song: Arc<Song>,
@@ -897,6 +906,7 @@ impl Game {
             button_offset: -GameConfig::get().button_offset as _,
             global_offset: -GameConfig::get().global_offset as _,
             laser_offset: -GameConfig::get().laser_offset as _,
+            combo_state: ComboState::Perfect,
         };
         res.set_track_uniforms();
         Ok(res)
@@ -970,7 +980,7 @@ impl Game {
             hidden_fade: 0.0,
             sudden_fade: 0.0,
             autoplay: self.autoplay.any(),
-            combo_state: 0,
+            combo_state: self.combo_state as _,
             note_held: [false; 6],
             laser_active: [self.laser_active[0], self.laser_active[1]],
             score_replays: Vec::new(),
@@ -1036,6 +1046,15 @@ impl Game {
             HitRating::Crit { .. } => 2,
             HitRating::Good { .. } => 1,
             _ => 0,
+        };
+
+        self.combo_state = match (hit_rating, self.combo_state) {
+            (_, ComboState::Normal) => ComboState::Normal,
+            (HitRating::None, _) => self.combo_state,
+            (HitRating::Crit { .. }, x) => x,
+            (HitRating::Good { .. }, ComboState::FullCombo) => ComboState::FullCombo,
+            (HitRating::Good { .. }, ComboState::Perfect) => ComboState::FullCombo,
+            (HitRating::Miss { .. }, _) => ComboState::Normal,
         };
 
         let combo_updated = match hit_rating {
