@@ -46,7 +46,7 @@ jobs:
           name: ${{ runner.os }}-${{ runner.arch }}-Bundle
           path: ${{ matrix.os.artifact }}
   windows_installer:
-    runs-on: windows-latest
+    runs-on: windows-2025
     steps:
       - uses: actions/checkout@v1
       - uses: actions/cache@v4
@@ -68,7 +68,7 @@ jobs:
           name: Windows installer
           path: target/**/*.msi
   windows_portable:
-    runs-on: windows-latest
+    runs-on: windows-2025
     steps:
       - uses: actions/checkout@v1
       - uses: actions/cache@v4
