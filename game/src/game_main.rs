@@ -27,8 +27,8 @@ use glutin::{
 use puffin::{profile_function, profile_scope};
 
 use crate::{
-    button_codes::UscButton, ir::InternetRanking, songselect::SongProviderSelection,
-    touch::TouchHelper, FrameInput,
+    button_codes::UscButton, ir::InternetRanking, lighting::LightingService,
+    songselect::SongProviderSelection, touch::TouchHelper, FrameInput,
 };
 use mlua::Lua;
 use td::Modifiers;
@@ -485,6 +485,14 @@ impl GameMain {
 
                     let sink = service_provider.get_required::<rodio::Sink>();
                     sink.set_volume(settings.master_volume);
+
+                    service_provider
+                        .get_required_mut::<LightingService>()
+                        .write()
+                        .unwrap()
+                        .restart();
+
+                    settings.save();
                 }
             }
         }

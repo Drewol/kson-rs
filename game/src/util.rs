@@ -1,6 +1,7 @@
 use std::{
     error::Error,
     sync::mpsc::{self, Receiver, Sender},
+    time::SystemTime,
 };
 
 use glow::{HasContext, BACK};
@@ -142,4 +143,15 @@ impl<T, E: Error> Warn<T> for Result<T, E> {
     fn warn(self, context: &'static str) -> Option<T> {
         self.inspect_err(|e| warn!("{context}: {e}")).ok()
     }
+}
+
+pub fn timed_value(period: u32, values: u32) -> u32 {
+    let value_len = period / values;
+    let period = (SystemTime::now()
+        .duration_since(SystemTime::UNIX_EPOCH)
+        .expect("Systemtime before epoch")
+        .as_millis()
+        % period as u128) as u32;
+
+    period.saturating_sub(1) / (value_len + 1)
 }

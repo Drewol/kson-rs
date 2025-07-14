@@ -1,4 +1,5 @@
 mod controller_binding;
+mod lighting;
 pub mod skin_select;
 
 use std::{collections::HashMap, path::PathBuf, sync::mpsc::Sender, time::Duration};
@@ -21,6 +22,7 @@ use crate::{
     game::HitWindow,
     game_main::ControlMessage,
     input_state::InputState,
+    lighting::LightingService,
     scene::Scene,
     skin_settings::SkinSettingValue,
 };
@@ -39,6 +41,7 @@ pub struct SettingsScreen {
     primary_monitor: Option<MonitorHandle>,
     tx: Sender<ControlMessage>,
     skins: Vec<(SkinMeta, PathBuf)>,
+    lighting: self::lighting::LightingConfig,
 }
 
 impl SettingsScreen {
@@ -62,6 +65,12 @@ impl SettingsScreen {
 
         let monitors = window.available_monitors().collect_vec();
         let primary_monitor = window.current_monitor();
+
+        services
+            .get_required_mut::<LightingService>()
+            .write()
+            .unwrap()
+            .stop();
 
         let mut skins_folder = crate::default_game_dir();
         skins_folder.push("skins");
@@ -103,6 +112,7 @@ impl SettingsScreen {
             tx,
             skins,
             key_binding_ui: KeyboardBindingUi::new(),
+            lighting: self::lighting::LightingConfig::new(),
         }
     }
 
@@ -407,6 +417,12 @@ impl Scene for SettingsScreen {
                         .show(ui);
                     ui.end_row();
                 });
+
+                settings_section(
+                    "Controller Lights",
+                    ui,
+                    self.lighting.render(&mut self.altered_settings.lighting),
+                );
 
                 settings_section("Graphics", ui, |ui| {
                     ui.checkbox(&mut self.altered_settings.graphics.vsync, "VSync");
