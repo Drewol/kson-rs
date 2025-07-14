@@ -4,7 +4,6 @@ use serde::{
 };
 
 pub mod types {
-    
 
     use serde::{Deserialize, Serialize};
 

@@ -5,16 +5,17 @@ use std::{
 };
 
 use anyhow::{anyhow, Result};
-use di::ServiceProvider;
+use di::{RefMut, ServiceProvider};
 use mlua::{self, Function, Lua};
 use winit::event::{ElementState, Event, WindowEvent};
 
 use crate::{
     button_codes::{LaserState, UscInputEvent},
     companion_interface::GameState,
+    lighting::{LightingData, LightingService},
     lua_service::LuaProvider,
     scene::Scene,
-    ControlMessage,
+    util, ControlMessage,
 };
 #[derive(Debug, Clone, Copy)]
 pub enum MainMenuButton {
@@ -61,6 +62,7 @@ pub struct MainMenu {
     should_suspended: bool,
     suspended: bool,
     service_provider: ServiceProvider,
+    lighting: RefMut<LightingService>,
 }
 
 impl MainMenu {
@@ -71,6 +73,7 @@ impl MainMenu {
         _ = lua.globals().set("Menu", Bindings);
         Self {
             lua,
+            lighting: service_provider.get_required(),
             button_rx,
             control_tx: None,
             suspended: false,
@@ -104,6 +107,11 @@ impl Scene for MainMenu {
             self.suspended = true;
             self.should_suspended = false;
         }
+
+        let lighting = self.lighting.write().unwrap();
+        let mut data = LightingData::default();
+        data.buttons[util::timed_value(1000, data.buttons.len() as _) as usize] = true;
+        lighting.update(data);
 
         while let Ok(button) = self.button_rx.try_recv() {
             log::info!("Pressed: {:?}", &button);

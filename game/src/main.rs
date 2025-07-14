@@ -12,6 +12,7 @@ mod help;
 mod input_state;
 mod installer;
 mod ir;
+mod lighting;
 mod lua_http;
 mod lua_service;
 mod main_menu;
@@ -42,10 +43,10 @@ use std::{
 
 use crate::{
     button_codes::{LaserState, RuscFilter},
-    config::Args,
-    config::GameConfig,
+    config::{Args, GameConfig},
     game_main::GameMain,
     input_state::InputState,
+    lighting::LightingService,
     scene::SceneData,
     songselect::{Difficulty, Song},
     transition::Transition,
@@ -442,11 +443,19 @@ impl UscApp {
             }))
             .add(game_data::GameData::singleton().as_mut())
             .add(LuaProvider::scoped())
+            .add(LightingService::singleton().as_mut())
             .build_provider()
             .expect("Failed to build service provider");
 
         let _lua_provider: Arc<LuaProvider> = services.get_required();
         let vgfx = services.get_required_mut::<Vgfx>();
+        {
+            services
+                .get_required_mut::<LightingService>()
+                .write()
+                .unwrap()
+                .restart();
+        }
 
         let mut scenes = Scenes::new();
 

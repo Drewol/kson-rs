@@ -12,6 +12,7 @@ use serde::{Deserialize, Serialize};
 use winit::dpi::{PhysicalPosition, PhysicalSize};
 use winit::keyboard::PhysicalKey;
 
+use crate::lighting::{self, LightingMap};
 use crate::{
     button_codes::{CustomBindings, UscButton},
     game::{self, HitWindow},
@@ -120,6 +121,7 @@ pub struct GameConfig {
     pub ir_endpoint: String,
     pub ir_api_token: String,
     pub multiplayer: MultiplayerSettings,
+    pub lighting: lighting::LightingMap,
 }
 
 #[derive(Debug, Deserialize, Serialize, Clone)]
@@ -365,7 +367,8 @@ impl Default for GameConfig {
             screenshot_path: PathBuf::from_iter([".", "screenshots"]),
             ir_api_token: String::new(),
             ir_endpoint: String::new(),
-            multiplayer: MultiplayerSettings::default()
+            multiplayer: MultiplayerSettings::default(),
+            lighting: LightingMap::default()
         }
     }
 }

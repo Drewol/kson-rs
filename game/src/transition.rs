@@ -1,8 +1,4 @@
-use std::{
-    path::PathBuf,
-    rc::Rc,
-    sync::Arc,
-};
+use std::{path::PathBuf, rc::Rc, sync::Arc};
 
 use anyhow::anyhow;
 use di::{RefMut, ServiceProvider};

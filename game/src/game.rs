@@ -448,7 +448,7 @@ pub struct GameData {
     diff_idx: usize,
     chart: kson::Chart,
     skin_folder: PathBuf,
-    audio: std::boxed::Box<dyn rodio::source::Source<Item = f32> + std::marker::Send + 'static >,
+    audio: std::boxed::Box<dyn rodio::source::Source<Item = f32> + std::marker::Send + 'static>,
     autoplay: AutoPlay,
     song_folder: Option<PathBuf>,
 }

@@ -28,8 +28,8 @@ use glutin::{
 use puffin::{profile_function, profile_scope};
 
 use crate::{
-    ir::InternetRanking, songselect::SongProviderSelection, touch::TouchHelper, util::Warn,
-    FrameInput,
+    button_codes::UscButton, ir::InternetRanking, lighting::LightingService,
+    songselect::SongProviderSelection, touch::TouchHelper, util::Warn, FrameInput,
 };
 use mlua::Lua;
 use td::Modifiers;
@@ -39,7 +39,7 @@ use three_d as td;
 
 use crate::LuaArena;
 use crate::{
-    button_codes::{LaserState, UscButton, UscInputEvent},
+    button_codes::{LaserState, UscInputEvent},
     companion_interface::{self},
     config::{Fullscreen, GameConfig},
     game::{gauge::Gauge, HitRating},
@@ -482,6 +482,22 @@ impl GameMain {
 
                     let sink = service_provider.get_required::<rodio::Sink>();
                     sink.set_volume(settings.master_volume);
+
+                    service_provider
+                        .get_required_mut::<LightingService>()
+                        .write()
+                        .unwrap()
+                        .restart();
+
+                    settings.save();
+                }
+                ControlMessage::ReloadScripts => {
+                    info!("Reloading scripts");
+                    scenes.for_each_active_mut(|s| {
+                        s.reload_scripts()
+                            .with_context(|| s.name().to_string())
+                            .warn("Reloading scripts failed");
+                    })
                 }
                 ControlMessage::ReloadScripts => {
                     info!("Reloading scripts");

@@ -156,13 +156,14 @@ impl CollectionDialog {
         }
 
         if let winit::event::Event::WindowEvent {
-                event:
-                    WindowEvent::KeyboardInput {
-                        event: KeyEvent { logical_key, .. },
-                        ..
-                    },
-                ..
-            } = event {
+            event:
+                WindowEvent::KeyboardInput {
+                    event: KeyEvent { logical_key, .. },
+                    ..
+                },
+            ..
+        } = event
+        {
             if *logical_key == Key::Named(NamedKey::Enter) && !self.new_name.is_empty() {
                 let name = std::mem::take(&mut self.new_name);
                 self.save(name);

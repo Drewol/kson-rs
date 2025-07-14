@@ -5,9 +5,7 @@ use reqwest::{
 use serde::{Deserialize, Serialize};
 use std::{collections::HashMap, str::FromStr};
 
-use mlua::{
-    self, Function, Lua, LuaSerdeExt, RegistryKey, UserData, UserDataMethods,
-};
+use mlua::{self, Function, Lua, LuaSerdeExt, RegistryKey, UserData, UserDataMethods};
 
 #[derive(Default)]
 pub struct LuaHttp {

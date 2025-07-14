@@ -18,6 +18,8 @@ use serde::de::Visitor;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::collections::HashSet;
+use std::ffi::os_str::Display;
+use std::fmt::Write;
 use std::marker::PhantomData;
 use std::slice::Windows;
 use std::str;
@@ -46,8 +48,9 @@ pub fn ms_from_ticks(ticks: i64, bpm: f64, tpqn: u32) -> f64 {
 }
 
 #[repr(usize)]
-#[derive(Debug, Hash, PartialEq, Eq, Clone, Copy, Serialize, Deserialize)]
+#[derive(Debug, Hash, PartialEq, Eq, Clone, Copy, Serialize, Deserialize, Default)]
 pub enum Side {
+    #[default]
     Left = 0,
     Right,
 }
@@ -64,13 +67,29 @@ impl Side {
     }
 }
 
+impl std::fmt::Display for Side {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Side::Left => f.write_str("Left"),
+            Side::Right => f.write_str("Right"),
+        }
+    }
+}
+
 #[repr(usize)]
-#[derive(Debug, Hash, PartialEq, Eq, Clone, Copy, Serialize, Deserialize)]
+#[derive(Debug, Hash, PartialEq, Eq, Clone, Copy, Serialize, Deserialize, Default)]
 pub enum BtLane {
+    #[default]
     A = 0,
     B,
     C,
     D,
+}
+
+impl BtLane {
+    pub fn iter() -> impl Iterator<Item = Self> {
+        [Self::A, Self::B, Self::C, Self::D].into_iter()
+    }
 }
 
 impl TryFrom<usize> for BtLane {
@@ -83,6 +102,17 @@ impl TryFrom<usize> for BtLane {
             2 => Ok(BtLane::C),
             3 => Ok(BtLane::D),
             _ => Err(value),
+        }
+    }
+}
+
+impl std::fmt::Display for BtLane {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            BtLane::A => f.write_char('A'),
+            BtLane::B => f.write_char('B'),
+            BtLane::C => f.write_char('C'),
+            BtLane::D => f.write_char('D'),
         }
     }
 }
@@ -1131,7 +1161,10 @@ impl Chart {
                     new_start,
                     Box::new(move |y| {
                         let adjusted = y - new_start;
-                        Some((y + ticks_per_beat, adjusted.is_multiple_of(ticks_per_measure)))
+                        Some((
+                            y + ticks_per_beat,
+                            adjusted.is_multiple_of(ticks_per_measure),
+                        ))
                     }),
                 ));
             } else {

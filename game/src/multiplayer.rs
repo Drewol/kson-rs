@@ -718,9 +718,11 @@ impl Scene for MultiplayerScreen {
                 }
                 _ => {}
             },
-            winit::event::Event::UserEvent(e) => if let crate::button_codes::UscInputEvent::Laser(laser_state, ..) = e {
-                self.laser_nav.update(*laser_state)
-            },
+            winit::event::Event::UserEvent(e) => {
+                if let crate::button_codes::UscInputEvent::Laser(laser_state, ..) = e {
+                    self.laser_nav.update(*laser_state)
+                }
+            }
             _ => {}
         }
 
@@ -750,7 +752,9 @@ impl Scene for MultiplayerScreen {
             return;
         }
 
-        if button == crate::button_codes::UscButton::Back { self.closing = true }
+        if button == crate::button_codes::UscButton::Back {
+            self.closing = true
+        }
     }
 }
 
@@ -776,7 +780,7 @@ impl LuaTcp {
         if let Ok(init_func) = lua.globals().get::<Function>("init_tcp") {
             init_func.call::<()>(()).warn("Lua TCP init error");
         }
-        
+
         lua.remove_app_data().unwrap()
     }
 }

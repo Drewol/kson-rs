@@ -558,7 +558,11 @@ impl Scene for SongResult {
         Ok(())
     }
 
-    fn tick(&mut self, _dt: f64, _knob_state: crate::button_codes::LaserState) -> anyhow::Result<()> {
+    fn tick(
+        &mut self,
+        _dt: f64,
+        _knob_state: crate::button_codes::LaserState,
+    ) -> anyhow::Result<()> {
         if let Some(promise) = self.ir_request.take_if(|x| x.ready().is_some()) {
             match promise.block_and_take() {
                 Ok(result) => {

@@ -1536,7 +1536,11 @@ impl VgfxLua {
         }
     }
 
-    fn fast_text_size(_lua_index: &LuaKey, _vgfx: &RefMut<Vgfx>, _text: String) -> mlua::Result<()> {
+    fn fast_text_size(
+        _lua_index: &LuaKey,
+        _vgfx: &RefMut<Vgfx>,
+        _text: String,
+    ) -> mlua::Result<()> {
         let mut _vgfx_lock = _vgfx.write().expect("Lock error");
         let _vgfx = _vgfx_lock.deref_mut();
         unimplemented()
