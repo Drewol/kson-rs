@@ -12,6 +12,7 @@ use winit::{
     event::*,
     keyboard::{Key, NamedKey},
 };
+pub mod beat_pulser;
 pub mod laser_navigation;
 
 use crate::button_codes::UscInputEvent;

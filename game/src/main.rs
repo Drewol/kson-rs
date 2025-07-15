@@ -45,7 +45,7 @@ use crate::{
     config::{Args, GameConfig},
     game_main::GameMain,
     input_state::InputState,
-    lighting::LightingService,
+    lighting::{LightingData, LightingService},
     scene::SceneData,
     songselect::{Difficulty, Song},
     transition::Transition,
@@ -457,6 +457,18 @@ impl Scenes {
         if let Some(top) = self.active.last_mut() {
             top.suspend()
         }
+    }
+
+    pub fn lighting(&self) -> LightingData {
+        if let Some(t) = self.transition.as_ref() {
+            return t.lighting();
+        }
+
+        if let Some(top) = self.active.last() {
+            return top.lighting();
+        }
+
+        LightingData::default()
     }
 
     pub fn for_each_active_mut(&mut self, f: impl FnMut(&mut Box<dyn Scene>)) {

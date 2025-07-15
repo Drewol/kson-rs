@@ -2,12 +2,13 @@ use std::{sync::mpsc::Sender, time::SystemTime};
 
 use anyhow::Result;
 use di::ServiceProvider;
-use winit::event::Event;
 use three_d::{RenderTarget, Viewport};
+use winit::event::Event;
 
 use crate::{
     button_codes::{LaserState, UscButton, UscInputEvent},
     companion_interface::GameState,
+    lighting::LightingData,
     ControlMessage,
 };
 
@@ -45,6 +46,9 @@ pub trait Scene {
     fn name(&self) -> &str;
     fn game_state(&self) -> GameState {
         GameState::None
+    }
+    fn lighting(&self) -> LightingData {
+        LightingData::default()
     }
 }
 

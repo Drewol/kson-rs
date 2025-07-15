@@ -10,6 +10,7 @@ use crate::{
     scene::{Scene, SceneData},
     shaded_mesh::ShadedMesh,
     songselect::Song,
+    util::{self, beat_pulser::BeatPulser},
     vg_ui::Vgfx,
     ControlMessage,
 };
@@ -22,6 +23,7 @@ use image::GenericImageView;
 use itertools::Itertools;
 use kson::{
     effects::AudioEffect,
+    overlaps::Overlaps,
     score_ticks::{PlacedScoreTick, ScoreTick, ScoreTickSummary, ScoreTicker},
     Chart, Graph, Side,
 };
@@ -141,6 +143,7 @@ pub struct Game {
     button_offset: f64,
     global_offset: f64,
     multiplayer: GameMultiplayerState,
+    pulser: util::beat_pulser::BeatPulser,
 }
 
 #[derive(Clone, Copy)]
@@ -827,6 +830,7 @@ impl Game {
         }
 
         let mut res = Self {
+            pulser: BeatPulser::new(&chart),
             song,
             diff_idx,
             intro_done: false,
@@ -2006,6 +2010,7 @@ impl Scene for Game {
         let time_ms = time.as_secs_f64() * 1000.0 + leadin_ms;
 
         self.view.cursor = self.with_offset(time.as_secs_f64() * 1000.0);
+
         let render_tick = self.chart.ms_to_tick(self.view.cursor);
 
         //Update roll
@@ -2135,7 +2140,7 @@ impl Scene for Game {
         let render_data = match self.view.render(
             &self.chart,
             td_context,
-            |lane, tick| self.hold_ok(lane, tick),
+            |lane, tick| self.hold_ok(lane, tick) || self.auto_buttons(),
             self.beam_colors_current,
             self.chip_h,
         ) {
@@ -2261,6 +2266,14 @@ impl Scene for Game {
             let axes = three_d::Axes::new(td_context, 0.01, 0.30);
             target.render(&td_camera, [axes], &[]);
         }
+
+        self.pulser.update(
+            &self.chart,
+            self.view.cursor,
+            self.lua_game_state.hispeed,
+            self.lua_game_state.bpm as _,
+            dt,
+        );
     }
 
     fn on_event(&mut self, event: &winit::event::Event<crate::button_codes::UscInputEvent>) {
@@ -2315,6 +2328,47 @@ impl Scene for Game {
 
     fn name(&self) -> &str {
         "Game"
+    }
+
+    fn lighting(&self) -> crate::lighting::LightingData {
+        let mut data = crate::lighting::LightingData::default();
+
+        if self.auto_buttons() {
+            for (i, [_, _, _, a]) in self.beam_colors_current.iter().enumerate() {
+                let intervals = if i < 4 {
+                    &self.chart.note.bt[i]
+                } else {
+                    &self.chart.note.fx[i - 4]
+                };
+
+                let tick = self.tick_queue.front().copied().unwrap_or(u32::MAX);
+
+                data.buttons[i + 1] = *a > 0.8
+                    || (intervals
+                        .iter()
+                        .skip_while(|i| i.y < tick.saturating_sub(i.l))
+                        .next()
+                        .is_some_and(|i| i.contains(tick)));
+            }
+        } else {
+            for (held, button) in data.buttons.iter_mut().zip(UscButton::iter()).skip(1) {
+                *held = self.input_state.is_button_held(button).is_some();
+            }
+        }
+
+        let beat_light = (1.0 - self.pulser.get().0).powf(3.0) * 0.75 + 0.25;
+        let left = self.laser_colors[0];
+        let left = femtovg::rgb::Rgb::new(left.x, left.y, left.z) * beat_light;
+
+        let right = self.laser_colors[1];
+        let right = femtovg::rgb::Rgb::new(right.x, right.y, right.z) * beat_light;
+
+        data.base = (left + right) / 2.0; // Will probably be washed out but eh
+        data.top = [left, right];
+        data.middle = [left, right];
+        data.bottom = [left, right];
+
+        data
     }
 }
 

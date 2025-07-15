@@ -6,7 +6,7 @@ use crate::{
     help::transform_shader,
     lua_service::set_global_env,
     shaded_mesh::ShadedMesh,
-    util::lua_address,
+    util::{beat_pulser::BeatPulser, lua_address},
     vg_ui::{Vgfx, VgfxLua},
 };
 
@@ -52,10 +52,9 @@ impl Default for BackgroundData {
 pub struct GameBackground {
     name: String,
     lua: Lua,
-    beat_bounds: (f64, f64),
-    beat_iter: MeasureBeatLines,
     vgfx: RefMut<Vgfx>,
     background: bool,
+    beat_pulser: BeatPulser,
 }
 
 struct GameBackgroundLua;
@@ -235,16 +234,10 @@ impl GameBackground {
         lua.set_app_data(mesh);
         lua.set_app_data(BackgroundData::default());
 
-        let mut beat_iter = chart.beat_line_iter();
-
         let game_background = Self {
             name: format!("render_{name}"),
             lua,
-            beat_bounds: (
-                0.0,
-                chart.tick_to_ms(beat_iter.next().map(|x| x.0).unwrap_or(u32::MAX)),
-            ),
-            beat_iter,
+            beat_pulser: BeatPulser::new(chart),
             vgfx,
             background,
         };
@@ -289,17 +282,9 @@ impl GameBackground {
             data.screen_center = center.into();
             data.viewport = camera.viewport();
 
-            while chart_time > self.beat_bounds.1 {
-                self.beat_bounds.0 = self.beat_bounds.1;
-                self.beat_bounds.1 =
-                    chart.tick_to_ms(self.beat_iter.next().map(|x| x.0).unwrap_or(u32::MAX));
-            }
-
-            data.timing.0 = ((chart_time - self.beat_bounds.0)
-                / (self.beat_bounds.1 - self.beat_bounds.0))
-                .clamp(0.0, 1.0) as f32;
-            data.timing.1 += data.speed_mult * (dt / kson::beat_in_ms(bpm)) as f32;
-            data.timing.2 = chart_time as f32 / 1000.0;
+            data.timing = self
+                .beat_pulser
+                .update(chart, chart_time, data.speed_mult, bpm, dt);
 
             data.roll = (roll.0 / -360.0, roll.1 / -360.0);
 
