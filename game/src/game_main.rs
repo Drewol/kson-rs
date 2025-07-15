@@ -135,6 +135,7 @@ pub struct GameMain {
     touch_tracker: TouchHelper,
     mouse_knobs: bool,
     mouse_locked: bool,
+    lighting_service: di::RefMut<LightingService>,
 }
 
 fn get_frame_duration(settings: &GameConfig) -> Duration {
@@ -160,6 +161,7 @@ impl GameMain {
             lua_arena: service_provider.get_required(),
             lua_provider: service_provider.get_required(),
             companion_server: service_provider.get_required(),
+            lighting_service: service_provider.get_required(),
             scenes,
             control_tx,
             control_rx,
@@ -200,6 +202,13 @@ impl GameMain {
                 profile_scope!("Worker update");
                 ele.write().expect("Worker service closed").update()
             }
+        }
+
+        {
+            self.lighting_service
+                .write()
+                .unwrap()
+                .update(self.scenes.lighting());
         }
 
         if self.companion_update == 0 {
@@ -287,6 +296,7 @@ impl GameMain {
             touch_tracker: _,
             mouse_knobs,
             mouse_locked,
+            lighting_service,
         } = self;
 
         knob_state.zero_deltas();
@@ -482,13 +492,7 @@ impl GameMain {
 
                     let sink = service_provider.get_required::<rodio::Sink>();
                     sink.set_volume(settings.master_volume);
-
-                    service_provider
-                        .get_required_mut::<LightingService>()
-                        .write()
-                        .unwrap()
-                        .restart();
-
+                    lighting_service.write().unwrap().restart();
                     settings.save();
                 }
                 ControlMessage::ReloadScripts => {

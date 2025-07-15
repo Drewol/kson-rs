@@ -8,6 +8,7 @@ use winit::event::Event;
 use crate::{
     button_codes::{LaserState, UscButton, UscInputEvent},
     companion_interface::GameState,
+    lighting::LightingData,
     ControlMessage,
 };
 
@@ -48,6 +49,9 @@ pub trait Scene {
     fn name(&self) -> &str;
     fn game_state(&self) -> GameState {
         GameState::None
+    }
+    fn lighting(&self) -> LightingData {
+        LightingData::default()
     }
 }
 

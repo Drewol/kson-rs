@@ -62,7 +62,6 @@ pub struct MainMenu {
     should_suspended: bool,
     suspended: bool,
     service_provider: ServiceProvider,
-    lighting: RefMut<LightingService>,
 }
 
 impl MainMenu {
@@ -73,7 +72,6 @@ impl MainMenu {
         _ = lua.globals().set("Menu", Bindings);
         Self {
             lua,
-            lighting: service_provider.get_required(),
             button_rx,
             control_tx: None,
             suspended: false,
@@ -108,11 +106,6 @@ impl Scene for MainMenu {
             self.should_suspended = false;
         }
 
-        let lighting = self.lighting.write().unwrap();
-        let mut data = LightingData::default();
-        data.buttons[util::timed_value(1000, data.buttons.len() as _) as usize] = true;
-        lighting.update(data);
-
         while let Ok(button) = self.button_rx.try_recv() {
             log::info!("Pressed: {:?}", &button);
             self.control_tx
@@ -123,6 +116,12 @@ impl Scene for MainMenu {
         }
 
         Ok(())
+    }
+
+    fn lighting(&self) -> LightingData {
+        let mut data = LightingData::default();
+        data.buttons[util::timed_value(1000, data.buttons.len() as _) as usize] = true;
+        data
     }
 
     fn on_event(&mut self, event: &Event<UscInputEvent>) {
