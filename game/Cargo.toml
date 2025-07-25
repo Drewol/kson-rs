@@ -94,7 +94,7 @@ tokio-tungstenite = "0.24.0"
 schemars = "0.8.21"
 futures-util = "0.3.31"
 specta = { version = "1.0.5", features = ["export"] }
-statrs = "0.17.1"
+statrs = "0.18.0"
 chrono = { version = "0.4.38", default-features = false, features = [
     "alloc",
     "clock",
