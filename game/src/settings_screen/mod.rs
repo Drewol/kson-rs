@@ -63,7 +63,7 @@ impl SettingsScreen {
         let monitors = window.available_monitors().collect_vec();
         let primary_monitor = window.current_monitor();
 
-        let mut skins_folder = crate::default_game_dir();
+        let mut skins_folder = crate::installer::default_game_dir();
         skins_folder.push("skins");
         let skins = skins_folder
             .read_dir()

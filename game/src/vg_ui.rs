@@ -20,7 +20,7 @@ use puffin::profile_scope;
 type LuaError = mlua::Error;
 
 use crate::{
-    animation::VgAnimation, config::GameConfig, default_game_dir, lua_service::LuaKey,
+    animation::VgAnimation, config::GameConfig, installer::default_game_dir, lua_service::LuaKey,
     settings_screen::skin_select::SkinMeta, shaded_mesh::ShadedMesh,
 };
 

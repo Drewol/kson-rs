@@ -17,7 +17,7 @@ use rodio::Source;
 
 use crate::{
     async_service::AsyncService,
-    default_game_dir, project_dirs,
+    installer::{default_game_dir, project_dirs},
     results::Score,
     song_provider::SongFilterType,
     songselect::{Difficulty, Song},

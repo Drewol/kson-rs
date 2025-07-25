@@ -328,7 +328,7 @@ impl Default for GameConfig {
             skin_definition: vec![],
             mod_speed: 400.0,
             laser_hues: [200.0, 330.0],
-            game_folder: crate::default_game_dir(),
+            game_folder: crate::installer::default_game_dir(),
             args: Default::default(),
             mappings: vec![
             String::from("03000000d01600006d0a000000000000,Pocket Voltex Rev4,a:b1,b:b2,y:b3,x:b4,leftshoulder:b5,rightshoulder:b6,start:b0,leftx:a0,rightx:a1"),
