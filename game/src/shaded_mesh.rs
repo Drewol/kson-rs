@@ -20,6 +20,8 @@ use three_d::{
 };
 use three_d_asset::{Srgba, Vector2, Vector3, Vector4};
 
+#[cfg(debug_assertions)]
+use crate::util::Warn;
 use crate::{config::GameConfig, game_data, help::transform_shader, vg_ui::Vgfx, FrameInput};
 
 pub enum ShaderParam {
@@ -475,6 +477,9 @@ impl ShadedMesh {
             }
         }
 
+        #[cfg(debug_assertions)]
+        self.context.error_check().warn("GL Error");
+
         self.material
             .draw_elements(self.state, frame.viewport, &self.indecies);
         Ok(())
@@ -490,11 +495,17 @@ impl ShadedMesh {
         self.material
             .use_vertex_attribute("inPos", &self.vertecies_pos);
 
+        #[cfg(debug_assertions)]
+        self.context.error_check().warn("GL Error");
+
         self.material.draw_arrays(self.state, viewport, 3)
     }
 
     pub fn draw_camera(&self, camera: &dyn three_d::Viewer) {
         self.set_camera_uniforms(camera);
+
+        #[cfg(debug_assertions)]
+        self.context.error_check().warn("GL Error");
 
         self.material
             .draw_elements(self.state, camera.viewport(), &self.indecies);
@@ -637,6 +648,9 @@ impl ShadedMesh {
             self.material
                 .use_vertex_attribute("inTex", &self.vertecies_uv); //UVs
         }
+        #[cfg(debug_assertions)]
+        self.context.error_check().warn("GL Error");
+
         self.material.draw_elements(
             self.state,
             three_d_asset::Viewport {

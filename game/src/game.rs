@@ -141,6 +141,7 @@ pub struct Game {
     button_offset: f64,
     global_offset: f64,
     multiplayer: GameMultiplayerState,
+    render_tick: u32,
 }
 
 #[derive(Clone, Copy)]
@@ -773,6 +774,8 @@ impl SceneData for GameData {
 }
 
 impl Game {
+    const AVG_DELTA_LEN: usize = 32;
+
     pub fn new(
         chart: Chart,
         skin_root: &PathBuf,
@@ -816,12 +819,12 @@ impl Game {
 
         // Set up ticks to score for deterministic laser/hold scoring
         let last_tick = chart.get_last_tick();
-        let last_processing_tick = chart.ms_to_tick(chart.tick_to_ms(last_tick) + 3000.0);
+        let last_tick = chart.ms_to_tick(chart.tick_to_ms(last_tick) + 3000.0);
         let mut tick_queue = VecDeque::new();
         for i in 0.. {
             let scored_tick = chart.ms_to_tick(i as f64 * 1000.0 / 240.0);
             tick_queue.push_back(scored_tick);
-            if scored_tick > last_processing_tick {
+            if scored_tick > last_tick {
                 break;
             }
         }
@@ -907,6 +910,7 @@ impl Game {
             global_offset: -GameConfig::get().global_offset as _,
             laser_offset: -GameConfig::get().laser_offset as _,
             combo_state: ComboState::Perfect,
+            render_tick: 0,
         };
         res.set_track_uniforms();
         Ok(res)
@@ -1233,7 +1237,209 @@ impl Game {
         is_button_held.is_some_and(|t| t > hold_start_thres)
     }
 
-    fn process_tick(
+    fn process_tick(&mut self, tick: u32, time: &mut Duration, playback_ms: f64) {
+        let sys_time = SystemTime::now();
+
+        while self.take_laser_input(0, sys_time, tick) {}
+        while self.take_laser_input(1, sys_time, tick) {}
+
+        // Set roll despite chart not starting to set up correct start angle
+        let keep_laser = match self
+            .chart
+            .camera
+            .tilt
+            .keep
+            .binary_search_by_key(&tick, |x| x.0)
+        {
+            Ok(i) => self.chart.camera.tilt.keep[i].1,
+            Err(i) => {
+                if i == 0 {
+                    false
+                } else {
+                    self.chart.camera.tilt.keep[i.saturating_sub(1)].1
+                }
+            }
+        };
+
+        self.target_roll = self
+            .chart
+            .camera
+            .tilt
+            .manual
+            .value_at(tick as f64)
+            .map(TargetRoll::Manual)
+            .unwrap_or_else(|| {
+                let current = self.target_roll;
+
+                let next = match self.laser_target {
+                    [Some(l), Some(r)] => TargetRoll::Laser(r + l - 1.0),
+                    [Some(l), None] => TargetRoll::Laser(l),
+                    [None, Some(r)] => TargetRoll::Laser(r - 1.0),
+                    _ => TargetRoll::None,
+                };
+
+                if keep_laser {
+                    match (current, next) {
+                        (TargetRoll::Laser(v), TargetRoll::None)
+                        | (TargetRoll::None, TargetRoll::Laser(v))
+                        | (TargetRoll::Manual(v), TargetRoll::None) => TargetRoll::Laser(v),
+                        (TargetRoll::Laser(cv), TargetRoll::Laser(nv))
+                        | (TargetRoll::Manual(cv), TargetRoll::Laser(nv)) => {
+                            if cv < f64::EPSILON {
+                                TargetRoll::Laser(nv)
+                            } else if cv.is_sign_negative() == nv.is_sign_negative() {
+                                TargetRoll::Laser(cv.abs().max(nv.abs()) * cv.signum())
+                            } else {
+                                TargetRoll::Laser(cv)
+                            }
+                        }
+                        _ => TargetRoll::None,
+                    }
+                } else {
+                    next
+                }
+            });
+
+        // Chart hasn't started, don't score anything yet
+        if tick == 0 && self.chart.ms_to_tick(self.with_offset(playback_ms)) == 0 {
+            self.tick_queue.push_front(0);
+            return;
+        }
+
+        let avg_delta: f64 =
+            self.sync_delta.iter().fold(0.0, |a, c| a + c) / Self::AVG_DELTA_LEN as f64;
+
+        if playback_ms > 0.0 && !self.score_ticks.is_empty() {
+            if avg_delta.abs() > 250.0 {
+                self.sync_delta.clear();
+                self.zero_time = SystemTime::now().sub(Duration::from_millis(playback_ms as _));
+            } else if avg_delta.abs() > 1.0 {
+                if avg_delta > 0.0 {
+                    self.zero_time -= Duration::from_nanos(50000);
+                } else {
+                    self.zero_time += Duration::from_nanos(50000);
+                }
+            }
+
+            *time = self.current_time();
+        }
+
+        if self.tick_queue.is_empty() && !self.results_requested {
+            self.transition_to_results();
+            self.results_requested = true;
+        }
+        let missed_chip_tick = self.chart.ms_to_tick(
+            self.with_offset(time.saturating_sub(self.hit_window.good).as_secs_f64() * 1000.0),
+        );
+
+        let auto_lasers = self.auto_lasers();
+
+        for (side, ((laser_active, laser_target), wide)) in self
+            .laser_active
+            .iter_mut()
+            .zip(self.laser_target.iter_mut())
+            .zip(self.laser_wide.iter_mut())
+            .enumerate()
+        {
+            let was_none = laser_target.is_none();
+            *laser_target = self.chart.note.laser[side].value_at(tick as f64);
+            *wide = self.chart.note.laser[side].wide_at(tick as f64);
+            *laser_active = if let Some(val) = laser_target {
+                (*val - self.laser_cursors[side]).abs() < LASER_THRESHOLD
+            } else {
+                false
+            };
+
+            if (was_none && laser_target.is_some()) || auto_lasers {
+                self.laser_assist_ticks[side] = 10;
+            }
+            //TODO: Also check ahead
+        }
+
+        let laser_freq = match self.laser_target {
+            [Some(l), Some(r)] => Some(r.mul_add(-1.0, 1.0).max(l)),
+            [Some(l), None] => Some(l),
+            [None, Some(r)] => Some(r.mul_add(-1.0, 1.0)),
+            _ => None,
+        };
+
+        let laser_effect = self
+            .laser_effects
+            .range(0..=tick)
+            .rev()
+            .map(|x| x.1)
+            .next()
+            .unwrap_or(&self.default_laser_effect);
+
+        _ = if let Some((f, s)) =
+            laser_freq.and_then(|x| laser_effect.get_biquad_state(x as _).map(|v| (x, v)))
+        {
+            self.biquad_control.send((
+                Some(s),
+                Some((1.0 - (f - 0.5).abs() * 1.99).powf(0.1) as f32),
+            ))
+        } else {
+            self.biquad_control.send((None, Some(0.0)))
+        };
+
+        for (side, assist_ticks) in self.laser_assist_ticks.iter_mut().enumerate() {
+            //TODO: If on straight laser, keep assist high
+            let next_laser_is_slam = || {
+                self.score_ticks
+                    .iter()
+                    .find(|t| match t.tick {
+                        ScoreTick::Laser { lane, .. } => lane == side,
+                        ScoreTick::Slam { lane, .. } => lane == side,
+                        _ => false,
+                    })
+                    .map(|x| match x.tick {
+                        ScoreTick::Slam { .. } => x.y,
+                        _ => u32::MAX,
+                    })
+                    .unwrap_or(u32::MAX)
+            };
+            if *assist_ticks > 0 && tick < next_laser_is_slam() {
+                self.laser_cursors[side] = self.chart.note.laser[side]
+                    .value_at(tick as f64)
+                    .unwrap_or(self.laser_cursors[side]);
+            }
+            *assist_ticks = assist_ticks.saturating_sub(1);
+        }
+
+        let mut i = 0;
+        while i < self.score_ticks.len() {
+            if self.score_ticks[i].y > tick {
+                break;
+            }
+
+            match self.process_score_tick(self.score_ticks[i], missed_chip_tick, missed_chip_tick) {
+                HitRating::None => i += 1,
+                r => {
+                    self.on_hit(r);
+                    self.score_ticks.remove(i);
+                    self.score_current_max += 2;
+                }
+            }
+        }
+
+        self.playback.set_fx_enable(
+            self.input_state
+                .is_button_held(UscButton::FX(kson::Side::Left))
+                .is_some()
+                || self.auto_buttons(),
+            self.input_state
+                .is_button_held(UscButton::FX(kson::Side::Right))
+                .is_some()
+                || self.auto_buttons(),
+        );
+
+        self.camera.check_spins(tick);
+
+        self.gauge
+            .update_sample(GAUGE_SAMPLES * tick as usize / self.duration_ticks as usize);
+    }
+
+    fn process_score_tick(
         &mut self,
         tick: PlacedScoreTick,
         chip_miss_tick: u32,
@@ -1346,35 +1552,36 @@ impl Game {
             + self.playback.leadin().as_secs_f64() * 1000.0
     }
 
-    fn fail_song(&mut self) -> anyhow::Result<()> {
+    fn fail_song(&mut self) {
         //TODO: Enter fail transition state
-        self.transition_to_results()?;
-        Ok(())
+        self.transition_to_results();
     }
 
-    fn transition_to_results(&mut self) -> Result<(), anyhow::Error> {
+    fn transition_to_results(&mut self) {
         if let AutoPlay::None = self.autoplay {
-            self.control_tx
-                .as_ref()
-                .ok_or(anyhow!("control_tx not set"))?
-                .send(ControlMessage::Result {
-                    song: self.song.clone(),
-                    diff_idx: self.diff_idx,
-                    score: self.actual_display_score() as u32,
-                    gauge: std::mem::take(&mut self.gauge.active),
-                    hit_ratings: std::mem::take(&mut self.hit_ratings),
-                    autoplay: self.autoplay,
-                    duration: (self.duration_secs * 1000.0) as i32,
-                    hit_window: self.hit_window,
-                    manual_exit: false,
-                    max_combo: self.max_combo as _,
-                    hash: self.chart.file_hash.clone(),
-                })
-                .expect("Main loop messaging error");
+            let Some(tx) = self.control_tx.as_ref() else {
+                warn!("control_tx not set");
+                self.closed = true;
+                return;
+            };
+
+            tx.send(ControlMessage::Result {
+                song: self.song.clone(),
+                diff_idx: self.diff_idx,
+                score: self.actual_display_score() as u32,
+                gauge: std::mem::take(&mut self.gauge.active),
+                hit_ratings: std::mem::take(&mut self.hit_ratings),
+                autoplay: self.autoplay,
+                duration: (self.duration_secs * 1000.0) as i32,
+                hit_window: self.hit_window,
+                manual_exit: false,
+                max_combo: self.max_combo as _,
+                hash: self.chart.file_hash.clone(),
+            })
+            .expect("Main loop messaging error");
         } else {
             self.closed = true;
         }
-        Ok(())
     }
 
     fn auto_buttons(&self) -> bool {
@@ -1539,219 +1746,31 @@ impl Scene for Game {
 
     fn tick(&mut self, _dt: f64, _knob_state: crate::button_codes::LaserState) -> Result<()> {
         profile_function!();
-        const AVG_DELTA_LEN: usize = 32;
         let mut time = self.current_time();
-        let sys_time = SystemTime::now();
 
         let playback_ms = self.playback.get_ms();
         let timing_delta = playback_ms.sub(time.as_secs_f64() * 1000.0);
-        let processing_tick = self
-            .tick_queue
-            .pop_front()
-            .unwrap_or(self.duration_ticks + 10);
+
+        // Limit looping as a failsafe
+        for _ in 0..1000 {
+            let tick = self
+                .tick_queue
+                .pop_front()
+                .unwrap_or(self.duration_ticks + 10);
+
+            self.process_tick(tick, &mut time, playback_ms);
+
+            if tick >= self.render_tick || self.tick_queue.is_empty() {
+                break;
+            }
+        }
+
         if playback_ms > 0.0 {
             self.sync_delta.push_front(timing_delta);
-            if self.sync_delta.len() > AVG_DELTA_LEN {
+            if self.sync_delta.len() > Self::AVG_DELTA_LEN {
                 self.sync_delta.pop_back();
             }
         }
-
-        while self.take_laser_input(0, sys_time, processing_tick) {}
-        while self.take_laser_input(1, sys_time, processing_tick) {}
-
-        // Set roll despite chart not starting to set up correct start angle
-        let keep_laser = match self
-            .chart
-            .camera
-            .tilt
-            .keep
-            .binary_search_by_key(&processing_tick, |x| x.0)
-        {
-            Ok(i) => self.chart.camera.tilt.keep[i].1,
-            Err(i) => {
-                if i == 0 {
-                    false
-                } else {
-                    self.chart.camera.tilt.keep[i.saturating_sub(1)].1
-                }
-            }
-        };
-
-        self.target_roll = self
-            .chart
-            .camera
-            .tilt
-            .manual
-            .value_at(processing_tick as f64)
-            .map(TargetRoll::Manual)
-            .unwrap_or_else(|| {
-                let current = self.target_roll;
-
-                let next = match self.laser_target {
-                    [Some(l), Some(r)] => TargetRoll::Laser(r + l - 1.0),
-                    [Some(l), None] => TargetRoll::Laser(l),
-                    [None, Some(r)] => TargetRoll::Laser(r - 1.0),
-                    _ => TargetRoll::None,
-                };
-
-                if keep_laser {
-                    match (current, next) {
-                        (TargetRoll::Laser(v), TargetRoll::None)
-                        | (TargetRoll::None, TargetRoll::Laser(v))
-                        | (TargetRoll::Manual(v), TargetRoll::None) => TargetRoll::Laser(v),
-                        (TargetRoll::Laser(cv), TargetRoll::Laser(nv))
-                        | (TargetRoll::Manual(cv), TargetRoll::Laser(nv)) => {
-                            if cv < f64::EPSILON {
-                                TargetRoll::Laser(nv)
-                            } else if cv.is_sign_negative() == nv.is_sign_negative() {
-                                TargetRoll::Laser(cv.abs().max(nv.abs()) * cv.signum())
-                            } else {
-                                TargetRoll::Laser(cv)
-                            }
-                        }
-                        _ => TargetRoll::None,
-                    }
-                } else {
-                    next
-                }
-            });
-
-        // Chart hasn't started, don't score anything yet
-        if processing_tick == 0 && self.chart.ms_to_tick(self.with_offset(playback_ms)) == 0 {
-            self.tick_queue.push_front(0);
-            return Ok(());
-        }
-
-        let avg_delta: f64 = self.sync_delta.iter().fold(0.0, |a, c| a + c) / AVG_DELTA_LEN as f64;
-
-        if playback_ms > 0.0 && !self.score_ticks.is_empty() {
-            if avg_delta.abs() > 250.0 {
-                self.sync_delta.clear();
-                self.zero_time = SystemTime::now().sub(Duration::from_millis(playback_ms as _));
-            } else if avg_delta.abs() > 1.0 {
-                if avg_delta > 0.0 {
-                    self.zero_time -= Duration::from_nanos(50000);
-                } else {
-                    self.zero_time += Duration::from_nanos(50000);
-                }
-            }
-
-            time = self.current_time();
-        }
-
-        if self.tick_queue.is_empty() && !self.results_requested {
-            self.transition_to_results()?;
-            self.results_requested = true;
-        }
-        let missed_chip_tick = self.chart.ms_to_tick(
-            self.with_offset(time.saturating_sub(self.hit_window.good).as_secs_f64() * 1000.0),
-        );
-
-        let auto_lasers = self.auto_lasers();
-
-        for (side, ((laser_active, laser_target), wide)) in self
-            .laser_active
-            .iter_mut()
-            .zip(self.laser_target.iter_mut())
-            .zip(self.laser_wide.iter_mut())
-            .enumerate()
-        {
-            let was_none = laser_target.is_none();
-            *laser_target = self.chart.note.laser[side].value_at(processing_tick as f64);
-            *wide = self.chart.note.laser[side].wide_at(processing_tick as f64);
-            *laser_active = if let Some(val) = laser_target {
-                (*val - self.laser_cursors[side]).abs() < LASER_THRESHOLD
-            } else {
-                false
-            };
-
-            if (was_none && laser_target.is_some()) || auto_lasers {
-                self.laser_assist_ticks[side] = 10;
-            }
-            //TODO: Also check ahead
-        }
-
-        let laser_freq = match self.laser_target {
-            [Some(l), Some(r)] => Some(r.mul_add(-1.0, 1.0).max(l)),
-            [Some(l), None] => Some(l),
-            [None, Some(r)] => Some(r.mul_add(-1.0, 1.0)),
-            _ => None,
-        };
-
-        let laser_effect = self
-            .laser_effects
-            .range(0..=processing_tick)
-            .rev()
-            .map(|x| x.1)
-            .next()
-            .unwrap_or(&self.default_laser_effect);
-
-        _ = if let Some((f, s)) =
-            laser_freq.and_then(|x| laser_effect.get_biquad_state(x as _).map(|v| (x, v)))
-        {
-            self.biquad_control.send((
-                Some(s),
-                Some((1.0 - (f - 0.5).abs() * 1.99).powf(0.1) as f32),
-            ))
-        } else {
-            self.biquad_control.send((None, Some(0.0)))
-        };
-
-        for (side, assist_ticks) in self.laser_assist_ticks.iter_mut().enumerate() {
-            //TODO: If on straight laser, keep assist high
-            let next_laser_is_slam = || {
-                self.score_ticks
-                    .iter()
-                    .find(|t| match t.tick {
-                        ScoreTick::Laser { lane, .. } => lane == side,
-                        ScoreTick::Slam { lane, .. } => lane == side,
-                        _ => false,
-                    })
-                    .map(|x| match x.tick {
-                        ScoreTick::Slam { .. } => x.y,
-                        _ => u32::MAX,
-                    })
-                    .unwrap_or(u32::MAX)
-            };
-            if *assist_ticks > 0 && processing_tick < next_laser_is_slam() {
-                self.laser_cursors[side] = self.chart.note.laser[side]
-                    .value_at(processing_tick as f64)
-                    .unwrap_or(self.laser_cursors[side]);
-            }
-            *assist_ticks = assist_ticks.saturating_sub(1);
-        }
-
-        let mut i = 0;
-        while i < self.score_ticks.len() {
-            if self.score_ticks[i].y > processing_tick {
-                break;
-            }
-
-            match self.process_tick(self.score_ticks[i], missed_chip_tick, missed_chip_tick) {
-                HitRating::None => i += 1,
-                r => {
-                    self.on_hit(r);
-                    self.score_ticks.remove(i);
-                    self.score_current_max += 2;
-                }
-            }
-        }
-
-        self.playback.set_fx_enable(
-            self.input_state
-                .is_button_held(UscButton::FX(kson::Side::Left))
-                .is_some()
-                || self.auto_buttons(),
-            self.input_state
-                .is_button_held(UscButton::FX(kson::Side::Right))
-                .is_some()
-                || self.auto_buttons(),
-        );
-
-        self.camera.check_spins(processing_tick);
-
-        self.gauge
-            .update_sample(GAUGE_SAMPLES * processing_tick as usize / self.duration_ticks as usize);
 
         //Laser alerts
         if self.intro_done {
@@ -1792,7 +1811,7 @@ impl Scene for Game {
         }
 
         if self.gauge.is_dead() {
-            self.fail_song()?;
+            self.fail_song();
         }
 
         self.multiplayer.poll(&self.lua)?;
@@ -2006,7 +2025,8 @@ impl Scene for Game {
         let time_ms = time.as_secs_f64() * 1000.0 + leadin_ms;
 
         self.view.cursor = self.with_offset(time.as_secs_f64() * 1000.0);
-        let render_tick = self.chart.ms_to_tick(self.view.cursor);
+        self.render_tick = self.chart.ms_to_tick(self.view.cursor);
+        let render_tick = self.render_tick;
 
         //Update roll
         {
