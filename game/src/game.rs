@@ -105,7 +105,7 @@ pub struct Game {
     display_score: u64,
     combo: u64,
     max_combo: u64,
-    tick_queue: VecDeque<u32>,
+    tick_queue: VecDeque<(u32, f64)>,
     input_state: InputState,
     laser_cursors: [f64; 2],
     laser_active: [bool; 2],
@@ -141,7 +141,7 @@ pub struct Game {
     button_offset: f64,
     global_offset: f64,
     multiplayer: GameMultiplayerState,
-    render_tick: u32,
+    render_ms: f64,
 }
 
 #[derive(Clone, Copy)]
@@ -822,8 +822,9 @@ impl Game {
         let last_tick = chart.ms_to_tick(chart.tick_to_ms(last_tick) + 3000.0);
         let mut tick_queue = VecDeque::new();
         for i in 0.. {
-            let scored_tick = chart.ms_to_tick(i as f64 * 1000.0 / 240.0);
-            tick_queue.push_back(scored_tick);
+            let ms = i as f64 * 1000.0 / 240.0;
+            let scored_tick = chart.ms_to_tick(ms);
+            tick_queue.push_back((scored_tick, ms));
             if scored_tick > last_tick {
                 break;
             }
@@ -910,7 +911,7 @@ impl Game {
             global_offset: -GameConfig::get().global_offset as _,
             laser_offset: -GameConfig::get().laser_offset as _,
             combo_state: ComboState::Perfect,
-            render_tick: 0,
+            render_ms: 0.0,
         };
         res.set_track_uniforms();
         Ok(res)
@@ -1302,7 +1303,7 @@ impl Game {
 
         // Chart hasn't started, don't score anything yet
         if tick == 0 && self.chart.ms_to_tick(self.with_offset(playback_ms)) == 0 {
-            self.tick_queue.push_front(0);
+            self.tick_queue.push_front((0, 0.0));
             return;
         }
 
@@ -1753,16 +1754,17 @@ impl Scene for Game {
 
         // Limit looping as a failsafe
         for _ in 0..1000 {
-            let tick = self
+            let (tick, ms) = self
                 .tick_queue
                 .pop_front()
-                .unwrap_or(self.duration_ticks + 10);
+                .unwrap_or((self.duration_ticks + 10, self.duration_secs as f64 * 1000.0));
 
-            self.process_tick(tick, &mut time, playback_ms);
-
-            if tick >= self.render_tick || self.tick_queue.is_empty() {
+            if ms > self.render_ms {
+                self.tick_queue.push_front((tick, ms));
                 break;
             }
+
+            self.process_tick(tick, &mut time, playback_ms);
         }
 
         if playback_ms > 0.0 {
@@ -2025,8 +2027,8 @@ impl Scene for Game {
         let time_ms = time.as_secs_f64() * 1000.0 + leadin_ms;
 
         self.view.cursor = self.with_offset(time.as_secs_f64() * 1000.0);
-        self.render_tick = self.chart.ms_to_tick(self.view.cursor);
-        let render_tick = self.render_tick;
+        let render_tick = self.chart.ms_to_tick(self.view.cursor);
+        self.render_ms = self.view.cursor;
 
         //Update roll
         {
