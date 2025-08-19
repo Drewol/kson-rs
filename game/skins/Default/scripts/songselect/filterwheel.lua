@@ -36,8 +36,8 @@ render = function(deltaTime, shown)
     gfx.FastText(folderOffset,0,0)
     if selectingFolders then
         for i,f in ipairs(filters.folder) do
-            if not folderLabels[i] then
-               folderLabels[i] = gfx.CreateLabel(f, 40, 0)
+            if not folderLabels[f] then
+               folderLabels[f] = gfx.CreateLabel(f, 40, 0)
             end
             if i == selectedFolder then
                 gfx.FillColor(255,255,255,255)
@@ -46,7 +46,7 @@ render = function(deltaTime, shown)
             end
             local xpos = resx - 100 + ((i - selectedFolder - folderOffset) ^ 2) * 1
             local ypos = resy/2 + 50  * (i - selectedFolder - folderOffset)
-            gfx.DrawLabel(folderLabels[i], xpos, ypos);
+            gfx.DrawLabel(folderLabels[f], xpos, ypos);
         end
     else
         for i,l in ipairs(filters.level) do

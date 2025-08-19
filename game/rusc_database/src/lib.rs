@@ -93,6 +93,12 @@ pub enum SortColumn {
     Score,
 }
 
+pub enum CollectionFilter {
+    None,
+    Folder(String),
+    Collection(String),
+}
+
 impl LocalSongsDb {
     pub async fn new(db_path: impl AsRef<Path>) -> Result<Self, sqlx::Error> {
         let options = sqlx::sqlite::SqliteConnectOptions::new()
@@ -188,7 +194,7 @@ impl LocalSongsDb {
         &self,
         query: &str,
         level: u8,
-        folder: Option<String>,
+        folder: CollectionFilter,
         order: (SortColumn, SortDir),
     ) -> std::result::Result<Vec<i64>, sqlx::Error> {
         let base_query = "SELECT DISTINCT folderId FROM Charts";
@@ -231,15 +237,26 @@ impl LocalSongsDb {
             query_builder.push_bind(level);
         }
 
-        if let Some(folder) = folder {
-            if query.is_empty() && level == 0 {
-                query_builder.push(" WHERE");
-            } else {
-                query_builder.push(" AND");
+        match folder {
+            CollectionFilter::Folder(folder) => {
+                if query.is_empty() && level == 0 {
+                    query_builder.push(" WHERE");
+                } else {
+                    query_builder.push(" AND");
+                }
+                query_builder.push(" path LIKE ?");
+                binds.push(format!("{folder}%"));
             }
-
-            query_builder.push(" path LIKE ?");
-            binds.push(format!("{folder}%"));
+            CollectionFilter::Collection(collection) => {
+                if query.is_empty() && level == 0 {
+                    query_builder.push(" WHERE");
+                } else {
+                    query_builder.push(" AND");
+                }
+                query_builder.push(" EXISTS (SELECT 1 FROM Collections WHERE Collections.collection = ? AND Collections.folderid = Charts.folderId)");
+                binds.push(collection);
+            }
+            _ => (),
         }
 
         query_builder.push(" ORDER BY ");
@@ -712,5 +729,46 @@ impl LocalSongsDb {
         query_scalar!("SELECT folderid FROM Charts WHERE rowid=?", id)
             .fetch_one(&self.sqlite_pool)
             .await
+    }
+
+    pub async fn get_collections(&self) -> Result<Vec<String>, sqlx::Error> {
+        query_scalar!("SELECT DISTINCT collection FROM collections")
+            .fetch_all(&self.sqlite_pool)
+            .await
+    }
+
+    pub async fn get_collections_with_folder(&self, id: i64) -> Result<Vec<String>, sqlx::Error> {
+        query_scalar!(
+            "SELECT DISTINCT collection FROM collections WHERE folderid = ?",
+            id
+        )
+        .fetch_all(&self.sqlite_pool)
+        .await
+    }
+
+    pub async fn add_to_collection(&self, id: i64, collection: String) -> Result<(), sqlx::Error> {
+        query!(
+            "INSERT INTO Collections(folderid, collection) VALUES(?, ?)",
+            id,
+            collection
+        )
+        .execute(&self.sqlite_pool)
+        .await?;
+        Ok(())
+    }
+
+    pub async fn remove_from_collection(
+        &self,
+        id: i64,
+        collection: String,
+    ) -> Result<(), sqlx::Error> {
+        query!(
+            "DELETE FROM Collections WHERE folderid = ? AND collection = ?",
+            id,
+            collection
+        )
+        .execute(&self.sqlite_pool)
+        .await?;
+        Ok(())
     }
 }

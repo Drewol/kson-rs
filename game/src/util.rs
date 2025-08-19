@@ -1,5 +1,6 @@
 use std::{
     error::Error,
+    fmt::Display,
     sync::mpsc::{self, Receiver, Sender},
 };
 
@@ -138,7 +139,7 @@ pub trait Warn<T> {
     fn warn(self, context: &'static str) -> Option<T>;
 }
 
-impl<T, E: Error> Warn<T> for Result<T, E> {
+impl<T, E: Display> Warn<T> for Result<T, E> {
     fn warn(self, context: &'static str) -> Option<T> {
         self.inspect_err(|e| warn!("{context}: {e}")).ok()
     }

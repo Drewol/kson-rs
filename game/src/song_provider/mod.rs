@@ -21,7 +21,11 @@ use rodio::Source;
 use serde::{Deserialize, Serialize};
 use serde_with::{DeserializeFromStr, SerializeDisplay};
 
-use crate::{multiplayer, results::Score, songselect::Song};
+use crate::{
+    multiplayer,
+    results::Score,
+    songselect::{self, Song},
+};
 use specta::Type;
 mod files;
 mod nautica;
@@ -334,6 +338,9 @@ pub trait SongProvider: Send {
     fn get_preview(&self, id: &SongId) -> Promise<PreviewResult>;
     fn get_all(&self) -> (Vec<Arc<Song>>, Vec<SongId>);
     fn refresh(&mut self) {}
+    fn get_collections(&self, id: &SongId) -> Vec<songselect::favourite_dialog::Collection>;
+    fn add_to_collection(&mut self, id: &SongId, collection: String) -> anyhow::Result<()>;
+    fn remove_from_collection(&mut self, id: &SongId, collection: String) -> anyhow::Result<()>;
 }
 
 pub trait ScoreProvider {

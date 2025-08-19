@@ -4,7 +4,9 @@ use std::{
     time::SystemTime,
 };
 
+use itertools::{Itertools, MinMaxResult};
 use kson::Side;
+use log::warn;
 use winit::event::ElementState;
 
 use crate::button_codes::{LaserAxis, LaserState, UscButton, UscInputEvent};
@@ -96,5 +98,27 @@ impl InputState {
 
     pub fn clone_laser(&self) -> LaserState {
         self.laser_state.read().expect("Lock error").clone()
+    }
+
+    pub fn pressed_together<const N: usize>(&self, buttons: [UscButton; N]) -> bool {
+        // Check that it's *only* these buttons being pressed?
+
+        let Ok(held) = self.buttons_held.read() else {
+            warn!("Lock error");
+            return false;
+        };
+
+        let times = buttons.iter().filter_map(|b| held.get(b)).collect_vec();
+        let MinMaxResult::MinMax(min, max) = times.iter().minmax() else {
+            return N == times.len(); // Input was probably zero or one button which are always pressed "together"
+        };
+
+        let Ok(delta) = max.duration_since(**min) else {
+            warn!("Failed to find pressed delta");
+            return false;
+        };
+
+        const SIMULTANIOUS_PRESS_THRESHOLD_MS: u128 = 100;
+        delta.as_millis() < SIMULTANIOUS_PRESS_THRESHOLD_MS && N == times.len()
     }
 }

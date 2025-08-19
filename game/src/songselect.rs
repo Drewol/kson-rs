@@ -14,12 +14,15 @@ use crate::{
         self, DiffId, ScoreProvider, ScoreProviderEvent, SongDiffId, SongFilter, SongFilterType,
         SongId, SongProvider, SongProviderEvent, SongSort,
     },
+    songselect::favourite_dialog::CollectionDialog,
     take_duration_fade::take_duration_fade,
-    util, ControlMessage, FileSongProvider, NauticaSongProvider, RuscMixer,
+    util::{self, Warn},
+    ControlMessage, FileSongProvider, NauticaSongProvider, RuscMixer,
 };
 use anyhow::{anyhow, ensure, Result};
 use di::{RefMut, ServiceProvider};
 use itertools::Itertools;
+use kson::BtLane;
 use kson_rodio_sources::owned_source::{self, owned_source};
 use log::warn;
 use mlua::{self, Function, Lua, LuaSerdeExt};
@@ -45,6 +48,7 @@ use winit::{
     keyboard::{Key, NamedKey},
 };
 
+pub mod favourite_dialog;
 mod song_collection;
 use song_collection::*;
 
@@ -151,6 +155,7 @@ pub struct SongSelectScene {
     async_worker: RefMut<AsyncService>,
     sort_lua: Rc<Lua>,
     filter_lua: Rc<Lua>,
+    collection_lua: Rc<Lua>,
     level_filter: u8,
     folder_filter_index: usize,
     sort_index: usize,
@@ -158,6 +163,7 @@ pub struct SongSelectScene {
     sorts: Vec<song_provider::SongSort>,
     auto_rx: Receiver<crate::game_main::AutoPlay>,
     multiplayer: RefMut<multiplayer::MultiplayerService>,
+    collection_dialog: Option<favourite_dialog::CollectionDialog>,
 }
 
 impl SongSelectScene {
@@ -183,6 +189,7 @@ impl SongSelectScene {
         Self {
             filter_lua: LuaProvider::new_lua(),
             sort_lua: LuaProvider::new_lua(),
+            collection_lua: LuaProvider::new_lua(),
             background_lua: LuaProvider::new_lua(),
             lua: LuaProvider::new_lua(),
             state: song_select,
@@ -214,6 +221,7 @@ impl SongSelectScene {
             sorts: vec![],
             settings_closed: SystemTime::UNIX_EPOCH,
             auto_rx,
+            collection_dialog: None,
         }
     }
 
@@ -443,6 +451,15 @@ impl Scene for SongSelectScene {
 
         self.settings_dialog.render(dt)?;
 
+        if let Some(d) = self.collection_dialog.take() {
+            if d.render(dt / 1000.0) {
+                self.collection_dialog = Some(d);
+            } else {
+                // Dialog closed, update available collections list
+                (self.filters, self.sorts) = self.update_filter_sort_lua()?;
+            }
+        }
+
         Ok(())
     }
 
@@ -536,6 +553,7 @@ impl Scene for SongSelectScene {
 
         lua_provider.register_libraries(self.filter_lua.clone(), "songselect/filterwheel.lua")?;
         lua_provider.register_libraries(self.sort_lua.clone(), "songselect/sortwheel.lua")?;
+        lua_provider.register_libraries(self.collection_lua.clone(), "collectiondialog.lua")?;
         (self.filters, self.sorts) = self.update_filter_sort_lua()?;
 
         let mut bgm_amp = 1_f32;
@@ -695,6 +713,18 @@ impl Scene for SongSelectScene {
             }
         }
 
+        if let Some(d) = self.collection_dialog.as_mut() {
+            if diff_advance_steps != 0 {
+                d.advance_selection(diff_advance_steps);
+            }
+            if song_advance_steps != 0 {
+                d.advance_selection(song_advance_steps);
+            }
+
+            d.tick();
+            return Ok(());
+        }
+
         match self.menu_state {
             MenuState::Songs => {
                 self.state.selected_index = (self.state.selected_index + song_advance_steps)
@@ -804,6 +834,17 @@ impl Scene for SongSelectScene {
             return;
         }
 
+        // This laser advance is shared with collection dialog but not settings dialog
+        if let Event::UserEvent(UscInputEvent::Laser(ls, _time)) = event {
+            self.song_advance += LaserAxis::from(ls.get(kson::Side::Right)).delta;
+            self.diff_advance += LaserAxis::from(ls.get(kson::Side::Left)).delta;
+        }
+
+        if let Some(diag) = self.collection_dialog.as_mut() {
+            diag.on_input(event);
+            return;
+        }
+
         if let Event::WindowEvent {
             event:
                 WindowEvent::KeyboardInput {
@@ -880,17 +921,17 @@ impl Scene for SongSelectScene {
                 self.on_search();
             }
         }
-
-        if let Event::UserEvent(UscInputEvent::Laser(ls, _time)) = event {
-            self.song_advance += LaserAxis::from(ls.get(kson::Side::Right)).delta;
-            self.diff_advance += LaserAxis::from(ls.get(kson::Side::Left)).delta;
-        }
     }
 
     fn on_button_pressed(&mut self, button: crate::button_codes::UscButton, timestamp: SystemTime) {
         if self.settings_dialog.show {
             self.settings_dialog.on_button_press(button);
             self.settings_closed = SystemTime::now();
+            return;
+        }
+
+        if let Some(diag) = self.collection_dialog.as_mut() {
+            diag.on_button_pressed(button);
             return;
         }
 
@@ -939,6 +980,34 @@ impl Scene for SongSelectScene {
                     if detla_ms < 100 && self.menu_state == MenuState::Songs {
                         self.settings_dialog.show = true;
                     }
+                }
+            }
+
+            UscButton::BT(BtLane::B | BtLane::C)
+                if self
+                    .input_state
+                    .pressed_together([UscButton::BT(BtLane::B), UscButton::BT(BtLane::C)]) =>
+            {
+                let update_provider = self.song_provider.clone();
+                if let Some(song) = self.state.songs.get(self.state.selected_index as _) {
+                    let id = song.id.clone();
+                    let collections = self.song_provider.read().unwrap().get_collections(&id);
+                    self.collection_dialog = Some(CollectionDialog::new(
+                        collections,
+                        self.collection_lua.clone(),
+                        song.title.clone(),
+                        self.input_state.clone(),
+                        move |name, exists| {
+                            let mut p = update_provider.write().unwrap();
+                            if exists {
+                                p.remove_from_collection(&id, name)
+                                    .warn("Failed to remove from collection");
+                            } else {
+                                p.add_to_collection(&id, name)
+                                    .warn("Failed to add to collection");
+                            }
+                        },
+                    ))
                 }
             }
 

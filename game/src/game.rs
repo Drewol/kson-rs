@@ -975,7 +975,7 @@ impl Game {
             demo_mode: false,
             difficulty: self.chart.meta.difficulty,
             level: self.chart.meta.level,
-            progress: self.current_time().as_secs_f32() / self.duration_secs,
+            progress: (self.current_time().as_secs_f32() / self.duration_secs).clamp(0.0, 1.0),
             hispeed: self.view.hispeed,
             hispeed_adjust: 0,
             bpm: self.chart.bpm_at_tick(render_tick) as f32,

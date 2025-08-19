@@ -15,7 +15,7 @@ use crate::{
     log_result,
     results::{calculate_clear_mark, Score},
     song_provider::SongFilterType,
-    songselect::{Difficulty, Song},
+    songselect::{favourite_dialog, Difficulty, Song},
     worker_service::WorkerService,
 };
 
@@ -25,7 +25,7 @@ use super::{
 };
 use anyhow::{anyhow, bail, ensure, Context};
 
-use futures::{executor::block_on, AsyncReadExt, StreamExt};
+use futures::{executor::block_on, AsyncReadExt, FutureExt, StreamExt};
 use itertools::Itertools;
 use kson::Ksh;
 use log::{info, warn};
@@ -442,15 +442,17 @@ async fn query_songs(
     filter: &SongFilter,
     sort: SongSort,
 ) -> anyhow::Result<Vec<SongId>> {
-    let folder = if let SongFilterType::Folder(folder) = &filter.filter_type {
-        let mut p = songs_path();
-        p.push(folder);
-        Some(p.to_string_lossy().to_string())
-    } else {
-        None
+    let db_filter = match &filter.filter_type {
+        SongFilterType::None => rusc_database::CollectionFilter::None,
+        SongFilterType::Folder(v) => {
+            let mut p = songs_path();
+            p.push(v);
+            rusc_database::CollectionFilter::Folder(p.to_string_lossy().to_string())
+        }
+        SongFilterType::Collection(v) => rusc_database::CollectionFilter::Collection(v.clone()),
     };
     let charts = match database
-        .get_folder_ids_query(q, filter.level, folder, sort.into())
+        .get_folder_ids_query(q, filter.level, db_filter, sort.into())
         .await
     {
         Ok(charts) => charts,
@@ -744,6 +746,12 @@ impl SongProvider for FileSongProvider {
         let mut res = vec![super::SongFilterType::None];
 
         res.extend(
+            self.get_collections(&SongId::Missing)
+                .into_iter()
+                .map(|x| SongFilterType::Collection(x.name)),
+        );
+
+        res.extend(
             song_path_contents
                 .into_iter()
                 .filter(|x| x.path().is_dir())
@@ -764,6 +772,7 @@ impl SongProvider for FileSongProvider {
                     super::SongFilterType::Folder(x.file_name().to_string_lossy().to_string())
                 }),
         );
+
         res
     }
 
@@ -812,6 +821,44 @@ impl SongProvider for FileSongProvider {
             .get(&SongId::IntId(folder_id))
             .cloned()
             .context("Song not loaded in provider")
+    }
+
+    fn get_collections(&self, id: &SongId) -> Vec<crate::songselect::favourite_dialog::Collection> {
+        let exists_in = if let SongId::IntId(id) = id {
+            block_on(self.database.get_collections_with_folder(*id))
+                .into_iter()
+                .flatten()
+                .collect()
+        } else {
+            HashSet::new()
+        };
+        block_on(self.database.get_collections())
+            .ok()
+            .into_iter()
+            .flatten()
+            .map(|x| {
+                let exists = exists_in.contains(&x);
+                favourite_dialog::Collection::new(x, exists)
+            })
+            .collect()
+    }
+
+    fn add_to_collection(&mut self, id: &SongId, collection: String) -> anyhow::Result<()> {
+        let SongId::IntId(id) = id else {
+            bail!("Invalid ID")
+        };
+
+        block_on(self.database.add_to_collection(*id, collection))?;
+        Ok(())
+    }
+
+    fn remove_from_collection(&mut self, id: &SongId, collection: String) -> anyhow::Result<()> {
+        let SongId::IntId(id) = id else {
+            bail!("Invalid ID")
+        };
+
+        block_on(self.database.remove_from_collection(*id, collection))?;
+        Ok(())
     }
 }
 
