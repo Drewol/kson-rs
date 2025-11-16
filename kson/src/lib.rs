@@ -263,6 +263,10 @@ impl GraphSectionPoint {
             b: 0.5,
         }
     }
+
+    pub fn is_linear(&self) -> bool {
+        (self.a - self.b).abs() < 0.01
+    }
 }
 
 #[derive(Copy, Clone, Debug)]
@@ -395,7 +399,7 @@ impl LaserSection {
 
 //https://github.com/m4saka/ksh2kson/issues/4#issuecomment-573343229
 pub fn do_curve(x: f64, a: f64, b: f64) -> f64 {
-    let t = if x < f64::EPSILON || a < f64::EPSILON {
+    let t = if x < 0.01 || a < 0.01 {
         (a - (a * a + x - 2.0 * a * x).sqrt()) / (-1.0 + 2.0 * a)
     } else {
         x / (a + (a * a + (1.0 - 2.0 * a) * x).sqrt())

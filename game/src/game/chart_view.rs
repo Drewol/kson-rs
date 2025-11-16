@@ -13,12 +13,36 @@ pub struct ChartView {
 }
 
 use anyhow::anyhow;
-use kson::KSON_RESOLUTION;
+use kson::{do_curve, Graph, GraphSectionPoint, KSON_RESOLUTION};
 use puffin::{profile_function, profile_scope};
 use three_d::{
     vec2, vec3, Blend, ColorMaterial, CpuMesh, DepthTest, Indices, Mat3, RenderStates, Texture2D,
     Vec3,
 };
+
+pub fn gen_laser_subsegment(
+    y0: f32,
+    y1: f32,
+    w: f32,
+    start_value: f32,
+    end_value: f32,
+    xoff: f32,
+) -> [GlVertex; 6] {
+    let x00 = end_value - w - xoff;
+    let x01 = end_value - xoff;
+    let x10 = start_value - w - xoff;
+    let x11 = start_value - xoff;
+
+    [
+        GlVertex::new([y0, 0.0, x00], [0.0, 0.0]),
+        GlVertex::new([y0, 0.0, x01], [1.0, 0.0]),
+        GlVertex::new([y1, 0.0, x11], [1.0, 1.0]),
+        GlVertex::new([y0, 0.0, x00], [0.0, 0.0]),
+        GlVertex::new([y1, 0.0, x10], [0.0, 1.0]),
+        GlVertex::new([y1, 0.0, x11], [1.0, 1.0]),
+    ]
+}
+
 use three_d_asset::Srgba;
 impl ChartView {
     pub const TRACK_LENGTH: f32 = 16.0;
@@ -115,22 +139,47 @@ impl ChartView {
                         );
                         start_value = value;
                     }
-                    let end_value = e.v as f32 * track_w;
-                    let x00 = end_value - w - xoff;
-                    let x01 = end_value - xoff;
-                    let x10 = start_value - w - xoff;
-                    let x11 = start_value - xoff;
-                    let y0 = e.ry as f32;
-                    let y1 = s.ry as f32 + syoff;
 
-                    section_verts.append(&mut vec![
-                        GlVertex::new([y0, 0.0, x00], [0.0, 0.0]),
-                        GlVertex::new([y0, 0.0, x01], [1.0, 0.0]),
-                        GlVertex::new([y1, 0.0, x11], [1.0, 1.0]),
-                        GlVertex::new([y0, 0.0, x00], [0.0, 0.0]),
-                        GlVertex::new([y1, 0.0, x10], [0.0, 1.0]),
-                        GlVertex::new([y1, 0.0, x11], [1.0, 1.0]),
-                    ]);
+                    if s.is_linear() {
+                        let end_value = e.v as f32 * track_w;
+                        let y0 = e.ry as f32;
+                        let y1 = s.ry as f32 + syoff;
+                        section_verts.extend(gen_laser_subsegment(
+                            y0,
+                            y1,
+                            w,
+                            start_value,
+                            end_value,
+                            xoff,
+                        ));
+                    } else {
+                        let start_value = s.vf.unwrap_or(s.v) as f32;
+                        let len = e.ry - s.ry;
+                        let segments = (len / (KSON_RESOLUTION / 32)).max(3); //TODO: Curve quality option
+                        let len = len as f32 - syoff;
+                        let width = e.v as f32 - start_value;
+                        let step = (len / segments as f32);
+
+                        for subsegment_index in 0..segments {
+                            let s_curve_x = subsegment_index as f64 / segments as f64;
+                            let e_curve_x = (subsegment_index + 1) as f64 / segments as f64;
+
+                            let sv = start_value + width * do_curve(s_curve_x, s.a, s.b) as f32;
+                            let ev = start_value + width * do_curve(e_curve_x, s.a, s.b) as f32;
+
+                            let y1 = s.ry as f32 + (step * subsegment_index as f32) + syoff;
+                            let y0 = y1 + step;
+
+                            section_verts.extend(gen_laser_subsegment(
+                                y0,
+                                y1,
+                                w,
+                                sv * track_w,
+                                ev * track_w,
+                                xoff,
+                            ));
+                        }
+                    }
                     is_first = false;
                 }
                 if let Some(e) = section.last() {
