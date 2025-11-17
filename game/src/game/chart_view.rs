@@ -168,7 +168,11 @@ impl ChartView {
                             let ev = start_value + width * do_curve(e_curve_x, s.a, s.b) as f32;
 
                             let y1 = s.ry as f32 + (step * subsegment_index as f32) + syoff;
-                            let y0 = y1 + step;
+                            let y0 = if (subsegment_index + 1) == segments {
+                                e.ry as f32
+                            } else {
+                                y1 + step
+                            };
 
                             section_verts.extend(gen_laser_subsegment(
                                 y0,

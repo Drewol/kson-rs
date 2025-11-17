@@ -264,6 +264,12 @@ impl GraphSectionPoint {
         }
     }
 
+    pub fn with_curve(mut self, a: f64, b: f64) -> Self {
+        self.a = a;
+        self.b = b;
+        self
+    }
+
     pub fn is_linear(&self) -> bool {
         (self.a - self.b).abs() < 0.01
     }
@@ -399,11 +405,12 @@ impl LaserSection {
 
 //https://github.com/m4saka/ksh2kson/issues/4#issuecomment-573343229
 pub fn do_curve(x: f64, a: f64, b: f64) -> f64 {
-    let t = if x < 0.01 || a < 0.01 {
+    let t = if (x < 0.01 || a < 0.01) && ((a - 0.5).abs() > 0.01) {
         (a - (a * a + x - 2.0 * a * x).sqrt()) / (-1.0 + 2.0 * a)
     } else {
         x / (a + (a * a + (1.0 - 2.0 * a) * x).sqrt())
     };
+    debug_assert!(t.is_finite());
     2.0 * (1.0 - t) * t * b + t * t
 }
 
@@ -1128,7 +1135,22 @@ where
 mod tests {
     use serde_test::Token;
 
-    use crate::parameter::{self, EffectFloat, EffectFreq, EffectParameterValue};
+    use crate::{
+        do_curve,
+        parameter::{self, EffectFloat, EffectFreq, EffectParameterValue},
+    };
+
+    #[test]
+    fn curves() {
+        for i in 0..=100 {
+            let i = i as f64 / 100.0;
+
+            assert!(do_curve(i, 0.0, 0.5).is_finite());
+            assert!(do_curve(i, 1.0, 0.5).is_finite());
+            assert!(do_curve(i, 0.5, 1.0).is_finite());
+            assert!(do_curve(i, 0.5, 0.0).is_finite());
+        }
+    }
 
     #[test]
     fn effect_param() {

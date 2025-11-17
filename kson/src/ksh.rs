@@ -25,6 +25,8 @@ pub enum KshReadErrorDetails {
     EmptyLaserSection,
     #[error("Invalid tilt value: '{0}'")]
     InvalidTiltValue(String),
+    #[error("Invalid curve value: '{0}'")]
+    InvalidCurveValue(String),
 }
 
 #[derive(Debug, Error)]
@@ -137,6 +139,18 @@ fn parse_ksh_zoom_values(data: &str) -> Result<(f64, Option<f64>), KshReadErrorD
         }
     };
     Ok((v, vf))
+}
+
+#[inline]
+fn parse_ksh_curve_value(data: &str) -> Result<(f64, f64), KshReadErrorDetails> {
+    let (a, b) = data
+        .split_once(';')
+        .ok_or_else(|| KshReadErrorDetails::InvalidCurveValue(data.to_string()))?;
+
+    let a = a.parse::<f64>()?;
+    let b = b.parse::<f64>()?;
+
+    Ok((a.clamp(0.0, 1.0), b.clamp(0.0, 1.0)))
 }
 
 #[inline]
@@ -273,6 +287,8 @@ impl Ksh for crate::Chart {
             LaserSection(0, Vec::new(), 1),
         ];
 
+        let mut laser_curves = [(0.5, 0.5); 2];
+
         let mut fx_string: [Option<String>; 2] = [None, None];
         let mut manual_tilt: (u32, Vec<GraphSectionPoint>) = (u32::MAX, vec![]);
 
@@ -377,18 +393,30 @@ impl Ksh for crate::Chart {
                         }
                         if chars[i + 8] != b'-' && chars[i + 8] != b':' && last_char[i + 6] == b'-'
                         {
+                            let (a, b) = laser_curves[i];
+                            laser_curves[i] = (0.5, 0.5);
+
                             // new laser
                             laser_builder[i].0 = y;
-                            laser_builder[i].1.push(GraphSectionPoint::new(
-                                0,
-                                laser_char_to_value(chars[i + 8]).with_line(file_line)?,
-                            ));
+                            laser_builder[i].1.push(
+                                GraphSectionPoint::new(
+                                    0,
+                                    laser_char_to_value(chars[i + 8]).with_line(file_line)?,
+                                )
+                                .with_curve(a, b),
+                            );
                         } else if chars[i + 8] != b':' && chars[i + 8] != b'-' {
+                            let (a, b) = laser_curves[i];
+                            laser_curves[i] = (0.5, 0.5);
+
                             // new point
-                            laser_builder[i].1.push(GraphSectionPoint::new(
-                                y - laser_builder[i].0,
-                                laser_char_to_value(chars[i + 8]).with_line(file_line)?,
-                            ));
+                            laser_builder[i].1.push(
+                                GraphSectionPoint::new(
+                                    y - laser_builder[i].0,
+                                    laser_char_to_value(chars[i + 8]).with_line(file_line)?,
+                                )
+                                .with_curve(a, b),
+                            );
                         }
 
                         last_char[i + 6] = chars[i + 8];
@@ -482,7 +510,6 @@ impl Ksh for crate::Chart {
                     }
                 } else if line.contains('=') {
                     let mut line_data = line.split('=');
-
                     let line_prop = String::from(line_data.next().unwrap_or(""));
                     let mut line_value = String::from(line_data.next().unwrap_or(""));
 
@@ -564,6 +591,14 @@ impl Ksh for crate::Chart {
                                 .entry(line_value)
                                 .or_default()
                                 .push((y, ()));
+                        }
+                        "laser_l_curve" => {
+                            laser_curves[0] =
+                                parse_ksh_curve_value(&line_value).with_line(file_line)?
+                        }
+                        "laser_r_curve" => {
+                            laser_curves[1] =
+                                parse_ksh_curve_value(&line_value).with_line(file_line)?
                         }
                         _ => (),
                     }
