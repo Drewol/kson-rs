@@ -1,5 +1,5 @@
 [tools]
-rust = { version = "latest", targets = "aarch64-apple-darwin,x86_64-unknown-linux-gnu,aarch64-unknown-linux-gnu" }
+rust = { version = "1.92", targets = "aarch64-apple-darwin,x86_64-unknown-linux-gnu,aarch64-unknown-linux-gnu" }
 "cargo:https://github.com/burtonageo/cargo-bundle" = "latest"
 "cargo:https://github.com/rust-mobile/xbuild" = "latest"
 
