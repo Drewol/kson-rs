@@ -1,5 +1,6 @@
 [tools]
 rust = { version = "1.92", targets = "aarch64-apple-darwin,x86_64-unknown-linux-gnu,aarch64-unknown-linux-gnu" }
+"cargo:https://github.com/rust-mobile/xbuild" = "latest"
 "cargo:https://github.com/burtonageo/cargo-bundle" = "latest"
 
 [tasks.clippy]
@@ -7,9 +8,6 @@ run = ["cargo clippy -r", "cargo clippy --features embed-assets -r"]
 
 [tasks.test]
 run = "cargo test -r"
-
-[tasks.apk.tools]
-"cargo:https://github.com/rust-mobile/xbuild" = "latest"
 
 [tasks.apk]
 run = ["x doctor", "x build -r -p rusc --arch arm64 --platform android"]
