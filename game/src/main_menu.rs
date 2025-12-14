@@ -83,7 +83,7 @@ impl MainMenu {
 impl Scene for MainMenu {
     fn render_ui(&mut self, dt: f64) -> anyhow::Result<()> {
         let render: Function = self.lua.globals().get("render")?;
-        render.call(dt / 1000.0)?;
+        render.call::<()>(dt / 1000.0)?;
         Ok(())
     }
 

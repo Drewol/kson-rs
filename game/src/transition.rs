@@ -300,7 +300,7 @@ impl Scene for Transition {
             }
             TransitionState::Loading | TransitionState::Countdown(_) => {
                 let render: Function = self.transition_lua.globals().get("render")?;
-                render.call(dt / 1000_f64)?;
+                render.call::<()>(dt / 1000_f64)?;
                 if let Some(target_state) = self.target_state.take() {
                     match target_state.try_take() {
                         Ok(Ok(finished)) => {

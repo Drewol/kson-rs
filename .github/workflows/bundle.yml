@@ -10,14 +10,9 @@ jobs:
       matrix:
         os:
           - name: ubuntu-latest
-            artifact: "*.deb"
-            artpath: target/release/bundle/deb
+            mise: "ci"
           - name: macos-latest
-            artifact: "*.tar"
-            artpath: "."
-          - name: macos-13
-            artifact: "*.tar"
-            artpath: "."
+            mise: "osx"
     runs-on: ${{matrix.os.name}}
     steps:
       - uses: actions/checkout@v1
@@ -25,26 +20,26 @@ jobs:
         with:
           path: target
           key: ${{ runner.os }}-${{ runner.arch }}-cargo-${{ hashFiles('**/Cargo.lock') }}
-      - run: cargo install --git https://github.com/burtonageo/cargo-bundle
       - name: Install Packages
         if: ${{ matrix.os.name == 'ubuntu-latest' }}
-        run: sudo apt-get update && sudo apt-get install -y libasound2-dev libsoundtouch-dev libegl1-mesa-dev libfreetype6-dev zlib1g-dev libgtk-3-dev libudev-dev
-      - run: cargo bundle --release --bin rusc
-      - run: cargo bundle --release --bin kson-editor
-      - run: tar --strip-components 4 -cvf ${{ runner.os }}-${{ runner.arch }}.tar target/release/bundle/osx
+        run: sudo apt-get update && sudo apt-get install -y libasound2-dev libsoundtouch-dev libegl1-mesa-dev libfreetype6-dev zlib1g-dev libgtk-3-dev libudev-dev llvm squashfs-tools
+      - uses: jdx/mise-action@v3
+      - run: mise ${{matrix.os.mise}}
+      - run: tar --strip-components 5 -cvf ${{ runner.os }}-${{ runner.arch }}.tar target/aarch64-apple-darwin/release/bundle/osx
         if: ${{ runner.os == 'macOS' }}
+      - run: mise artifacts
       - name: Upload to R2
-        working-directory: ${{ github.workspace }}/${{ matrix.os.artpath }}
+        working-directory: ${{ github.workspace }}/artifacts
         env:
           AWS_ACCESS_KEY_ID: ${{ secrets.CLOUDFLARE_API_ID }}
           AWS_SECRET_ACCESS_KEY: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           AWS_DEFAULT_REGION: weur
-        run: aws s3 sync . s3://${{ secrets.R2_BUCKET }}/${{ github.ref_name }} --endpoint-url ${{ secrets.S3_ENDPOINT }} --exclude "*" --include "*.tar" --include "*.deb" --checksum-algorithm=CRC32
+        run: aws s3 sync . s3://${{ secrets.R2_BUCKET }}/${{ github.ref_name }} --endpoint-url ${{ secrets.S3_ENDPOINT }} --exclude "*" --include "*.apk" --include "*.tar" --include "*.deb" --include "*.AppImage" --checksum-algorithm=CRC32
         continue-on-error: true
       - uses: actions/upload-artifact@v4
         with:
           name: ${{ runner.os }}-${{ runner.arch }}-Bundle
-          path: ${{ matrix.os.artifact }}
+          path: ${{ github.workspace }}/artifacts/*
   windows_installer:
     runs-on: windows-2025
     steps:

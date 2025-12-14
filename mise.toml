@@ -1,0 +1,49 @@
+[tools]
+rust = { version = "1.92", targets = "aarch64-apple-darwin,x86_64-unknown-linux-gnu,aarch64-unknown-linux-gnu" }
+"cargo:https://github.com/rust-mobile/xbuild" = "latest"
+"cargo:https://github.com/burtonageo/cargo-bundle" = "latest"
+
+[tasks.clippy]
+run = ["cargo clippy -r", "cargo clippy --features embed-assets -r"]
+
+[tasks.test]
+run = "cargo test -r"
+
+[tasks.apk]
+run = ["x doctor", "x build -r -p rusc --arch arm64 --platform android"]
+
+[tasks.deb]
+run = [
+    "cargo bundle -f deb -r -p rusc --bin rusc",
+    "cargo bundle -f deb -r -p rusc --bin kson-editor",
+]
+
+[tasks.appimage]
+run = [
+    "cargo bundle -f appimage -r -p rusc --bin rusc --features embed-assets",
+    "cargo bundle -f appimage -r -p rusc --bin kson-editor",
+]
+
+[tasks.osx]
+run = [
+    "cargo bundle -f osx --target aarch64-apple-darwin -r -p rusc --bin rusc",
+    "cargo bundle -f osx --target aarch64-apple-darwin -r -p rusc --bin kson-editor",
+]
+
+[tasks.ci]
+run = [
+    { task = "test" },
+    { task = "deb" },
+    { task = "appimage" },
+    { task = "apk" },
+]
+
+[tasks.artifacts]
+run = [
+    "rm -rf ./artifacts",
+    "mkdir artifacts",
+    "find . -name *.deb -exec mv {} ./artifacts \\;",
+    "find . -name *.AppImage -exec mv {} ./artifacts \\;",
+    "find . -name *.apk -exec mv {} ./artifacts \\;",
+    "find . -name *.tar -exec mv {} ./artifacts \\;",
+]

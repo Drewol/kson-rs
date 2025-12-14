@@ -110,6 +110,7 @@ log4rs = { version = "1.3.0", features = [
 regex = "1.11.1"
 multiplayer-protocol = { path = "../multiplayer-protocol" }
 strum = { version = "*", features = ["derive"] }
+include_dir = { version = "0.7", optional = true }
 
 [target.'cfg(target_os = "android")'.dependencies]
 android_logger = "0.13.3"
@@ -138,3 +139,4 @@ identifier = "dev.kson.editor"
 [features]
 default = []
 portable = []
+embed-assets = ["include_dir"]

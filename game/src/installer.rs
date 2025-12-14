@@ -42,7 +42,7 @@ pub fn default_game_dir() -> PathBuf {
 pub static GAME_DIR_OVERRIDE: OnceLock<PathBuf> = OnceLock::new();
 pub static INSTALL_DIR_OVERRIDE: OnceLock<PathBuf> = OnceLock::new();
 
-#[cfg(target_os = "android")]
+#[cfg(any(target_os = "android", feature = "embed-assets"))]
 pub fn init_game_dir(game_dir: impl AsRef<Path>) -> anyhow::Result<()> {
     use include_dir::*;
     static SKIN_DIR: Dir<'_> = include_dir!("$CARGO_MANIFEST_DIR/skins");
@@ -71,7 +71,7 @@ fn is_install_dir(dir: impl AsRef<Path>) -> Option<PathBuf> {
     }
 }
 
-#[cfg(not(target_os = "android"))]
+#[cfg(not(any(target_os = "android", feature = "embed-assets")))]
 pub fn init_game_dir(game_dir: impl AsRef<Path>) -> anyhow::Result<()> {
     #[cfg(feature = "portable")]
     {
