@@ -2,8 +2,8 @@ use std::{sync::mpsc::Sender, time::SystemTime};
 
 use anyhow::Result;
 use di::ServiceProvider;
-use winit::event::Event;
 use three_d::{RenderTarget, Viewport};
+use winit::event::Event;
 
 use crate::{
     button_codes::{LaserState, UscButton, UscInputEvent},
@@ -39,6 +39,9 @@ pub trait Scene {
     }
     fn suspend(&mut self) {}
     fn resume(&mut self) {}
+    fn reload_scripts(&mut self) -> Result<()> {
+        Ok(())
+    }
     fn is_suspended(&self) -> bool;
     fn debug_ui(&mut self, ctx: &egui::Context) -> Result<()>;
     fn closed(&self) -> bool;

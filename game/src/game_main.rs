@@ -9,6 +9,7 @@ use std::{
     time::{Duration, SystemTime},
 };
 
+use anyhow::Context;
 use di::{RefMut, ServiceProvider};
 use egui_glow::{egui_winit::accesskit_winit::WindowEvent, EguiGlow};
 use femtovg::Paint;
@@ -28,7 +29,7 @@ use puffin::{profile_function, profile_scope};
 
 use crate::{
     button_codes::UscButton, ir::InternetRanking, songselect::SongProviderSelection,
-    touch::TouchHelper, FrameInput,
+    touch::TouchHelper, util::Warn, FrameInput,
 };
 use mlua::Lua;
 use td::Modifiers;
@@ -99,6 +100,7 @@ pub enum ControlMessage {
     },
 
     ApplySettings,
+    ReloadScripts,
 }
 
 impl Default for ControlMessage {
@@ -486,6 +488,14 @@ impl GameMain {
                     let sink = service_provider.get_required::<rodio::Sink>();
                     sink.set_volume(settings.master_volume);
                 }
+                ControlMessage::ReloadScripts => {
+                    info!("Reloading scripts");
+                    scenes.for_each_active_mut(|s| {
+                        s.reload_scripts()
+                            .with_context(|| s.name().to_string())
+                            .warn("Reloading scripts failed");
+                    })
+                }
             }
         }
 
@@ -694,11 +704,8 @@ impl GameMain {
                 ..
             } => {
                 if !text_input_active {
-                    for button in GameConfig::get()
-                        .keybinds
-                        .iter()
-                        .filter_map(|x| x.match_button(*physical_key))
-                    {
+                    let binds = &GameConfig::get().keybinds;
+                    for button in binds.iter().filter_map(|x| x.match_button(*physical_key)) {
                         if self.input_state.is_button_held(button).is_none()
                             || *state == ElementState::Released
                         {
@@ -713,6 +720,14 @@ impl GameMain {
                             );
                             transformed_event = Some(Event::UserEvent(button));
                         }
+                    }
+
+                    if binds.iter().any(|x| x.is_reload_script(*physical_key))
+                        && *state == ElementState::Released
+                    {
+                        self.control_tx
+                            .send(ControlMessage::ReloadScripts)
+                            .expect("Got event before program control initialized");
                     }
 
                     #[cfg(target_os = "android")]

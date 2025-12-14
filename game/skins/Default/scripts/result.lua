@@ -47,8 +47,8 @@ local hitHistogram = {}
 local hitMinDelta = 0
 local hitMaxDelta = 0
 
-local NORMAL_HIT_WINDOW_PERFECT = 46
-local NORMAL_HIT_WINDOW_GOOD = 150
+local NORMAL_HIT_WINDOW_PERFECT = 41666667
+local NORMAL_HIT_WINDOW_GOOD = 150000000
 
 local hitWindowPerfect = NORMAL_HIT_WINDOW_PERFECT
 local hitWindowGood = NORMAL_HIT_WINDOW_GOOD
@@ -299,8 +299,8 @@ result_set = function()
         hitWindowGood = result.hitWindow.good
 
         if hitWindowPerfect ~= NORMAL_HIT_WINDOW_PERFECT or hitWindowGood ~= NORMAL_HIT_WINDOW_GOOD then
-            critText = string.format("%02.1fms CRIT", hitWindowPerfect)
-            nearText = string.format("%02.1fms NEAR", hitWindowGood)
+            critText = string.format("%02.1fms CRIT", hitWindowPerfect / 1000000.0)
+            nearText = string.format("%02.1fms NEAR", hitWindowGood / 1000000.0)
         end
     end
 

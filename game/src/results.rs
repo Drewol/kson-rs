@@ -21,7 +21,7 @@ use crate::{
     },
     game_main::AutoPlay,
     help,
-    ir::{self, IrResponseBody, IrServerResponse, ServerScore},
+    ir::{self, IrResponseBody, ServerScore},
     lua_service::LuaProvider,
     scene::{Scene, SceneData},
     song_provider::{DiffId, ScoreProvider, SongDiffId, SongId},
@@ -29,7 +29,7 @@ use crate::{
     vg_ui::Vgfx,
     ControlMessage,
 };
-use mlua::{Function, Lua, LuaSerdeExt};
+use mlua::{Function, Lua, LuaSerdeExt, Value};
 use serde_with::*;
 
 #[derive(Debug, Clone, Serialize, Default, ToLuaLsType)]
@@ -677,5 +677,27 @@ impl Scene for SongResult {
 
     fn name(&self) -> &str {
         "Song Result"
+    }
+
+    fn reload_scripts(&mut self) -> anyhow::Result<()> {
+        let new_lua = LuaProvider::new_lua();
+        self.services
+            .get_required::<LuaProvider>()
+            .register_libraries(new_lua.clone(), "result.lua")?;
+
+        let results: Value = self.lua.globals().get("result")?;
+        let results: serde_json::Value = self.lua.from_value(results)?;
+
+        new_lua
+            .globals()
+            .set("result", new_lua.to_value(&results)?)?;
+
+        if let Ok(result_set) = new_lua.globals().get::<Function>("result_set") {
+            result_set.call::<()>(())?;
+        }
+
+        self.lua = new_lua;
+
+        Ok(())
     }
 }

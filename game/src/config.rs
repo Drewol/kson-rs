@@ -202,6 +202,7 @@ pub struct Keybinds {
     refresh: PhysicalKey,
     laser_l: (PhysicalKey, PhysicalKey),
     laser_r: (PhysicalKey, PhysicalKey),
+    reload_scripts: PhysicalKey,
 }
 
 impl Keybinds {
@@ -258,6 +259,10 @@ impl Keybinds {
         }
     }
 
+    pub fn is_reload_script(&self, key: PhysicalKey) -> bool {
+        key == self.reload_scripts
+    }
+
     pub fn match_button(&self, key: PhysicalKey) -> Option<UscButton> {
         let Keybinds {
             bt_a,
@@ -271,6 +276,7 @@ impl Keybinds {
             refresh,
             laser_l: (ll_l, ll_r),
             laser_r: (rl_l, rl_r),
+            reload_scripts: _,
         } = self;
 
         //TODO: Better way?
@@ -314,6 +320,7 @@ impl Default for Keybinds {
                 PhysicalKey::Code(KeyCode::KeyO),
                 PhysicalKey::Code(KeyCode::KeyP),
             ), // (O,P)
+            reload_scripts: PhysicalKey::Code(KeyCode::F9),
         }
     }
 }
