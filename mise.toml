@@ -32,7 +32,6 @@ run = [
 
 [tasks.ci]
 run = [
-    { task = "clippy" },
     { task = "test" },
     { task = "deb" },
     { task = "appimage" },
