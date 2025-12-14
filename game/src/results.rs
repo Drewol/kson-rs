@@ -602,7 +602,7 @@ impl Scene for SongResult {
 
     fn render_ui(&mut self, dt: f64) -> anyhow::Result<()> {
         let render_fn: Function = self.lua.globals().get("render")?;
-        render_fn.call(dt / 1000.0)?;
+        render_fn.call::<()>(dt / 1000.0)?;
 
         self.screenshot_state = match self.screenshot_state {
             ScreenshotState::NotRendered => ScreenshotState::Rendered,

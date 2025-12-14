@@ -260,8 +260,8 @@ impl SongSelectScene {
         )?;
 
         let set_selection: Function = self.filter_lua.globals().get("set_selection")?;
-        set_selection.call((self.level_filter + 1, false))?;
-        set_selection.call((self.folder_filter_index + 1, true))?;
+        set_selection.call::<()>((self.level_filter + 1, false))?;
+        set_selection.call::<()>((self.folder_filter_index + 1, true))?;
 
         Ok((filters, sorts))
     }
@@ -435,19 +435,19 @@ impl Scene for SongSelectScene {
     fn render_ui(&mut self, dt: f64) -> Result<()> {
         profile_function!();
         let render_bg: Function = self.background_lua.globals().get("render")?;
-        render_bg.call(dt / 1000.0)?;
+        render_bg.call::<()>(dt / 1000.0)?;
 
         let render_wheel: Function = self.lua.globals().get("render")?;
-        render_wheel.call(dt / 1000.0)?;
+        render_wheel.call::<()>(dt / 1000.0)?;
 
         let render_filters: Function = self.filter_lua.globals().get("render")?;
-        render_filters.call((
+        render_filters.call::<()>((
             dt / 1000.0,
             matches!(self.menu_state, MenuState::Folders | MenuState::Levels),
         ))?;
 
         let render_sorting: Function = self.sort_lua.globals().get("render")?;
-        render_sorting.call((dt / 1000.0, self.menu_state == MenuState::Sorting))?;
+        render_sorting.call::<()>((dt / 1000.0, self.menu_state == MenuState::Sorting))?;
 
         self.settings_dialog.render(dt)?;
 
@@ -777,7 +777,7 @@ impl Scene for SongSelectScene {
                             .set_sort(self.sorts[self.sort_index]);
                         let set_selection: Function =
                             self.sort_lua.globals().get("set_selection")?;
-                        set_selection.call(self.sort_index + 1)?;
+                        set_selection.call::<()>(self.sort_index + 1)?;
                     }
                 }
             }
@@ -794,7 +794,7 @@ impl Scene for SongSelectScene {
                             self.level_filter,
                         ));
                     let set_selection: Function = self.filter_lua.globals().get("set_selection")?;
-                    set_selection.call((self.level_filter + 1, false))?;
+                    set_selection.call::<()>((self.level_filter + 1, false))?;
                 }
             }
             MenuState::Folders => {
@@ -812,7 +812,7 @@ impl Scene for SongSelectScene {
                         );
                         let set_selection: Function =
                             self.filter_lua.globals().get("set_selection")?;
-                        set_selection.call((self.folder_filter_index + 1, true))?;
+                        set_selection.call::<()>((self.folder_filter_index + 1, true))?;
                     }
                 }
             }
