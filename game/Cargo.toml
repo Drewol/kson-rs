@@ -49,7 +49,7 @@ mlua = { version = "0.10", features = [
     "anyhow",
 ] }
 three-d = { git = "https://github.com/asny/three-d.git", rev = "2683e0fea70c0c0da579550d4412880ff7fb09fd", default-features = false }
-bitflags = "1"
+bitflags = "2"
 once_cell = "1"
 walkdir = "*"
 log = { workspace = true }
