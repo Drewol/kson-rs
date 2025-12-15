@@ -394,6 +394,14 @@ impl SettingsDialog {
         Ok(())
     }
 
+    pub fn reload_script(&mut self, load_lua: &LuaProvider) -> anyhow::Result<()> {
+        let lua = LuaProvider::new_lua();
+        lua.globals().set("SettingsDiag", &*self)?;
+        load_lua.register_libraries(lua.clone(), "gamesettingsdialog.lua")?;
+        self.lua = lua;
+        Ok(())
+    }
+
     pub fn general_settings(
         input_state: InputState,
         services: di::ServiceProvider,
