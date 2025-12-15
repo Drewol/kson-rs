@@ -178,4 +178,18 @@ impl Scene for MainMenu {
     fn name(&self) -> &str {
         "Main Menu"
     }
+
+    fn reload_scripts(&mut self) -> Result<()> {
+        let lua = LuaProvider::new_lua();
+        let (tx, button_rx) = std::sync::mpsc::channel();
+        lua.set_app_data(tx);
+        _ = lua.globals().set("Menu", Bindings);
+        self.service_provider
+            .get_required::<LuaProvider>()
+            .register_libraries(lua.clone(), "titlescreen.lua")?;
+
+        self.button_rx = button_rx;
+        self.lua = lua;
+        Ok(())
+    }
 }
