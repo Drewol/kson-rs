@@ -2338,6 +2338,34 @@ impl Scene for Game {
     fn name(&self) -> &str {
         "Game"
     }
+
+    fn reload_scripts(&mut self) -> Result<()> {
+        let lua_provider: Arc<LuaProvider> = self.service_provider.get_required();
+        let lua = LuaProvider::new_lua();
+        lua_provider.register_libraries(lua.clone(), "gameplay.lua")?;
+
+        self.multiplayer.init_lua(&lua);
+
+        let lua_game_state = lua.to_value(&self.lua_game_state)?;
+        lua.globals().set("gameplay", lua_game_state)?;
+
+        let render_intro = lua
+            .globals()
+            .get::<Function>("render_intro")
+            .context("No 'render_intro' function")?;
+        let mut intro_timer = 10000;
+        let intro_step_ms = 20;
+        while intro_timer > 0 {
+            if render_intro.call::<bool>(intro_step_ms)? {
+                break;
+            }
+            intro_timer -= intro_step_ms;
+        }
+
+        self.lua = lua;
+
+        Ok(())
+    }
 }
 
 impl Drop for Game {
