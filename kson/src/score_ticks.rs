@@ -1,11 +1,32 @@
+use std::{cell::RefCell, rc::Rc};
+
 use crate::*;
 
 #[derive(Debug, Copy, Clone, PartialEq)]
+pub struct KeySoundEvent {
+    pub file: i32,
+    pub volume: f64,
+}
+
+#[derive(Debug, Copy, Clone, PartialEq)]
 pub enum ScoreTick {
-    Laser { lane: usize, pos: f64 },
-    Slam { lane: usize, start: f64, end: f64 },
-    Chip { lane: usize },
-    Hold { lane: usize, start_tick: u32 },
+    Laser {
+        lane: usize,
+        pos: f64,
+    },
+    Slam {
+        lane: usize,
+        start: f64,
+        end: f64,
+    },
+    Chip {
+        lane: usize,
+        key_sound: Option<KeySoundEvent>,
+    },
+    Hold {
+        lane: usize,
+        start_tick: u32,
+    },
 }
 
 impl ScoreTick {
@@ -17,7 +38,7 @@ impl ScoreTick {
                 start: _,
                 end: _,
             } => *lane,
-            ScoreTick::Chip { lane } => *lane,
+            ScoreTick::Chip { lane, .. } => *lane,
             ScoreTick::Hold { lane, .. } => *lane,
         }
     }
@@ -58,11 +79,55 @@ fn get_hold_step_at(y: u32, chart: &Chart) -> u32 {
     }
 }
 
-fn ticks_from_interval(interval: &Interval, lane: usize, chart: &Chart) -> Vec<PlacedScoreTick> {
+fn ticks_from_interval(
+    interval: &Interval,
+    lane: usize,
+    chart: &Chart,
+    key_sound_map: Rc<RefCell<HashMap<i32, String>>>,
+) -> Vec<PlacedScoreTick> {
+    let mut key_sound_map = key_sound_map.borrow_mut();
     if interval.l == 0 {
+        // Find keysound
+        let key_sound = if lane < 4 {
+            None
+        } else {
+            if let Some((file, event_idx)) =
+                chart
+                    .audio
+                    .key_sound
+                    .fx
+                    .chip_event
+                    .iter()
+                    .find_map(|(file, sides)| {
+                        sides[lane - 4]
+                            .binary_search_by_key(&interval.y, |v| v.0)
+                            .ok()
+                            .map(|s| (file, s))
+                    })
+            {
+                let (_, event) = &chart.audio.key_sound.fx.chip_event[file][lane - 4][event_idx];
+
+                if let Some((key, _)) = key_sound_map.iter().find(|(_, value)| *value == file) {
+                    Some(KeySoundEvent {
+                        file: *key,
+                        volume: event.vol,
+                    })
+                } else {
+                    let next_idx = key_sound_map.len() as i32;
+                    key_sound_map.insert(next_idx, file.clone());
+                    Some(KeySoundEvent {
+                        file: next_idx,
+                        volume: event.vol,
+                    })
+                }
+            } else {
+                None
+            }
+        };
+
         vec![PlacedScoreTick {
             y: interval.y,
-            tick: ScoreTick::Chip { lane },
+            tick: ScoreTick::Chip { lane, key_sound },
         }]
     } else {
         let mut res = Vec::new();
@@ -178,35 +243,44 @@ fn ticks_from_laser_section(
     res
 }
 
-type ScoreTicks = Vec<PlacedScoreTick>;
+pub struct ScoreTicks {
+    pub ticks: Vec<PlacedScoreTick>,
+    pub key_sound_map: HashMap<i32, String>,
+}
 
 pub fn generate_score_ticks(chart: &Chart) -> ScoreTicks {
-    let mut res = Vec::new();
+    let mut ticks = Vec::new();
+    let key_sound_map = Rc::new(RefCell::new(HashMap::new()));
 
-    res.append(
+    ticks.append(
         &mut chart
             .note
             .bt
             .iter()
             .enumerate()
-            .flat_map(|(lane, l)| l.iter().map(move |i| ticks_from_interval(i, lane, chart)))
+            .flat_map(|(lane, l)| {
+                let ksm = key_sound_map.clone();
+                l.iter()
+                    .map(move |i| ticks_from_interval(i, lane, chart, ksm.clone()))
+            })
             .flatten()
             .collect(),
     );
-    res.append(
+    ticks.append(
         &mut chart
             .note
             .fx
             .iter()
             .enumerate()
             .flat_map(|(lane, l)| {
+                let ksm = key_sound_map.clone();
                 l.iter()
-                    .map(move |i| ticks_from_interval(i, lane + 4, chart))
+                    .map(move |i| ticks_from_interval(i, lane + 4, chart, ksm.clone()))
             })
             .flatten()
             .collect(),
     );
-    res.append(
+    ticks.append(
         &mut chart
             .note
             .laser
@@ -220,16 +294,22 @@ pub fn generate_score_ticks(chart: &Chart) -> ScoreTicks {
             .collect(),
     );
 
-    res.sort_by(|pa, pb| pa.y.cmp(&pb.y));
+    ticks.sort_by(|pa, pb| pa.y.cmp(&pb.y));
+    let key_sound_map = Rc::try_unwrap(key_sound_map)
+        .expect("Reference kept in closure")
+        .into_inner();
 
-    res
+    ScoreTicks {
+        ticks,
+        key_sound_map,
+    }
 }
 
 impl ScoreTicker for ScoreTicks {
     fn summary(&self) -> ScoreTickSummary {
         let mut res: ScoreTickSummary = Default::default();
 
-        for t in self {
+        for t in self.ticks.iter() {
             res.total += 1;
             match t.tick {
                 ScoreTick::Laser { .. } => res.laser_count += 1,
@@ -243,7 +323,7 @@ impl ScoreTicker for ScoreTicks {
     }
 
     fn get_combo_at(&self, y: u32) -> u32 {
-        match self.binary_search_by(|f| f.y.cmp(&y)) {
+        match self.ticks.binary_search_by(|f| f.y.cmp(&y)) {
             Ok(c) => c as u32 + 1,
             Err(c) => c as u32,
         }

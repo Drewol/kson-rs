@@ -25,9 +25,10 @@ pub fn main() -> Result<()> {
     let score_ticks = kson::score_ticks::generate_score_ticks(&chart);
 
     let tick_types = score_ticks
+        .ticks
         .iter()
         .fold((0, 0, 0, 0), |acc, tick| match tick.tick {
-            kson::score_ticks::ScoreTick::Chip { lane: _ } => (acc.0 + 1, acc.1, acc.2, acc.3),
+            kson::score_ticks::ScoreTick::Chip { .. } => (acc.0 + 1, acc.1, acc.2, acc.3),
             kson::score_ticks::ScoreTick::Hold { .. } => (acc.0, acc.1 + 1, acc.2, acc.3),
             kson::score_ticks::ScoreTick::Laser { lane: _, pos: _ } => {
                 (acc.0, acc.1, acc.2 + 1, acc.3)
@@ -44,7 +45,7 @@ pub fn main() -> Result<()> {
     println!("Laser:\t{}", tick_types.2);
     println!("Slam:\t{}", tick_types.3);
     println!("----");
-    println!("Total:\t{}", score_ticks.len());
+    println!("Total:\t{}", score_ticks.ticks.len());
 
     Ok(())
 }

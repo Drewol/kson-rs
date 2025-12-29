@@ -600,6 +600,30 @@ impl Ksh for crate::Chart {
                             laser_curves[1] =
                                 parse_ksh_curve_value(&line_value).with_line(file_line)?
                         }
+                        "fx-l_se" | "fx-r_se" => {
+                            let sound_info = &mut new_chart.audio.key_sound.fx;
+                            let (file, volume) = &line_value
+                                .rsplit_once(';')
+                                .unwrap_or_else(|| (&line_value, "100"));
+                            let volume: i32 = volume.parse().with_line(file_line)?;
+
+                            let side_idx = if line_prop.chars().nth(3) == Some('l') {
+                                0
+                            } else {
+                                1
+                            };
+
+                            let entries =
+                                &mut sound_info.chip_event.entry(file.to_string()).or_default()
+                                    [side_idx];
+
+                            entries.push((
+                                y,
+                                KeySoundInvokeFX {
+                                    vol: volume as f64 / 100.0,
+                                },
+                            ));
+                        }
                         _ => (),
                     }
                 }

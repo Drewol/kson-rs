@@ -1,4 +1,4 @@
-use std::{path::Path, rc::Rc, sync::Arc};
+use std::{collections::HashSet, path::Path, rc::Rc, sync::Arc};
 
 use crate::{config::GameConfig, game::HoldState};
 
@@ -10,10 +10,11 @@ pub struct ChartView {
     laser_meshes: [Vec<Vec<graphics::GlVertex>>; 2],
     track: CpuMesh,
     distant_button_scale: f32,
+    key_sounds: [HashSet<u32>; 2],
 }
 
 use anyhow::anyhow;
-use kson::{do_curve, Graph, GraphSectionPoint, KSON_RESOLUTION};
+use kson::{do_curve, score_ticks::ScoreTick, Graph, GraphSectionPoint, KSON_RESOLUTION};
 use puffin::{profile_function, profile_scope};
 use three_d::{
     vec2, vec3, Blend, ColorMaterial, CpuMesh, DepthTest, Indices, Mat3, RenderStates, Texture2D,
@@ -102,6 +103,7 @@ impl ChartView {
             hispeed: 1.0,
             laser_meshes: [Vec::new(), Vec::new()],
             track,
+            key_sounds: Default::default(),
         })
     }
 
@@ -247,8 +249,7 @@ impl ChartView {
             BtChip,
             BtHold,
             BtHoldActive(usize, u32),
-            FxChip,
-            FxChipSample,
+            FxChip(bool),
             FxHold,
             FxHoldActive(usize, u32),
         }
@@ -318,7 +319,7 @@ impl ChartView {
                                 NoteType::FxHold
                             }
                         } else {
-                            NoteType::FxChip
+                            NoteType::FxChip(self.key_sounds[i].contains(&n.y))
                         },
                     ));
                 }
@@ -329,7 +330,7 @@ impl ChartView {
             profile_scope!("Transform notes");
             notes.iter().map(|n| {
                 let distance_scale = match n.2 {
-                    NoteType::BtChip | NoteType::FxChip | NoteType::FxChipSample => {
+                    NoteType::BtChip | NoteType::FxChip(..) => {
                         ((n.0.y / Self::TRACK_LENGTH) * self.distant_button_scale).max(1.0)
                     }
                     _ => 1.0,
@@ -405,8 +406,7 @@ impl ChartView {
                             HoldState::Miss
                         },
                     )),
-                    NoteType::FxChip => fx_chip.push((n.0, false)),
-                    NoteType::FxChipSample => fx_chip.push((n.0, true)),
+                    NoteType::FxChip(has_sample) => fx_chip.push((n.0, has_sample)),
                     NoteType::FxHold => fx_hold.push((n.0, HoldState::Idle)),
                     NoteType::FxHoldActive(side, y) => fx_hold.push((
                         n.0,
@@ -471,5 +471,27 @@ impl ChartView {
             lasers,
             lane_beams,
         })
+    }
+
+    pub(crate) fn build_key_sound_map(&mut self, score_ticks: &kson::score_ticks::ScoreTicks) {
+        let mut key_sounds: [HashSet<u32>; 2] = Default::default();
+
+        for ele in &score_ticks.ticks {
+            let ScoreTick::Chip {
+                lane,
+                key_sound: Some(_),
+            } = ele.tick
+            else {
+                continue;
+            };
+
+            if lane < 4 {
+                continue;
+            }
+
+            key_sounds[lane - 4].insert(ele.y);
+        }
+
+        self.key_sounds = key_sounds;
     }
 }

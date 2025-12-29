@@ -739,23 +739,23 @@ impl BgmInfo {
     }
 }
 
-#[derive(Serialize, Deserialize, Clone, Default)]
+#[derive(Serialize, Deserialize, Clone, Default, PartialEq)]
 pub struct KeySoundInfo {
     pub fx: KeySoundFXInfo,
     pub laser: KeySoundLaserInfo,
 }
 
-#[derive(Serialize, Deserialize, Clone, Default)]
+#[derive(Serialize, Deserialize, Clone, Default, PartialEq)]
 pub struct KeySoundLaserInfo {
     pub vol: ByPulse<f64>,
 }
 
-#[derive(Serialize, Deserialize, Clone, Default)]
+#[derive(Serialize, Deserialize, Clone, Default, PartialEq)]
 pub struct KeySoundFXInfo {
-    pub chip_event: HashMap<String, [Vec<ByPulse<KeySoundInvokeFX>>; 2]>,
+    pub chip_event: HashMap<String, [ByPulse<KeySoundInvokeFX>; 2]>,
 }
 
-#[derive(Serialize, Deserialize, Clone)]
+#[derive(Serialize, Deserialize, Clone, PartialEq)]
 pub struct KeySoundInvokeFX {
     pub vol: f64,
 }
@@ -796,7 +796,7 @@ pub struct AudioInfo {
     pub bgm: BgmInfo,
     #[serde(default, skip_serializing_if = "crate::IsDefault::is_default")]
     pub audio_effect: AudioEffectInfo,
-    #[serde(skip_deserializing)]
+    #[serde(default, skip_serializing_if = "crate::IsDefault::is_default")]
     pub key_sound: KeySoundInfo,
 }
 

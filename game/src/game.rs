@@ -22,7 +22,9 @@ use image::GenericImageView;
 use itertools::Itertools;
 use kson::{
     effects::AudioEffect,
-    score_ticks::{PlacedScoreTick, ScoreTick, ScoreTickSummary, ScoreTicker},
+    score_ticks::{
+        KeySoundEvent, PlacedScoreTick, ScoreTick, ScoreTickSummary, ScoreTicker, ScoreTicks,
+    },
     Chart, Graph, Side,
 };
 use kson_music_playback::GetBiQuadState;
@@ -97,7 +99,7 @@ pub struct Game {
     results_requested: bool,
     closed: bool,
     playback: kson_music_playback::AudioPlayback,
-    score_ticks: Vec<PlacedScoreTick>,
+    score_ticks: ScoreTicks,
     score_current_max: u64,
     score_summary: ScoreTickSummary,
     score_display: ScoreDisplayMode,
@@ -125,6 +127,7 @@ pub struct Game {
     biquad_control: BiquadController,
     source_owner: owned_source::Marker,
     slam_sample: Option<Buffered<Decoder<std::fs::File>>>,
+    key_sounds: HashMap<i32, Buffered<Decoder<std::fs::File>>>,
     slam_marker: owned_source::Marker,
     background: Option<GameBackground>,
     foreground: Option<GameBackground>,
@@ -683,7 +686,7 @@ impl SceneData for GameData {
 
         let mut bg_folders = vec![bg_folder.with_file_name("fallback"), bg_folder.clone()];
 
-        if let Some(mut song_folder) = song_folder {
+        if let Some(mut song_folder) = song_folder.clone() {
             if let Some(name) = chart
                 .bg
                 .legacy
@@ -769,6 +772,7 @@ impl SceneData for GameData {
             autoplay,
             chip_h,
             laser_colors,
+            song_folder,
         )?))
     }
 }
@@ -802,9 +806,11 @@ impl Game {
         autoplay: AutoPlay,
         chip_h: f32,
         laser_colors: [three_d::Vector4<f32>; 2],
+        song_folder: Option<PathBuf>,
     ) -> Result<Self> {
         let mut view = ChartView::new(skin_root, td)?;
         view.build_laser_meshes(&chart);
+
         view.hispeed = (GameConfig::get().mod_speed
             / chart
                 .mode_bpm()
@@ -816,6 +822,33 @@ impl Game {
         slam_path.push("laser_slam.wav");
 
         let score_ticks = kson::score_ticks::generate_score_ticks(&chart);
+        view.build_key_sound_map(&score_ticks);
+
+        let mut key_sounds = HashMap::new();
+        for (key, file) in score_ticks.key_sound_map.iter() {
+            let Some(path) = song_folder
+                .iter()
+                .flat_map(|x| [x.join(file), x.join(file).with_extension("wav")])
+                .chain([
+                    slam_path.with_file_name(file),
+                    slam_path.with_file_name(file).with_extension("wav"),
+                ])
+                .find(|x| x.exists())
+            else {
+                warn!("No file found for keysound: {file}");
+                continue;
+            };
+            let Ok(file) = std::fs::File::open(&path) else {
+                warn!("Could not open keysound {path:?}");
+                continue;
+            };
+            let Ok(decoder) = Decoder::new(file) else {
+                warn!("Bad keysound audio file {path:?}");
+                continue;
+            };
+
+            key_sounds.insert(*key, decoder.buffered());
+        }
 
         // Set up ticks to score for deterministic laser/hold scoring
         let last_tick = chart.get_last_tick();
@@ -912,6 +945,7 @@ impl Game {
             laser_offset: -GameConfig::get().laser_offset as _,
             combo_state: ComboState::Perfect,
             render_ms: 0.0,
+            key_sounds,
         };
         res.set_track_uniforms();
         Ok(res)
@@ -1091,8 +1125,12 @@ impl Game {
                 delta,
                 time: _,
             } => match tick.tick {
-                ScoreTick::Chip { lane } => {
+                ScoreTick::Chip { lane, key_sound } => {
                     self.beam_colors_current[lane] = self.get_beam_color(lane, 2, delta);
+
+                    if let Some(key_sound) = key_sound {
+                        self.play_keysound(key_sound);
+                    }
                 }
                 ScoreTick::Slam { lane, start, end } => {
                     let laser_slam_hit = self.lua.globals().get::<Function>("laser_slam_hit");
@@ -1164,10 +1202,14 @@ impl Game {
                 delta,
                 time: _,
             } => {
-                if let ScoreTick::Chip { lane } = tick.tick {
+                if let ScoreTick::Chip { lane, key_sound } = tick.tick {
                     self.beam_colors_current[lane] = self.get_beam_color(lane, 1, delta);
                     if let Ok(near_hit) = self.lua.globals().get::<Function>("near_hit") {
                         log_result!(near_hit.call::<()>(delta < 0.0));
+                    }
+
+                    if let Some(key_sound) = key_sound {
+                        self.play_keysound(key_sound);
                     }
                 }
             }
@@ -1177,7 +1219,7 @@ impl Game {
                 delta,
                 time: _,
             } => {
-                if let ScoreTick::Chip { lane } = tick.tick {
+                if let ScoreTick::Chip { lane, .. } = tick.tick {
                     if delta.abs() > f64::EPSILON {
                         self.beam_colors_current[lane] = self.get_beam_color(lane, 0, 0.0);
                     }
@@ -1188,6 +1230,15 @@ impl Game {
         }
 
         self.gauge.on_hit(hit_rating);
+    }
+
+    fn play_keysound(&self, KeySoundEvent { file, volume }: KeySoundEvent) {
+        let Some(sound) = self.key_sounds.get(&file) else {
+            return;
+        };
+
+        let sound = sound.clone().amplify(volume as _).convert_samples();
+        self.mixer.add(sound);
     }
 
     fn get_beam_color(&mut self, lane: usize, rating: usize, delta: f64) -> [f32; 4] {
@@ -1310,7 +1361,7 @@ impl Game {
         let avg_delta: f64 =
             self.sync_delta.iter().fold(0.0, |a, c| a + c) / Self::AVG_DELTA_LEN as f64;
 
-        if playback_ms > 0.0 && !self.score_ticks.is_empty() {
+        if playback_ms > 0.0 && !self.score_ticks.ticks.is_empty() {
             if avg_delta.abs() > 250.0 {
                 self.sync_delta.clear();
                 self.zero_time = SystemTime::now().sub(Duration::from_millis(playback_ms as _));
@@ -1387,6 +1438,7 @@ impl Game {
             //TODO: If on straight laser, keep assist high
             let next_laser_is_slam = || {
                 self.score_ticks
+                    .ticks
                     .iter()
                     .find(|t| match t.tick {
                         ScoreTick::Laser { lane, .. } => lane == side,
@@ -1408,16 +1460,20 @@ impl Game {
         }
 
         let mut i = 0;
-        while i < self.score_ticks.len() {
-            if self.score_ticks[i].y > tick {
+        while i < self.score_ticks.ticks.len() {
+            if self.score_ticks.ticks[i].y > tick {
                 break;
             }
 
-            match self.process_score_tick(self.score_ticks[i], missed_chip_tick, missed_chip_tick) {
+            match self.process_score_tick(
+                self.score_ticks.ticks[i],
+                missed_chip_tick,
+                missed_chip_tick,
+            ) {
                 HitRating::None => i += 1,
                 r => {
                     self.on_hit(r);
-                    self.score_ticks.remove(i);
+                    self.score_ticks.ticks.remove(i);
                     self.score_current_max += 2;
                 }
             }
@@ -1510,7 +1566,7 @@ impl Game {
                     HitRating::None
                 }
             }
-            ScoreTick::Chip { lane: _ } => {
+            ScoreTick::Chip { .. } => {
                 if tick.y < chip_miss_tick {
                     HitRating::Miss {
                         tick,
@@ -1671,14 +1727,18 @@ impl Game {
             self.with_offset(self.current_time().as_secs_f64() * 1000.0)
                 + miss.as_secs_f64() * 1000.0,
         ) + 1;
-        let mut hittable_ticks = self.score_ticks.iter().take_while(|x| x.y < last_tick);
+        let mut hittable_ticks = self
+            .score_ticks
+            .ticks
+            .iter()
+            .take_while(|x| x.y < last_tick);
         let mut hit_rating = HitRating::None;
         match button {
             crate::button_codes::UscButton::BT(_) | crate::button_codes::UscButton::FX(_)
                 if !self.auto_buttons() =>
             {
                 if let Some((index, score_tick)) = hittable_ticks.find_position(|x| {
-                    if let ScoreTick::Chip { lane } | ScoreTick::Hold { lane, .. } = x.tick {
+                    if let ScoreTick::Chip { lane, .. } | ScoreTick::Hold { lane, .. } = x.tick {
                         lane == button_num as usize
                     } else {
                         false
@@ -1714,7 +1774,7 @@ impl Game {
                         HitRating::None => {}
                         _ => {
                             self.on_hit(hit_rating);
-                            self.score_ticks.remove(index);
+                            self.score_ticks.ticks.remove(index);
                             self.score_current_max += 2;
                         }
                     }
@@ -1908,19 +1968,19 @@ impl Scene for Game {
                         ui.end_row();
 
                         for i in 0..6 {
-                            let mut next_tick = self
-                                .score_ticks
-                                .iter()
-                                .filter(|x| x.y > current_tick)
-                                .find(|x| match x.tick {
-                                    ScoreTick::Chip { lane } | ScoreTick::Hold { lane, .. } => {
-                                        lane == i
-                                    }
-                                    _ => false,
-                                })
-                                .map(|x| x.y)
-                                .unwrap_or(u32::MAX)
-                                .saturating_sub(current_tick);
+                            let mut next_tick =
+                                self.score_ticks
+                                    .ticks
+                                    .iter()
+                                    .filter(|x| x.y > current_tick)
+                                    .find(|x| match x.tick {
+                                        ScoreTick::Chip { lane, .. }
+                                        | ScoreTick::Hold { lane, .. } => lane == i,
+                                        _ => false,
+                                    })
+                                    .map(|x| x.y)
+                                    .unwrap_or(u32::MAX)
+                                    .saturating_sub(current_tick);
                             ui.label(match i {
                                 0 => "BT A",
                                 1 => "BT B",

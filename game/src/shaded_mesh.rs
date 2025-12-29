@@ -374,7 +374,6 @@ impl ShadedMesh {
         let name = name.into();
         let mut cpu_texture: CpuTexture = three_d_asset::io::load_and_deserialize(path)?;
 
-        log::info!("{}", &cpu_texture.name);
         cpu_texture.data = match cpu_texture.data {
             three_d::TextureData::RU8(luma) => {
                 three_d::TextureData::RgbaU8(luma.into_iter().map(|v| [v, v, v, 255u8]).collect())
