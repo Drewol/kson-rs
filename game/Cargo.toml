@@ -90,7 +90,7 @@ serde_with = "3.8.1"
 more-di = { version = "3.1.0", features = ["async"] }
 bus = "2.4.1"
 luals-gen = { git = "https://github.com/Drewol/luals-gen.git" }
-tokio-tungstenite = "0.24.0"
+tokio-tungstenite = "0.28.0"
 schemars = "0.8.21"
 futures-util = "0.3.31"
 specta = { version = "1.0.5", features = ["export"] }
