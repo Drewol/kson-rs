@@ -28,8 +28,8 @@ use glutin::{
 use puffin::{profile_function, profile_scope};
 
 use crate::{
-    ir::InternetRanking, songselect::SongProviderSelection,
-    touch::TouchHelper, util::Warn, FrameInput,
+    ir::InternetRanking, songselect::SongProviderSelection, touch::TouchHelper, util::Warn,
+    FrameInput,
 };
 use mlua::Lua;
 use td::Modifiers;
@@ -39,7 +39,7 @@ use three_d as td;
 
 use crate::LuaArena;
 use crate::{
-    button_codes::{LaserState, UscInputEvent},
+    button_codes::{LaserState, UscButton, UscInputEvent},
     companion_interface::{self},
     config::{Fullscreen, GameConfig},
     game::{gauge::Gauge, HitRating},
@@ -103,7 +103,6 @@ pub enum ControlMessage {
     ApplySettings,
     ReloadScripts,
 }
-
 
 pub struct GameMain {
     lua_arena: di::RefMut<LuaArena>,
@@ -692,7 +691,7 @@ impl GameMain {
                             KeyEvent {
                                 physical_key,
                                 state,
-                                logical_key: _,
+                                logical_key,
                                 ..
                             },
                         ..
