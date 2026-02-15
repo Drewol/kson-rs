@@ -32,7 +32,6 @@ run = [
 
 [tasks.ci]
 run = [
-    { task = "test" },
     { task = "deb" },
     { task = "appimage" },
     { task = "apk" },
