@@ -10,7 +10,7 @@ pub trait EffectEditor {
 impl EffectEditor for kson::effects::AudioEffect {
     fn edit(&mut self, ui: &mut eframe::egui::Ui) {
         match self {
-            kson::effects::AudioEffect::ReTrigger(r) => {
+            kson::effects::AudioEffect::Retrigger(r) => {
                 let ReTrigger {
                     update_period,
                     wave_length,
@@ -245,7 +245,7 @@ impl EffectEditor for kson::effects::AudioEffect {
                 ui.add(param_editor(mix, false));
                 ui.end_row();
             }
-            kson::effects::AudioEffect::SideChain(kson::effects::SideChain {
+            kson::effects::AudioEffect::Sidechain(kson::effects::Sidechain {
                 period,
                 hold_time,
                 attack_time,
@@ -272,9 +272,9 @@ impl EffectEditor for kson::effects::AudioEffect {
                 ui.add(param_editor(ratio, false));
                 ui.end_row();
             }
-            kson::effects::AudioEffect::AudioSwap(swa) => {
+            kson::effects::AudioEffect::SwitchAudio(swa) => {
                 ui.label("Filename");
-                ui.text_edit_singleline(swa);
+                ui.text_edit_singleline(&mut swa.filename);
                 ui.end_row();
             }
             kson::effects::AudioEffect::HighPassFilter(kson::effects::HighPassFilter {

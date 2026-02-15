@@ -47,8 +47,8 @@ pub struct CameraTool {
 impl CameraTool {
     fn current_graph<'a>(&mut self, chart: &'a kson::Chart) -> &'a Vec<kson::GraphPoint> {
         match self.display_line {
-            CameraPaths::Zoom => &chart.camera.cam.body.zoom,
-            CameraPaths::RotationX => &chart.camera.cam.body.rotation_x,
+            CameraPaths::Zoom => &chart.camera.cam.body.zoom_bottom,
+            CameraPaths::RotationX => &chart.camera.cam.body.zoom_top,
         }
     }
 }
@@ -81,11 +81,11 @@ impl CursorObject for CameraTool {
     ) -> anyhow::Result<()> {
         let (graph, stroke) = match self.display_line {
             CameraPaths::Zoom => (
-                &state.chart.camera.cam.body.zoom,
+                &state.chart.camera.cam.body.zoom_bottom,
                 Stroke::new(1.0, Rgba::from_rgb(1.0, 1.0, 0.0)),
             ),
             CameraPaths::RotationX => (
-                &state.chart.camera.cam.body.rotation_x,
+                &state.chart.camera.cam.body.zoom_top,
                 Stroke::new(1.0, Rgba::from_rgb(0.0, 1.0, 1.0)),
             ),
         };
@@ -195,8 +195,8 @@ impl CursorObject for CameraTool {
                 ),
                 move |chart| {
                     let graph = match active_line {
-                        CameraPaths::Zoom => &mut chart.camera.cam.body.zoom,
-                        CameraPaths::RotationX => &mut chart.camera.cam.body.rotation_x,
+                        CameraPaths::Zoom => &mut chart.camera.cam.body.zoom_bottom,
+                        CameraPaths::RotationX => &mut chart.camera.cam.body.zoom_top,
                     };
 
                     if let Some(point) = graph.get_mut(ci) {
@@ -219,13 +219,19 @@ impl CursorObject for CameraTool {
         let old_rad = if self.radius_dirty {
             self.radius
         } else {
-            state.chart.camera.cam.body.zoom.value_at(cursor_tick) as f32
+            state
+                .chart
+                .camera
+                .cam
+                .body
+                .zoom_bottom
+                .value_at(cursor_tick) as f32
         };
 
         let old_angle = if self.angle_dirty {
             self.angle
         } else {
-            state.chart.camera.cam.body.rotation_x.value_at(cursor_tick) as f32
+            state.chart.camera.cam.body.zoom_top.value_at(cursor_tick) as f32
         };
 
         self.angle = old_angle;
@@ -294,7 +300,7 @@ impl CursorObject for CameraTool {
                         i18n::fl!("added_camera_control_point").to_string(),
                         move |c| {
                             if angle_dirty {
-                                c.camera.cam.body.rotation_x.push(kson::GraphPoint {
+                                c.camera.cam.body.zoom_top.push(kson::GraphPoint {
                                     y,
                                     v: angle as f64,
                                     vf: None,
@@ -303,7 +309,7 @@ impl CursorObject for CameraTool {
                                 })
                             }
                             if radius_dirty {
-                                c.camera.cam.body.zoom.push(kson::GraphPoint {
+                                c.camera.cam.body.zoom_bottom.push(kson::GraphPoint {
                                     y,
                                     v: radius as f64,
                                     vf: None,
@@ -313,8 +319,8 @@ impl CursorObject for CameraTool {
                             }
 
                             //TODO: just insert sorted instead
-                            c.camera.cam.body.zoom.sort_by_key(|p| p.y);
-                            c.camera.cam.body.rotation_x.sort_by_key(|p| p.y);
+                            c.camera.cam.body.zoom_bottom.sort_by_key(|p| p.y);
+                            c.camera.cam.body.zoom_top.sort_by_key(|p| p.y);
                             Ok(())
                         },
                     );

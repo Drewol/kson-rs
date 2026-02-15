@@ -11,7 +11,7 @@ use eframe::egui::{Painter, Rgba};
 use eframe::epaint::FontId;
 use egui::Ui;
 use kson::overlaps::Overlaps;
-use kson::{ByPulseOption, GraphPoint, GraphSectionPoint, Interval, Ksh, Vox, KSON_RESOLUTION};
+use kson::{ByPulseOption, GraphPoint, GraphSectionPoint, Interval, Vox, KSON_RESOLUTION, DefKeyValuePairExt};
 use kson_music_playback as playback;
 
 use puffin::profile_scope;

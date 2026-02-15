@@ -1,7 +1,7 @@
 #![allow(dead_code)]
 use crate::{
     parameter::{BoolParameter, EffectParameter},
-    Chart, Interval, Side, Track,
+    Chart, DefKeyValuePairExt, Interval, Side, Track,
 };
 
 use kson_effect_param_macro::Effect;
@@ -22,7 +22,7 @@ pub(crate) trait Effect {
 #[serde(tag = "type", content = "v")]
 #[serde(rename_all = "snake_case")]
 pub enum AudioEffect {
-    ReTrigger(ReTrigger),
+    Retrigger(ReTrigger),
     Gate(Gate),
     Flanger(Flanger),
     PitchShift(PitchShift),
@@ -31,8 +31,8 @@ pub enum AudioEffect {
     Wobble(Wobble),
     TapeStop(TapeStop),
     Echo(Echo),
-    SideChain(SideChain),
-    AudioSwap(String),
+    Sidechain(Sidechain),
+    SwitchAudio(SwitchAudio),
     HighPassFilter(HighPassFilter),
     LowPassFilter(LowPassFilter),
     PeakingFilter(PeakingFilter),
@@ -41,7 +41,7 @@ pub enum AudioEffect {
 impl AudioEffect {
     pub fn name(&self) -> &'static str {
         match self {
-            AudioEffect::ReTrigger(_) => "ReTrigger",
+            AudioEffect::Retrigger(_) => "ReTrigger",
             AudioEffect::Gate(_) => "Gate",
             AudioEffect::Flanger(_) => "Flanger",
             AudioEffect::PitchShift(_) => "PitchShift",
@@ -50,8 +50,8 @@ impl AudioEffect {
             AudioEffect::Wobble(_) => "Wobble",
             AudioEffect::TapeStop(_) => "TapeStop",
             AudioEffect::Echo(_) => "Echo",
-            AudioEffect::SideChain(_) => "SideChain",
-            AudioEffect::AudioSwap(_) => "AudioSwap",
+            AudioEffect::Sidechain(_) => "SideChain",
+            AudioEffect::SwitchAudio(_) => "SwitchAudio",
             AudioEffect::HighPassFilter(_) => "HighPassFilter",
             AudioEffect::LowPassFilter(_) => "LowPassFilter",
             AudioEffect::PeakingFilter(_) => "PeakingFilter",
@@ -64,7 +64,7 @@ impl TryFrom<&str> for AudioEffect {
 
     fn try_from(value: &str) -> Result<Self, Self::Error> {
         match value {
-            "Retrigger" => Ok(AudioEffect::ReTrigger(ReTrigger::default())),
+            "ReTrigger" => Ok(AudioEffect::Retrigger(ReTrigger::default())),
             "Gate" => Ok(AudioEffect::Gate(Gate::default())),
             "Flanger" => Ok(AudioEffect::Flanger(Flanger::default())),
             "PitchShift" => Ok(AudioEffect::PitchShift(PitchShift::default())),
@@ -73,8 +73,8 @@ impl TryFrom<&str> for AudioEffect {
             "Wobble" => Ok(AudioEffect::Wobble(Wobble::default())),
             "TapeStop" => Ok(AudioEffect::TapeStop(TapeStop::default())),
             "Echo" => Ok(AudioEffect::Echo(Echo::default())),
-            "SideChain" => Ok(AudioEffect::SideChain(SideChain::default())),
-            "SwitchAudio" => Ok(AudioEffect::AudioSwap("".to_owned())),
+            "SideChain" => Ok(AudioEffect::Sidechain(Sidechain::default())),
+            "SwitchAudio" => Ok(AudioEffect::SwitchAudio(SwitchAudio::default())),
             "peak" => Ok(AudioEffect::PeakingFilter(PeakingFilter::default())),
             "hpf1" => Ok(AudioEffect::HighPassFilter(HighPassFilter::default())),
             "lpf1" => Ok(AudioEffect::LowPassFilter(LowPassFilter::default())),
@@ -90,17 +90,26 @@ pub enum EffectError {
     EffectTypeMismatchError,
 }
 
-impl Effect for String {
+#[derive(Debug, Deserialize, Serialize, Clone, PartialEq, Default)]
+#[serde(default)]
+pub struct SwitchAudio {
+    pub filename: String,
+}
+
+impl Effect for SwitchAudio {
     fn derive(&self, _key: &str, param: &str) -> Self {
-        param.to_string()
+        SwitchAudio {
+            filename: param.to_string(),
+        }
     }
 
     fn param_list() -> &'static [&'static str] {
-        &[]
+        &["filename"]
     }
 }
 
 #[derive(Deserialize, Serialize, Clone, Effect, PartialEq, Debug)]
+#[serde(default)]
 pub struct ReTrigger {
     pub update_period: EffectParameter<f32>,
     pub wave_length: EffectParameter<f32>,
@@ -110,6 +119,7 @@ pub struct ReTrigger {
 }
 
 #[derive(Deserialize, Serialize, Clone, Effect, PartialEq, Debug)]
+#[serde(default)]
 pub struct Gate {
     pub wave_length: EffectParameter<f32>,
     pub rate: EffectParameter<f32>,
@@ -117,6 +127,7 @@ pub struct Gate {
 }
 
 #[derive(Deserialize, Serialize, Clone, Effect, PartialEq, Debug)]
+#[serde(default)]
 pub struct Flanger {
     pub period: EffectParameter<f32>,
     pub delay: EffectParameter<i64>,
@@ -128,6 +139,7 @@ pub struct Flanger {
 }
 
 #[derive(Deserialize, Serialize, Clone, Effect, PartialEq, Debug)]
+#[serde(default)]
 pub struct PitchShift {
     pub pitch: EffectParameter<f32>,
     pub pitch_quantize: BoolParameter,
@@ -137,12 +149,14 @@ pub struct PitchShift {
 }
 
 #[derive(Deserialize, Serialize, Clone, Effect, PartialEq, Debug)]
+#[serde(default)]
 pub struct BitCrusher {
     pub reduction: EffectParameter<i64>,
     pub mix: EffectParameter<f32>,
 }
 
 #[derive(Deserialize, Serialize, Clone, Effect, PartialEq, Debug)]
+#[serde(default)]
 pub struct Phaser {
     pub period: EffectParameter<f32>,
     pub stage: EffectParameter<i64>,
@@ -155,6 +169,7 @@ pub struct Phaser {
 }
 
 #[derive(Deserialize, Serialize, Clone, Effect, PartialEq, Debug)]
+#[serde(default)]
 pub struct Wobble {
     pub wave_length: EffectParameter<f32>,
     pub lo_freq: EffectParameter<f32>,
@@ -164,6 +179,7 @@ pub struct Wobble {
 }
 
 #[derive(Deserialize, Serialize, Clone, Effect, PartialEq, Debug)]
+#[serde(default)]
 pub struct TapeStop {
     pub speed: EffectParameter<f32>,
     pub trigger: BoolParameter,
@@ -171,6 +187,7 @@ pub struct TapeStop {
 }
 
 #[derive(Deserialize, Serialize, Clone, Effect, PartialEq, Debug)]
+#[serde(default)]
 pub struct Echo {
     pub update_period: EffectParameter<f32>,
     pub wave_length: EffectParameter<f32>,
@@ -180,7 +197,8 @@ pub struct Echo {
 }
 
 #[derive(Deserialize, Serialize, Clone, Effect, PartialEq, Debug)]
-pub struct SideChain {
+#[serde(default)]
+pub struct Sidechain {
     pub period: EffectParameter<f32>,
     pub hold_time: EffectParameter<f32>,
     pub attack_time: EffectParameter<f32>,
@@ -189,6 +207,7 @@ pub struct SideChain {
 }
 
 #[derive(Deserialize, Serialize, Clone, Effect, PartialEq, Debug)]
+#[serde(default)]
 pub struct HighPassFilter {
     pub v: EffectParameter<f32>,
     pub freq: EffectParameter<f32>,
@@ -198,6 +217,7 @@ pub struct HighPassFilter {
 }
 
 #[derive(Deserialize, Serialize, Clone, Effect, PartialEq, Debug)]
+#[serde(default)]
 pub struct LowPassFilter {
     pub v: EffectParameter<f32>,
     pub freq: EffectParameter<f32>,
@@ -207,6 +227,7 @@ pub struct LowPassFilter {
 }
 
 #[derive(Deserialize, Serialize, Clone, Effect, PartialEq, Debug)]
+#[serde(default)]
 pub struct PeakingFilter {
     pub v: EffectParameter<f32>,
     pub freq: EffectParameter<f32>,
@@ -325,7 +346,7 @@ impl Default for Echo {
         }
     }
 }
-impl Default for SideChain {
+impl Default for Sidechain {
     fn default() -> Self {
         Self {
             period: default_param("1/4"),
@@ -430,10 +451,10 @@ impl Chart {
                     .laser
                     .pulse_event
                     .iter()
-                    .flat_map(|(a, b)| b.iter().map(move |(c, _)| (a, c)))
+                    .flat_map(|(a, b)| b.iter().map(move |c| (a, c)))
                     .take_while(|(_, tick)| **tick <= interval.y)
                     .max_by_key(|(_, tick)| **tick)
-                    .map(|(k, _)| (k, audio_effect.laser.def.get(k)))
+                    .map(|(k, _)| (k, audio_effect.laser.def.get_by_key(k)))
                 {
                     let effect = audio_effect
                         .laser
@@ -475,7 +496,7 @@ impl Chart {
             .iter()
             .flat_map(|(a, b)| {
                 let a = Cow::from(a.clone());
-                b.iter().copied().map(move |x| (a.clone(), x.0))
+                b.iter().copied().map(move |x| (a.clone(), x))
             })
             .collect::<Vec<_>>();
 
@@ -484,7 +505,7 @@ impl Chart {
         let mut result = BTreeMap::new();
 
         for (key, y) in events.into_iter() {
-            let Some(effect) = laser.def.get(key.as_ref()) else {
+            let Some(effect) = laser.def.get_by_key(key.as_ref()) else {
                 continue;
             };
             let effect = laser

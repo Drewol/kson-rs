@@ -1,9 +1,14 @@
 use std::io;
 use std::io::BufWriter;
 use std::io::Write;
+use std::ops::Div;
 
+use crate::camera::NamedTiltValue;
+use crate::camera::TiltValue;
 use crate::*;
 
+use convert_case::Case;
+use convert_case::Casing;
 use effects::Effect;
 use thiserror::Error;
 
@@ -27,6 +32,8 @@ pub enum KshReadErrorDetails {
     InvalidTiltValue(String),
     #[error("Invalid curve value: '{0}'")]
     InvalidCurveValue(String),
+    #[error("Invalid parameter key: '{0}'")]
+    InvalidParameterKey(String),
 }
 
 #[derive(Debug, Error)]
@@ -72,13 +79,6 @@ pub enum KshWriteError {
     FileWriteError(#[from] io::Error),
 }
 
-pub trait Ksh {
-    fn from_ksh(data: &str) -> Result<crate::Chart, KshReadError>;
-    fn to_ksh<W>(&self, out: W) -> Result<(), KshWriteError>
-    where
-        W: std::io::Write;
-}
-
 #[inline]
 const fn find_laser_char(value: u8) -> u8 {
     if value >= b'0' && value <= b'9' {
@@ -117,12 +117,18 @@ const fn legacy_effect_map(value: u8) -> &'static str {
 }
 
 #[inline]
-fn laser_char_to_value(value: u8) -> Result<f64, KshReadErrorDetails> {
-    let v = find_laser_char(value);
-    if v == u8::MAX {
-        Err(KshReadErrorDetails::OutOfRangeLaserValue(v as char))
-    } else {
-        Ok(v as f64 / 50.0)
+fn laser_char_to_value(value: u8, wide: u8) -> Result<f64, KshReadErrorDetails> {
+    match (wide > 1, value) {
+        (true, b'C') => Ok(0.25), // Center wide laser on left laser origin
+        (true, b'b') => Ok(0.75), // Center wide laser on right laser origin
+        _ => {
+            let v = find_laser_char(value);
+            if v == u8::MAX {
+                Err(KshReadErrorDetails::OutOfRangeLaserValue(v as char))
+            } else {
+                Ok(v as f64 / 50.0)
+            }
+        }
     }
 }
 
@@ -189,8 +195,8 @@ fn split_fx_string(v: String) -> (String, Option<String>, Option<String>) {
 const PLACEHOLDER_PARAM_1: &str = "_p1";
 const PLACEHOLDER_PARAM_2: &str = "_p2";
 
-impl Ksh for crate::Chart {
-    fn from_ksh(data: &str) -> Result<crate::Chart, KshReadError> {
+impl crate::Chart {
+    pub fn from_ksh(data: &str) -> Result<crate::Chart, KshReadError> {
         let mut new_chart = Chart::new();
         let mut num = 4;
         let mut den = 4;
@@ -203,6 +209,7 @@ impl Ksh for crate::Chart {
         let mut parts: Vec<&str> = data.split("\n--").collect();
         let meta = parts.first().unwrap_or(&"").lines();
         let mut bgm = BgmInfo::new();
+        new_chart.audio.audio_effect.laser.peaking_filter_delay = 40;
 
         //TODO
         new_chart.beat.scroll_speed = vec![GraphPoint {
@@ -220,11 +227,20 @@ impl Ksh for crate::Chart {
                 continue;
             }
             let value = String::from(line_data[1].trim());
+
             match line_data[0] {
                 "title" => new_chart.meta.title = value,
                 "artist" => new_chart.meta.artist = value,
                 "effect" => new_chart.meta.chart_author = value,
                 "jacket" => new_chart.meta.jacket_filename = value,
+                "chokkakuvol" => new_chart.audio.key_sound.laser.vol.push((
+                    0,
+                    value
+                        .parse::<f64>()
+                        .with_line(file_line)?
+                        .div(100.0)
+                        .clamp(0.0, 1.0),
+                )),
                 "illustrator" => new_chart.meta.jacket_author = value,
                 "t" => {
                     if let Ok(v) = value.parse::<f64>() {
@@ -256,18 +272,23 @@ impl Ksh for crate::Chart {
                 "plength" => bgm.preview.duration = value.parse().with_line(file_line)?,
                 "po" => bgm.preview.offset = value.parse().with_line(file_line)?,
                 "mvol" => bgm.vol = value.parse::<f64>().with_line(file_line)? / 100.0,
+                "ver" => new_chart.compat.get_or_insert_default().ksh_version = value,
+                "information" => new_chart.meta.information = Some(value),
                 "layer" => {
                     //TODO: parse properly
-                    legacy_bg = Some(LegacyBgInfo {
-                        bg: None,
-                        layer: Some(KshLayerInfo {
-                            filename: Some(value),
-                            duration: 0,
-                            rotation: None,
-                        }),
-                        movie: None,
-                    })
+                    let bg = legacy_bg.get_or_insert_default();
+                    bg.layer = Some(KshLayerInfo {
+                        filename: Some(value),
+                        duration: 0,
+                        rotation: None,
+                    });
                 }
+                "bg" => {
+                    let bg = legacy_bg.get_or_insert_default();
+                    let bg = bg.bg.get_or_insert_default();
+                    bg.push(KshBgInfo { filename: value });
+                }
+
                 _ => (),
             }
         }
@@ -290,7 +311,7 @@ impl Ksh for crate::Chart {
         let mut laser_curves = [(0.5, 0.5); 2];
 
         let mut fx_string: [Option<String>; 2] = [None, None];
-        let mut manual_tilt: (u32, Vec<GraphSectionPoint>) = (u32::MAX, vec![]);
+        let mut undefined_fx: HashSet<String> = HashSet::new();
 
         for measure in parts {
             let measure_lines = measure.lines();
@@ -401,7 +422,8 @@ impl Ksh for crate::Chart {
                             laser_builder[i].1.push(
                                 GraphSectionPoint::new(
                                     0,
-                                    laser_char_to_value(chars[i + 8]).with_line(file_line)?,
+                                    laser_char_to_value(chars[i + 8], laser_builder[i].2)
+                                        .with_line(file_line)?,
                                 )
                                 .with_curve(a, b),
                             );
@@ -413,7 +435,8 @@ impl Ksh for crate::Chart {
                             laser_builder[i].1.push(
                                 GraphSectionPoint::new(
                                     y - laser_builder[i].0,
-                                    laser_char_to_value(chars[i + 8]).with_line(file_line)?,
+                                    laser_char_to_value(chars[i + 8], laser_builder[i].2)
+                                        .with_line(file_line)?,
                                 )
                                 .with_curve(a, b),
                             );
@@ -481,6 +504,7 @@ impl Ksh for crate::Chart {
                     let defined = data[0];
                     let name = data[1];
                     let data = data[2];
+                    undefined_fx.remove(name);
 
                     let mut data = data
                         .split(';')
@@ -489,7 +513,7 @@ impl Ksh for crate::Chart {
 
                     if let Some(Ok(mut t)) = data.remove("type").map(AudioEffect::try_from) {
                         for (key, param) in data.into_iter() {
-                            t = t.derive(key, param)
+                            t = t.derive(&key.to_case(Case::Snake), param)
                         }
 
                         match defined {
@@ -498,14 +522,14 @@ impl Ksh for crate::Chart {
                                 .audio_effect
                                 .fx
                                 .def
-                                .insert(name.to_owned(), t),
+                                .push((name.to_owned(), t)),
                             "#define_filter" => new_chart
                                 .audio
                                 .audio_effect
                                 .laser
                                 .def
-                                .insert(name.to_owned(), t),
-                            _ => None,
+                                .push((name.to_owned(), t)),
+                            _ => {}
                         };
                     }
                 } else if line.contains('=') {
@@ -544,7 +568,7 @@ impl Ksh for crate::Chart {
                         "zoom_bottom" => {
                             let (v, vf) =
                                 parse_ksh_zoom_values(&line_value).with_line(file_line)?;
-                            new_chart.camera.cam.body.zoom.push(GraphPoint {
+                            new_chart.camera.cam.body.zoom_bottom.push(GraphPoint {
                                 y,
                                 v,
                                 vf,
@@ -554,7 +578,7 @@ impl Ksh for crate::Chart {
                         "zoom_top" => {
                             let (v, vf) =
                                 parse_ksh_zoom_values(&line_value).with_line(file_line)?;
-                            new_chart.camera.cam.body.rotation_x.push(GraphPoint {
+                            new_chart.camera.cam.body.zoom_top.push(GraphPoint {
                                 y,
                                 v,
                                 vf,
@@ -564,33 +588,39 @@ impl Ksh for crate::Chart {
                         "zoom_side" => {
                             let (v, vf) =
                                 parse_ksh_zoom_values(&line_value).with_line(file_line)?;
-                            new_chart.camera.cam.body.shift_x.push(GraphPoint {
+                            new_chart.camera.cam.body.zoom_size.push(GraphPoint {
                                 y,
                                 v,
                                 vf,
                                 ..Default::default()
                             })
                         }
+                        "chokkakuvol" => new_chart.audio.key_sound.laser.vol.push((
+                            y,
+                            line_value
+                                .parse::<f64>()
+                                .with_line(file_line)?
+                                .div(100.0)
+                                .clamp(0.0, 1.0),
+                        )),
                         "fx-l" => {
                             fx_string[0] = Some(line_value);
                         }
                         "fx-r" => {
                             fx_string[1] = Some(line_value);
                         }
-                        "tilt" => {
-                            parse_tilt(&mut new_chart.camera.tilt, y, &line_value, &mut manual_tilt)
-                                .with_line(file_line)?
-                        }
+                        "tilt" => parse_tilt(&mut new_chart.camera, y, &line_value)
+                            .with_line(file_line)?,
                         "filtertype" => {
-                            let laser = &mut new_chart.audio.audio_effect.laser;
-                            if let Ok(e) = AudioEffect::try_from(line_value.as_ref()) {
-                                laser.def.entry(line_value.clone()).or_insert(e);
-                            }
-                            laser
+                            undefined_fx.insert(line_value.clone());
+                            new_chart
+                                .audio
+                                .audio_effect
+                                .laser
                                 .pulse_event
                                 .entry(line_value)
                                 .or_default()
-                                .push((y, ()));
+                                .push(y);
                         }
                         "laser_l_curve" => {
                             laser_curves[0] =
@@ -623,6 +653,35 @@ impl Ksh for crate::Chart {
                                     vol: volume as f64 / 100.0,
                                 },
                             ));
+                        }
+                        v => {
+                            let parts = v.split(':').collect::<Vec<_>>();
+                            if parts.len() == 3 {
+                                let fx_or_laser = parts[0];
+                                let effect_name = parts[1];
+                                let param_name = parts[2];
+
+                                let param_change = match fx_or_laser {
+                                    "fx" => &mut new_chart.audio.audio_effect.fx.param_change,
+                                    "filter" => {
+                                        &mut new_chart.audio.audio_effect.laser.param_change
+                                    }
+                                    _ => {
+                                        return Err(KshReadError {
+                                            error: KshReadErrorDetails::InvalidParameterKey(
+                                                v.to_string(),
+                                            ),
+                                            line: file_line,
+                                        })
+                                    }
+                                };
+
+                                let param =
+                                    param_change.entry(effect_name.to_string()).or_default();
+                                let param =
+                                    param.entry(param_name.to_case(Case::Snake)).or_default();
+                                param.push((y, line_value));
+                            }
                         }
                         _ => (),
                     }
@@ -663,13 +722,22 @@ impl Ksh for crate::Chart {
             }
         }
 
-        // push last manual tilt if chart ends with manual tilt
-        if manual_tilt.0 != u32::MAX {
-            new_chart
-                .camera
-                .tilt
-                .manual
-                .push(std::mem::take(&mut manual_tilt));
+        // Set curve "slams"
+        {
+            consolidate_graph(&mut new_chart.camera.cam.body.zoom_bottom);
+            consolidate_graph(&mut new_chart.camera.cam.body.zoom_top);
+            consolidate_graph(&mut new_chart.camera.cam.body.zoom_size);
+            consolidate_graph(&mut new_chart.camera.cam.body.split);
+        }
+
+        // go through possibly undefined effects
+        {
+            let laser = &mut new_chart.audio.audio_effect.laser;
+            for line_value in undefined_fx.into_iter() {
+                if let Ok(e) = AudioEffect::try_from(line_value.as_ref()) {
+                    laser.def.get_or_insert(line_value.clone(), e);
+                }
+            }
         }
 
         // set up effect events
@@ -679,11 +747,11 @@ impl Ksh for crate::Chart {
                 let Ok(effect) = AudioEffect::try_from(key.as_str()) else {
                     continue;
                 };
-                _ = effects.fx.def.entry(key).or_insert(effect);
+                _ = effects.fx.def.get_or_insert(key, effect);
             }
 
             for (effect, events) in effects.fx.long_event.iter_mut() {
-                let Some(effect) = effects.fx.def.get(effect) else {
+                let Some(effect) = effects.fx.def.get_by_key(effect) else {
                     continue;
                 };
 
@@ -693,6 +761,10 @@ impl Ksh for crate::Chart {
                     };
 
                     convert_params(effect, event);
+
+                    if event.is_empty() {
+                        ele.1 = None;
+                    }
                 }
             }
         }
@@ -701,7 +773,7 @@ impl Ksh for crate::Chart {
     }
 
     //TODO: Write optimized charts using lcm, also ksm doesn't seem to like resolution > 48
-    fn to_ksh<W>(&self, out: W) -> Result<(), KshWriteError>
+    pub fn to_ksh<W>(&self, out: W) -> Result<(), KshWriteError>
     where
         W: std::io::Write,
     {
@@ -1003,71 +1075,54 @@ impl Ksh for crate::Chart {
 }
 
 fn parse_tilt(
-    tilt: &mut camera::TiltInfo,
+    tilt: &mut camera::CameraInfo,
     y: u32,
     line_value: &str,
-    manual: &mut (u32, Vec<GraphSectionPoint>),
 ) -> Result<(), KshReadErrorDetails> {
-    let mut split = line_value.split('_');
-    let Some(a) = split.next() else {
-        return Err(KshReadErrorDetails::InvalidTiltValue(line_value.to_owned()));
+    let value = match line_value {
+        "normal" => Ok(NamedTiltValue::Normal),
+        "bigger" => Ok(NamedTiltValue::Bigger),
+        "biggest" => Ok(NamedTiltValue::Biggest),
+        "keep_normal" => Ok(NamedTiltValue::KeepNormal),
+        "keep_bigger" => Ok(NamedTiltValue::KeepBigger),
+        "keep_biggest" => Ok(NamedTiltValue::KeepBiggest),
+        "zero" => Ok(NamedTiltValue::Zero),
+        v => Err(v.parse::<f64>()?),
     };
 
-    let b = split.next();
-    let factor = b.unwrap_or(a);
-
-    let factor = match factor {
-        "normal" | "keep" => 1.0,
-        "bigger" | "big" => 1.5,
-        "biggest" => 2.0,
-        "zero" => 0.0,
-        _ => f64::NAN,
-    };
-
-    if factor.is_nan() {
-        // Try to parse graph values
-        let v = line_value.parse::<f64>()?;
-
-        if manual.0 > y {
-            //Create new
-            *manual = (
-                y,
-                vec![GraphSectionPoint {
-                    ry: 0,
-                    v,
-                    vf: None,
-                    a: 0.0,
-                    b: 0.0,
-                }],
-            )
-        } else {
-            let ry = y - manual.0;
-            let Some(last) = manual.1.last_mut() else {
-                return Err(KshReadErrorDetails::EmptyLaserSection);
+    if let Some(last) = tilt.tilt.last_mut() {
+        if last.0 == y {
+            last.1 = match (last.1, value) {
+                (TiltValue::Named(_), Ok(named)) => TiltValue::Named(named),
+                (TiltValue::Named(_), Err(v)) => TiltValue::ManualPoint(v),
+                (TiltValue::ManualPoint(v), Ok(named)) => TiltValue::ManualToNamedInstant(v, named),
+                (TiltValue::ManualPoint(v), Err(vf)) => TiltValue::ManualInstant(v, vf),
+                (TiltValue::ManualInstant(_, vf), Ok(named)) => {
+                    TiltValue::ManualToNamedInstant(vf, named)
+                }
+                (TiltValue::ManualInstant(v, _), Err(vff)) => TiltValue::ManualInstant(v, vff),
+                (TiltValue::ManualToNamedInstant(v, _), Ok(new_named)) => {
+                    TiltValue::ManualToNamedInstant(v, new_named)
+                }
+                (TiltValue::ManualToNamedInstant(v, _), Err(vf)) => TiltValue::ManualInstant(v, vf),
+                _ => {
+                    return Err(KshReadErrorDetails::InvalidCurveValue(
+                        "Tilt curves not supported in ksh".to_string(),
+                    ))
+                }
             };
 
-            if last.ry == ry {
-                last.vf = Some(v);
-            } else {
-                manual.1.push(GraphSectionPoint {
-                    ry,
-                    v,
-                    vf: None,
-                    a: 0.0,
-                    b: 0.0,
-                });
-            }
-        }
-    } else {
-        // Always push both, might create extra entries but shouldn't matter much
-        tilt.keep.push((y, a == "keep"));
-        tilt.scale.push((y, factor));
-
-        if manual.0 <= y {
-            tilt.manual
-                .push(std::mem::replace(manual, (u32::MAX, vec![])));
+            return Ok(());
         }
     }
+
+    tilt.tilt.push((
+        y,
+        match value {
+            Ok(named) => TiltValue::Named(named),
+            Err(value) => TiltValue::ManualPoint(value),
+        },
+    ));
 
     Ok(())
 }
@@ -1075,7 +1130,7 @@ fn parse_tilt(
 fn convert_params(effect: &AudioEffect, params: &mut Dict<String>) {
     let p1 = params.remove(PLACEHOLDER_PARAM_1).unwrap_or_else(|| {
         match effect {
-            AudioEffect::ReTrigger(_) => "8",
+            AudioEffect::Retrigger(_) => "8",
             AudioEffect::Gate(_) => "4",
             AudioEffect::PitchShift(_) => "12",
             AudioEffect::BitCrusher(_) => "5",
@@ -1095,7 +1150,7 @@ fn convert_params(effect: &AudioEffect, params: &mut Dict<String>) {
     });
 
     match effect {
-        AudioEffect::ReTrigger(_) | AudioEffect::Gate(_) | AudioEffect::Wobble(_) => {
+        AudioEffect::Retrigger(_) | AudioEffect::Gate(_) | AudioEffect::Wobble(_) => {
             if p1.chars().all(|x| x.is_ascii_digit()) {
                 params.insert("wave_length".to_string(), format!("1/{p1}"));
             }
@@ -1116,5 +1171,19 @@ fn convert_params(effect: &AudioEffect, params: &mut Dict<String>) {
             params.insert("feedback_level".to_string(), format!("{p2}%"));
         }
         _ => {}
+    }
+}
+
+fn consolidate_graph(graph: &mut Vec<GraphPoint>) {
+    let mut i = 0;
+    while i < graph.len().saturating_sub(1) {
+        let window = &mut graph[i..=i + 1];
+
+        if window[0].y == window[1].y {
+            window[0].vf = Some(window[1].v);
+            graph.remove(i + 1);
+        } else {
+            i += 1
+        }
     }
 }

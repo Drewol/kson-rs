@@ -27,7 +27,6 @@ use crate::{
 
 use super::{DiffId, LoadSongFn, SongDiffId, SongFilter, SongId, SongProvider, SongProviderEvent};
 use anyhow::{anyhow, bail, ensure, Result};
-use kson::Ksh;
 use poll_promise::Promise;
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;

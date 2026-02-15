@@ -7,6 +7,9 @@ pub mod parameter;
 pub mod score_ticks;
 mod vox;
 
+#[cfg(test)]
+mod tests;
+
 use camera::CameraInfo;
 use effects::AudioEffect;
 pub use graph::*;
@@ -701,6 +704,7 @@ impl BeatInfo {
 }
 
 #[derive(Serialize, Deserialize, Clone, Default)]
+#[serde(default)]
 pub struct BgmInfo {
     #[serde(default, skip_serializing_if = "String::is_empty")]
     pub filename: String,
@@ -740,6 +744,7 @@ impl BgmInfo {
 }
 
 #[derive(Serialize, Deserialize, Clone, Default, PartialEq)]
+#[serde(default)]
 pub struct KeySoundInfo {
     pub fx: KeySoundFXInfo,
     pub laser: KeySoundLaserInfo,
@@ -762,10 +767,49 @@ pub struct KeySoundInvokeFX {
 
 type NoteParamChange = ByPulseOption<Dict<String>>;
 
+type DefKeyValuePair<T> = (String, T);
+
+pub trait DefKeyValuePairExt<T> {
+    fn get_by_key(&self, key: impl AsRef<str>) -> Option<&T>;
+    fn get_mut_by_key(&mut self, key: impl AsRef<str>) -> Option<&mut T>;
+    fn get_or_insert(&mut self, key: String, v: T) -> &T;
+    fn keys(&self) -> impl Iterator<Item = &String>;
+    fn contains_key(&self, key: impl AsRef<str>) -> bool;
+}
+
+impl<T> DefKeyValuePairExt<T> for Vec<DefKeyValuePair<T>> {
+    fn get_by_key(&self, key: impl AsRef<str>) -> Option<&T> {
+        let key = key.as_ref();
+        self.iter().find(|v| v.0 == key).map(|v| &v.1)
+    }
+
+    fn get_mut_by_key(&mut self, key: impl AsRef<str>) -> Option<&mut T> {
+        let key = key.as_ref();
+        self.iter_mut().find(|v| v.0 == key).map(|v| &mut v.1)
+    }
+
+    fn get_or_insert(&mut self, key: String, v: T) -> &T {
+        if let Ok(t) = self.binary_search_by_key(&&key, |a| &a.0) {
+            &self[t].1
+        } else {
+            self.push((key, v));
+            &self.last().unwrap().1
+        }
+    }
+
+    fn keys(&self) -> impl Iterator<Item = &String> {
+        self.iter().map(|x| &x.0)
+    }
+
+    fn contains_key(&self, key: impl AsRef<str>) -> bool {
+        self.get_by_key(key).is_some()
+    }
+}
+
 #[derive(Serialize, Deserialize, Clone, Default, PartialEq)]
 pub struct AudioEffectFXInfo {
-    #[serde(default, skip_serializing_if = "HashMap::is_empty")]
-    pub def: Dict<AudioEffect>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub def: Vec<DefKeyValuePair<AudioEffect>>,
     #[serde(default, skip_serializing_if = "HashMap::is_empty")]
     pub param_change: Dict<Dict<ByPulse<String>>>,
     #[serde(default, skip_serializing_if = "HashMap::is_empty")]
@@ -774,12 +818,12 @@ pub struct AudioEffectFXInfo {
 
 #[derive(Serialize, Deserialize, Clone, Default, PartialEq)]
 pub struct AudioEffectLaserInfo {
-    #[serde(default, skip_serializing_if = "HashMap::is_empty")]
-    def: Dict<AudioEffect>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub def: Vec<DefKeyValuePair<AudioEffect>>,
     #[serde(default, skip_serializing_if = "HashMap::is_empty")]
     pub param_change: Dict<Dict<ByPulse<String>>>,
     #[serde(default, skip_serializing_if = "HashMap::is_empty")]
-    pub pulse_event: Dict<ByPulse<()>>,
+    pub pulse_event: Dict<Vec<u32>>,
     #[serde(default = "default_zero::<i32>")]
     pub peaking_filter_delay: i32,
 }
@@ -796,7 +840,6 @@ pub struct AudioInfo {
     pub bgm: BgmInfo,
     #[serde(default, skip_serializing_if = "crate::IsDefault::is_default")]
     pub audio_effect: AudioEffectInfo,
-    #[serde(default, skip_serializing_if = "crate::IsDefault::is_default")]
     pub key_sound: KeySoundInfo,
 }
 
@@ -814,10 +857,26 @@ pub struct Chart {
     pub audio: AudioInfo,
     #[serde(default)]
     pub camera: camera::CameraInfo,
-    pub version: String,
+    pub format_version: u32,
     pub bg: BgInfo,
+    pub editor: Option<EditorInfo>,
+    pub compat: Option<CompatInfo>,
     #[serde(skip)]
     pub file_hash: String,
+}
+
+#[derive(Serialize, Deserialize, Clone, Default)]
+#[serde(default)]
+pub struct EditorInfo {
+    pub app_name: String,
+    pub app_version: String,
+    pub comment: ByPulse<String>,
+}
+
+#[derive(Serialize, Deserialize, Clone, Default)]
+#[serde(default)]
+pub struct CompatInfo {
+    pub ksh_version: String,
 }
 
 #[derive(Serialize, Deserialize, Clone)]
@@ -844,7 +903,7 @@ impl Default for BgInfo {
     }
 }
 
-#[derive(Serialize, Deserialize, Clone)]
+#[derive(Serialize, Deserialize, Clone, Default)]
 pub struct LegacyBgInfo {
     pub bg: Option<Vec<KshBgInfo>>,
     pub layer: Option<KshLayerInfo>,
@@ -924,9 +983,11 @@ impl Chart {
             beat: BeatInfo::new(),
             audio: AudioInfo::new(),
             camera: CameraInfo::default(),
-            version: "0.7.0".to_string(),
+            format_version: 1,
             bg: BgInfo::new(),
             file_hash: String::new(),
+            compat: None,
+            editor: None,
         }
     }
 
@@ -1128,65 +1189,5 @@ where
 {
     fn is_default(&self) -> bool {
         self.eq(&T::default())
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use serde_test::Token;
-
-    use crate::{
-        do_curve,
-        parameter::{self, EffectFloat, EffectFreq, EffectParameterValue},
-    };
-
-    #[test]
-    fn curves() {
-        for i in 0..=100 {
-            let i = i as f64 / 100.0;
-
-            assert!(do_curve(i, 0.0, 0.5).is_finite());
-            assert!(do_curve(i, 1.0, 0.5).is_finite());
-            assert!(do_curve(i, 0.5, 1.0).is_finite());
-            assert!(do_curve(i, 0.5, 0.0).is_finite());
-        }
-    }
-
-    #[test]
-    fn effect_param() {
-        let mut param = parameter::EffectParameter {
-            on: Some(EffectParameterValue::Freq(
-                EffectFreq::Khz(10.0)..=EffectFreq::Khz(20.0),
-            )),
-            off: EffectParameterValue::Freq(EffectFreq::Hz(500)..=EffectFreq::Hz(500)),
-            v: 0.0_f32,
-            shape: parameter::InterpolationShape::Logarithmic,
-        };
-
-        serde_test::assert_tokens(&param, &[Token::Str("500Hz>10kHz-20kHz")]);
-        param.shape = parameter::InterpolationShape::Linear;
-        param.on = None;
-        param.off =
-            EffectParameterValue::Filename("e9fda14b-d635-4cd8-8c7a-ca12f8d9b78a".to_string());
-
-        serde_test::assert_tokens(
-            &param,
-            &[Token::Str("e9fda14b-d635-4cd8-8c7a-ca12f8d9b78a")],
-        );
-
-        param.off = EffectParameterValue::Sample(100..=100);
-        serde_test::assert_tokens(&param, &[Token::Str("100samples")]);
-        param.off = EffectParameterValue::Sample(100..=1000);
-        serde_test::assert_tokens(&param, &[Token::Str("100samples-1000samples")]);
-
-        param.off = EffectParameterValue::Length(
-            EffectFloat::Fraction(1, 2)..=EffectFloat::Fraction(1, 2),
-            true,
-        );
-        serde_test::assert_tokens(&param, &[Token::Str("1/2")]);
-
-        param.off = EffectParameterValue::Switch(false..=false);
-        param.on = Some(EffectParameterValue::Switch(false..=true));
-        serde_test::assert_tokens(&param, &[Token::Str("off>off-on")]);
     }
 }

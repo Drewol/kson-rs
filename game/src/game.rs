@@ -1296,31 +1296,11 @@ impl Game {
         while self.take_laser_input(1, sys_time, tick) {}
 
         // Set roll despite chart not starting to set up correct start angle
-        let keep_laser = match self
-            .chart
-            .camera
-            .tilt
-            .keep
-            .binary_search_by_key(&tick, |x| x.0)
-        {
-            Ok(i) => self.chart.camera.tilt.keep[i].1,
-            Err(i) => {
-                if i == 0 {
-                    false
-                } else {
-                    self.chart.camera.tilt.keep[i.saturating_sub(1)].1
-                }
-            }
-        };
+        let tilt_value = self.chart.camera.tilt_at(tick);
+        let keep_laser = tilt_value.is_keep();
 
-        self.target_roll = self
-            .chart
-            .camera
-            .tilt
-            .manual
-            .value_at(tick as f64)
-            .map(TargetRoll::Manual)
-            .unwrap_or_else(|| {
+        self.target_roll = match tilt_value {
+            kson::camera::ResolvedTiltValue::Named(named_tilt_value) => {
                 let current = self.target_roll;
 
                 let next = match self.laser_target {
@@ -1350,7 +1330,9 @@ impl Game {
                 } else {
                     next
                 }
-            });
+            }
+            kson::camera::ResolvedTiltValue::Manual(v) => TargetRoll::Manual(v),
+        };
 
         // Chart hasn't started, don't score anything yet
         if tick == 0 && self.chart.ms_to_tick(self.with_offset(playback_ms)) == 0 {
@@ -2094,24 +2076,10 @@ impl Scene for Game {
         {
             profile_scope!("Update camera");
             let max_roll_speed = dt / kson::beat_in_ms(self.chart.bpm_at_tick(render_tick));
+            let current_tilt = self.chart.camera.tilt_at(render_tick);
             self.current_roll = match self.target_roll {
                 TargetRoll::Laser(target_roll) => {
-                    let scale = match self
-                        .chart
-                        .camera
-                        .tilt
-                        .scale
-                        .binary_search_by_key(&render_tick, |x| x.0)
-                    {
-                        Ok(i) => self.chart.camera.tilt.scale[i].1,
-                        Err(i) => {
-                            if i == 0 {
-                                1.0
-                            } else {
-                                self.chart.camera.tilt.scale[i.saturating_sub(1)].1
-                            }
-                        }
-                    };
+                    let scale = current_tilt.scale();
                     let target_roll = target_roll * scale;
                     if self.current_roll - target_roll < 0.0 {
                         (self.current_roll + max_roll_speed * 2.0 * scale).min(target_roll)
@@ -2137,14 +2105,19 @@ impl Scene for Game {
                 .iter()
                 .map(|x| x.roll_at(render_tick as f32))
                 .sum::<f32>();
-            self.camera.kson_radius =
-                self.chart.camera.cam.body.zoom.value_at(render_tick as f64) as f32;
+            self.camera.kson_radius = self
+                .chart
+                .camera
+                .cam
+                .body
+                .zoom_bottom
+                .value_at(render_tick as f64) as f32;
             self.camera.kson_angle = self
                 .chart
                 .camera
                 .cam
                 .body
-                .rotation_x
+                .zoom_top
                 .value_at(render_tick as f64) as f32;
 
             self.camera.shakes.retain_mut(|x| {

@@ -9,16 +9,137 @@ use schemars::JsonSchema;
 #[derive(Serialize, Deserialize, Clone, Default)]
 #[serde(default)]
 pub struct CameraInfo {
-    pub tilt: TiltInfo,
+    pub tilt: ByPulse<TiltValue>,
     pub cam: CamInfo,
 }
 
-#[derive(Serialize, Deserialize, Clone, Default)]
-#[serde(default)]
-pub struct TiltInfo {
-    pub scale: ByPulse<f64>,
-    pub manual: ByPulse<Vec<GraphSectionPoint>>,
-    pub keep: ByPulse<bool>,
+pub enum ResolvedTiltValue {
+    Named(NamedTiltValue),
+    Manual(f64),
+}
+
+impl ResolvedTiltValue {
+    pub fn is_keep(&self) -> bool {
+        match self {
+            ResolvedTiltValue::Named(named_tilt_value) => matches!(
+                named_tilt_value,
+                NamedTiltValue::KeepNormal
+                    | NamedTiltValue::KeepBigger
+                    | NamedTiltValue::KeepBiggest
+            ),
+            ResolvedTiltValue::Manual(_) => false,
+        }
+    }
+
+    pub fn scale(&self) -> f64 {
+        match self {
+            ResolvedTiltValue::Named(v) => match v {
+                NamedTiltValue::Normal | NamedTiltValue::KeepNormal => 1.0,
+                NamedTiltValue::Bigger | NamedTiltValue::KeepBigger => 1.5,
+                NamedTiltValue::Biggest | NamedTiltValue::KeepBiggest => 2.0,
+                NamedTiltValue::Zero => 0.0,
+            },
+            ResolvedTiltValue::Manual(_) => 1.0,
+        }
+    }
+}
+
+impl CameraInfo {
+    pub fn tilt_at(&self, y: u32) -> ResolvedTiltValue {
+        let (a, b) = match self.tilt.binary_search_by_key(&y, |x| x.0) {
+            Ok(idx) => (Some(&self.tilt[idx]), self.tilt.get(idx + 1)),
+            Err(idx) if idx == 0 => (None, self.tilt.get(idx)),
+            Err(idx) => (self.tilt.get(idx.saturating_sub(1)), self.tilt.get(idx)),
+        };
+        let a = a.unwrap_or(&(0, TiltValue::Named(NamedTiltValue::Normal)));
+
+        if let TiltValue::ManualToNamedInstant(_, named) = a.1 {
+            return ResolvedTiltValue::Named(named);
+        }
+
+        if let Some(a_g) = a.1.to_graph_point(a.0) {
+            if let Some(b_g) = b.and_then(|b| b.1.to_graph_point(b.0)) {
+                ResolvedTiltValue::Manual(vec![a_g, b_g].value_at(y as f64))
+            } else {
+                ResolvedTiltValue::Manual(a_g.vf.unwrap_or(a_g.v))
+            }
+        } else {
+            let TiltValue::Named(v) = a.1 else {
+                unreachable!() // All others resolve to graph points
+            };
+
+            ResolvedTiltValue::Named(v)
+        }
+    }
+}
+
+#[derive(Serialize, Deserialize, Clone, Copy, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum NamedTiltValue {
+    #[default]
+    Normal,
+    Bigger,
+    Biggest,
+    KeepNormal,
+    KeepBigger,
+    KeepBiggest,
+    Zero,
+}
+
+#[derive(Serialize, Deserialize, Clone, Copy)]
+#[serde(untagged)]
+pub enum TiltValue {
+    Named(NamedTiltValue),
+    ManualPoint(f64),
+    ManualInstant(f64, f64),
+    ManualToNamedInstant(f64, NamedTiltValue),
+    /// v, (a, b)
+    ManualCurve(f64, (f64, f64)),
+    /// (v, vf), (a, b)
+    ManualCurveInstant((f64, f64), (f64, f64)),
+}
+
+impl TiltValue {
+    fn to_graph_point(self, y: u32) -> Option<GraphPoint> {
+        match self {
+            TiltValue::Named(_) => None,
+            TiltValue::ManualPoint(v) => Some(GraphPoint {
+                y,
+                v,
+                vf: None,
+                a: 0.5,
+                b: 0.5,
+            }),
+            TiltValue::ManualInstant(v, vf) => Some(GraphPoint {
+                y,
+                v,
+                vf: Some(vf),
+                a: 0.5,
+                b: 0.5,
+            }),
+            TiltValue::ManualToNamedInstant(v, _) => Some(GraphPoint {
+                y,
+                v,
+                vf: None,
+                a: 0.5,
+                b: 0.5,
+            }),
+            TiltValue::ManualCurve(v, (a, b)) => Some(GraphPoint {
+                y,
+                v,
+                vf: None,
+                a,
+                b,
+            }),
+            TiltValue::ManualCurveInstant((v, vf), (a, b)) => Some(GraphPoint {
+                y,
+                v,
+                vf: Some(vf),
+                a,
+                b,
+            }),
+        }
+    }
 }
 
 impl Graph<Option<f64>> for ByPulse<Vec<GraphSectionPoint>> {
@@ -148,9 +269,9 @@ type GraphVec = Vec<GraphPoint>;
 #[derive(Serialize, Deserialize, Clone, Default)]
 #[serde(default)]
 pub struct CamGraphs {
-    pub zoom: GraphVec,
-    pub shift_x: GraphVec,
-    pub rotation_x: GraphVec,
+    pub zoom_bottom: GraphVec,
+    pub zoom_size: GraphVec,
+    pub zoom_top: GraphVec,
     pub rotation_z: GraphVec,
     #[serde(rename = "rotation_z.highway")]
     pub rotation_z_highway: GraphVec,

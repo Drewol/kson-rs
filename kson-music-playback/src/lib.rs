@@ -278,7 +278,7 @@ impl AudioPlayback {
                                 let duration = end - start;
                                 let bpm = *bpm;
                                 let effected: Box<dyn MixSource<Item = f32> + Send> = match effect {
-                                    kson::effects::AudioEffect::ReTrigger(r) => {
+                                    kson::effects::AudioEffect::Retrigger(r) => {
                                         let duration = Duration::from_secs_f64(
                                             (240.0 * r.wave_length.interpolate(1.0, true) as f64)
                                                 / bpm,
@@ -352,7 +352,7 @@ impl AudioPlayback {
                                             feedback,
                                         ))
                                     }
-                                    kson::effects::AudioEffect::SideChain(s) => {
+                                    kson::effects::AudioEffect::Sidechain(s) => {
                                         let bpm = bpm as f32;
 
                                         Box::new(side_chain(
