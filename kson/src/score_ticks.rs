@@ -90,39 +90,37 @@ fn ticks_from_interval(
         // Find keysound
         let key_sound = if lane < 4 {
             None
-        } else {
-            if let Some((file, event_idx)) =
-                chart
-                    .audio
-                    .key_sound
-                    .fx
-                    .chip_event
-                    .iter()
-                    .find_map(|(file, sides)| {
-                        sides[lane - 4]
-                            .binary_search_by_key(&interval.y, |v| v.0)
-                            .ok()
-                            .map(|s| (file, s))
-                    })
-            {
-                let (_, event) = &chart.audio.key_sound.fx.chip_event[file][lane - 4][event_idx];
+        } else if let Some((file, event_idx)) =
+            chart
+                .audio
+                .key_sound
+                .fx
+                .chip_event
+                .iter()
+                .find_map(|(file, sides)| {
+                    sides[lane - 4]
+                        .binary_search_by_key(&interval.y, |v| v.0)
+                        .ok()
+                        .map(|s| (file, s))
+                })
+        {
+            let (_, event) = &chart.audio.key_sound.fx.chip_event[file][lane - 4][event_idx];
 
-                if let Some((key, _)) = key_sound_map.iter().find(|(_, value)| *value == file) {
-                    Some(KeySoundEvent {
-                        file: *key,
-                        volume: event.vol,
-                    })
-                } else {
-                    let next_idx = key_sound_map.len() as i32;
-                    key_sound_map.insert(next_idx, file.clone());
-                    Some(KeySoundEvent {
-                        file: next_idx,
-                        volume: event.vol,
-                    })
-                }
+            if let Some((key, _)) = key_sound_map.iter().find(|(_, value)| *value == file) {
+                Some(KeySoundEvent {
+                    file: *key,
+                    volume: event.vol,
+                })
             } else {
-                None
+                let next_idx = key_sound_map.len() as i32;
+                key_sound_map.insert(next_idx, file.clone());
+                Some(KeySoundEvent {
+                    file: next_idx,
+                    volume: event.vol,
+                })
             }
+        } else {
+            None
         };
 
         vec![PlacedScoreTick {

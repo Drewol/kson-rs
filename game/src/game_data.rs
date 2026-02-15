@@ -9,12 +9,12 @@ use di::{Activator, InjectBuilder, Injectable, RefMut};
 use egui::epaint::Hsva;
 use log::warn;
 
-use mlua::{UserData, UserDataFields, UserDataMethods};
+use mlua::{UserData, UserDataMethods};
 use puffin::{ProfilerScope, ThreadProfiler};
 use rodio::Source;
 
 use crate::{
-    button_codes::UscButton, config::GameConfig, input_state::InputState, lua_service::LuaKey,
+    button_codes::UscButton, config::GameConfig, input_state::InputState,
     skin_settings::SkinSettingValue, RuscMixer,
 };
 
@@ -255,7 +255,7 @@ impl GameDataLua {
         Ok(())
     }
 
-    fn begin_profile(scope: Option<String>, game_data: &RefMut<GameData>) -> mlua::Result<()> {
+    fn begin_profile(_scope: Option<String>, game_data: &RefMut<GameData>) -> mlua::Result<()> {
         let mut gd_lock = game_data.write().expect("Lock error");
         let game_data = gd_lock.deref_mut();
 

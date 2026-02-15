@@ -253,7 +253,7 @@ impl GameMultiplayerState {
             return Ok(());
         }
         let mut s = self.service.write().unwrap();
-        let time = time.max(0);
+        let time = time;
 
         let send_index = (time / self.rate as u128) as i32;
 
@@ -448,7 +448,7 @@ pub struct GameData {
     diff_idx: usize,
     chart: kson::Chart,
     skin_folder: PathBuf,
-    audio: std::boxed::Box<(dyn rodio::source::Source<Item = f32> + std::marker::Send + 'static)>,
+    audio: std::boxed::Box<dyn rodio::source::Source<Item = f32> + std::marker::Send + 'static >,
     autoplay: AutoPlay,
     song_folder: Option<PathBuf>,
 }
@@ -1300,7 +1300,7 @@ impl Game {
         let keep_laser = tilt_value.is_keep();
 
         self.target_roll = match tilt_value {
-            kson::camera::ResolvedTiltValue::Named(named_tilt_value) => {
+            kson::camera::ResolvedTiltValue::Named(_named_tilt_value) => {
                 let current = self.target_roll;
 
                 let next = match self.laser_target {

@@ -1,5 +1,4 @@
 use std::{
-    error::Error,
     fmt::Display,
     sync::mpsc::{self, Receiver, Sender},
 };

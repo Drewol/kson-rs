@@ -389,7 +389,7 @@ impl LaserSection {
     pub fn tick(&self) -> u32 {
         self.0
     }
-    pub fn segments(&self) -> Windows<GraphSectionPoint> {
+    pub fn segments(&self) -> Windows<'_, GraphSectionPoint> {
         self.1.windows(2)
     }
 
@@ -1131,7 +1131,7 @@ impl Chart {
                     new_start,
                     Box::new(move |y| {
                         let adjusted = y - new_start;
-                        Some((y + ticks_per_beat, (adjusted % ticks_per_measure) == 0))
+                        Some((y + ticks_per_beat, adjusted.is_multiple_of(ticks_per_measure)))
                     }),
                 ));
             } else {

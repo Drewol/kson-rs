@@ -97,7 +97,7 @@ impl InputState {
     }
 
     pub fn clone_laser(&self) -> LaserState {
-        self.laser_state.read().expect("Lock error").clone()
+        *self.laser_state.read().expect("Lock error")
     }
 
     pub fn pressed_together<const N: usize>(&self, buttons: [UscButton; N]) -> bool {

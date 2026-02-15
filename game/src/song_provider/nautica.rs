@@ -541,7 +541,7 @@ impl SongProvider for NauticaSongProvider {
             .iter()
             .find(|x| x.id == SongId::StringId(song_id.clone()))
             .cloned()
-            .or_else(|| block_on(single_song(&song_id)).map(|x| Arc::new(x)).ok())
+            .or_else(|| block_on(single_song(song_id)).map(Arc::new).ok())
             .ok_or(anyhow!("song id not in song list"))?;
 
         let read = &song.difficulties.read().expect("Lock error");

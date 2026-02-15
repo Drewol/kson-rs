@@ -1340,7 +1340,7 @@ impl VgfxLua {
         _vgfx.with_canvas(|canvas| canvas.reset())
     }
 
-    fn path_winding(_lua_index: &LuaKey, _vgfx: &RefMut<Vgfx>, dir: i32) -> mlua::Result<()> {
+    fn path_winding(_lua_index: &LuaKey, _vgfx: &RefMut<Vgfx>, _dir: i32) -> mlua::Result<()> {
         let mut _vgfx_lock = _vgfx.write().expect("Lock error");
         let _vgfx = _vgfx_lock.deref_mut();
         unimplemented()
@@ -1434,10 +1434,10 @@ impl VgfxLua {
     fn load_web_image_job(
         _lua_index: &LuaKey,
         _vgfx: &RefMut<Vgfx>,
-        url: String,
-        placeholder: i32,
-        w: i32,
-        h: i32,
+        _url: String,
+        _placeholder: i32,
+        _w: i32,
+        _h: i32,
     ) -> mlua::Result<()> {
         let mut _vgfx_lock = _vgfx.write().expect("Lock error");
         let _vgfx = _vgfx_lock.deref_mut();
@@ -1536,7 +1536,7 @@ impl VgfxLua {
         }
     }
 
-    fn fast_text_size(_lua_index: &LuaKey, _vgfx: &RefMut<Vgfx>, text: String) -> mlua::Result<()> {
+    fn fast_text_size(_lua_index: &LuaKey, _vgfx: &RefMut<Vgfx>, _text: String) -> mlua::Result<()> {
         let mut _vgfx_lock = _vgfx.write().expect("Lock error");
         let _vgfx = _vgfx_lock.deref_mut();
         unimplemented()
@@ -1664,10 +1664,10 @@ impl VgfxLua {
     fn global_composite_blend_func_separate(
         _lua_index: &LuaKey,
         _vgfx: &RefMut<Vgfx>,
-        src_rgb: i32,
-        dst_rgb: i32,
-        src_alpha: i32,
-        dst_alpha: i32,
+        _src_rgb: i32,
+        _dst_rgb: i32,
+        _src_alpha: i32,
+        _dst_alpha: i32,
     ) -> mlua::Result<()> {
         let mut _vgfx_lock = _vgfx.write().expect("Lock error");
         let _vgfx = _vgfx_lock.deref_mut();
@@ -1775,8 +1775,8 @@ impl VgfxLua {
     fn load_shared_texture(
         _lua_index: &LuaKey,
         _vgfx: &RefMut<Vgfx>,
-        key: String,
-        path: String,
+        _key: String,
+        _path: String,
     ) -> mlua::Result<()> {
         let mut _vgfx_lock = _vgfx.write().expect("Lock error");
         let _vgfx = _vgfx_lock.deref_mut();
@@ -1785,22 +1785,22 @@ impl VgfxLua {
 
     fn load_shared_skin_texture(
         _vgfx: &RefMut<Vgfx>,
-        key: String,
-        path: String,
+        _key: String,
+        _path: String,
     ) -> mlua::Result<()> {
         let mut _vgfx_lock = _vgfx.write().expect("Lock error");
         let _vgfx = _vgfx_lock.deref_mut();
         unimplemented()
     }
 
-    fn _get_shared_texture(_vgfx: &RefMut<Vgfx>, key: String) -> mlua::Result<()> {
+    fn _get_shared_texture(_vgfx: &RefMut<Vgfx>, _key: String) -> mlua::Result<()> {
         let mut _vgfx_lock = _vgfx.write().expect("Lock error");
         let _vgfx = _vgfx_lock.deref_mut();
         unimplemented()
     }
 
     fn create_shaded_mesh(
-        lua_key: &LuaKey,
+        _lua_key: &LuaKey,
         context: &Arc<three_d::Context>,
         vgfx: &RefMut<Vgfx>,
         material: Option<String>,

@@ -1,10 +1,9 @@
 use std::rc::Rc;
 
-use log::warn;
 use mlua::{Function, Lua, LuaSerdeExt};
-use serde::{Deserialize, Serialize};
+use serde::Serialize;
 use winit::{
-    event::{DeviceEvent, KeyEvent, WindowEvent},
+    event::{KeyEvent, WindowEvent},
     keyboard::{Key, NamedKey},
 };
 
@@ -39,13 +38,13 @@ pub struct CollectionDialog {
     #[serde(skip)]
     lua: Rc<Lua>,
     #[serde(skip)]
-    save: Option<Box<dyn FnOnce(String, bool) -> ()>>,
+    save: Option<Box<dyn FnOnce(String, bool)>>,
     #[serde(skip)]
     input: InputState,
 }
 
 impl CollectionDialog {
-    pub fn new<T: FnOnce(String, bool) -> () + 'static>(
+    pub fn new<T: FnOnce(String, bool) + 'static>(
         collections: Vec<Collection>,
         lua: Rc<Lua>,
         title: String,
@@ -156,27 +155,24 @@ impl CollectionDialog {
             return;
         }
 
-        match event {
-            winit::event::Event::WindowEvent {
+        if let winit::event::Event::WindowEvent {
                 event:
                     WindowEvent::KeyboardInput {
                         event: KeyEvent { logical_key, .. },
                         ..
                     },
                 ..
-            } => {
-                if *logical_key == Key::Named(NamedKey::Enter) && !self.new_name.is_empty() {
-                    let name = std::mem::take(&mut self.new_name);
-                    self.save(name);
-                }
-
-                if *logical_key == Key::Named(NamedKey::Escape) {
-                    self.closing = true;
-                }
-
-                self.update_lua();
+            } = event {
+            if *logical_key == Key::Named(NamedKey::Enter) && !self.new_name.is_empty() {
+                let name = std::mem::take(&mut self.new_name);
+                self.save(name);
             }
-            _ => {}
+
+            if *logical_key == Key::Named(NamedKey::Escape) {
+                self.closing = true;
+            }
+
+            self.update_lua();
         }
 
         if util::do_text_event(&mut self.new_name, event) {

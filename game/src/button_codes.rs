@@ -402,7 +402,7 @@ impl LaserState {
 
         state.delta = new_pos_pi - state.pos;
         if state.delta.abs() > std::f32::consts::PI {
-            state.delta += std::f32::consts::TAU * (state.delta.signum() * -1.0);
+            state.delta += std::f32::consts::TAU * -state.delta.signum();
         }
         state.pos = new_pos_pi;
     }

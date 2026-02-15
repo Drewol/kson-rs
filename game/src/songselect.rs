@@ -42,7 +42,7 @@ use std::{
     },
     time::{Duration, SystemTime},
 };
-use winit::event::{ElementState, Event, Ime, WindowEvent};
+use winit::event::{ElementState, Event, WindowEvent};
 use winit::{
     event::KeyEvent,
     keyboard::{Key, NamedKey},

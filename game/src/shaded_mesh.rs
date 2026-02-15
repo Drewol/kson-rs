@@ -1,12 +1,11 @@
 use std::{
-    any,
     collections::HashMap,
     num::NonZeroU32,
     path::Path,
     sync::{Arc, RwLock},
 };
 
-use anyhow::{bail, ensure};
+use anyhow::ensure;
 use di::RefMut;
 use glow::HasContext;
 use itertools::Itertools;
@@ -253,16 +252,16 @@ impl ShadedMesh {
             // Drop previous texture if resolution changed
             if let Some((tex, fbo, _, _)) = self
                 .framebuffer_tex
-                .take_if(|(tex, fbo, prev_w, prev_h)| *prev_w != w || *prev_h != h)
+                .take_if(|(_tex, _fbo, prev_w, prev_h)| *prev_w != w || *prev_h != h)
             {
                 gl.delete_texture(tex);
                 gl.delete_framebuffer(fbo);
             }
 
             let original = gl.get_parameter_i32(FRAMEBUFFER_BINDING) as u32;
-            let original = NonZeroU32::new(original).map(|x| NativeFramebuffer(x));
+            let original = NonZeroU32::new(original).map(NativeFramebuffer);
 
-            let (tex, fbo, _, _) = self.framebuffer_tex.get_or_insert_with(|| {
+            let (_tex, fbo, _, _) = self.framebuffer_tex.get_or_insert_with(|| {
                 let fbo = gl
                     .create_framebuffer()
                     .expect("Could not create OpenGl framebuffer");
@@ -325,7 +324,7 @@ impl ShadedMesh {
         };
 
         ensure!(
-            (self.vertex_count % vertex_multiple) == 0,
+            self.vertex_count.is_multiple_of(vertex_multiple),
             "Vertex count not a multiple of {}",
             vertex_multiple
         );
@@ -692,11 +691,11 @@ impl Geometry for ShadedMesh {
 
     fn render_with_effect(
         &self,
-        material: &dyn three_d::Effect,
-        viewer: &dyn three_d::Viewer,
-        lights: &[&dyn three_d::Light],
-        color_texture: Option<three_d::ColorTexture>,
-        depth_texture: Option<three_d::DepthTexture>,
+        _material: &dyn three_d::Effect,
+        _viewer: &dyn three_d::Viewer,
+        _lights: &[&dyn three_d::Light],
+        _color_texture: Option<three_d::ColorTexture>,
+        _depth_texture: Option<three_d::DepthTexture>,
     ) {
         todo!()
     }

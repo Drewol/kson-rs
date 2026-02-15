@@ -14,7 +14,7 @@ pub struct ChartView {
 }
 
 use anyhow::anyhow;
-use kson::{do_curve, score_ticks::ScoreTick, Graph, GraphSectionPoint, KSON_RESOLUTION};
+use kson::{do_curve, score_ticks::ScoreTick, KSON_RESOLUTION};
 use puffin::{profile_function, profile_scope};
 use three_d::{
     vec2, vec3, Blend, ColorMaterial, CpuMesh, DepthTest, Indices, Mat3, RenderStates, Texture2D,
@@ -160,7 +160,7 @@ impl ChartView {
                         let segments = (len / (KSON_RESOLUTION / 32)).max(3); //TODO: Curve quality option
                         let len = len as f32 - syoff;
                         let width = e.v as f32 - start_value;
-                        let step = (len / segments as f32);
+                        let step = len / segments as f32 ;
 
                         for subsegment_index in 0..segments {
                             let s_curve_x = subsegment_index as f64 / segments as f64;

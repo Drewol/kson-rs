@@ -34,9 +34,9 @@ mod window;
 mod worker_service;
 
 use std::{
-    path::{Path, PathBuf},
+    path::PathBuf,
     rc::Rc,
-    sync::{mpsc::channel, Arc, Mutex, OnceLock, RwLock},
+    sync::{mpsc::channel, Arc, Mutex, RwLock},
     time::{Duration, Instant},
 };
 
@@ -50,12 +50,10 @@ use crate::{
     songselect::{Difficulty, Song},
     transition::Transition,
 };
-use anyhow::{anyhow, bail};
 use async_service::AsyncService;
 use button_codes::{CustomBindingFilter, UscInputEvent};
 use clap::Parser;
 use companion_interface::CompanionServer;
-use directories::ProjectDirs;
 use multiplayer::MultiplayerService;
 use songselect::SongProviderSelection;
 pub use vg_ui::Vgfx;
@@ -145,7 +143,7 @@ impl FrameInput {
     /// RenderTarget::screen(&frame_input.context, frame_input.viewport.width, frame_input.viewport.height)
     /// ```
     ///
-    pub fn screen(&self) -> td::RenderTarget {
+    pub fn screen(&self) -> td::RenderTarget<'_> {
         td::RenderTarget::screen(&self.context, self.viewport.width, self.viewport.height)
     }
 }
@@ -536,7 +534,7 @@ impl UscApp {
                 )));
         }
 
-        let last_offset = { GameConfig::get().global_offset };
+        let _last_offset = { GameConfig::get().global_offset };
         let fps_paint = vg::Paint::color(vg::Color::white()).with_text_align(vg::Align::Right);
 
         let game = GameMain::new(
@@ -600,7 +598,7 @@ impl winit::application::ApplicationHandler<UscInputEvent> for UscApp {
         window_id: winit::window::WindowId,
         event: winit::event::WindowEvent,
     ) {
-        let Some((game, services, window, surface, window_gl, context)) = self.state.as_mut()
+        let Some((game, _services, window, surface, window_gl, context)) = self.state.as_mut()
         else {
             return;
         };
@@ -650,10 +648,10 @@ impl winit::application::ApplicationHandler<UscInputEvent> for UscApp {
 
     fn user_event(
         &mut self,
-        event_loop: &winit::event_loop::ActiveEventLoop,
+        _event_loop: &winit::event_loop::ActiveEventLoop,
         event: UscInputEvent,
     ) {
-        let Some((game, services, window, surface, window_gl, context)) = self.state.as_mut()
+        let Some((game, _services, window, _surface, _window_gl, _context)) = self.state.as_mut()
         else {
             return;
         };
@@ -663,11 +661,11 @@ impl winit::application::ApplicationHandler<UscInputEvent> for UscApp {
 
     fn device_event(
         &mut self,
-        event_loop: &winit::event_loop::ActiveEventLoop,
+        _event_loop: &winit::event_loop::ActiveEventLoop,
         device_id: winit::event::DeviceId,
         event: winit::event::DeviceEvent,
     ) {
-        let Some((game, services, window, surface, window_gl, context)) = self.state.as_mut()
+        let Some((game, _services, window, _surface, _window_gl, _context)) = self.state.as_mut()
         else {
             return;
         };
@@ -740,7 +738,7 @@ pub fn run(eventloop: winit::event_loop::EventLoop<UscInputEvent>) -> anyhow::Re
 
     puffin::set_scopes_on(args.profiling);
 
-    let show_debug_ui = args.debug;
+    let _show_debug_ui = args.debug;
     if let Some(e) = installer::init_game_dir(installer::default_game_dir()).err() {
         warn!("{e}");
         info!("Running anyway");
@@ -864,7 +862,7 @@ pub fn run(eventloop: winit::event_loop::EventLoop<UscInputEvent>) -> anyhow::Re
         offset_tx,
         frame_tracker: FrameTracker::new(),
         update_tracker: UpdateTracker::new(),
-    });
+    })?;
 
     Ok(())
 }

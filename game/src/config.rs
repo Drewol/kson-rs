@@ -1,6 +1,5 @@
 pub mod migrations;
 
-use std::default;
 use std::{
     collections::HashMap, fmt::Display, fs::File, io::Read, path::PathBuf, sync::RwLock,
     time::Duration,

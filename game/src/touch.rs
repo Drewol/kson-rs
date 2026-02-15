@@ -65,12 +65,11 @@ impl TouchHelper {
                 .and_modify(|x| x.update(ev.location))
                 .or_insert(TouchTracker::new(ev.location));
 
-            let new_button = self
+            let new_button = *self
                 .button_areas
                 .iter()
                 .find(|x| x.1.contains(updated.current_point()))?
-                .0
-                .clone();
+                .0;
 
             let is_held_by_other = self
                 .held_buttons

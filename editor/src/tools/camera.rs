@@ -14,16 +14,13 @@ use crate::chart_camera::ChartCamera;
 use super::CursorObject;
 
 #[derive(Debug, PartialEq, Clone, Copy)]
+#[derive(Default)]
 enum CameraPaths {
+    #[default]
     Zoom,
     RotationX,
 }
 
-impl Default for CameraPaths {
-    fn default() -> Self {
-        Self::Zoom
-    }
-}
 
 impl Display for CameraPaths {
     fn fmt(&self, formatter: &mut std::fmt::Formatter) -> std::fmt::Result {

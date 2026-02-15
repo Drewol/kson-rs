@@ -12,10 +12,8 @@ use crate::{
 use anyhow::Result;
 use di::{injectable, Ref, RefMut};
 use log::info;
-use mlua::LuaSerdeExt;
 use mlua::{Lua, UserData};
 use puffin::profile_scope;
-use serde_json::json;
 
 //TODO: Used expanded macro because of wrong dependencies, use macro when fixed
 #[injectable]

@@ -1,5 +1,5 @@
 use crate::{config::GameConfig, game::HitWindow};
-use log::{info, warn};
+use log::warn;
 use luals_gen::ToLuaLsType;
 use mlua::{Function, Lua, LuaSerdeExt, RegistryKey, Value};
 use mlua_bridge::mlua_bridge;

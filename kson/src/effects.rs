@@ -10,9 +10,6 @@ use thiserror::Error;
 
 use std::{borrow::Cow, collections::BTreeMap, f32, str::FromStr};
 
-#[cfg(feature = "schema")]
-use schemars::JsonSchema;
-
 pub(crate) trait Effect {
     fn derive(&self, key: &str, param: &str) -> Self;
     fn param_list() -> &'static [&'static str];

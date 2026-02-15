@@ -99,7 +99,7 @@ impl CameraShake {
 }
 
 // Statics for easier testing of values during dev
-#[cfg(target_feature = "camera_test")]
+#[cfg(feature = "camera-test")]
 mod camera_consts {
     pub static mut FOV_LANDSCAPE: f32 = 40.0;
     pub static mut FOV_PORTRAIT: f32 = 70.0;
@@ -109,7 +109,7 @@ mod camera_consts {
     pub static mut RADIUS_PORTRAIT: f32 = 1.7;
 }
 
-#[cfg(not(target_feature = "camera_test"))]
+#[cfg(not(feature = "camera-test"))]
 mod camera_consts {
     pub const FOV_LANDSCAPE: f32 = 40.0;
     pub const FOV_PORTRAIT: f32 = 70.0;
@@ -154,7 +154,7 @@ impl ChartCamera {
         egui::Grid::new("camera_widget")
             .num_columns(2)
             .show(ui, |ui| {
-                #[cfg(target_feature = "camera_test")]
+                #[cfg(feature = "camera-test")]
                 {
                     let (fov, angle, radius) = unsafe {
                         if self.portrait {

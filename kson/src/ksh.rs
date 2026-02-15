@@ -683,7 +683,6 @@ impl crate::Chart {
                                 param.push((y, line_value));
                             }
                         }
-                        _ => (),
                     }
                 }
             }

@@ -18,7 +18,7 @@ fn android() {
         std::fs::copy(
             lib_path,
             Path::new(&output_path)
-                .join(&env::var("CARGO_NDK_ANDROID_TARGET").unwrap())
+                .join(env::var("CARGO_NDK_ANDROID_TARGET").unwrap())
                 .join("libc++_shared.so"),
         )
         .unwrap();

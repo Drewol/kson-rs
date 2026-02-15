@@ -139,4 +139,5 @@ identifier = "dev.kson.editor"
 [features]
 default = []
 portable = []
+camera-test = []
 embed-assets = ["include_dir"]

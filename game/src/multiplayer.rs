@@ -1,26 +1,23 @@
 use std::collections::HashMap;
 use std::rc::Rc;
-use std::sync::atomic::{AtomicBool, AtomicI32, AtomicU32};
+use std::sync::atomic::{AtomicBool, AtomicI32};
 use std::sync::Arc;
 use std::time::Duration;
 
 use anyhow::{ensure, Context};
 use di::{inject, injectable, Ref, RefMut, ServiceProvider};
-use futures::executor::block_on;
 use log::{info, warn};
-use mlua::{Function, Lua, LuaSerdeExt, RegistryKey, UserData};
+use mlua::{Function, Lua, LuaSerdeExt, RegistryKey};
 use multiplayer_protocol::messages::client::ClientCommand;
 use multiplayer_protocol::messages::server::New;
-use multiplayer_protocol::messages::types::GameScore;
 use multiplayer_protocol::messages::{self, get_topic};
 use serde::Serialize;
 use serde_json::json;
 use tokio::sync::mpsc::{channel, Receiver, Sender};
 use tokio::sync::RwLock;
-use tokio::{net::ToSocketAddrs, task::JoinHandle};
+use tokio::task::JoinHandle;
 use winit::event::{ElementState, Event};
 
-use crate::async_service::AsyncService;
 use crate::config::GameConfig;
 use crate::input_state::InputState;
 use crate::lua_service::LuaProvider;
@@ -381,7 +378,7 @@ impl MultiplayerScreen {
                     _ = self.program_control.send(ControlMessage::Song {
                         song,
                         diff: 0,
-                        loader: loader,
+                        loader,
                         autoplay: crate::game_main::AutoPlay::None,
                     });
                 }
@@ -600,7 +597,7 @@ impl MultiplayerScreen {
     }
 }
 
-const MULTI_VERSION: &'static str = "v0.19";
+const MULTI_VERSION: &str = "v0.19";
 
 impl Scene for MultiplayerScreen {
     fn render_ui(&mut self, dt: f64) -> anyhow::Result<()> {
@@ -721,11 +718,8 @@ impl Scene for MultiplayerScreen {
                 }
                 _ => {}
             },
-            winit::event::Event::UserEvent(e) => match e {
-                crate::button_codes::UscInputEvent::Laser(laser_state, ..) => {
-                    self.laser_nav.update(*laser_state)
-                }
-                _ => {}
+            winit::event::Event::UserEvent(e) => if let crate::button_codes::UscInputEvent::Laser(laser_state, ..) = e {
+                self.laser_nav.update(*laser_state)
             },
             _ => {}
         }
@@ -756,10 +750,7 @@ impl Scene for MultiplayerScreen {
             return;
         }
 
-        match button {
-            crate::button_codes::UscButton::Back => self.closing = true,
-            _ => {}
-        }
+        if button == crate::button_codes::UscButton::Back { self.closing = true }
     }
 }
 
@@ -785,8 +776,8 @@ impl LuaTcp {
         if let Ok(init_func) = lua.globals().get::<Function>("init_tcp") {
             init_func.call::<()>(()).warn("Lua TCP init error");
         }
-        let topic_handlers = lua.remove_app_data().unwrap();
-        topic_handlers
+        
+        lua.remove_app_data().unwrap()
     }
 }
 

@@ -1,7 +1,7 @@
 use std::{
     path::PathBuf,
     rc::Rc,
-    sync::{mpsc::Sender, Arc},
+    sync::Arc,
 };
 
 use anyhow::anyhow;
@@ -19,7 +19,6 @@ use crate::{
     game_main::AutoPlay,
     log_result,
     main_menu::MainMenuButton,
-    multiplayer::MultiplayerScreen,
     results::SongResultData,
     scene::{Scene, SceneData},
     songselect::{Song, SongProviderSelection, SongSelect},

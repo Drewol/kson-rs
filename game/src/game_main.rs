@@ -11,7 +11,7 @@ use std::{
 
 use anyhow::Context;
 use di::{RefMut, ServiceProvider};
-use egui_glow::{egui_winit::accesskit_winit::WindowEvent, EguiGlow};
+use egui_glow::EguiGlow;
 use femtovg::Paint;
 use log::info;
 use winit::{
@@ -28,7 +28,7 @@ use glutin::{
 use puffin::{profile_function, profile_scope};
 
 use crate::{
-    button_codes::UscButton, ir::InternetRanking, songselect::SongProviderSelection,
+    ir::InternetRanking, songselect::SongProviderSelection,
     touch::TouchHelper, util::Warn, FrameInput,
 };
 use mlua::Lua;
@@ -49,7 +49,6 @@ use crate::{
     lua_http::LuaHttp,
     lua_service::LuaProvider,
     main_menu::MainMenuButton,
-    scene,
     settings_screen::SettingsScreen,
     song_provider, songselect,
     transition::Transition,
@@ -74,7 +73,9 @@ impl AutoPlay {
     }
 }
 
+#[derive(Default)]
 pub enum ControlMessage {
+    #[default]
     None,
     MainMenu(MainMenuButton),
     SongSelect(SongProviderSelection),
@@ -103,11 +104,6 @@ pub enum ControlMessage {
     ReloadScripts,
 }
 
-impl Default for ControlMessage {
-    fn default() -> Self {
-        Self::None
-    }
-}
 
 pub struct GameMain {
     lua_arena: di::RefMut<LuaArena>,
@@ -289,7 +285,7 @@ impl GameMain {
             companion_update: _,
             frame_end,
             frame_duration,
-            touch_tracker,
+            touch_tracker: _,
             mouse_knobs,
             mouse_locked,
         } = self;
@@ -638,7 +634,7 @@ impl GameMain {
                 self.mousey = position.y;
             }
             Event::WindowEvent {
-                window_id,
+                window_id: _,
                 event: WindowEvent::Touch(t),
             } => {
                 info!("{:?}", t);
@@ -696,7 +692,7 @@ impl GameMain {
                             KeyEvent {
                                 physical_key,
                                 state,
-                                logical_key,
+                                logical_key: _,
                                 ..
                             },
                         ..

@@ -5,9 +5,6 @@ use std::{
 use num_traits::{NumCast, NumOps};
 use serde::{de::Visitor, Deserialize, Serialize};
 
-#[cfg(feature = "schema")]
-use schemars::JsonSchema;
-
 #[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq, Default)]
 pub enum InterpolationShape {
     #[default]
@@ -66,8 +63,7 @@ impl From<&EffectFreq> for f32 {
     }
 }
 
-#[derive(Clone, Debug, PartialEq)]
-
+#[derive(Clone, Debug, PartialEq, Default)]
 pub enum EffectParameterValue {
     Length(RangeInclusive<EffectFloat>, bool),
     Sample(RangeInclusive<i32>),
@@ -78,6 +74,7 @@ pub enum EffectParameterValue {
     Int(RangeInclusive<i32>),
     Float(RangeInclusive<f32>),
     Filename(String),
+    #[default]
     Undefined,
 }
 
@@ -261,12 +258,6 @@ impl<T: Default> FromStr for EffectParameter<T> {
             shape: off.default_shape(),
             off,
         })
-    }
-}
-
-impl Default for EffectParameterValue {
-    fn default() -> Self {
-        Self::Undefined
     }
 }
 

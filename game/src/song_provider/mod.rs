@@ -192,7 +192,9 @@ impl SongFilter {
     SerializeDisplay,
     DeserializeFromStr,
 )]
+#[derive(Default)]
 pub enum SongId {
+    #[default]
     Missing,
     IntId(i64),
     StringId(String),
@@ -237,11 +239,6 @@ impl SongId {
     }
 }
 
-impl Default for SongId {
-    fn default() -> Self {
-        Self::Missing
-    }
-}
 
 #[derive(
     Debug,
@@ -273,17 +270,14 @@ impl FromStr for DiffId {
 }
 
 #[derive(Debug, Clone, ToLuaLsType, Serialize, Deserialize)]
+#[derive(Default)]
 pub enum SongDiffId {
+    #[default]
     Missing,
     DiffOnly(DiffId),
     SongDiff(SongId, DiffId),
 }
 
-impl Default for SongDiffId {
-    fn default() -> Self {
-        Self::Missing
-    }
-}
 
 impl SongDiffId {
     pub fn get_diff(&self) -> Option<&DiffId> {

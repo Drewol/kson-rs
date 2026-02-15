@@ -151,7 +151,7 @@ impl AsyncPicker {
 
 pub fn transform_shader(mut s: String) -> String {
     thread_local! {
-        static LAYOUT_REGEX: std::cell::OnceCell<regex::Regex> = std::cell::OnceCell::new();
+        static LAYOUT_REGEX: std::cell::OnceCell<regex::Regex> = const { std::cell::OnceCell::new() };
     }
 
     LAYOUT_REGEX

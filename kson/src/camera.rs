@@ -3,9 +3,6 @@ use std::cmp::Ordering;
 use crate::{ByPulse, Graph, GraphPoint, GraphSectionPoint};
 use serde::{Deserialize, Serialize};
 
-#[cfg(feature = "schema")]
-use schemars::JsonSchema;
-
 #[derive(Serialize, Deserialize, Clone, Default)]
 #[serde(default)]
 pub struct CameraInfo {
