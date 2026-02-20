@@ -113,7 +113,7 @@ strum = { version = "*", features = ["derive"] }
 include_dir = { version = "0.7", optional = true }
 
 [target.'cfg(target_os = "android")'.dependencies]
-android_logger = "0.13.3"
+android_logger = "0.15.1"
 include_dir = "0.7"
 winit = { version = "0.30", features = ["android-native-activity", "serde"] }
 
