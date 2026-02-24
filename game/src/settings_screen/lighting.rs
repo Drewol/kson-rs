@@ -1,17 +1,21 @@
 use std::{collections::HashMap, ffi::CString, time::SystemTime};
 
 use egui::Ui;
-use hidlights::{DeviceInfo, Report};
+#[cfg(not(target_os = "android"))]
+use hidlights::{DeviceInfo, Report, DeviceHandle};
 use itertools::Itertools;
 use log::warn;
 
 use crate::lighting::{LightingTarget, MappedTarget};
 
+#[cfg(target_os = "android")]
+type DeviceHandle = ();
+
 #[derive(Default)]
 pub struct LightingConfig {
     devices: Vec<DeviceInfo>,
-    highlighted_device: Option<(hidlights::DeviceHandle, CString)>,
-    binding_device: Option<(hidlights::DeviceHandle, Vec<Report>, CString)>,
+    highlighted_device: Option<(DeviceHandle, CString)>,
+    binding_device: Option<(DeviceHandle, Vec<Report>, CString)>,
     highlighted_output: (u32, u32),
 }
 

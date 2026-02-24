@@ -1,4 +1,5 @@
 mod controller_binding;
+#[cfg(not(target_os = "android"))]
 mod lighting;
 pub mod skin_select;
 
@@ -41,6 +42,7 @@ pub struct SettingsScreen {
     primary_monitor: Option<MonitorHandle>,
     tx: Sender<ControlMessage>,
     skins: Vec<(SkinMeta, PathBuf)>,
+    #[cfg(not(target_os = "android"))]
     lighting: self::lighting::LightingConfig,
 }
 
@@ -112,6 +114,7 @@ impl SettingsScreen {
             tx,
             skins,
             key_binding_ui: KeyboardBindingUi::new(),
+            #[cfg(not(target_os = "android"))]
             lighting: self::lighting::LightingConfig::new(),
         }
     }

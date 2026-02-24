@@ -2385,6 +2385,7 @@ impl Scene for Game {
         "Game"
     }
 
+    #[cfg(not(target_os = "android"))]
     fn lighting(&self) -> crate::lighting::LightingData {
         let mut data = crate::lighting::LightingData::default();
 
