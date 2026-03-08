@@ -45,7 +45,7 @@ mlua-bridge = "0.4.4"
 mlua = { version = "0.10", features = [
     "serialize",
     "vendored",
-    "lua53",
+    "lua54",
     "anyhow",
 ] }
 three-d = { git = "https://github.com/asny/three-d.git", rev = "2683e0fea70c0c0da579550d4412880ff7fb09fd", default-features = false }

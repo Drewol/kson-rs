@@ -235,7 +235,13 @@ impl SongSelectScene {
 
     fn update_lua(&self, lua: &Lua) -> anyhow::Result<()> {
         profile_function!();
-        Ok(lua.globals().set("songwheel", lua.to_value(&self.state)?)?)
+        Ok(lua.globals().set(
+            "songwheel",
+            lua.to_value_with(
+                &self.state,
+                mlua::serde::ser::Options::new().serialize_none_to_null(false),
+            )?,
+        )?)
     }
 
     fn update_filter_sort_lua(

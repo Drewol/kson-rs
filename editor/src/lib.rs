@@ -852,25 +852,23 @@ impl App for AppState {
                     }
 
                     if response.clicked() {
+                        info!("Clicked");
                         self.editor.primary_clicked(pos)
-                    }
-
-                    if response.middle_clicked() {
+                    } else if response.middle_clicked() {
+                        info!("Middle clicked");
                         self.editor.middle_clicked(pos)
-                    }
-
-                    if response.drag_started()
+                    } else if response.drag_started()
                         && ctx.input(|x| x.pointer.button_down(egui::PointerButton::Primary))
                     {
+                        info!("Drag start");
                         self.editor.drag_start(
                             egui::PointerButton::Primary,
                             pos.x,
                             pos.y,
                             &Modifiers::from(ctx.input(|x| x.modifiers)),
                         )
-                    }
-
-                    if response.drag_stopped() {
+                    } else if response.drag_stopped() {
+                        info!("Drag end");
                         self.editor
                             .drag_end(egui::PointerButton::Primary, pos.x, pos.y)
                     }

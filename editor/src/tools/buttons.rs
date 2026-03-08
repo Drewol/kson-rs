@@ -51,6 +51,23 @@ impl CursorObject for ButtonInterval {
         self.interval.y = tick;
     }
 
+    fn primary_click(
+        &mut self,
+        screen: ScreenState,
+        tick: u32,
+        tick_f: f64,
+        lane: f32,
+        chart: &Chart,
+        actions: &mut ActionStack<Chart>,
+        pos: Pos2,
+    ) {
+        self.update(tick, tick_f, lane, pos, chart);
+        self.interval.y = tick;
+        self.interval.l = 0;
+        self.pressed = true;
+        self.drag_end(screen, tick, tick_f, lane, chart, actions, pos);
+    }
+
     fn middle_click(
         &mut self,
         _screen: ScreenState,
