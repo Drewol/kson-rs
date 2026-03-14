@@ -53,6 +53,10 @@ pub trait Scene {
     fn lighting(&self) -> LightingData {
         LightingData::default()
     }
+
+    fn touch_as_mouse(&self) -> bool {
+        false
+    }
 }
 
 pub trait SceneData: Send {

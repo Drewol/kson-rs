@@ -182,6 +182,10 @@ impl Scene for MainMenu {
         false
     }
 
+    fn touch_as_mouse(&self) -> bool {
+        true
+    }
+
     fn name(&self) -> &str {
         "Main Menu"
     }

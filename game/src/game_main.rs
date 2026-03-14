@@ -18,7 +18,7 @@ use winit::{
     dpi::{PhysicalPosition, PhysicalSize},
     event,
     keyboard::{Key, NamedKey, PhysicalKey},
-    window::Window,
+    window::{Window, WindowId},
 };
 
 use glutin::{
@@ -657,7 +657,49 @@ impl GameMain {
                 event: WindowEvent::Touch(t),
             } => {
                 info!("{:?}", t);
-                if let Some((e, opt)) = self.touch_tracker.update(t) {
+
+                if self.scenes.touch_as_mouse() {
+                    self.handle(
+                        window,
+                        &Event::WindowEvent {
+                            window_id: WindowId::dummy(),
+                            event: WindowEvent::CursorMoved {
+                                device_id: DeviceId::dummy(),
+                                position: t.location,
+                            },
+                        },
+                    );
+
+                    match t.phase {
+                        TouchPhase::Started => {
+                            self.handle(
+                                window,
+                                &Event::WindowEvent {
+                                    window_id: WindowId::dummy(),
+                                    event: WindowEvent::MouseInput {
+                                        device_id: DeviceId::dummy(),
+                                        state: ElementState::Pressed,
+                                        button: MouseButton::Left,
+                                    },
+                                },
+                            );
+                        }
+                        TouchPhase::Moved => {}
+                        TouchPhase::Ended | TouchPhase::Cancelled => {
+                            self.handle(
+                                window,
+                                &Event::WindowEvent {
+                                    window_id: WindowId::dummy(),
+                                    event: WindowEvent::MouseInput {
+                                        device_id: DeviceId::dummy(),
+                                        state: ElementState::Released,
+                                        button: MouseButton::Left,
+                                    },
+                                },
+                            );
+                        }
+                    }
+                } else if let Some((e, opt)) = self.touch_tracker.update(t) {
                     info!("{:?}, {:?}", e, opt);
                     self.handle(window, &Event::UserEvent(e));
                     if let Some(e) = opt {

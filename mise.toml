@@ -13,6 +13,9 @@ run = "cargo test -r"
 [tasks.apk]
 run = ["x doctor", "x build -r -p rusc --arch arm64 --platform android"]
 
+[tasks.apkx64]
+run = ["x doctor", "x build -r -p rusc --arch x64 --platform android"]
+
 [tasks.deb]
 run = [
     "cargo bundle -f deb -r -p rusc --bin rusc",

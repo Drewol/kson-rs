@@ -277,6 +277,10 @@ impl Scenes {
         self.active.iter().any(|s| s.has_egui())
     }
 
+    pub fn touch_as_mouse(&self) -> bool {
+        self.active.last().is_some_and(|t| t.touch_as_mouse())
+    }
+
     pub fn render_egui(&mut self, ctx: &egui::Context) {
         profile_function!();
         for scene in &mut self.active {

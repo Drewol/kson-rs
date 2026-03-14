@@ -54,15 +54,18 @@ impl SettingsScreen {
     ) -> Self {
         let input_state = InputState::clone(&services.get_required());
         input_state.set_text_input_active(true);
+
         let controllers = {
             let lock_gilrs = input_state.lock_gilrs();
-            let gilrs = lock_gilrs
+            lock_gilrs
                 .as_ref()
-                .expect("Controllers not supported on platform");
-            gilrs
-                .gamepads()
-                .map(|(id, pad)| (id, pad.name().to_string()))
-                .collect()
+                .map(|gilrs| {
+                    gilrs
+                        .gamepads()
+                        .map(|(id, pad)| (id, pad.name().to_string()))
+                        .collect::<HashMap<_, _>>()
+                })
+                .unwrap_or_default()
         };
 
         let monitors = window.available_monitors().collect_vec();
@@ -182,7 +185,10 @@ impl Scene for SettingsScreen {
         true
     }
 
-    #[cfg(not(target_os = "android"))]
+    fn touch_as_mouse(&self) -> bool {
+        true
+    }
+
     fn render_egui(&mut self, ctx: &egui::Context) -> anyhow::Result<()> {
         egui::panel::TopBottomPanel::bottom("settings_buttons").show(ctx, |ui| {
             if ui.button("Cancel").clicked() {
@@ -193,10 +199,16 @@ impl Scene for SettingsScreen {
                 self.apply();
                 self.close = true;
             }
+
+            #[cfg(target_os = "android")]
+            ui.add_space(50.0);
         });
 
         egui::panel::CentralPanel::default().show(ctx, |ui| {
             egui::ScrollArea::vertical().show(ui, |ui| {
+                #[cfg(target_os = "android")]
+                ui.add_space(50.0);
+
                 settings_section("Input", ui, |ui| {
                     ui.label("Offset");
                     ui.add(Slider::new(
@@ -325,6 +337,8 @@ impl Scene for SettingsScreen {
                         .to_string();
 
                     ui.label("Songs path");
+
+                    #[cfg(not(target_os = "android"))]
                     AsyncPicker::new()
                         .folder()
                         .show("song_folder".into(), &mut songs_path, ui);
@@ -384,6 +398,7 @@ impl Scene for SettingsScreen {
 
                     ui.label("Screenshots path");
 
+                    #[cfg(not(target_os = "android"))]
                     AsyncPicker::new().folder().show(
                         "screenshot_folder".into(),
                         &mut screenshot_path,
@@ -421,6 +436,7 @@ impl Scene for SettingsScreen {
                     ui.end_row();
                 });
 
+                #[cfg(not(target_os = "android"))]
                 settings_section(
                     "Controller Lights",
                     ui,
