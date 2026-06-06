@@ -812,7 +812,7 @@ fn song_from_zip(
                 let delay = 1_000_000_000u128 / decoded.sample_rate().get() as u128;
 
                 // Compensate read sample
-                let stream = decoded.delay(Duration::from_nanos_u128(delay));
+                let stream = decoded.delay(Duration::from_nanos(delay as u64));
 
                 return Ok((chart, Box::new(stream), None));
             }
