@@ -1,4 +1,6 @@
 android:
   manifest:
+    sdk:
+      min_sdk_version: 26
     uses_permission:
       - name: android.permission.INTERNET
