@@ -1,8 +1,6 @@
-use rodio::{SampleRate, ChannelCount};
+use rodio::{ChannelCount, SampleRate};
 use rodio::{Sample, Source};
 use std::collections::VecDeque;
-
-use rodio::Source;
 
 use super::mix_source::MixSource;
 

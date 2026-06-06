@@ -131,7 +131,7 @@ impl CompanionServer {
         let _listener = start_listener(event_proxy, client_bus);
 
         #[cfg(target_os = "android")]
-        let _listener = poll_promise::Promise::from_ready(());
+        let _listener = tokio::task::spawn(async {});
 
         Self {
             event_bus,
