@@ -1,15 +1,16 @@
 use rand::Rng;
 use rodio::Source;
+use rodio::{ChannelCount, SampleRate};
 
 pub struct NoiseSource {
-    sample_rate: u32,
+    sample_rate: SampleRate,
     amplitude: f32,
     rng: rand::rngs::OsRng,
-    channels: u16,
+    channels: ChannelCount,
 }
 
 impl NoiseSource {
-    pub fn new(sample_rate: u32, amplitude: f32, channels: u16) -> Self {
+    pub fn new(sample_rate: SampleRate, amplitude: f32, channels: ChannelCount) -> Self {
         NoiseSource {
             sample_rate,
             amplitude,
@@ -28,15 +29,15 @@ impl Iterator for NoiseSource {
 }
 
 impl Source for NoiseSource {
-    fn current_frame_len(&self) -> Option<usize> {
+    fn current_span_len(&self) -> Option<usize> {
         None
     }
 
-    fn channels(&self) -> u16 {
+    fn channels(&self) -> ChannelCount {
         self.channels
     }
 
-    fn sample_rate(&self) -> u32 {
+    fn sample_rate(&self) -> SampleRate {
         self.sample_rate
     }
 

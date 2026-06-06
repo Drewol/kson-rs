@@ -1,14 +1,14 @@
+use rodio::{ChannelCount, SampleRate};
+use rodio::{Sample, Source};
 use std::sync::{Arc, RwLock};
 
-use rodio::{Sample, Source};
-
-pub struct TakeableSource<I: Source<Item = D> + Send, D: Sample> {
+pub struct TakeableSource<I: Source + Send> {
     source: Arc<RwLock<Option<I>>>,
-    channels: u16,
-    sample_rate: u32,
+    channels: ChannelCount,
+    sample_rate: SampleRate,
 }
 
-impl<I: Source<Item = D> + Send, D: Sample> TakeableSource<I, D> {
+impl<I: Source + Send> TakeableSource<I> {
     pub fn new(source: I) -> (Self, Arc<RwLock<Option<I>>>) {
         let channels = source.channels();
         let sample_rate = source.sample_rate();
@@ -24,12 +24,11 @@ impl<I: Source<Item = D> + Send, D: Sample> TakeableSource<I, D> {
     }
 }
 
-impl<I, D> Iterator for TakeableSource<I, D>
+impl<I> Iterator for TakeableSource<I>
 where
-    I: Source<Item = D> + Send,
-    D: Sample,
+    I: Source + Send,
 {
-    type Item = D;
+    type Item = I::Item;
 
     fn next(&mut self) -> Option<Self::Item> {
         self.source
@@ -40,24 +39,23 @@ where
     }
 }
 
-impl<I, D> Source for TakeableSource<I, D>
+impl<I> Source for TakeableSource<I>
 where
-    I: Source<Item = D> + Send,
-    D: Sample,
+    I: Source + Send,
 {
-    fn current_frame_len(&self) -> Option<usize> {
+    fn current_span_len(&self) -> Option<usize> {
         if let Ok(s) = self.source.read() {
-            s.as_ref().and_then(|s| s.current_frame_len())
+            s.as_ref().and_then(|s| s.current_span_len())
         } else {
             None
         }
     }
 
-    fn channels(&self) -> u16 {
+    fn channels(&self) -> ChannelCount {
         self.channels
     }
 
-    fn sample_rate(&self) -> u32 {
+    fn sample_rate(&self) -> SampleRate {
         self.sample_rate
     }
 

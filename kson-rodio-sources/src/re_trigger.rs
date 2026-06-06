@@ -1,24 +1,25 @@
-use std::time::Duration;
-
+use rodio::{ChannelCount, SampleRate};
 use rodio::{Sample, Source};
+use std::ops::Mul;
+use std::time::Duration;
 
 use super::mix_source::MixSource;
 
-pub fn re_trigger<I: Source<Item = D>, D: Sample>(
+pub fn re_trigger<I: Source>(
     source: I,
     start: Duration,
     repeat_period: Duration,
     update_period: Duration,
     feedback: f32,
-) -> ReTrigger<I, D> {
+) -> ReTrigger<I> {
     let channels = source.channels();
     let sample_rate = source.sample_rate();
     ReTrigger {
         input: source,
-        sample_buffer: (0..channels).map(|_| vec![]).collect(),
+        sample_buffer: (0..channels.get()).map(|_| vec![]).collect(),
         buffer_cursor: 0,
-        repeat_period: (sample_rate as f64 * repeat_period.as_secs_f64()) as _,
-        update_period: (sample_rate as f64 * update_period.as_secs_f64()) as _,
+        repeat_period: (sample_rate.get() as f64 * repeat_period.as_secs_f64()) as _,
+        update_period: (sample_rate.get() as f64 * update_period.as_secs_f64()) as _,
         update_counter: 0,
         channels,
         current_channel: 0,
@@ -27,20 +28,20 @@ pub fn re_trigger<I: Source<Item = D>, D: Sample>(
         volume: 1.0,
         feedback,
         repeats: 0,
-        countdown: (start.as_secs_f64() * sample_rate as f64 * channels as f64) as u128,
+        countdown: (start.as_secs_f64() * sample_rate.get() as f64 * channels.get() as f64) as u128,
     }
 }
 
-pub struct ReTrigger<I: Source<Item = D>, D: Sample> {
+pub struct ReTrigger<I: Source> {
     input: I,
-    sample_buffer: Vec<Vec<Option<D>>>,
+    sample_buffer: Vec<Vec<Option<I::Item>>>,
     buffer_cursor: usize,
     repeat_period: usize,
     update_period: usize,
     update_counter: usize,
-    channels: u16,
+    channels: ChannelCount,
     current_channel: u16,
-    sample_rate: u32,
+    sample_rate: SampleRate,
     mix: f32,
     volume: f32,
     feedback: f32,
@@ -48,12 +49,11 @@ pub struct ReTrigger<I: Source<Item = D>, D: Sample> {
     countdown: u128,
 }
 
-impl<I, D> Iterator for ReTrigger<I, D>
+impl<I> Iterator for ReTrigger<I>
 where
-    I: Source<Item = D>,
-    D: Sample,
+    I: Source,
 {
-    type Item = D;
+    type Item = I::Item;
 
     fn next(&mut self) -> Option<Self::Item> {
         let original = self.input.next();
@@ -79,7 +79,7 @@ where
 
         let mut effected = buffer.get(self.buffer_cursor).copied().flatten();
         if let Some(effected) = effected.as_mut() {
-            effected.amplify(self.volume);
+            effected.mul(self.volume);
         }
 
         if self.current_channel == 0 {
@@ -100,7 +100,7 @@ where
             (None, None) => None,
             (None, Some(_)) => None,
             (Some(v), None) => Some(v),
-            (Some(original), Some(effected)) => Some(Sample::lerp(
+            (Some(original), Some(effected)) => Some(crate::lerp(
                 original,
                 effected,
                 (self.mix * 1000.0) as u32,
@@ -110,20 +110,19 @@ where
     }
 }
 
-impl<I, D> Source for ReTrigger<I, D>
+impl<I> Source for ReTrigger<I>
 where
-    I: Source<Item = D>,
-    D: Sample,
+    I: Source,
 {
-    fn current_frame_len(&self) -> Option<usize> {
-        self.input.current_frame_len()
+    fn current_span_len(&self) -> Option<usize> {
+        self.input.current_span_len()
     }
 
-    fn channels(&self) -> u16 {
+    fn channels(&self) -> ChannelCount {
         self.channels
     }
 
-    fn sample_rate(&self) -> u32 {
+    fn sample_rate(&self) -> SampleRate {
         self.sample_rate
     }
 
@@ -132,10 +131,9 @@ where
     }
 }
 
-impl<I, D> MixSource for ReTrigger<I, D>
+impl<I> MixSource for ReTrigger<I>
 where
-    I: Source<Item = D>,
-    D: Sample,
+    I: Source,
 {
     fn set_mix(&mut self, mix: f32) {
         self.mix = mix;

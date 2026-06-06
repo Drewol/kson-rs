@@ -15,6 +15,7 @@ use futures::{executor::block_on, AsyncWriteExt};
 use itertools::Itertools;
 use log::warn;
 use rodio::Source;
+use tokio::task::JoinHandle;
 
 use crate::{
     async_service::AsyncService,
@@ -22,6 +23,7 @@ use crate::{
     results::Score,
     song_provider::SongFilterType,
     songselect::{favourite_dialog, Difficulty, Song},
+    util::TokioTaskExt,
     worker_service::WorkerService,
 };
 
@@ -231,7 +233,7 @@ impl Chart {
 }
 
 pub struct NauticaSongProvider {
-    next: Option<Promise<Result<NauticaSongs>>>,
+    next: Option<JoinHandle<Result<NauticaSongs>>>,
     events: VecDeque<SongProviderEvent>,
     all_songs: Vec<Arc<Song>>,
     next_url: String,
@@ -361,7 +363,7 @@ impl NauticaSongProvider {
                 } else {
                     format!("https://ksm.dev/app/songs?{}", query)
                 };
-                self.next = Some(Promise::spawn_async(next_songs(self.next_url.clone())));
+                self.next = Some(tokio::spawn(next_songs(self.next_url.clone())));
             }
         }
     }
@@ -517,7 +519,7 @@ impl SongProvider for NauticaSongProvider {
             .find(|x| x.1.id.as_u64() == index)
         {
             if i > self.all_songs.len().saturating_sub(10) {
-                self.next = Some(Promise::spawn_async(next_songs(self.next_url.clone())));
+                self.next = Some(tokio::spawn(next_songs(self.next_url.clone())));
             }
         }
     }
@@ -578,8 +580,8 @@ impl SongProvider for NauticaSongProvider {
             std::fs::create_dir_all(&song_path)?;
             song_path.push("preview");
 
-            let source: Box<dyn Source<Item = f32> + Send> = if song_path.exists() {
-                Box::new(rodio::Decoder::new(std::fs::File::open(song_path)?)?.convert_samples())
+            let source: Box<dyn Source + Send> = if song_path.exists() {
+                Box::new(rodio::Decoder::new(std::fs::File::open(song_path)?)?)
             } else {
                 let NauticaSong { data: nautica } = reqwest::get(format!(
                     "https://ksm.dev/app/songs/{}",
@@ -599,7 +601,7 @@ impl SongProvider for NauticaSongProvider {
 
                 std::fs::write(song_path, &bytes)?;
 
-                Box::new(rodio::Decoder::new(std::io::Cursor::new(bytes))?.convert_samples())
+                Box::new(rodio::Decoder::new(std::io::Cursor::new(bytes))?)
             };
             Ok((
                 source as Box<dyn Source<Item = f32> + Send>,
@@ -611,7 +613,7 @@ impl SongProvider for NauticaSongProvider {
 
     fn subscribe(&mut self) -> bus::BusReader<SongProviderEvent> {
         if self.next.is_none() {
-            self.next = Some(Promise::spawn_async(next_songs(self.next_url.clone())));
+            self.next = Some(tokio::spawn(next_songs(self.next_url.clone())));
         }
 
         self.bus.add_rx()
@@ -764,11 +766,7 @@ fn download_song(id: Uuid, diff: u8, on_loaded: Sender<Datum>) -> anyhow::Result
 fn song_from_zip(
     data: impl std::io::Read + std::io::Seek,
     diff: u8,
-) -> Result<(
-    kson::Chart,
-    Box<dyn rodio::Source<Item = f32> + Send>,
-    Option<PathBuf>,
-)> {
+) -> Result<(kson::Chart, Box<dyn rodio::Source + Send>, Option<PathBuf>)> {
     let mut archive = zip::read::ZipArchive::new(data)?;
     for i in 0..archive.len() {
         let mut file = archive.by_index(i)?;
@@ -804,12 +802,19 @@ fn song_from_zip(
                 let mut bgm_buf = Vec::new();
                 bgm_entry.read_to_end(&mut bgm_buf)?;
                 let bgm_cursor = std::io::Cursor::new(bgm_buf);
+                let mut decoded = rodio::Decoder::new(bgm_cursor)?;
 
-                return Ok((
-                    chart,
-                    Box::new(rodio::Decoder::new(bgm_cursor)?.convert_samples()),
-                    None,
-                ));
+                // Read the first sample, bug with decoder initialization?
+                for _ in 0..decoded.channels().get() {
+                    decoded.next().ok_or(anyhow!("Empty audio"))?;
+                }
+
+                let delay = 1_000_000_000u128 / decoded.sample_rate().get() as u128;
+
+                // Compensate read sample
+                let stream = decoded.delay(Duration::from_nanos_u128(delay));
+
+                return Ok((chart, Box::new(stream), None));
             }
         }
     }

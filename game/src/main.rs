@@ -71,7 +71,7 @@ use log::*;
 use lua_service::LuaProvider;
 use luals_gen::LuaLsGen;
 use puffin::profile_function;
-use rodio::{dynamic_mixer::DynamicMixerController, Source};
+use rodio::{cpal::BufferSize, nz, source::Source};
 use scene::Scene;
 
 pub(crate) use crate::song_provider::{DiffId, FileSongProvider, NauticaSongProvider, SongId};
@@ -84,24 +84,8 @@ use di::*;
 use glutin::{context::PossiblyCurrentContext, prelude::*};
 pub use log_macro::log_result;
 use winit::event::WindowEvent;
-mod async_macro {
 
-    #[macro_export]
-    macro_rules! block {
-        ($l:expr) => {
-            poll_promise::Promise::spawn_async(async move {
-                let x = { $l };
-                x.await
-            })
-            .block_and_take()
-        };
-    }
-
-    pub use block as block_on;
-}
-
-pub use async_macro::block_on;
-pub type InnerRuscMixer = DynamicMixerController<f32>;
+pub type InnerRuscMixer = rodio::mixer::Mixer;
 pub type RuscMixer = Arc<InnerRuscMixer>;
 
 // Copied from three_d
@@ -345,10 +329,11 @@ struct UscApp {
     frame_tracker: FrameTracker,
     update_tracker: UpdateTracker,
     gilrs: Arc<Mutex<Option<Gilrs>>>,
-    mixer_controls: RuscMixer,
-    sink: Option<rodio::Sink>,
+    mixer: Option<rodio::mixer::Mixer>,
+    sink: Option<rodio::MixerDeviceSink>,
     companion_service: Option<RwLock<CompanionServer>>,
     offset_tx: std::sync::mpsc::Sender<i32>,
+    async_rt: tokio::runtime::Runtime,
 }
 
 struct FrameTracker {
@@ -408,22 +393,26 @@ impl UscApp {
             }
         }
         let companion_service = self.companion_service.take().unwrap();
-        let mixer_controls = self.mixer_controls.clone();
         let gl_context = Arc::new(gl_context);
         let context = td::Context::from_gl_context(gl_context.clone())?;
         let service_context = context.clone();
         let gui = egui_glow::EguiGlow::new(event_loop, gl_context.clone(), None, None, false);
         let gilrs_state = self.gilrs.clone();
+
         let services = ServiceCollection::new()
             .add(existing_as_self(companion_service))
-            .add(existing_as_self(self.sink.take().unwrap()))
+            .add(existing_as_self(self.mixer.take().unwrap()))
             .add(AsyncService::singleton().as_mut())
             .add(MultiplayerService::singleton().as_mut())
             .add_worker::<AsyncService>()
             .add(existing_as_self(Mutex::new(canvas)))
             .add(existing_as_self(service_context.clone()))
             .add(singleton_factory(|_| {
-                RefMut::new(block_on!(song_provider::FileSongProvider::new()).into())
+                RefMut::new(
+                    tokio::runtime::Handle::current()
+                        .block_on(song_provider::FileSongProvider::new())
+                        .into(),
+                )
             }))
             .add(singleton_factory(|x| {
                 RefMut::new(song_provider::NauticaSongProvider::new(x.get_required_mut()).into())
@@ -449,7 +438,6 @@ impl UscApp {
             .add_worker::<FileSongProvider>()
             .add_worker::<NauticaSongProvider>()
             .add_worker::<companion_interface::CompanionServer>()
-            .add(singleton_factory(move |_| mixer_controls.clone()))
             .add(Vgfx::singleton().as_mut())
             .add(singleton_factory(|_| {
                 RefMut::new(LuaArena(Vec::new()).into())
@@ -527,7 +515,7 @@ impl UscApp {
                     0,
                     chart,
                     skin_folder,
-                    Box::new(audio.convert_samples()),
+                    Box::new(audio),
                     game_main::AutoPlay::None,
                     chart_path.parent().map(|x| x.to_path_buf()),
                 )?)
@@ -769,16 +757,21 @@ pub fn run(eventloop: winit::event_loop::EventLoop<UscInputEvent>) -> anyhow::Re
         info!("Running anyway");
     };
     GameConfig::init(config_path, args);
-    let (_output_stream, output_stream_handle) = rodio::OutputStream::try_default()?;
-    let sink = rodio::Sink::try_new(&output_stream_handle)?;
-    let (mixer_controls, mixer) = rodio::dynamic_mixer::mixer::<f32>(2, 44100);
-    mixer_controls.add(rodio::source::Zero::new(2, 44100));
+    let sink = rodio::DeviceSinkBuilder::from_default_device()?
+        .with_buffer_size(BufferSize::Fixed(512))
+        .open_stream()?;
+    let sink_mixer = sink.mixer();
 
-    {
-        sink.append(mixer);
-        sink.play();
-        sink.set_volume(GameConfig::get().master_volume);
-    }
+    let (mixer, mixer_source) = rodio::mixer::mixer(nz!(2), nz!(44100));
+    mixer.add(rodio::source::Zero::new(nz!(2), nz!(44100)));
+    sink_mixer.add(
+        mixer_source
+            .amplify(GameConfig::get().master_volume)
+            .periodic_access(Duration::from_millis(100), |inner| {
+                let master_volume = GameConfig::get().master_volume;
+                inner.set_log_factor(master_volume);
+            }),
+    );
 
     let rt = tokio::runtime::Builder::new_multi_thread()
         .enable_all()
@@ -881,12 +874,13 @@ pub fn run(eventloop: winit::event_loop::EventLoop<UscInputEvent>) -> anyhow::Re
     eventloop.run_app(&mut UscApp {
         state: None,
         gilrs: gilrs_state,
-        mixer_controls,
+        mixer: Some(mixer),
         sink: Some(sink),
         companion_service: Some(companion_service),
         offset_tx,
         frame_tracker: FrameTracker::new(),
         update_tracker: UpdateTracker::new(),
+        async_rt: rt,
     })?;
 
     Ok(())

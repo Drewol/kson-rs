@@ -18,8 +18,8 @@ use kson::{
 use kson_music_playback as playback;
 
 use puffin::profile_scope;
+use rodio::MixerDeviceSink;
 
-use rodio::OutputStream;
 use std::collections::VecDeque;
 use std::ffi::OsStr;
 use std::fs::File;
@@ -31,7 +31,7 @@ use std::time::Duration;
 pub const EGUI_ID: &str = "chart_editor";
 
 pub struct MainState {
-    pub audio_out: Option<(rodio::OutputStream, rodio::OutputStreamHandle)>,
+    pub audio_out: Option<MixerDeviceSink>,
     pub chart: kson::Chart,
     pub save_path: Option<PathBuf>,
     pub mouse_x: f32,
@@ -891,7 +891,8 @@ impl MainState {
                                 self.audio_playback.build_effects(&self.chart);
                                 self.audio_playback.play();
                                 drop(self.audio_out.take());
-                                let audio_out = OutputStream::try_default()?;
+                                let audio_out = rodio::DeviceSinkBuilder::from_default_device()?
+                                    .open_stream()?;
                                 use rodio::source::Source;
                                 let audio_file = self
                                     .audio_playback
@@ -901,9 +902,9 @@ impl MainState {
                                 self.audio_playback.set_fx_enable(true, true);
 
                                 self.audio_playback.play();
-                                audio_out.1.play_raw(
-                                    audio_file.skip_duration(Duration::from_millis(ms as _)),
-                                )?;
+                                audio_out
+                                    .mixer()
+                                    .add(audio_file.skip_duration(Duration::from_millis(ms as _)));
                                 self.audio_out = Some(audio_out);
                             }
                             Err(msg) => {

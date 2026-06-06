@@ -46,7 +46,7 @@ pub enum ClientEvent {
 pub struct CompanionServer {
     event_bus: tokio::sync::broadcast::Sender<GameState>,
     pub active: Arc<AtomicBool>,
-    _listener: poll_promise::Promise<()>,
+    _listener: tokio::task::JoinHandle<()>,
 }
 
 async fn accept_connection(
@@ -148,10 +148,10 @@ impl CompanionServer {
 fn start_listener(
     event_proxy: winit::event_loop::EventLoopProxy<UscInputEvent>,
     client_bus: tokio::sync::broadcast::Sender<GameState>,
-) -> poll_promise::Promise<()> {
+) -> tokio::task::JoinHandle<()> {
     let _listener = if let Some(addr) = GameConfig::get().companion_address.as_ref() {
         let addr = addr.clone();
-        poll_promise::Promise::spawn_async(async move {
+        tokio::spawn(async move {
             let listener = TcpListener::bind(&addr)
                 .await
                 .expect("Can't start companion server");
@@ -174,7 +174,7 @@ fn start_listener(
             }
         })
     } else {
-        poll_promise::Promise::from_ready(())
+        tokio::spawn(async {})
     };
     _listener
 }

@@ -2,11 +2,12 @@
 /// Copied from rodio source and modified with fade out logic.
 /// TODO: Upstream?
 use std::{
+    ops::Mul,
     sync::{atomic::AtomicUsize, Arc},
     time::Duration,
 };
 
-use rodio::{Sample, Source};
+use rodio::{ChannelCount, Sample, SampleRate, Source};
 
 /// Internal function that builds a `TakeDuration` object.
 pub fn take_duration_fade<I>(
@@ -17,10 +18,9 @@ pub fn take_duration_fade<I>(
 ) -> TakeDurationFade<I>
 where
     I: Source,
-    I::Item: Sample,
 {
     TakeDurationFade {
-        current_frame_len: input.current_frame_len(),
+        current_span_len: input.current_span_len(),
         duration_per_sample: TakeDurationFade::get_duration_per_sample(&input),
         input,
         remaining_duration: duration,
@@ -37,23 +37,17 @@ enum DurationFilter {
     FadeOut(Duration),
 }
 impl DurationFilter {
-    fn apply<I: Iterator>(
+    fn apply<I: Iterator<Item = f32>>(
         &self,
         sample: <I as Iterator>::Item,
         parent: &TakeDurationFade<I>,
-    ) -> (<I as Iterator>::Item, bool)
-    where
-        I::Item: Sample,
-    {
+    ) -> (<I as Iterator>::Item, bool) {
         use self::DurationFilter::*;
         match self {
             FadeOut(fade) => {
                 let remaining = parent.remaining_duration.as_millis() as f32;
                 let fade = fade.as_millis() as f32;
-                (
-                    sample.amplify((remaining / fade).min(1.0)),
-                    remaining < fade,
-                )
+                (sample.mul((remaining / fade).min(1.0)), remaining < fade)
             }
         }
     }
@@ -69,7 +63,7 @@ pub struct TakeDurationFade<I> {
     requested_duration: Duration,
     filter: Option<DurationFilter>,
     // Remaining samples in current frame.
-    current_frame_len: Option<usize>,
+    current_span_len: Option<usize>,
     // Only updated when the current frame len is exhausted.
     duration_per_sample: Duration,
     signal: Arc<AtomicUsize>,
@@ -79,12 +73,11 @@ pub struct TakeDurationFade<I> {
 impl<I> TakeDurationFade<I>
 where
     I: Source,
-    I::Item: Sample,
 {
     /// Returns the duration elapsed for each sample extracted.
     #[inline]
     fn get_duration_per_sample(input: &I) -> Duration {
-        let ns = NANOS_PER_SEC / (input.sample_rate() as u64 * input.channels() as u64);
+        let ns = NANOS_PER_SEC / (input.sample_rate().get() as u64 * input.channels().get() as u64);
         // \|/ the maximum value of `ns` is one billion, so this can't fail
         Duration::new(0, ns as u32)
     }
@@ -127,16 +120,15 @@ where
 impl<I> Iterator for TakeDurationFade<I>
 where
     I: Source,
-    I::Item: Sample,
 {
     type Item = <I as Iterator>::Item;
 
     fn next(&mut self) -> Option<<I as Iterator>::Item> {
-        if let Some(frame_len) = self.current_frame_len.take() {
+        if let Some(frame_len) = self.current_span_len.take() {
             if frame_len > 0 {
-                self.current_frame_len = Some(frame_len - 1);
+                self.current_span_len = Some(frame_len - 1);
             } else {
-                self.current_frame_len = self.input.current_frame_len();
+                self.current_span_len = self.input.current_span_len();
                 // Sample rate might have changed
                 self.duration_per_sample = Self::get_duration_per_sample(&self.input);
             }
@@ -169,10 +161,9 @@ where
 impl<I> Source for TakeDurationFade<I>
 where
     I: Iterator + Source,
-    I::Item: Sample,
 {
     #[inline]
-    fn current_frame_len(&self) -> Option<usize> {
+    fn current_span_len(&self) -> Option<usize> {
         let remaining_nanos = self
             .remaining_duration
             .as_secs()
@@ -186,18 +177,18 @@ where
         let remaining_samples = (remaining_nanos / nanos_per_sample) as usize;
 
         self.input
-            .current_frame_len()
+            .current_span_len()
             .filter(|value| *value < remaining_samples)
             .or(Some(remaining_samples))
     }
 
     #[inline]
-    fn channels(&self) -> u16 {
+    fn channels(&self) -> ChannelCount {
         self.input.channels()
     }
 
     #[inline]
-    fn sample_rate(&self) -> u32 {
+    fn sample_rate(&self) -> SampleRate {
         self.input.sample_rate()
     }
 

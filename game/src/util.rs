@@ -75,6 +75,24 @@ pub fn pipe<T, U>() -> (Pipe<U, T>, Pipe<T, U>) {
     (Pipe { tx: t_tx, rx: u_rx }, Pipe { tx: u_tx, rx: t_rx })
 }
 
+pub trait TokioTaskExt<T> {
+    type S;
+    fn try_take(self) -> Result<T, Self::S>;
+}
+
+impl<T> TokioTaskExt<T> for tokio::task::JoinHandle<T> {
+    type S = Self;
+    fn try_take(self) -> Result<T, Self> {
+        if self.is_finished() {
+            Ok(tokio::runtime::Handle::current()
+                .block_on(self)
+                .expect("Task failed"))
+        } else {
+            Err(self)
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use mlua::Lua;

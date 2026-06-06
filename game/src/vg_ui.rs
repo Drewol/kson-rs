@@ -155,6 +155,9 @@ impl Injectable for Vgfx {
     }
 }
 
+// Needed as femtovg has a refcell in the path struct, we should not be modifying the paths outside the main thread so this should be fine
+unsafe impl Sync for Vgfx {}
+
 #[derive(Clone, Debug)]
 struct Label {
     text: String,

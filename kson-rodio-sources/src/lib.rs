@@ -1,3 +1,5 @@
+use rodio::{ChannelCount, SampleRate};
+use rodio::{Sample, Source};
 pub mod biquad;
 pub mod bitcrush;
 pub mod effected_part;
@@ -20,3 +22,8 @@ pub mod takeable_source;
 pub mod tape_stop;
 pub mod triangle;
 pub mod wobble;
+
+// Copied from rodio
+fn lerp(first: f32, second: f32, numerator: u32, denominator: u32) -> f32 {
+    first + (second - first) * numerator as f32 / denominator as f32
+}

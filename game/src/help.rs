@@ -6,7 +6,7 @@ use std::{
 
 use anyhow::anyhow;
 use di::{transient_factory, ServiceCollection};
-use femtovg::rgb::ComponentSlice;
+use femtovg::rgb::{ComponentBytes, ComponentSlice};
 use itertools::Itertools;
 #[cfg(not(target_os = "android"))]
 use rfd::AsyncFileDialog;
@@ -187,7 +187,6 @@ pub fn take_screenshot(
     };
 
     let (buf, width, height) = img.to_contiguous_buf();
-
     let config = GameConfig::get();
     let mut path = config.game_folder.clone();
 
@@ -205,7 +204,7 @@ pub fn take_screenshot(
 
     image::save_buffer(
         &path,
-        buf.as_slice(),
+        unsafe { std::mem::transmute(buf.as_ref()) },
         width as _,
         height as _,
         image::ColorType::Rgba8,

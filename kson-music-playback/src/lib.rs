@@ -5,6 +5,7 @@ use kson::Chart;
 
 use rodio::source::{Buffered, SkipDuration};
 pub use rodio::Source;
+use rodio::{ChannelCount, SampleRate};
 
 use std::collections::VecDeque;
 use std::fs::File;
@@ -27,18 +28,18 @@ use kson_rodio_sources::{
     wobble::wobble,
 };
 
-type ActiveEffect = ((u64, u64), Box<dyn Source<Item = f32> + Send>);
+type ActiveEffect = ((u64, u64), Box<dyn Source + Send>);
 
 pub struct AudioFile {
-    audio: SkipDuration<Buffered<Box<dyn Source<Item = f32> + Send>>>,
-    audio_base: SkipDuration<Buffered<Box<dyn Source<Item = f32> + Send>>>,
-    effected: Option<SkipDuration<Buffered<Box<dyn Source<Item = f32> + Send>>>>,
-    effected_base: Option<SkipDuration<Buffered<Box<dyn Source<Item = f32> + Send>>>>,
+    audio: SkipDuration<Buffered<Box<dyn Source + Send>>>,
+    audio_base: SkipDuration<Buffered<Box<dyn Source + Send>>>,
+    effected: Option<SkipDuration<Buffered<Box<dyn Source + Send>>>>,
+    effected_base: Option<SkipDuration<Buffered<Box<dyn Source + Send>>>>,
     leadin: Arc<AtomicUsize>,
     stopped: Arc<AtomicBool>,
     fx_enable: [Arc<AtomicBool>; 2],
-    channels: u16,
-    sample_rate: u32,
+    channels: ChannelCount,
+    sample_rate: SampleRate,
     pos: Arc<AtomicUsize>,
     effects: VecDeque<((u64, u64), Box<EffectBuilder>)>,
     active_effects: Vec<ActiveEffect>,
@@ -123,17 +124,17 @@ impl Iterator for AudioFile {
 }
 
 impl Source for AudioFile {
-    fn current_frame_len(&self) -> Option<usize> {
-        self.audio.current_frame_len()
+    fn current_span_len(&self) -> Option<usize> {
+        self.audio.current_span_len()
     }
 
     #[inline]
-    fn channels(&self) -> u16 {
+    fn channels(&self) -> ChannelCount {
         self.channels
     }
 
     #[inline]
-    fn sample_rate(&self) -> u32 {
+    fn sample_rate(&self) -> SampleRate {
         self.sample_rate
     }
 
@@ -148,10 +149,11 @@ impl AudioFile {
         let leadin = self.leadin.load(Ordering::Relaxed);
 
         if leadin > 0 {
-            -((leadin / self.channels as usize) as f64 / (self.sample_rate as f64 / 1000.0))
+            -((leadin / self.channels.get() as usize) as f64
+                / (self.sample_rate.get() as f64 / 1000.0))
         } else {
-            (self.pos.load(Ordering::SeqCst) / self.channels as usize) as f64
-                / (self.sample_rate as f64 / 1000.0)
+            (self.pos.load(Ordering::SeqCst) / self.channels.get() as usize) as f64
+                / (self.sample_rate.get() as f64 / 1000.0)
         }
     }
 
@@ -161,8 +163,8 @@ impl AudioFile {
 
     fn set_leadin(&self, duration: Duration) {
         self.leadin.store(
-            ((duration.as_millis() * self.sample_rate as u128) / 1000) as usize
-                * self.channels as usize,
+            ((duration.as_millis() * self.sample_rate.get() as u128) / 1000) as usize
+                * self.channels.get() as usize,
             Ordering::Relaxed,
         )
     }
@@ -249,10 +251,11 @@ impl AudioPlayback {
                 let offset_ms = offset.as_millis() as f64 - neg_offset.as_millis() as f64;
 
                 let start_pos = (section_start_ms + offset_ms)
-                    * (sample_rate as f64 / 1000.0)
-                    * channels as f64;
-                let end_pos =
-                    (section_end_ms + offset_ms) * (sample_rate as f64 / 1000.0) * channels as f64;
+                    * (sample_rate.get() as f64 / 1000.0)
+                    * channels.get() as f64;
+                let end_pos = (section_end_ms + offset_ms)
+                    * (sample_rate.get() as f64 / 1000.0)
+                    * channels.get() as f64;
 
                 let effect_part = effect_part
                     .into_iter()
@@ -480,9 +483,9 @@ impl AudioPlayback {
         let file = File::open(path)?;
         let source = rodio::Decoder::new(BufReader::new(file))?;
         self.open(
-            Box::new(source.convert_samples()),
+            Box::new(source),
             path,
-            None as Option<Box<dyn Source<Item = f32> + Send>>,
+            None as Option<Box<dyn Source + Send>>,
         )
     }
 

@@ -12,7 +12,7 @@ use crate::{
     songselect::Song,
     util::{self, beat_pulser::BeatPulser},
     vg_ui::Vgfx,
-    ControlMessage,
+    ControlMessage, RuscMixer,
 };
 
 use anyhow::{anyhow, ensure, Context, Result};
@@ -39,7 +39,7 @@ use log::{info, warn};
 use mlua::{Function, Lua, LuaSerdeExt, RegistryKey};
 use multiplayer_protocol::messages::{client::ClientCommand, get_topic, types::User};
 use puffin::{profile_function, profile_scope};
-use rodio::{dynamic_mixer::DynamicMixerController, source::Buffered, Decoder, Source};
+use rodio::{source::Buffered, Decoder, Source};
 use std::{
     cmp::Ordering,
     collections::{BTreeMap, HashMap, VecDeque},
@@ -125,7 +125,7 @@ pub struct Game {
     target_roll: TargetRoll,
     current_roll: f64,
     hit_ratings: Vec<HitRating>,
-    mixer: Arc<DynamicMixerController<f32>>,
+    mixer: RuscMixer,
     biquad_control: BiquadController,
     source_owner: owned_source::Marker,
     slam_sample: Option<Buffered<Decoder<std::fs::File>>>,
@@ -451,7 +451,7 @@ pub struct GameData {
     diff_idx: usize,
     chart: kson::Chart,
     skin_folder: PathBuf,
-    audio: std::boxed::Box<dyn rodio::source::Source<Item = f32> + std::marker::Send + 'static>,
+    audio: std::boxed::Box<dyn rodio::source::Source + std::marker::Send + 'static>,
     autoplay: AutoPlay,
     song_folder: Option<PathBuf>,
 }
@@ -462,7 +462,7 @@ impl GameData {
         diff_idx: usize,
         chart: kson::Chart,
         skin_folder: PathBuf,
-        audio: Box<dyn Source<Item = f32> + Send>,
+        audio: Box<dyn Source + Send>,
         autoplay: AutoPlay,
         song_folder: Option<PathBuf>,
     ) -> anyhow::Result<Self> {
@@ -1185,7 +1185,7 @@ impl Game {
                     if let Some(slam_sample) = self.slam_sample.clone() {
                         drop(std::mem::take(&mut self.slam_marker));
                         self.mixer.add(owned_source(
-                            slam_sample.convert_samples().amplify(self.slam_volume),
+                            slam_sample.amplify(self.slam_volume),
                             &self.slam_marker,
                         )); //TODO: Amplyfy with slam volume
                     }
@@ -1241,7 +1241,7 @@ impl Game {
             return;
         };
 
-        let sound = sound.clone().amplify(volume as _).convert_samples();
+        let sound = sound.clone().amplify(volume as _);
         self.mixer.add(sound);
     }
 

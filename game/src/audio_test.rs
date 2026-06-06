@@ -6,11 +6,7 @@ use std::{
 
 use di::ServiceProvider;
 
-use rodio::{
-    decoder::LoopedDecoder,
-    dynamic_mixer::{self},
-    Source,
-};
+use rodio::{decoder::LoopedDecoder, nz, Source};
 
 use kson_rodio_sources::{
     biquad::{biquad, BiQuadState, BiquadController},
@@ -19,10 +15,10 @@ use kson_rodio_sources::{
     takeable_source::TakeableSource,
 };
 
-use crate::{scene::Scene, InnerRuscMixer, RuscMixer};
+use crate::{scene::Scene, InnerRuscMixer};
 
 pub struct AudioTest {
-    mixer: RuscMixer,
+    mixer: rodio::mixer::Mixer,
     source_owner: owned_source::Marker,
     _master_owner: owned_source::Marker,
     real_source: Option<Arc<RwLock<Option<LoopedDecoder<std::fs::File>>>>>,
@@ -32,8 +28,8 @@ pub struct AudioTest {
 
 impl AudioTest {
     pub fn new(services: ServiceProvider) -> Self {
-        let (inner_mixer, mixer_source) = dynamic_mixer::mixer(2, 44100);
-        inner_mixer.add(rodio::source::Zero::new(2, 44100));
+        let (inner_mixer, mixer_source) = rodio::mixer::mixer(nz!(2), nz!(44100));
+        inner_mixer.add(rodio::source::Zero::new(nz!(2), nz!(44100)));
         let [a, b, c] = [channel(), channel(), channel()];
 
         let mixer_source = biquad(mixer_source, Default::default(), Some(a.1));
@@ -55,7 +51,7 @@ impl AudioTest {
         .map(TakeableSource::new);
 
         let source = if let Some((source, real_source)) = source {
-            mixer.add(source.convert_samples());
+            mixer.add(source);
             Some(real_source)
         } else {
             None
@@ -190,12 +186,12 @@ impl Scene for AudioTest {
                         let (source, taker) = TakeableSource::new(source);
                         self.real_source = Some(taker);
 
-                        Box::new(source.convert_samples())
+                        Box::new(source)
                     } else {
-                        Box::new(NoiseSource::new(44100, 1.0, 2))
+                        Box::new(NoiseSource::new(nz!(44100), 1.0, nz!(2)))
                     }
                 } else {
-                    Box::new(NoiseSource::new(44100, 1.0, 2))
+                    Box::new(NoiseSource::new(nz!(44100), 1.0, nz!(2)))
                 };
 
             self.mixer

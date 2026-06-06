@@ -1,14 +1,15 @@
-use rodio::source::Source;
+use rodio::{nz, ChannelCount, SampleRate};
+use rodio::{Sample, Source};
 
 pub struct TriangleWave {
     frequency: f32,
     amplitude: f32,
-    sample_rate: u32,
+    sample_rate: SampleRate,
     phase: f32,
 }
 
 impl TriangleWave {
-    pub fn new(frequency: f32, amplitude: f32, sample_rate: u32, phase: f32) -> Self {
+    pub fn new(frequency: f32, amplitude: f32, sample_rate: SampleRate, phase: f32) -> Self {
         Self {
             frequency,
             amplitude,
@@ -22,7 +23,7 @@ impl Iterator for TriangleWave {
     type Item = f32;
 
     fn next(&mut self) -> Option<Self::Item> {
-        let phase_increment = 2.0 * self.frequency / self.sample_rate as f32;
+        let phase_increment = 2.0 * self.frequency / self.sample_rate.get() as f32;
         self.phase = (self.phase + phase_increment) % 2.0;
 
         Some(2.0 * self.amplitude * (self.phase - 1.0).abs() - self.amplitude)
@@ -30,15 +31,15 @@ impl Iterator for TriangleWave {
 }
 
 impl Source for TriangleWave {
-    fn current_frame_len(&self) -> Option<usize> {
+    fn current_span_len(&self) -> Option<usize> {
         None
     }
 
-    fn channels(&self) -> u16 {
-        1
+    fn channels(&self) -> ChannelCount {
+        nz!(1)
     }
 
-    fn sample_rate(&self) -> u32 {
+    fn sample_rate(&self) -> SampleRate {
         self.sample_rate
     }
 

@@ -46,7 +46,7 @@ mlua = { version = "0.10", features = [
     "serialize",
     "vendored",
     "lua54",
-    "anyhow",
+    "anyhow"
 ] }
 three-d = { git = "https://github.com/asny/three-d.git", rev = "2683e0fea70c0c0da579550d4412880ff7fb09fd", default-features = false }
 bitflags = "1"
@@ -87,7 +87,7 @@ num_cpus = "1.16.0"
 encoding = "0.2.33"
 kson-editor = { path = "../editor" }
 serde_with = "3.8.1"
-more-di = { version = "3.1.0", features = ["async"] }
+more-di = { version = "=3.1.0", features = ["async"] }
 bus = "2.4.1"
 luals-gen = { git = "https://github.com/Drewol/luals-gen.git" }
 tokio-tungstenite = "0.24.0"

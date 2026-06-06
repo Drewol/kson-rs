@@ -9,7 +9,6 @@ use std::{
 };
 
 use crate::{
-    block_on,
     config::{GameConfig, SongSelectSettings},
     game::{gauge::Gauge, HitSummary, HitWindow},
     log_result,
@@ -66,7 +65,7 @@ pub struct FileSongProvider {
     all_songs: HashMap<SongId, Arc<Song>>,
 
     database: rusc_database::LocalSongsDb,
-    worker: poll_promise::Promise<()>,
+    worker: tokio::task::JoinHandle<()>,
     worker_rx: Receiver<WorkerEvent>,
     worker_tx: Sender<WorkerControlMessage>,
     score_bus: bus::Bus<ScoreProviderEvent>,
@@ -143,9 +142,8 @@ impl FileSongProvider {
         let (worker_tx, sender_rx) = channel(); //TODO: Async channels?
 
         let worker_db = database.clone();
-        let worker = poll_promise::Promise::spawn_async(async move {
-            files_worker(sender_tx, sender_rx, worker_db).await
-        });
+        let worker =
+            tokio::spawn(async move { files_worker(sender_tx, sender_rx, worker_db).await });
 
         worker_tx.send(WorkerControlMessage::LoadDb);
         worker_tx.send(WorkerControlMessage::Refresh);
@@ -479,8 +477,7 @@ fn songs_path() -> PathBuf {
 impl WorkerService for FileSongProvider {
     fn update(&mut self) {
         self.worker
-            .ready()
-            .is_some()
+            .is_finished()
             .then(|| panic!("Song file provider worker returned")); //panics if worker paniced
         let mut importer_dirty = false;
         while let Ok(ev) = self.worker_rx.try_recv() {
@@ -581,7 +578,7 @@ impl SongProvider for FileSongProvider {
         };
 
         let db = self.database.clone();
-        let song = block_on!(db.get_song(_diff_index as _))?;
+        let song = tokio::runtime::Handle::current().block_on(db.get_song(_diff_index as _))?;
         let hash = song.hash;
         let path = PathBuf::from(song.path);
 
@@ -604,7 +601,7 @@ impl SongProvider for FileSongProvider {
 
             Ok((
                 chart,
-                Box::new(audio.convert_samples()),
+                Box::new(audio),
                 path.parent().map(|x| x.to_path_buf()),
             ))
         }))
@@ -638,8 +635,7 @@ impl SongProvider for FileSongProvider {
 
             let source = rodio::Decoder::new(std::fs::File::open(
                 PathBuf::from(&chart.path).with_file_name(path),
-            )?)?
-            .convert_samples();
+            )?)?;
             Ok((
                 Box::new(source) as Box<dyn Source<Item = f32> + Send>,
                 Duration::from_millis(chart.preview_offset as u64),

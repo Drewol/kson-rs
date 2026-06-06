@@ -29,7 +29,7 @@ use puffin::{profile_function, profile_scope};
 
 use crate::{
     button_codes::UscButton, ir::InternetRanking, lighting::LightingService,
-    songselect::SongProviderSelection, touch::TouchHelper, util::Warn, FrameInput,
+    songselect::SongProviderSelection, touch::TouchHelper, util::Warn, FrameInput, InnerRuscMixer,
 };
 use mlua::Lua;
 use td::Modifiers;
@@ -490,8 +490,8 @@ impl GameMain {
                         }
                     });
 
-                    let sink = service_provider.get_required::<rodio::Sink>();
-                    sink.set_volume(settings.master_volume);
+                    let sink = service_provider.get_required::<InnerRuscMixer>();
+
                     lighting_service.write().unwrap().restart();
                     settings.save();
                 }
@@ -540,10 +540,6 @@ impl GameMain {
         gui.paint(window);
 
         Self::run_lua_gc(lua_arena, &mut vgfx.write().expect("Lock error"));
-
-        if let Ok(mut a) = game_data.write() {
-            a.profile_stack.clear()
-        }
 
         let exit = scenes.is_empty();
         if exit {
@@ -958,7 +954,6 @@ impl GameMain {
                         (mousex, mousey)
                     },
                     resolution: (frame_input.viewport.width, frame_input.viewport.height),
-                    profile_stack: std::mem::take(&mut game_data.profile_stack),
                     input_state,
                     audio_samples: std::mem::take(&mut game_data.audio_samples),
                     audio_sample_play_status: std::mem::take(

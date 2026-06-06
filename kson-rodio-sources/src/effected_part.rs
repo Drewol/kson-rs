@@ -1,17 +1,19 @@
 #![allow(unused)]
+use rodio::{ChannelCount, SampleRate};
+use rodio::{Sample, Source};
 use std::time::Duration;
 
 use super::mix_source::MixSource;
-use rodio::{source::UniformSourceIterator, Sample, Source};
+use rodio::source::UniformSourceIterator;
 
-pub fn effected_part<E: MixSource<Item = D>, D: Sample>(
+pub fn effected_part<E: MixSource>(
     effected: E,
     skip: Duration,
     take: Duration,
     base_mix: f32,
-) -> EffectedPart<E, D> {
-    let target_sample_rate = effected.sample_rate();
-    let target_channels = effected.channels();
+) -> EffectedPart<E> {
+    let target_sample_rate = effected.sample_rate().get();
+    let target_channels = effected.channels().get();
 
     EffectedPart {
         effected,
@@ -23,10 +25,9 @@ pub fn effected_part<E: MixSource<Item = D>, D: Sample>(
     }
 }
 
-pub struct EffectedPart<E, D>
+pub struct EffectedPart<E>
 where
-    E: MixSource<Item = D>,
-    D: Sample,
+    E: MixSource,
 {
     effected: E,
     skip: u64,
@@ -34,12 +35,11 @@ where
     base_mix: f32,
 }
 
-impl<E, D> Iterator for EffectedPart<E, D>
+impl<E> Iterator for EffectedPart<E>
 where
-    E: MixSource<Item = D>,
-    D: Sample,
+    E: MixSource,
 {
-    type Item = D;
+    type Item = E::Item;
 
     fn next(&mut self) -> Option<Self::Item> {
         if self.take == 0 {
@@ -56,20 +56,19 @@ where
     }
 }
 
-impl<E, D> Source for EffectedPart<E, D>
+impl<E> Source for EffectedPart<E>
 where
-    E: MixSource<Item = D>,
-    D: Sample,
+    E: MixSource,
 {
-    fn current_frame_len(&self) -> Option<usize> {
+    fn current_span_len(&self) -> Option<usize> {
         None
     }
 
-    fn channels(&self) -> u16 {
+    fn channels(&self) -> ChannelCount {
         self.effected.channels()
     }
 
-    fn sample_rate(&self) -> u32 {
+    fn sample_rate(&self) -> SampleRate {
         self.effected.sample_rate()
     }
 

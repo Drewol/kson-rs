@@ -31,10 +31,11 @@ image = { version = "0.25", default_features = false, features = [
 ] }
 serde_json = "1"
 rodio = { version = "0", default-features = false, features = [
-    'symphonia-wav',
-    "flac",
-    "vorbis",
+    "playback",
     "mp3",
+    "vorbis",
+    "wav",
+    "flac",
 ] }
 anyhow = "1"
 rand = "0.8.5"

@@ -18,7 +18,6 @@ use serde::de::Visitor;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::collections::HashSet;
-use std::ffi::os_str::Display;
 use std::fmt::Write;
 use std::marker::PhantomData;
 use std::slice::Windows;

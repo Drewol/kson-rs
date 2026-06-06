@@ -10,7 +10,6 @@ use egui::epaint::Hsva;
 use log::warn;
 
 use mlua::{UserData, UserDataMethods};
-use puffin::{ProfilerScope, ThreadProfiler};
 use rodio::Source;
 
 use crate::{
@@ -21,7 +20,6 @@ use crate::{
 pub struct GameData {
     pub resolution: (u32, u32),
     pub mouse_pos: (f64, f64),
-    pub profile_stack: Vec<ProfilerScope>,
     pub input_state: InputState,
     pub audio_samples: HashMap<String, rodio::source::Buffered<rodio::Decoder<std::fs::File>>>,
     pub audio_sample_play_status: HashMap<String, Arc<AtomicUsize>>,
@@ -35,7 +33,6 @@ impl Injectable for GameData {
                     Arc::new(GameData {
                         resolution: (800, 600),
                         mouse_pos: (0.0, 0.0),
-                        profile_stack: vec![],
                         input_state: InputState::clone(&sp.get_required()),
                         audio_samples: Default::default(),
                         audio_sample_play_status: Default::default(),
@@ -46,7 +43,6 @@ impl Injectable for GameData {
                         GameData {
                             resolution: (800, 600),
                             mouse_pos: (0.0, 0.0),
-                            profile_stack: vec![],
                             input_state: InputState::clone(&sp.get_required()),
                             audio_samples: Default::default(),
                             audio_sample_play_status: Default::default(),
@@ -150,28 +146,24 @@ impl GameDataLua {
 
         let to_play = sample.clone();
         if do_loop {
-            mixer.add(
+            mixer.add(to_play.repeat_infinite().stoppable().periodic_access(
+                Duration::from_millis(10),
+                move |x| {
+                    if play_control.load(std::sync::atomic::Ordering::SeqCst) == 0 {
+                        x.stop()
+                    }
+                },
+            ))
+        } else {
+            let done_control = play_control.clone();
+            mixer.add(rodio::source::Done::new(
                 to_play
-                    .convert_samples()
-                    .repeat_infinite()
                     .stoppable()
                     .periodic_access(Duration::from_millis(10), move |x| {
                         if play_control.load(std::sync::atomic::Ordering::SeqCst) == 0 {
                             x.stop()
                         }
                     }),
-            )
-        } else {
-            let done_control = play_control.clone();
-            mixer.add(rodio::source::Done::new(
-                to_play.convert_samples().stoppable().periodic_access(
-                    Duration::from_millis(10),
-                    move |x| {
-                        if play_control.load(std::sync::atomic::Ordering::SeqCst) == 0 {
-                            x.stop()
-                        }
-                    },
-                ),
                 done_control,
             ))
         }
@@ -253,30 +245,6 @@ impl GameDataLua {
         GameConfig::get_mut().skin_settings.insert(key, value);
 
         Ok(())
-    }
-
-    fn begin_profile(_scope: Option<String>, game_data: &RefMut<GameData>) -> mlua::Result<()> {
-        let mut gd_lock = game_data.write().expect("Lock error");
-        let game_data = gd_lock.deref_mut();
-
-        let custom_scope =
-            ThreadProfiler::call(|f| f.register_function_scope("Custom Lua Scope", "", 0));
-
-        if puffin::are_scopes_on() {
-            let scope = "Unknown";
-
-            game_data
-                .profile_stack
-                .push(ProfilerScope::new(custom_scope, scope))
-        }
-        Ok(())
-    }
-
-    //EndProfile
-    fn end_profile(game_data: &RefMut<GameData>) {
-        let mut gd_lock = game_data.write().expect("Lock error");
-        let game_data = gd_lock.deref_mut();
-        game_data.profile_stack.pop();
     }
 
     const LOGGER_INFO: u8 = 0;

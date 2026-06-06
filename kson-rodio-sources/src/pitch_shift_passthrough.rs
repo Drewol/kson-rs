@@ -1,3 +1,5 @@
+use rodio::{SampleRate, ChannelCount};
+use rodio::{Sample, Source};
 use std::collections::VecDeque;
 
 use rodio::Source;
@@ -27,15 +29,15 @@ impl<I> Source for PitchShift<I>
 where
     I: Source<Item = f32>,
 {
-    fn current_frame_len(&self) -> Option<usize> {
-        self.input.current_frame_len()
+    fn current_span_len(&self) -> Option<usize> {
+        self.input.current_span_len()
     }
 
-    fn channels(&self) -> u16 {
+    fn channels(&self) -> ChannelCount {
         self.input.channels()
     }
 
-    fn sample_rate(&self) -> u32 {
+    fn sample_rate(&self) -> SampleRate {
         self.input.sample_rate()
     }
 

@@ -27,7 +27,7 @@ use kson_rodio_sources::owned_source::{self, owned_source};
 use log::warn;
 use mlua::{self, Function, Lua, LuaSerdeExt};
 use puffin::{profile_function, profile_scope};
-use rodio::Source;
+use rodio::{nz, Source};
 use serde::Serialize;
 use serde_json::json;
 use std::{
@@ -581,7 +581,7 @@ impl Scene for SongSelectScene {
         let preview_playing = self.state.preview_finished.clone();
         let suspended = self.suspended.clone();
         self.mixer.add(owned_source(
-            rodio::source::Zero::new(2, 44100) //TODO: Load something from skin audio
+            rodio::source::Zero::new(nz!(2), nz!(44100)) //TODO: Load something from skin audio
                 .amplify(0.2)
                 .pausable(false)
                 .amplify(1.0)
