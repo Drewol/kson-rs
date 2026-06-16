@@ -14,12 +14,15 @@ use camera::CameraInfo;
 use effects::AudioEffect;
 pub use graph::*;
 pub use ksh::*;
+use rand::rng;
+use rand::seq::SliceRandom;
 use serde::de::Visitor;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::collections::HashSet;
 use std::fmt::Write;
 use std::marker::PhantomData;
+use std::ops::RangeBounds;
 use std::slice::Windows;
 use std::str;
 pub use vox::*;
@@ -114,6 +117,14 @@ impl std::fmt::Display for BtLane {
             BtLane::D => f.write_char('D'),
         }
     }
+}
+
+#[derive(thiserror::Error, Debug)]
+pub enum ChartEditError {
+    #[error("Failed to apply mirror: {0}")]
+    MirrorError(String),
+    #[error("Failed to apply random: {0}")]
+    RandomizeError(String),
 }
 
 #[derive(Debug, Hash, PartialEq, Eq, Clone, Copy)]
@@ -1209,6 +1220,159 @@ impl Chart {
         }
         last_tick
     }
+
+    pub fn randomize(&mut self, range: impl RangeBounds<u32>) -> Result<(), ChartEditError> {
+        let (start_tick, end_tick) = start_end_from_range(range);
+
+        if !self.check_mirr_rand(start_tick, end_tick, true) {
+            return Err(ChartEditError::RandomizeError(
+                "Hold notes or lasers extend outside the selected range".to_string(),
+            ));
+        }
+
+        let mut bt_lookup = [0usize, 1, 2, 3];
+        bt_lookup.shuffle(&mut rng());
+        let mut fx_lookup = [0usize, 1];
+        fx_lookup.shuffle(&mut rng());
+
+        let mut randomized_bt: [Vec<Interval>; 4] = [vec![], vec![], vec![], vec![]];
+        let mut randomized_fx: [Vec<Interval>; 2] = [vec![], vec![]];
+
+        for i in 0..6 {
+            let (source, target) = match i {
+                0..4 => (&mut self.note.bt[i], &mut randomized_bt[bt_lookup[i]]),
+                _ => (
+                    &mut self.note.fx[i - 4],
+                    &mut randomized_fx[fx_lookup[i - 4]],
+                ),
+            };
+
+            // we've already checked for overlaps
+            target.extend(source.extract_if(.., |x| x.y >= start_tick && x.y + x.l <= end_tick));
+        }
+
+        for i in 0..6 {
+            let (source, target) = match i {
+                0..4 => (&mut randomized_bt[i], &mut self.note.bt[i]),
+                _ => (&mut randomized_fx[i - 4], &mut self.note.fx[i - 4]),
+            };
+
+            target.append(source);
+            target.sort_by_key(|note| note.y);
+        }
+
+        Ok(())
+    }
+
+    pub fn mirror(&mut self, range: impl RangeBounds<u32>) -> Result<(), ChartEditError> {
+        let (start_tick, end_tick) = start_end_from_range(range);
+
+        if !self.check_mirr_rand(start_tick, end_tick, false) {
+            return Err(ChartEditError::MirrorError(
+                "Hold notes or lasers extend outside the selected range".to_string(),
+            ));
+        }
+
+        let mut mirrored: [Vec<Interval>; 6] = [vec![], vec![], vec![], vec![], vec![], vec![]];
+        let mut mirrored_laser: [Vec<LaserSection>; 2] = [vec![], vec![]];
+
+        for (i, target) in mirrored.iter_mut().enumerate() {
+            let source = match i {
+                0..4 => &mut self.note.bt[3 - i],
+                i => &mut self.note.fx[1 - (i - 4)],
+            };
+
+            target.extend(source.extract_if(.., |x| x.y >= start_tick && x.y + x.l <= end_tick));
+        }
+
+        for (i, target) in mirrored_laser.iter_mut().enumerate() {
+            let source = &mut self.note.laser[1 - i];
+
+            target.extend(source.extract_if(.., |x| {
+                x.0 >= start_tick && x.0 + x.1.last().map(|x| x.ry).unwrap_or_default() <= end_tick
+            }));
+        }
+        for (i, source) in mirrored.iter_mut().enumerate() {
+            let target = match i {
+                0..4 => &mut self.note.bt[i],
+                i => &mut self.note.fx[i - 4],
+            };
+
+            target.append(source);
+            target.sort_by_key(|x| x.y);
+        }
+
+        for (source, target) in mirrored_laser.iter_mut().zip(self.note.laser.iter_mut()) {
+            target.append(source);
+            target.sort_by_key(|x| x.0);
+        }
+
+        Ok(())
+    }
+
+    /// Check for holds or lasers that begin before the range or end after the range
+    pub fn check_mirr_rand(&self, start: u32, end: u32, skip_laser: bool) -> bool {
+        for x in self
+            .note
+            .bt
+            .iter()
+            .chain(self.note.fx.iter())
+            .flat_map(|x| x.iter())
+        {
+            if x.y > end {
+                continue;
+            }
+
+            if x.y < start && x.y + x.l > start {
+                return false;
+            }
+
+            if x.y + x.l > end {
+                return false;
+            }
+        }
+
+        if skip_laser {
+            return true;
+        }
+
+        for x in self.note.laser.iter().flatten() {
+            if x.0 > end {
+                continue;
+            }
+
+            let Some(ry_max) = x.1.iter().last().map(|x| x.ry) else {
+                // Maybe something else as this is an invalid entry?
+                continue;
+            };
+
+            if x.0 < start && x.0 + ry_max > start {
+                return false;
+            }
+
+            if x.0 + ry_max > end {
+                return false;
+            }
+        }
+
+        true
+    }
+}
+
+fn start_end_from_range(range: impl RangeBounds<u32>) -> (u32, u32) {
+    let start_tick = match range.start_bound() {
+        std::ops::Bound::Included(y) => *y,
+        std::ops::Bound::Excluded(y) => *y, // Only a custom range impl could do this, so just handle it like this
+        std::ops::Bound::Unbounded => 0,
+    };
+
+    let end_tick = match range.end_bound() {
+        std::ops::Bound::Included(y) => *y,
+        std::ops::Bound::Excluded(y) => y.saturating_sub(1),
+        std::ops::Bound::Unbounded => u32::MAX,
+    };
+
+    (start_tick, end_tick)
 }
 
 pub trait IsDefault {
