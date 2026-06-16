@@ -60,6 +60,7 @@ impl CursorObject for ButtonInterval {
         chart: &Chart,
         actions: &mut ActionStack<Chart>,
         pos: Pos2,
+        _modifiers: eframe::egui::Modifiers,
     ) {
         self.update(tick, tick_f, lane, pos, chart);
         self.interval.y = tick;

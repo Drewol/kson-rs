@@ -4,7 +4,7 @@ use crate::{
     Modifiers,
 };
 use anyhow::Result;
-use eframe::egui::Pos2;
+use eframe::egui::{self, Pos2};
 use eframe::egui::{Context, Painter};
 use kson::Chart;
 
@@ -12,10 +12,12 @@ mod bpm_ts;
 mod buttons;
 mod camera;
 mod laser;
+mod select;
 pub use bpm_ts::*;
 pub use buttons::*;
 pub use camera::*;
 pub use laser::*;
+pub use select::*;
 
 #[allow(unused)]
 pub trait CursorObject {
@@ -28,6 +30,7 @@ pub trait CursorObject {
         _chart: &Chart,
         _actions: &mut ActionStack<Chart>,
         _pos: Pos2,
+        _modifiers: egui::Modifiers,
     ) {
     }
 

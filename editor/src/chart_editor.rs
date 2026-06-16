@@ -787,6 +787,7 @@ impl MainState {
                             ChartTool::BPM => Some(Box::new(BpmTool::new())),
                             ChartTool::TimeSig => Some(Box::new(TimeSigTool::new())),
                             ChartTool::Camera => Some(Box::<CameraTool>::default()),
+                            ChartTool::Select => Some(Box::new(RangeSelect::default())),
                         };
                         self.current_tool = new_tool;
                         ctx.request_repaint();
@@ -1351,7 +1352,7 @@ impl MainState {
         (lane, tick, tick_f)
     }
 
-    pub fn primary_clicked(&mut self, pos: Pos2) {
+    pub fn primary_clicked(&mut self, pos: Pos2, modifiers: eframe::egui::Modifiers) {
         self.mouse_x = pos.x;
         self.mouse_y = pos.y;
         let (lane, tick, tick_f) = self.get_clicked_data(pos);
@@ -1366,6 +1367,7 @@ impl MainState {
                 &self.chart,
                 &mut self.actions,
                 pos2(pos.x, pos.y),
+                modifiers,
             );
         }
     }

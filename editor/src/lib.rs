@@ -188,6 +188,7 @@ pub enum ChartTool {
     BPM,
     TimeSig,
     Camera,
+    Select,
 }
 
 #[derive(Debug, Serialize, Deserialize, Hash, PartialEq, Eq, Clone)]
@@ -419,6 +420,10 @@ impl Default for Config {
                 KeyCombo::new(Key::Num7, nomod),
                 GuiEvent::ToolChanged(ChartTool::Camera),
             );
+            default_bindings.insert(
+                KeyCombo::new(Key::Num8, nomod),
+                GuiEvent::ToolChanged(ChartTool::Select),
+            );
         }
 
         default_bindings.insert(KeyCombo::new(Key::Space, nomod), GuiEvent::Play);
@@ -542,7 +547,7 @@ impl AppState {
     }
 }
 
-const CONFIG_KEY: &str = "CONFIG_2";
+const CONFIG_KEY: &str = "CONFIG_3";
 
 fn menu_ui(ui: &mut Ui, title: impl ToString, min_width: f32, add_contents: impl FnOnce(&mut Ui)) {
     menu::menu_button(ui, title.to_string(), |ui| {
@@ -853,7 +858,7 @@ impl App for AppState {
 
                     if response.clicked() {
                         info!("Clicked");
-                        self.editor.primary_clicked(pos)
+                        self.editor.primary_clicked(pos, ctx.input(|i| i.modifiers))
                     } else if response.middle_clicked() {
                         info!("Middle clicked");
                         self.editor.middle_clicked(pos)

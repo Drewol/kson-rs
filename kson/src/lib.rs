@@ -14,6 +14,7 @@ use camera::CameraInfo;
 use effects::AudioEffect;
 pub use graph::*;
 pub use ksh::*;
+pub use rand;
 use rand::rng;
 use rand::seq::SliceRandom;
 use serde::de::Visitor;
@@ -1221,9 +1222,13 @@ impl Chart {
         last_tick
     }
 
-    pub fn randomize(&mut self, range: impl RangeBounds<u32>) -> Result<(), ChartEditError> {
+    pub fn randomize(
+        &mut self,
+        range: impl RangeBounds<u32>,
+        seed: u64,
+    ) -> Result<(), ChartEditError> {
         let (start_tick, end_tick) = start_end_from_range(range);
-
+        let mut rng: rand::rngs::SmallRng = rand::SeedableRng::seed_from_u64(seed);
         if !self.check_mirr_rand(start_tick, end_tick, true) {
             return Err(ChartEditError::RandomizeError(
                 "Hold notes or lasers extend outside the selected range".to_string(),
@@ -1231,9 +1236,9 @@ impl Chart {
         }
 
         let mut bt_lookup = [0usize, 1, 2, 3];
-        bt_lookup.shuffle(&mut rng());
+        bt_lookup.shuffle(&mut rng);
         let mut fx_lookup = [0usize, 1];
-        fx_lookup.shuffle(&mut rng());
+        fx_lookup.shuffle(&mut rng);
 
         let mut randomized_bt: [Vec<Interval>; 4] = [vec![], vec![], vec![], vec![]];
         let mut randomized_fx: [Vec<Interval>; 2] = [vec![], vec![]];
@@ -1303,6 +1308,16 @@ impl Chart {
         }
 
         for (source, target) in mirrored_laser.iter_mut().zip(self.note.laser.iter_mut()) {
+            // Flip values
+            for section in source.iter_mut() {
+                for point in &mut section.1 {
+                    point.v = 1.0 - point.v;
+                    if let Some(vf) = point.vf.as_mut() {
+                        *vf = 1.0 - *vf;
+                    }
+                }
+            }
+
             target.append(source);
             target.sort_by_key(|x| x.0);
         }

@@ -6,7 +6,7 @@ use crate::{
     chart_editor::{MainState, ScreenState},
 };
 use anyhow::Result;
-use eframe::egui::{Painter, Pos2, Rgba, Stroke};
+use eframe::egui::{self, Painter, Pos2, Rgba, Stroke};
 use eframe::epaint::Shape;
 use kson::{overlaps::Overlaps, Chart, GraphSectionPoint, LaserSection};
 
@@ -102,6 +102,7 @@ impl CursorObject for LaserTool {
         chart: &Chart,
         actions: &mut ActionStack<Chart>,
         pos: Pos2,
+        _modifiers: egui::Modifiers,
     ) {
         self.drag_start(
             screen,
