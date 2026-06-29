@@ -13,6 +13,7 @@ use di::RefMut;
 use egui::ahash::HashSet;
 use futures::{executor::block_on, AsyncWriteExt};
 use itertools::Itertools;
+use kson_rodio_sources::consume_one::ConsumeOne;
 use log::warn;
 use rodio::Source;
 use tokio::task::JoinHandle;
@@ -581,7 +582,7 @@ impl SongProvider for NauticaSongProvider {
             song_path.push("preview");
 
             let source: Box<dyn Source + Send> = if song_path.exists() {
-                Box::new(rodio::Decoder::new(std::fs::File::open(song_path)?)?)
+                Box::new(rodio::Decoder::new(std::fs::File::open(song_path)?)?.consume_one()?)
             } else {
                 let NauticaSong { data: nautica } = reqwest::get(format!(
                     "https://ksm.dev/app/songs/{}",
@@ -601,8 +602,9 @@ impl SongProvider for NauticaSongProvider {
 
                 std::fs::write(song_path, &bytes)?;
 
-                Box::new(rodio::Decoder::new(std::io::Cursor::new(bytes))?)
+                Box::new(rodio::Decoder::new(std::io::Cursor::new(bytes))?.consume_one()?)
             };
+
             Ok((
                 source as Box<dyn Source<Item = f32> + Send>,
                 Duration::ZERO,
@@ -804,15 +806,7 @@ fn song_from_zip(
                 let bgm_cursor = std::io::Cursor::new(bgm_buf);
                 let mut decoded = rodio::Decoder::new(bgm_cursor)?;
 
-                // Read the first sample, bug with decoder initialization?
-                for _ in 0..decoded.channels().get() {
-                    decoded.next().ok_or(anyhow!("Empty audio"))?;
-                }
-
-                let delay = 1_000_000_000u128 / decoded.sample_rate().get() as u128;
-
-                // Compensate read sample
-                let stream = decoded.delay(Duration::from_nanos(delay as u64));
+                let stream = decoded.consume_one()?;
 
                 return Ok((chart, Box::new(stream), None));
             }

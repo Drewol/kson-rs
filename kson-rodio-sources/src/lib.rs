@@ -2,6 +2,7 @@ use rodio::{ChannelCount, SampleRate};
 use rodio::{Sample, Source};
 pub mod biquad;
 pub mod bitcrush;
+pub mod consume_one;
 pub mod effected_part;
 pub mod flanger;
 pub mod gate;

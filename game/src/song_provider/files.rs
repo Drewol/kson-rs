@@ -26,6 +26,7 @@ use anyhow::{anyhow, bail, ensure, Context};
 
 use futures::{executor::block_on, AsyncReadExt, FutureExt, StreamExt};
 use itertools::Itertools;
+use kson_rodio_sources::consume_one::ConsumeOne;
 use log::{info, warn};
 use puffin::profile_function;
 use rodio::Source;
@@ -597,7 +598,8 @@ impl SongProvider for FileSongProvider {
 
             let audio = rodio::decoder::Decoder::new(std::fs::File::open(
                 path.with_file_name(&chart.audio.bgm.filename),
-            )?)?;
+            )?)?
+            .consume_one()?;
 
             Ok((
                 chart,
@@ -635,7 +637,8 @@ impl SongProvider for FileSongProvider {
 
             let source = rodio::Decoder::new(std::fs::File::open(
                 PathBuf::from(&chart.path).with_file_name(path),
-            )?)?;
+            )?)?
+            .consume_one()?;
             Ok((
                 Box::new(source) as Box<dyn Source<Item = f32> + Send>,
                 Duration::from_millis(chart.preview_offset as u64),
