@@ -369,7 +369,7 @@ async fn read_chart_file(
     if worker_db.get_hash_id(&hash).await?.is_some() {
         return Ok(hash); //Already exists
     }
-    let ext = is_chart_file(&p).expect("Got non chart file");
+    let ext = is_chart_file(&p).context("Got non chart file")?;
     let chart: kson::Chart = if ext == "ksh" {
         let (c, _) = encoding::types::decode(
             &data,

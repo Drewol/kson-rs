@@ -24,7 +24,7 @@ use crate::{
     results::Score,
     song_provider::SongFilterType,
     songselect::{favourite_dialog, Difficulty, Song},
-    util::TokioTaskExt,
+    util::{TokioTaskExt, Warn},
     worker_service::WorkerService,
 };
 
@@ -770,8 +770,26 @@ fn song_from_zip(
     diff: u8,
 ) -> Result<(kson::Chart, Box<dyn rodio::Source + Send>, Option<PathBuf>)> {
     let mut archive = zip::read::ZipArchive::new(data)?;
-    for i in 0..archive.len() {
-        let mut file = archive.by_index(i)?;
+
+    let chart_names = archive
+        .file_names()
+        .sorted_by_key(|x| {
+            // Prioritize kson
+            if x.to_lowercase().ends_with("kson") {
+                0
+            } else {
+                1
+            }
+        })
+        .filter(|x| {
+            let lowercase = x.to_lowercase();
+            lowercase.ends_with("ksh") || lowercase.ends_with("kson")
+        })
+        .map(|x| x.to_owned())
+        .collect::<Vec<_>>();
+
+    for name in chart_names {
+        let mut file = archive.by_name(&name)?;
         if file.is_dir() {
             continue;
         }
@@ -791,9 +809,13 @@ fn song_from_zip(
         let file_folder = PathBuf::from(file.name());
         drop(file);
 
-        if let Ok(mut chart) = kson::Chart::from_ksh(&chart_string) {
+        if let Some(mut chart) = serde_json::from_str(&chart_string)
+            .warn("KSON Parse failed")
+            .or_else(|| kson::Chart::from_ksh(&chart_string).warn("KSH Parse failed"))
+        {
             chart.file_hash = chart_hash;
             if chart.meta.difficulty == diff {
+                log::info!("Found {name}");
                 let bgm_name = chart.audio.bgm.filename.clone();
                 let bgm_path = file_folder.with_file_name(bgm_name);
                 let bgm_path = bgm_path.to_str().unwrap_or("").replace('\\', "/");
