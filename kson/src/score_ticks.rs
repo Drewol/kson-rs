@@ -104,7 +104,9 @@ fn ticks_from_interval(
                         .map(|s| (file, s))
                 })
         {
-            let (_, event) = &chart.audio.key_sound.fx.chip_event[file][lane - 4][event_idx];
+            let ByPulseOption(_, event) =
+                chart.audio.key_sound.fx.chip_event[file][lane - 4][event_idx];
+            let event = event.unwrap_or_default();
 
             if let Some((key, _)) = key_sound_map.iter().find(|(_, value)| *value == file) {
                 Some(KeySoundEvent {

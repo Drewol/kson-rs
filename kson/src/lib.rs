@@ -15,7 +15,7 @@ use effects::AudioEffect;
 pub use graph::*;
 pub use ksh::*;
 pub use rand;
-use rand::rng;
+
 use rand::seq::SliceRandom;
 use serde::de::Visitor;
 use serde::{Deserialize, Serialize};
@@ -487,6 +487,7 @@ pub struct DifficultyInfo {
 }
 
 #[derive(Serialize, Deserialize, Clone)]
+#[serde(default)]
 pub struct MetaInfo {
     pub title: String,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -532,6 +533,12 @@ impl MetaInfo {
             jacket_author: String::new(),
             information: None,
         }
+    }
+}
+
+impl Default for MetaInfo {
+    fn default() -> Self {
+        Self::new()
     }
 }
 
@@ -726,10 +733,24 @@ impl TimeSignature {
 }
 
 #[derive(Serialize, Deserialize, Clone)]
+#[serde(default)]
 pub struct BeatInfo {
     pub bpm: ByPulse<f64>,
     pub time_sig: ByMeasureIdx<TimeSignature>,
     pub scroll_speed: Vec<GraphPoint>,
+}
+
+impl Default for BeatInfo {
+    fn default() -> Self {
+        Self {
+            bpm: Default::default(),
+            time_sig: vec![(0, TimeSignature(4, 4))],
+            scroll_speed: vec![GraphPoint {
+                v: 1.0,
+                ..Default::default()
+            }],
+        }
+    }
 }
 
 pub const KSON_RESOLUTION: u32 = 240;
@@ -798,12 +819,18 @@ pub struct KeySoundLaserInfo {
 
 #[derive(Serialize, Deserialize, Clone, Default, PartialEq)]
 pub struct KeySoundFXInfo {
-    pub chip_event: HashMap<String, [ByPulse<KeySoundInvokeFX>; 2]>,
+    pub chip_event: HashMap<String, [Vec<ByPulseOption<KeySoundInvokeFX>>; 2]>,
 }
 
-#[derive(Serialize, Deserialize, Clone, PartialEq)]
+#[derive(Serialize, Deserialize, Copy, Clone, PartialEq)]
 pub struct KeySoundInvokeFX {
     pub vol: f64,
+}
+
+impl Default for KeySoundInvokeFX {
+    fn default() -> Self {
+        Self { vol: 1.0 }
+    }
 }
 
 type NoteParamChange = ByPulseOption<Dict<String>>;

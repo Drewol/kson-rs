@@ -647,11 +647,11 @@ impl crate::Chart {
                                 &mut sound_info.chip_event.entry(file.to_string()).or_default()
                                     [side_idx];
 
-                            entries.push((
+                            entries.push(ByPulseOption(
                                 y,
-                                KeySoundInvokeFX {
+                                Some(KeySoundInvokeFX {
                                     vol: volume as f64 / 100.0,
-                                },
+                                }),
                             ));
                         }
                         v => {
