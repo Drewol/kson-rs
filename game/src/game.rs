@@ -16,7 +16,7 @@ use crate::{
 };
 
 use anyhow::{anyhow, ensure, Context, Result};
-use di::{RefMut, ServiceProvider};
+use di::{Ref, RefMut, ServiceProvider};
 use egui::epaint::Hsva;
 use egui_plot::{Line, PlotPoints};
 use image::GenericImageView;
@@ -125,7 +125,7 @@ pub struct Game {
     target_roll: TargetRoll,
     current_roll: f64,
     hit_ratings: Vec<HitRating>,
-    mixer: RuscMixer,
+    mixer: Ref<RuscMixer>,
     biquad_control: BiquadController,
     source_owner: owned_source::Marker,
     slam_sample: Option<Buffered<Decoder<std::fs::File>>>,
@@ -194,7 +194,7 @@ impl GameMultiplayerState {
     fn new(sp: &ServiceProvider) -> Self {
         let service: RefMut<MultiplayerService> = sp.get_required();
         let (active, user_id, rate) = {
-            let s = service.read().unwrap();
+            let s = service.borrow();
             (
                 s.state() == MultiplayerState::Connected,
                 s.user_id(),
@@ -220,7 +220,7 @@ impl GameMultiplayerState {
             return Ok(());
         }
 
-        let mut s = self.service.write().unwrap();
+        let mut s = self.service.borrow_mut();
         while let Some(msg) = s.poll() {
             info!("Recieved: {msg:?}");
 
@@ -255,7 +255,7 @@ impl GameMultiplayerState {
         if !self.active {
             return Ok(());
         }
-        let mut s = self.service.write().unwrap();
+        let mut s = self.service.borrow_mut();
         let time = time;
 
         let send_index = (time / self.rate as u128) as i32;
@@ -285,7 +285,7 @@ impl GameMultiplayerState {
             // Sync already completed
             true
         } else {
-            let mut s = self.service.write().unwrap();
+            let mut s = self.service.borrow_mut();
 
             if !self.sync_send {
                 self.sync_send = s
@@ -310,7 +310,7 @@ impl GameMultiplayerState {
     }
 
     fn send_final(&self, score: i32, combo: i32, clear: ClearMark) {
-        let mut s = self.service.write().unwrap();
+        let mut s = self.service.borrow_mut();
         _ = s
             .send(
                 multiplayer_protocol::messages::server::ServerCommand::ScoreFinal {
@@ -1074,8 +1074,8 @@ impl Game {
             return;
         };
 
-        let vgfx = vgfx.write().expect("Lock error");
-        let canvas = &mut vgfx.canvas.lock().expect("Lock error");
+        let vgfx = vgfx.borrow_mut();
+        let canvas = &mut vgfx.canvas.borrow_mut();
         canvas.flush();
         canvas.reset();
         canvas.reset_transform();
@@ -1873,7 +1873,7 @@ impl Scene for Game {
 
     fn init(&mut self, app_control_tx: Sender<ControlMessage>) -> Result<()> {
         profile_function!();
-        let lua_provider: Arc<LuaProvider> = self.service_provider.get_required();
+        let lua_provider: Ref<LuaProvider> = self.service_provider.get_required();
         ensure!(self.score_summary.total != 0, "Empty chart");
         let long_count = self.score_summary.hold_count + self.score_summary.laser_count;
         let chip_count = self.score_summary.chip_count + self.score_summary.slam_count;
@@ -2433,7 +2433,7 @@ impl Scene for Game {
     }
 
     fn reload_scripts(&mut self) -> Result<()> {
-        let lua_provider: Arc<LuaProvider> = self.service_provider.get_required();
+        let lua_provider: Ref<LuaProvider> = self.service_provider.get_required();
         let lua = LuaProvider::new_lua();
         lua_provider.register_libraries(lua.clone(), "gameplay.lua")?;
 

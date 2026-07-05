@@ -1,9 +1,4 @@
-use std::{
-    collections::HashMap,
-    num::NonZeroU32,
-    path::Path,
-    sync::{Arc, RwLock},
-};
+use std::{cell::RefCell, collections::HashMap, num::NonZeroU32, path::Path, rc::Rc, sync::RwLock};
 
 use anyhow::ensure;
 use di::RefMut;
@@ -609,11 +604,11 @@ impl ShadedMesh {
     pub fn draw_lua_skin(
         &mut self,
         resolution: (u32, u32),
-        vgfx: &RwLock<Vgfx>,
+        vgfx: &RefCell<Vgfx>,
     ) -> Result<(), mlua::Error> {
         let [c0r0, c0r1, c1r0, c1r1, c2r0, c2r1] = {
-            let vgfx = vgfx.write().expect("Lock error");
-            let canvas = vgfx.canvas.lock().expect("Lock error");
+            let vgfx = vgfx.try_borrow_mut().expect("Lock error");
+            let canvas = vgfx.canvas.borrow();
             let transform = canvas.transform();
             //transform.scale(1.0, -1.0);
 
@@ -774,7 +769,7 @@ impl UserData for ShadedMesh {
             let frame = lua
                 .app_data_ref::<RefMut<game_data::GameData>>()
                 .ok_or(mlua::Error::external("App data not set"))?
-                .read()
+                .try_borrow()
                 .expect("Lock error")
                 .resolution;
             let vgfx = &lua
@@ -842,7 +837,7 @@ impl UserData for ShadedMesh {
                 .unzip();
 
             let context = &lua
-                .app_data_ref::<Arc<three_d::Context>>()
+                .app_data_ref::<Rc<three_d::Context>>()
                 .ok_or(mlua::Error::external("three_d Context app data not set"))?;
             this.vertecies_pos = VertexBuffer::new_with_data(context, &pos);
             this.vertecies_uv = VertexBuffer::new_with_data(context, &uv);

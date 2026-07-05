@@ -1,5 +1,4 @@
 mod animation;
-mod async_service;
 mod audio;
 mod audio_test;
 mod button_codes;
@@ -35,6 +34,7 @@ mod window;
 mod worker_service;
 
 use std::{
+    cell::RefCell,
     path::PathBuf,
     rc::Rc,
     sync::{mpsc::channel, Arc, Mutex, RwLock},
@@ -51,7 +51,7 @@ use crate::{
     songselect::{Difficulty, Song},
     transition::Transition,
 };
-use async_service::AsyncService;
+
 use button_codes::{CustomBindingFilter, UscInputEvent};
 use clap::Parser;
 use companion_interface::CompanionServer;
@@ -86,7 +86,7 @@ pub use log_macro::log_result;
 use winit::event::WindowEvent;
 
 pub type InnerRuscMixer = rodio::mixer::Mixer;
-pub type RuscMixer = Arc<InnerRuscMixer>;
+pub type RuscMixer = InnerRuscMixer;
 
 // Copied from three_d
 #[derive(Clone, Debug)]
@@ -232,7 +232,7 @@ impl Scenes {
             && self.transition.is_none()
     }
 
-    pub fn render(&mut self, frame: FrameInput, _vgfx: &Arc<RwLock<Vgfx>>) {
+    pub fn render(&mut self, frame: FrameInput, _vgfx: &di::RefMut<Vgfx>) {
         profile_function!();
         let dt = frame.elapsed_time;
         let td_context = &frame.context;
@@ -331,7 +331,7 @@ struct UscApp {
     gilrs: Arc<Mutex<Option<Gilrs>>>,
     mixer: Option<rodio::mixer::Mixer>,
     sink: Option<rodio::MixerDeviceSink>,
-    companion_service: Option<RwLock<CompanionServer>>,
+    companion_service: Option<RefCell<CompanionServer>>,
     offset_tx: std::sync::mpsc::Sender<i32>,
     async_rt: tokio::runtime::Runtime,
 }
@@ -402,10 +402,8 @@ impl UscApp {
         let services = ServiceCollection::new()
             .add(existing_as_self(companion_service))
             .add(existing_as_self(self.mixer.take().unwrap()))
-            .add(AsyncService::singleton().as_mut())
             .add(MultiplayerService::singleton().as_mut())
-            .add_worker::<AsyncService>()
-            .add(existing_as_self(Mutex::new(canvas)))
+            .add(existing_as_self(RefCell::new(canvas)))
             .add(existing_as_self(service_context.clone()))
             .add(singleton_factory(|_| {
                 RefMut::new(
@@ -415,10 +413,10 @@ impl UscApp {
                 )
             }))
             .add(singleton_factory(|x| {
-                RefMut::new(song_provider::NauticaSongProvider::new(x.get_required_mut()).into())
+                RefMut::new(song_provider::NauticaSongProvider::new().into())
             }))
             .add(transient_factory::<
-                RwLock<dyn song_provider::SongProvider>,
+                RefCell<dyn song_provider::SongProvider>,
                 _,
             >(|sp| {
                 if GameConfig::get().songs_path.eq(&PathBuf::from("nautica"))
@@ -430,7 +428,7 @@ impl UscApp {
                 }
             }))
             .add(transient_factory::<
-                RwLock<dyn song_provider::ScoreProvider>,
+                RefCell<dyn song_provider::ScoreProvider>,
                 _,
             >(|sp| {
                 sp.get_required_mut::<song_provider::FileSongProvider>()
@@ -443,7 +441,7 @@ impl UscApp {
                 RefMut::new(LuaArena(Vec::new()).into())
             }))
             .add(singleton_factory(move |_| {
-                Arc::new(InputState::new(gilrs_state.clone()))
+                Rc::new(InputState::new(gilrs_state.clone()))
             }))
             .add(game_data::GameData::singleton().as_mut())
             .add(LuaProvider::scoped())
@@ -451,13 +449,12 @@ impl UscApp {
             .build_provider()
             .expect("Failed to build service provider");
 
-        let _lua_provider: Arc<LuaProvider> = services.get_required();
+        let _lua_provider: Rc<LuaProvider> = services.get_required();
         let vgfx = services.get_required_mut::<Vgfx>();
         {
             services
                 .get_required_mut::<LightingService>()
-                .write()
-                .unwrap()
+                .borrow_mut()
                 .restart();
         }
 
@@ -507,7 +504,7 @@ impl UscApp {
                 chart_path.with_file_name(chart.audio.bgm.filename.clone()),
             )?)?;
 
-            let skin_folder = { vgfx.read().expect("Lock error").skin_folder() };
+            let skin_folder = { vgfx.borrow().skin_folder() };
 
             scenes.loaded.push(
                 Box::new(game::GameData::new(
@@ -795,7 +792,7 @@ pub fn run(eventloop: winit::event_loop::EventLoop<UscInputEvent>) -> anyhow::Re
 
     let input = Arc::new(Mutex::new(input));
     let gilrs_state = input.clone();
-    let companion_service = RwLock::new(companion_interface::CompanionServer::new(
+    let companion_service = RefCell::new(companion_interface::CompanionServer::new(
         eventloop.create_proxy(),
     ));
 
@@ -805,65 +802,71 @@ pub fn run(eventloop: winit::event_loop::EventLoop<UscInputEvent>) -> anyhow::Re
     let event_proxy = eventloop.create_proxy();
     let (mut rusc_filter, offset_tx) = RuscFilter::new(GameConfig::get().global_offset as _);
 
-    let _input_thread = poll_promise::Promise::spawn_thread("gilrs", move || {
-        let mut knob_state = LaserState::default();
-        let binding_filter = CustomBindingFilter;
-        loop {
-            rusc_filter.update();
-            use button_codes::*;
-            use gilrs::*;
-            use winit::event::ElementState::*;
-            let e = {
-                if let Some(input) = input.lock().unwrap().as_mut() {
-                    input
-                        .next_event()
-                        .filter_ev(&rusc_filter, input)
-                        .filter_ev(&binding_filter, input)
-                } else {
-                    None
-                }
-            };
-            knob_state.zero_deltas();
-            if let Some(e) = e {
-                let sent = match e.event {
-                    EventType::ButtonPressed(button, _) => {
-                        let button = UscButton::from(button);
-                        info!("Pressed {:?}", button);
-                        Some(event_proxy.send_event(UscInputEvent::Button(button, Pressed, e.time)))
+    let _input_thread = std::thread::Builder::new()
+        .name("gilrs".to_string())
+        .spawn(move || {
+            let mut knob_state = LaserState::default();
+            let binding_filter = CustomBindingFilter;
+            loop {
+                rusc_filter.update();
+                use button_codes::*;
+                use gilrs::*;
+                use winit::event::ElementState::*;
+                let e = {
+                    if let Some(input) = input.lock().unwrap().as_mut() {
+                        input
+                            .next_event()
+                            .filter_ev(&rusc_filter, input)
+                            .filter_ev(&binding_filter, input)
+                    } else {
+                        None
                     }
-                    EventType::ButtonRepeated(_, _) => None,
-                    EventType::ButtonReleased(button, _) => {
-                        let button = UscButton::from(button);
-                        info!("Released {:?}", button);
-                        Some(
-                            event_proxy.send_event(UscInputEvent::Button(button, Released, e.time)),
-                        )
-                    }
-                    EventType::ButtonChanged(_, _, _) => None,
-                    EventType::AxisChanged(axis, value, _) => {
-                        match axis {
-                            Axis::LeftStickX => knob_state.update(kson::Side::Left, value),
-                            Axis::RightStickX => knob_state.update(kson::Side::Right, value),
-                            _ => {}
-                        }
-                        Some(event_proxy.send_event(UscInputEvent::Laser(knob_state, e.time)))
-                    }
-                    EventType::Connected => None,
-                    EventType::Disconnected => None,
-                    EventType::Dropped => None,
-                    EventType::ForceFeedbackEffectCompleted => None,
-                    _ => None,
                 };
+                knob_state.zero_deltas();
+                if let Some(e) = e {
+                    let sent = match e.event {
+                        EventType::ButtonPressed(button, _) => {
+                            let button = UscButton::from(button);
+                            info!("Pressed {:?}", button);
+                            Some(
+                                event_proxy
+                                    .send_event(UscInputEvent::Button(button, Pressed, e.time)),
+                            )
+                        }
+                        EventType::ButtonRepeated(_, _) => None,
+                        EventType::ButtonReleased(button, _) => {
+                            let button = UscButton::from(button);
+                            info!("Released {:?}", button);
+                            Some(
+                                event_proxy
+                                    .send_event(UscInputEvent::Button(button, Released, e.time)),
+                            )
+                        }
+                        EventType::ButtonChanged(_, _, _) => None,
+                        EventType::AxisChanged(axis, value, _) => {
+                            match axis {
+                                Axis::LeftStickX => knob_state.update(kson::Side::Left, value),
+                                Axis::RightStickX => knob_state.update(kson::Side::Right, value),
+                                _ => {}
+                            }
+                            Some(event_proxy.send_event(UscInputEvent::Laser(knob_state, e.time)))
+                        }
+                        EventType::Connected => None,
+                        EventType::Disconnected => None,
+                        EventType::Dropped => None,
+                        EventType::ForceFeedbackEffectCompleted => None,
+                        _ => None,
+                    };
 
-                if let Some(Err(send_err)) = sent {
-                    info!("Gilrs thread closing: {}", send_err);
-                    return;
+                    if let Some(Err(send_err)) = sent {
+                        info!("Gilrs thread closing: {}", send_err);
+                        return;
+                    }
+                } else {
+                    std::thread::sleep(Duration::from_millis(1))
                 }
-            } else {
-                std::thread::sleep(Duration::from_millis(1))
             }
-        }
-    });
+        });
 
     // Export luals definitions
     export_luals_defs()?;

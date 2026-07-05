@@ -19,7 +19,6 @@ use rodio::Source;
 use tokio::task::JoinHandle;
 
 use crate::{
-    async_service::AsyncService,
     installer::{default_game_dir, project_dirs},
     results::Score,
     song_provider::SongFilterType,
@@ -30,7 +29,6 @@ use crate::{
 
 use super::{DiffId, LoadSongFn, SongDiffId, SongFilter, SongId, SongProvider, SongProviderEvent};
 use anyhow::{anyhow, bail, ensure, Result};
-use poll_promise::Promise;
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
@@ -246,7 +244,6 @@ pub struct NauticaSongProvider {
         std::sync::mpsc::Sender<Datum>,
         std::sync::mpsc::Receiver<Datum>,
     ),
-    async_worker: Arc<std::sync::RwLock<AsyncService>>,
     nautica_data: HashMap<String, Datum>,
 }
 
@@ -305,7 +302,7 @@ async fn next_songs(path: String) -> Result<NauticaSongs> {
 }
 
 impl NauticaSongProvider {
-    pub fn new(async_worker: RefMut<AsyncService>) -> Self {
+    pub fn new() -> Self {
         let local_data = std::fs::read_to_string(cache_path())
             .ok()
             .and_then(|x| serde_json::from_str(&x).ok())
@@ -321,7 +318,6 @@ impl NauticaSongProvider {
             query: HashMap::new(),
             local_data,
             song_loaded: std::sync::mpsc::channel(),
-            async_worker,
             nautica_data: HashMap::new(),
         }
     }
@@ -371,7 +367,7 @@ impl NauticaSongProvider {
 
     fn save_local_data(&self) {
         if let Ok(local_data_json) = serde_json::to_string(&self.local_data) {
-            self.async_worker.read().unwrap().run(async move {
+            tokio::spawn(async move {
                 use tokio::io::*;
                 let path = cache_path();
                 let Ok(mut file) = tokio::fs::File::create(&path).await else {
@@ -382,7 +378,7 @@ impl NauticaSongProvider {
                 if let Some(e) = file.write_all(local_data_json.as_bytes()).await.err() {
                     warn!("Could not write nautica cache file: {e}");
                 }
-            })
+            });
         }
     }
 }
@@ -559,7 +555,7 @@ impl SongProvider for NauticaSongProvider {
     fn get_preview(
         &self,
         id: &SongId,
-    ) -> poll_promise::Promise<
+    ) -> tokio::task::JoinHandle<
         anyhow::Result<(
             Box<dyn Source<Item = f32> + Send>,
             std::time::Duration,
@@ -567,7 +563,7 @@ impl SongProvider for NauticaSongProvider {
         )>,
     > {
         let id = id.clone();
-        poll_promise::Promise::spawn_async(async move {
+        tokio::task::spawn(async move {
             let SongId::StringId(song_id) = id else {
                 bail!("Unsupported id type")
             };
@@ -741,7 +737,7 @@ impl SongProvider for NauticaSongProvider {
 }
 
 fn download_song(id: Uuid, diff: u8, on_loaded: Sender<Datum>) -> anyhow::Result<LoadSongFn> {
-    Ok(Box::new(move || {
+    Ok(Box::pin(async move {
         let mut song_path = cache_dir();
 
         song_path.push(id.hyphenated().to_string());
@@ -754,9 +750,14 @@ fn download_song(id: Uuid, diff: u8, on_loaded: Sender<Datum>) -> anyhow::Result
         }
 
         let NauticaSong { data: nautica } =
-            reqwest::blocking::get(format!("https://ksm.dev/app/songs/{}", id.as_hyphenated()))?
-                .json()?;
-        let mut data = reqwest::blocking::get(&nautica.cdn_download_url)?.bytes()?;
+            reqwest::get(format!("https://ksm.dev/app/songs/{}", id.as_hyphenated()))
+                .await?
+                .json()
+                .await?;
+        let mut data = reqwest::get(&nautica.cdn_download_url)
+            .await?
+            .bytes()
+            .await?;
         std::fs::write(&song_path, data)?;
 
         let file = File::open(song_path)?;

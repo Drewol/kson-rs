@@ -9,6 +9,7 @@ use std::{
 };
 
 use anyhow::ensure;
+use di::RefMut;
 use femtovg::{renderer::OpenGl, Canvas};
 use log::warn;
 
@@ -30,7 +31,7 @@ pub struct VgAnimation {
     frame_time: f64,
     frame_timer: f64,
     compressed: bool,
-    canvas: Arc<Mutex<Canvas<OpenGl>>>,
+    canvas: RefMut<Canvas<OpenGl>>,
     loader_tx: Sender<LoaderRequest>,
     loader_rx: Receiver<LoaderResponse>,
     _loader_thread: JoinHandle<()>,
@@ -66,7 +67,7 @@ impl VgAnimation {
     pub fn new(
         image_root: impl AsRef<Path>,
         frame_time: f64,
-        canvas: Arc<Mutex<Canvas<OpenGl>>>,
+        canvas: di::RefMut<Canvas<OpenGl>>,
         loop_count: usize,
         compressed: bool,
     ) -> anyhow::Result<Self> {
@@ -92,7 +93,7 @@ impl VgAnimation {
         );
 
         let first_img = {
-            let mut canvas = canvas.lock().expect("Lock error");
+            let mut canvas = canvas.borrow_mut();
             canvas.load_image_file(&image_paths[0], femtovg::ImageFlags::empty())
         }?;
 
@@ -146,7 +147,7 @@ impl VgAnimation {
         if !self.compressed {
             match self.loader_rx.try_recv() {
                 Ok(LoaderResponse::ImageLoaded(img, idx)) if img.width() > 0 => {
-                    let mut canvas = self.canvas.lock().expect("Lock error");
+                    let mut canvas = self.canvas.borrow_mut();
                     let image_id = canvas
                         .create_image(
                             femtovg::ImageSource::try_from(&img).expect("bad image format?"),
@@ -170,7 +171,7 @@ impl VgAnimation {
                     Ok(LoaderResponse::ImageLoaded(img, idx))
                         if img.width() > 0 && idx == self.next_image() =>
                     {
-                        let mut canvas = self.canvas.lock().expect("Lock error");
+                        let mut canvas = self.canvas.borrow_mut();
                         let image_src =
                             femtovg::ImageSource::try_from(&img).expect("bad image format?");
                         canvas

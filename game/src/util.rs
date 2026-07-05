@@ -78,6 +78,7 @@ pub fn pipe<T, U>() -> (Pipe<U, T>, Pipe<T, U>) {
 pub trait TokioTaskExt<T> {
     type S;
     fn try_take(self) -> Result<T, Self::S>;
+    fn poll_mut(&mut self) -> Option<T>;
 }
 
 impl<T> TokioTaskExt<T> for tokio::task::JoinHandle<T> {
@@ -89,6 +90,18 @@ impl<T> TokioTaskExt<T> for tokio::task::JoinHandle<T> {
                 .expect("Task failed"))
         } else {
             Err(self)
+        }
+    }
+
+    fn poll_mut(&mut self) -> Option<T> {
+        if self.is_finished() {
+            Some(
+                tokio::runtime::Handle::current()
+                    .block_on(self)
+                    .expect("Task failed"),
+            )
+        } else {
+            None
         }
     }
 }

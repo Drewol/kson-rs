@@ -4956,16 +4956,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "poll-promise"
-version = "0.3.0"
-source = "git+https://github.com/EmbarkStudios/poll-promise#d5325a7b357757e136247aab88cb842fad356540"
-dependencies = [
- "document-features",
- "static_assertions",
- "tokio",
-]
-
-[[package]]
 name = "polling"
 version = "3.11.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -5562,7 +5552,6 @@ dependencies = [
  "num_cpus",
  "once_cell",
  "openssl",
- "poll-promise",
  "puffin",
  "puffin_http",
  "rand 0.8.6",

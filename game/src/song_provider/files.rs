@@ -583,7 +583,7 @@ impl SongProvider for FileSongProvider {
         let hash = song.hash;
         let path = PathBuf::from(song.path);
 
-        Ok(Box::new(move || {
+        Ok(Box::pin(async move {
             let data = std::fs::read(&path)?;
             let data = encoding::decode(
                 &data,
@@ -603,7 +603,7 @@ impl SongProvider for FileSongProvider {
 
             Ok((
                 chart,
-                Box::new(audio),
+                Box::new(audio) as Box<dyn Source + Send>,
                 path.parent().map(|x| x.to_path_buf()),
             ))
         }))
@@ -612,7 +612,7 @@ impl SongProvider for FileSongProvider {
     fn get_preview(
         &self,
         id: &SongId,
-    ) -> poll_promise::Promise<
+    ) -> tokio::task::JoinHandle<
         anyhow::Result<(
             Box<dyn Source<Item = f32> + Send>,
             std::time::Duration,
@@ -621,7 +621,7 @@ impl SongProvider for FileSongProvider {
     > {
         let db = self.database.clone();
         let id = id.clone();
-        poll_promise::Promise::spawn_async(async move {
+        tokio::spawn(async move {
             profile_function!();
             let SongId::IntId(id) = id else {
                 bail!("Unsupported id type")

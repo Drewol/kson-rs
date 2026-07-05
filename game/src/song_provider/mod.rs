@@ -4,7 +4,9 @@ use std::{
     collections::HashSet,
     default,
     fmt::{format, Debug, Display, Write},
+    future::Future,
     path::PathBuf,
+    pin::Pin,
     str::FromStr,
     sync::Arc,
     time::Duration,
@@ -16,7 +18,6 @@ use kson::Chart;
 use log::LevelFilter;
 use luals_gen::ToLuaLsType;
 use mlua::UserData;
-use poll_promise::Promise;
 use rodio::Source;
 use serde::{Deserialize, Serialize};
 use serde_with::{DeserializeFromStr, SerializeDisplay};
@@ -295,12 +296,16 @@ impl SongDiffId {
 }
 
 pub type PreviewResult = anyhow::Result<(Box<dyn Source<Item = f32> + Send>, Duration, Duration)>;
-pub type LoadSongFn = Box<
-    dyn FnOnce() -> anyhow::Result<(
-            Chart,
-            Box<dyn rodio::Source<Item = f32> + Send>,
-            Option<PathBuf>,
-        )> + Send,
+pub type LoadSongFn = Pin<
+    Box<
+        dyn Future<
+                Output = anyhow::Result<(
+                    Chart,
+                    Box<dyn rodio::Source<Item = f32> + Send>,
+                    Option<PathBuf>,
+                )>,
+            > + Send,
+    >,
 >;
 
 pub trait SongProvider: Send {
@@ -326,7 +331,7 @@ pub trait SongProvider: Send {
     ) -> anyhow::Result<Arc<Song>>;
     fn add_score(&self, id: SongDiffId, score: Score);
     /// Returns: `(music, skip, duration)`
-    fn get_preview(&self, id: &SongId) -> Promise<PreviewResult>;
+    fn get_preview(&self, id: &SongId) -> tokio::task::JoinHandle<PreviewResult>;
     fn get_all(&self) -> (Vec<Arc<Song>>, Vec<SongId>);
     fn refresh(&mut self) {}
     fn get_collections(&self, id: &SongId) -> Vec<songselect::favourite_dialog::Collection>;

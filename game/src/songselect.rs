@@ -1,9 +1,7 @@
 use crate::{
-    async_service::AsyncService,
     button_codes::{LaserAxis, LaserState, UscButton, UscInputEvent},
     config::GameConfig,
     game_main::AutoPlay,
-    help::await_task,
     input_state::InputState,
     lua_service::LuaProvider,
     multiplayer::{self, MultiplayerState},
@@ -20,7 +18,7 @@ use crate::{
     ControlMessage, FileSongProvider, NauticaSongProvider, RuscMixer,
 };
 use anyhow::{anyhow, ensure, Result};
-use di::{RefMut, ServiceProvider};
+use di::{Ref, RefMut, ServiceProvider};
 use itertools::Itertools;
 use kson::BtLane;
 use kson_rodio_sources::owned_source::{self, owned_source};
@@ -142,7 +140,7 @@ pub struct SongSelectScene {
     diff_advance: f32,
     suspended: Arc<AtomicBool>,
     closed: bool,
-    mixer: RuscMixer,
+    mixer: Ref<RuscMixer>,
     sample_owner: owned_source::Marker,
     settings_dialog: SettingsDialog,
     settings_closed: SystemTime,
@@ -152,7 +150,6 @@ pub struct SongSelectScene {
     song_events: bus::BusReader<SongProviderEvent>,
     score_events: bus::BusReader<ScoreProviderEvent>,
     score_provider: RefMut<dyn ScoreProvider>,
-    async_worker: RefMut<AsyncService>,
     sort_lua: Rc<Lua>,
     filter_lua: Rc<Lua>,
     collection_lua: Rc<Lua>,
@@ -177,12 +174,11 @@ impl SongSelectScene {
         };
 
         let score_provider: RefMut<dyn ScoreProvider> = services.get_required();
-        let score_events = score_provider.write().expect("Lock error").subscribe();
-        let song_events = song_provider.write().expect("Lock error").subscribe();
-        let (initial_songs, initial_order) = song_provider.write().expect("Lock error").get_all();
+        let score_events = score_provider.borrow_mut().subscribe();
+        let song_events = song_provider.borrow_mut().subscribe();
+        let (initial_songs, initial_order) = song_provider.borrow_mut().get_all();
         _ = score_provider
-            .write()
-            .expect("Lock error")
+            .borrow_mut()
             .init_scores(&mut initial_songs.iter());
         song_select.songs.add(initial_songs, initial_order);
         let (auto_tx, auto_rx) = mpsc::channel();
@@ -206,7 +202,6 @@ impl SongSelectScene {
                 services.create_scope(),
                 auto_tx,
             ),
-            async_worker: services.get_required(),
             multiplayer: services.get_required(),
             song_events,
             score_events,
@@ -228,8 +223,7 @@ impl SongSelectScene {
     fn on_search(&mut self) {
         _ = self.update_lua(&self.lua);
         self.song_provider
-            .write()
-            .expect("Lock error")
+            .borrow_mut()
             .set_search(&self.state.search_text);
     }
 
@@ -250,7 +244,7 @@ impl SongSelectScene {
         filter_lua: &Lua,
     ) -> anyhow::Result<(Vec<SongFilterType>, Vec<SongSort>)> {
         let (filters, sorts) = {
-            let sp = self.song_provider.read().expect("Lock error");
+            let sp = self.song_provider.borrow();
             (sp.get_available_filters(), sp.get_available_sorts())
         };
 
@@ -288,20 +282,18 @@ impl SongSelectScene {
         let preview_playing = self.state.preview_playing.clone();
         let preview_finished = self.state.preview_finished.clone();
         let owner = self.sample_owner.clone();
-        let mixer = self.mixer.clone();
+        let mixer = self.mixer.as_ref().clone();
 
         if preview_playing.load(std::sync::atomic::Ordering::Relaxed) == song_id.as_u64() {
             return;
         }
 
-        self.async_worker.read().unwrap().run(async move {
-            let preview = {
-                let song_provider = services.get_required_mut::<dyn SongProvider>();
-                let preview = song_provider.read().unwrap().get_preview(&song_id);
-                preview
-            };
+        let preview = self.song_provider.borrow().get_preview(&song_id);
 
-            let (preview, skip, duration) = match await_task(preview).await {
+        tokio::spawn(async move {
+            let Ok(preview) = preview.await else { return };
+
+            let (preview, skip, duration) = match preview {
                 Ok(e) => e,
                 Err(e) => {
                     warn!("Could not load preview: {e}");
@@ -336,12 +328,11 @@ impl SongSelectScene {
                 .clone()
         });
 
-        let mut multi = self.multiplayer.write().unwrap();
+        let mut multi = self.multiplayer.borrow_mut();
         if multi.state() == MultiplayerState::Connected {
             let Ok(multi_song) = self
                 .song_provider
-                .write()
-                .unwrap()
+                .borrow_mut()
                 .set_multiplayer_song(&song_diff)
                 .inspect_err(|e| warn!("Could not find song {song_diff:?}: {e}"))
             else {
@@ -357,15 +348,10 @@ impl SongSelectScene {
         }
 
         if let Some(pc) = &self.program_control {
-            match self
-                .song_provider
-                .read()
-                .expect("Lock error")
-                .load_song(&song_diff)
-            {
+            match self.song_provider.borrow_mut().load_song(&song_diff) {
                 Ok(loader) => {
                     GameConfig::get_mut().song_select.last_played = song_diff;
-                    self.async_worker.read().unwrap().save_config();
+                    GameConfig::save_async();
                     _ = pc.send(ControlMessage::Song {
                         diff,
                         loader,
@@ -382,10 +368,7 @@ impl SongSelectScene {
 
     fn reload_scores(&mut self) -> std::result::Result<(), anyhow::Error> {
         let mut songs = self.state.songs.values();
-        self.score_provider
-            .read()
-            .expect("Lock error")
-            .init_scores(&mut songs)
+        self.score_provider.borrow().init_scores(&mut songs)
     }
 
     fn set_lua_song_index(&self, lua: &Lua) -> Result<(), anyhow::Error> {
@@ -447,7 +430,7 @@ fn add_preview_source<T: Source<Item = f32> + Send + 'static>(
         state.set_factor(amp.clamp(0.0, 1.0));
     });
 
-    mixer.as_ref().add(owned_source(source, owner));
+    mixer.add(owned_source(source, owner));
 }
 
 impl Scene for SongSelectScene {
@@ -528,14 +511,15 @@ impl Scene for SongSelectScene {
                                 .cloned()
                                 .ok_or(anyhow!("Selected index not in collection"))?;
                             let diff = state.selected_diff_index as usize;
-                            let loader = self.song_provider.read().expect("Lock error").load_song(
-                                &SongDiffId::SongDiff(
-                                    song.id.clone(),
-                                    song.difficulties.read().expect("Lock error")[diff]
-                                        .id
-                                        .clone(),
-                                ),
-                            )?;
+                            let loader =
+                                self.song_provider
+                                    .borrow()
+                                    .load_song(&SongDiffId::SongDiff(
+                                        song.id.clone(),
+                                        song.difficulties.read().expect("Lock error")[diff]
+                                            .id
+                                            .clone(),
+                                    ))?;
                             ensure!(self
                                 .program_control
                                 .as_ref()
@@ -686,10 +670,7 @@ impl Scene for SongSelectScene {
             songs_dirty = true;
             match score_event {
                 ScoreProviderEvent::NewScore(id, score) => {
-                    self.song_provider
-                        .write()
-                        .expect("Lock error")
-                        .add_score(id, score);
+                    self.song_provider.borrow_mut().add_score(id, score);
                 }
             }
         }
@@ -751,8 +732,7 @@ impl Scene for SongSelectScene {
                 if let Some(s) = self.state.songs.get(self.state.selected_index as _) {
                     let song_idx = s.id.as_u64();
                     self.song_provider
-                        .write()
-                        .expect("Lock error")
+                        .borrow_mut()
                         .set_current_index(song_idx as _);
 
                     if song_advance_steps != 0 {
@@ -788,8 +768,7 @@ impl Scene for SongSelectScene {
 
                     if (diff_advance_steps + song_advance_steps) != 0 {
                         self.song_provider
-                            .write()
-                            .expect("Lock error")
+                            .borrow_mut()
                             .set_sort(self.sorts[self.sort_index]);
                         let set_selection: Function =
                             self.sort_lua.globals().get("set_selection")?;
@@ -802,13 +781,10 @@ impl Scene for SongSelectScene {
                     .add(self.level_filter as i32)
                     .rem_euclid(21) as _;
                 if (diff_advance_steps + song_advance_steps) != 0 {
-                    self.song_provider
-                        .write()
-                        .expect("Lock error")
-                        .set_filter(SongFilter::new(
-                            self.filters[self.folder_filter_index].clone(),
-                            self.level_filter,
-                        ));
+                    self.song_provider.borrow_mut().set_filter(SongFilter::new(
+                        self.filters[self.folder_filter_index].clone(),
+                        self.level_filter,
+                    ));
                     let set_selection: Function = self.filter_lua.globals().get("set_selection")?;
                     set_selection.call::<()>((self.level_filter + 1, false))?;
                 }
@@ -820,12 +796,10 @@ impl Scene for SongSelectScene {
                         .rem_euclid(self.filters.len() as _)
                         as _;
                     if (diff_advance_steps + song_advance_steps) != 0 {
-                        self.song_provider.write().expect("Lock error").set_filter(
-                            SongFilter::new(
-                                self.filters[self.folder_filter_index].clone(),
-                                self.level_filter,
-                            ),
-                        );
+                        self.song_provider.borrow_mut().set_filter(SongFilter::new(
+                            self.filters[self.folder_filter_index].clone(),
+                            self.level_filter,
+                        ));
                         let set_selection: Function =
                             self.filter_lua.globals().get("set_selection")?;
                         set_selection.call::<()>((self.folder_filter_index + 1, true))?;
@@ -890,13 +864,10 @@ impl Scene for SongSelectScene {
                 }
                 crate::companion_interface::ClientEvent::SetLevelFilter(x) => {
                     self.level_filter = *x;
-                    self.song_provider
-                        .write()
-                        .unwrap()
-                        .set_filter(SongFilter::new(
-                            self.filters[self.folder_filter_index].clone(),
-                            self.level_filter,
-                        ));
+                    self.song_provider.borrow_mut().set_filter(SongFilter::new(
+                        self.filters[self.folder_filter_index].clone(),
+                        self.level_filter,
+                    ));
                     _ = self.update_lua(&self.lua);
                     _ = self.update_filter_sort_lua(&self.sort_lua, &self.filter_lua);
                 }
@@ -907,13 +878,10 @@ impl Scene for SongSelectScene {
                         .find_position(|x| **x == *song_filter_type)
                     {
                         self.folder_filter_index = pos.0;
-                        self.song_provider
-                            .write()
-                            .unwrap()
-                            .set_filter(SongFilter::new(
-                                song_filter_type.clone(),
-                                self.level_filter,
-                            ));
+                        self.song_provider.borrow_mut().set_filter(SongFilter::new(
+                            song_filter_type.clone(),
+                            self.level_filter,
+                        ));
                         _ = self.update_lua(&self.lua);
                         _ = self.update_filter_sort_lua(&self.sort_lua, &self.filter_lua);
                     }
@@ -921,7 +889,7 @@ impl Scene for SongSelectScene {
                 crate::companion_interface::ClientEvent::SetSongSort(song_sort) => {
                     if let Some(pos) = self.sorts.iter().find_position(|x| **x == *song_sort) {
                         self.sort_index = pos.0;
-                        self.song_provider.write().unwrap().set_sort(*song_sort);
+                        self.song_provider.borrow_mut().set_sort(*song_sort);
                         _ = self.update_lua(&self.lua);
                         _ = self.update_filter_sort_lua(&self.sort_lua, &self.filter_lua);
                     }
@@ -1007,14 +975,14 @@ impl Scene for SongSelectScene {
                 let update_provider = self.song_provider.clone();
                 if let Some(song) = self.state.songs.get(self.state.selected_index as _) {
                     let id = song.id.clone();
-                    let collections = self.song_provider.read().unwrap().get_collections(&id);
+                    let collections = self.song_provider.borrow().get_collections(&id);
                     self.collection_dialog = Some(CollectionDialog::new(
                         collections,
                         self.collection_lua.clone(),
                         song.title.clone(),
                         self.input_state.clone(),
                         move |name, exists| {
-                            let mut p = update_provider.write().unwrap();
+                            let mut p = update_provider.borrow_mut();
                             if exists {
                                 p.remove_from_collection(&id, name)
                                     .warn("Failed to remove from collection");
@@ -1028,7 +996,7 @@ impl Scene for SongSelectScene {
             }
 
             UscButton::Refresh => {
-                let mut song_provider = self.song_provider.write().unwrap();
+                let mut song_provider = self.song_provider.borrow_mut();
                 song_provider.refresh()
             }
             _ => (),

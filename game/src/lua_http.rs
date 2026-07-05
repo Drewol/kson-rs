@@ -7,9 +7,11 @@ use std::{collections::HashMap, str::FromStr};
 
 use mlua::{self, Function, Lua, LuaSerdeExt, RegistryKey, UserData, UserDataMethods};
 
+use crate::util::TokioTaskExt;
+
 #[derive(Default)]
 pub struct LuaHttp {
-    calls: Vec<poll_promise::Promise<Response>>,
+    calls: Vec<tokio::task::JoinHandle<Response>>,
     callbacks: HashMap<i64, RegistryKey>,
     next_id: i64,
 }
@@ -100,7 +102,7 @@ impl LuaHttp {
         };
 
         let mut remaining_calls = vec![];
-        for ele in calls.drain(..) {
+        for ele in calls.into_iter() {
             match ele.try_take() {
                 Ok(data) => {
                     if let Some(key) = callbacks.remove(&data.id) {
@@ -185,50 +187,44 @@ impl UserData for ExportLuaHttp {
                     http.callbacks
                         .insert(id, lua.create_registry_value(callback)?);
 
-                    http.calls
-                        .push(poll_promise::Promise::spawn_async(async move {
-                            let client = match reqwest::Client::builder()
-                                .default_headers(HeaderMap::from_iter(headers.iter().map(
-                                    |(name, value)| {
-                                        (
-                                            name.parse()
-                                                .inspect_err(|e| log::warn!("{e}"))
-                                                .unwrap_or(HeaderName::from_static(
-                                                    "Bad header name",
-                                                )),
-                                            value
-                                                .parse()
-                                                .inspect_err(|e| log::warn!("{e}"))
-                                                .unwrap_or(HeaderValue::from_static(
-                                                    "Bad header value",
-                                                )),
-                                        )
-                                    },
-                                )))
-                                .build()
-                            {
-                                Ok(v) => v,
-                                Err(e) => {
-                                    return Response::error(format!("{e}"));
-                                }
-                            };
-
-                            let req = match client.get(url).build() {
-                                Ok(v) => v,
-                                Err(e) => {
-                                    return Response::error(format!("{e}"));
-                                }
-                            };
-
-                            match client.execute(req).await.map(Response::from_response) {
-                                Ok(r) => {
-                                    let mut r = r.await;
-                                    r.id = id;
-                                    r
-                                }
-                                Err(e) => Response::error(format!("{:?}", e)),
+                    http.calls.push(tokio::task::spawn(async move {
+                        let client = match reqwest::Client::builder()
+                            .default_headers(HeaderMap::from_iter(headers.iter().map(
+                                |(name, value)| {
+                                    (
+                                        name.parse()
+                                            .inspect_err(|e| log::warn!("{e}"))
+                                            .unwrap_or(HeaderName::from_static("Bad header name")),
+                                        value.parse().inspect_err(|e| log::warn!("{e}")).unwrap_or(
+                                            HeaderValue::from_static("Bad header value"),
+                                        ),
+                                    )
+                                },
+                            )))
+                            .build()
+                        {
+                            Ok(v) => v,
+                            Err(e) => {
+                                return Response::error(format!("{e}"));
                             }
-                        }));
+                        };
+
+                        let req = match client.get(url).build() {
+                            Ok(v) => v,
+                            Err(e) => {
+                                return Response::error(format!("{e}"));
+                            }
+                        };
+
+                        match client.execute(req).await.map(Response::from_response) {
+                            Ok(r) => {
+                                let mut r = r.await;
+                                r.id = id;
+                                r
+                            }
+                            Err(e) => Response::error(format!("{:?}", e)),
+                        }
+                    }));
 
                     http.next_id += 1;
                 }
@@ -250,50 +246,44 @@ impl UserData for ExportLuaHttp {
                     http.callbacks
                         .insert(id, lua.create_registry_value(callback)?);
 
-                    http.calls
-                        .push(poll_promise::Promise::spawn_async(async move {
-                            let client = match reqwest::Client::builder()
-                                .default_headers(HeaderMap::from_iter(headers.iter().map(
-                                    |(name, value)| {
-                                        (
-                                            name.parse()
-                                                .inspect_err(|e| log::warn!("{e}"))
-                                                .unwrap_or(HeaderName::from_static(
-                                                    "Bad header name",
-                                                )),
-                                            value
-                                                .parse()
-                                                .inspect_err(|e| log::warn!("{e}"))
-                                                .unwrap_or(HeaderValue::from_static(
-                                                    "Bad header value",
-                                                )),
-                                        )
-                                    },
-                                )))
-                                .build()
-                            {
-                                Ok(v) => v,
-                                Err(e) => {
-                                    return Response::error(e.to_string());
-                                }
-                            };
-
-                            let request = match client.post(url).body(content).build() {
-                                Ok(v) => v,
-                                Err(e) => {
-                                    return Response::error(e.to_string());
-                                }
-                            };
-
-                            match client.execute(request).await.map(Response::from_response) {
-                                Ok(r) => {
-                                    let mut r = r.await;
-                                    r.id = id;
-                                    r
-                                }
-                                Err(e) => Response::error(format!("{:?}", e)),
+                    http.calls.push(tokio::task::spawn(async move {
+                        let client = match reqwest::Client::builder()
+                            .default_headers(HeaderMap::from_iter(headers.iter().map(
+                                |(name, value)| {
+                                    (
+                                        name.parse()
+                                            .inspect_err(|e| log::warn!("{e}"))
+                                            .unwrap_or(HeaderName::from_static("Bad header name")),
+                                        value.parse().inspect_err(|e| log::warn!("{e}")).unwrap_or(
+                                            HeaderValue::from_static("Bad header value"),
+                                        ),
+                                    )
+                                },
+                            )))
+                            .build()
+                        {
+                            Ok(v) => v,
+                            Err(e) => {
+                                return Response::error(e.to_string());
                             }
-                        }));
+                        };
+
+                        let request = match client.post(url).body(content).build() {
+                            Ok(v) => v,
+                            Err(e) => {
+                                return Response::error(e.to_string());
+                            }
+                        };
+
+                        match client.execute(request).await.map(Response::from_response) {
+                            Ok(r) => {
+                                let mut r = r.await;
+                                r.id = id;
+                                r
+                            }
+                            Err(e) => Response::error(format!("{:?}", e)),
+                        }
+                    }));
 
                     http.next_id += 1;
                 }

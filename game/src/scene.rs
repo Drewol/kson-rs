@@ -71,3 +71,22 @@ impl SceneData for dyn Scene + Send {
         Ok(self)
     }
 }
+
+impl<F> SceneData for F
+where
+    F: FnOnce(ServiceProvider) -> anyhow::Result<Box<dyn Scene>> + Send + 'static,
+{
+    fn make_scene(
+        self: Box<Self>,
+        service_provider: ServiceProvider,
+    ) -> anyhow::Result<Box<dyn Scene>> {
+        (*self)(service_provider)
+    }
+}
+
+pub fn make_factory<F>(f: F) -> Box<dyn SceneData>
+where
+    F: FnOnce(ServiceProvider) -> anyhow::Result<Box<dyn Scene>> + Send + 'static,
+{
+    Box::new(f)
+}

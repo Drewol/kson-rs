@@ -12,7 +12,6 @@ use mlua::{Function, IntoLua, Lua, LuaSerdeExt};
 use std::sync::mpsc::Sender;
 
 use crate::{
-    async_service::AsyncService,
     button_codes::{UscButton, UscInputEvent},
     config::{GameConfig, ScoreDisplayMode},
     game::HitWindow,
@@ -228,7 +227,6 @@ pub struct SettingsDialog {
     current_tab: usize,
     lua: Rc<Lua>,
     setting_advance: f32,
-    async_service: di::RefMut<AsyncService>,
 }
 
 impl IntoLua for &SettingsDialog {
@@ -265,7 +263,6 @@ impl SettingsDialog {
             input_state,
             lua: LuaProvider::new_lua(),
             setting_advance: 0.0,
-            async_service: services.get_required(),
         }
     }
 
@@ -290,7 +287,7 @@ impl SettingsDialog {
 
                     if detla_ms < 100 {
                         if self.show {
-                            self.async_service.read().expect("Lock error").save_config();
+                            GameConfig::save_async();
                         }
                         self.show = !self.show;
                     }
@@ -636,7 +633,6 @@ impl SettingsDialog {
             current_tab: 0,
             lua: Rc::new(Lua::new()),
             setting_advance: 0.0,
-            async_service: Arc::new(AsyncService::new().into()),
         }
     }
 

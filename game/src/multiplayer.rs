@@ -97,17 +97,20 @@ impl MultiplayerService {
     }
 
     pub async fn connect(&mut self) -> anyhow::Result<()> {
-        ensure!(
-            !GameConfig::get().multiplayer.server.is_empty(),
-            "No multiplayer server set"
-        );
+        {
+            ensure!(
+                !GameConfig::get().multiplayer.server.is_empty(),
+                "No multiplayer server set"
+            );
+        }
         if !matches!(self.state, MultiplayerState::Disconnected) {
             self.reader_task.abort();
             self.writer_task.abort();
         }
 
-        let (mut cmd_rx, mut cmd_tx) =
-            multiplayer_protocol::connect(&GameConfig::get().multiplayer.server).await?;
+        let server = GameConfig::get().multiplayer.server.clone();
+
+        let (mut cmd_rx, mut cmd_tx) = multiplayer_protocol::connect(&server).await?;
 
         let (tx, rx) = channel(100);
         let user_id = self.user_id.clone();
@@ -190,24 +193,6 @@ impl MultiplayerService {
     }
 }
 
-impl SceneData for RefMut<MultiplayerService> {
-    fn make_scene(
-        self: Box<Self>,
-        service_provider: ServiceProvider,
-    ) -> anyhow::Result<Box<dyn Scene>> {
-        {
-            ensure!(
-                self.read().unwrap().state() == MultiplayerState::Connected,
-                "Not connected"
-            )
-        }
-        Ok(Box::new(MultiplayerScreen::new(
-            service_provider,
-            *self.clone(),
-        )?))
-    }
-}
-
 pub struct MultiplayerScreen {
     sp: ServiceProvider,
     service: RefMut<MultiplayerService>,
@@ -231,9 +216,10 @@ pub struct MultiplayerScreen {
 }
 
 impl MultiplayerScreen {
-    pub fn new(sp: ServiceProvider, service: RefMut<MultiplayerService>) -> anyhow::Result<Self> {
+    pub fn new(sp: ServiceProvider) -> anyhow::Result<Self> {
         let lua_service: Ref<LuaProvider> = sp.get_required();
         let lua = LuaProvider::new_lua();
+        let service: RefMut<MultiplayerService> = sp.get_required();
         lua_service.register_libraries(lua.clone(), "multiplayerscreen.lua")?;
         lua.globals().set("mpScreen", MpScreen)?;
 
@@ -299,7 +285,7 @@ impl MultiplayerScreen {
     }
 
     fn auth(&self) -> anyhow::Result<()> {
-        let mut s = self.service.write().unwrap();
+        let mut s = self.service.borrow_mut();
         s.send(messages::server::ServerCommand::Auth(
             messages::server::Auth {
                 password: String::new(),
@@ -320,7 +306,7 @@ impl MultiplayerScreen {
             }
             MultiplayerScreenState::RoomList => {}
             MultiplayerScreenState::PasswordScreen(password, id) => {
-                let mut s = self.service.write().unwrap();
+                let mut s = self.service.borrow_mut();
                 _ = s.send(messages::server::ServerCommand::RoomJoin(
                     messages::server::Join {
                         id: Some(id.clone()),
@@ -336,7 +322,7 @@ impl MultiplayerScreen {
     }
 
     fn process_server_commands(&mut self) -> anyhow::Result<()> {
-        let mut s = self.service.write().unwrap();
+        let mut s = self.service.borrow_mut();
 
         while let Some(msg) = s.poll() {
             info!("Recieved {:#?}", &msg);
@@ -425,7 +411,7 @@ impl MultiplayerScreen {
                     MpScreenCommand::JoinWithPassword,
                     MultiplayerScreenState::PasswordScreen(password, room_id),
                 ) => {
-                    let mut s = self.service.write().unwrap();
+                    let mut s = self.service.borrow_mut();
                     s.send(messages::server::ServerCommand::RoomJoin(
                         messages::server::Join {
                             id: Some(room_id.clone()),
@@ -438,7 +424,7 @@ impl MultiplayerScreen {
                     MpScreenCommand::JoinWithoutPassword(room_id),
                     MultiplayerScreenState::RoomList,
                 ) => {
-                    let mut s = self.service.write().unwrap();
+                    let mut s = self.service.borrow_mut();
                     s.send(messages::server::ServerCommand::RoomJoin(
                         messages::server::Join {
                             id: Some(room_id),
@@ -457,7 +443,7 @@ impl MultiplayerScreen {
                     MpScreenCommand::NewRoomStep,
                     MultiplayerScreenState::NewRoomPassword(password, name),
                 ) => {
-                    let mut s = self.service.write().unwrap();
+                    let mut s = self.service.borrow_mut();
                     let name = std::mem::take(name);
                     let password = (!password.is_empty()).then(|| std::mem::take(password));
                     s.send(messages::server::ServerCommand::RoomNew(New {
@@ -499,7 +485,7 @@ impl MultiplayerScreen {
             return;
         }
 
-        let mut service = self.service.write().unwrap();
+        let mut service = self.service.borrow_mut();
 
         let diffs = song.difficulties.read().unwrap();
         let diff_count = diffs.len();
@@ -545,15 +531,14 @@ impl MultiplayerScreen {
     ) -> anyhow::Result<(Arc<Song>, usize)> {
         let nautica = self.sp.get_required_mut::<NauticaSongProvider>();
         let files = self.sp.get_required_mut::<FileSongProvider>();
-        let files = files.write().ok().context("Lock fail")?;
+        let files = files.try_borrow_mut().ok().context("Lock fail")?;
         let hash = u.chart_hash.as_ref().context("No hash")?.as_str();
         let song = u.song.as_ref().context("No song")?.as_str();
         let diff = u.diff.unwrap_or_default();
         let level = u.level.unwrap_or_default();
 
         let song = nautica
-            .write()
-            .ok()
+            .try_borrow_mut()
             .context("Lock fail")?
             .get_multiplayer_song(hash, song, diff, level)
             .or_else(|_| files.get_multiplayer_song(hash, song, diff, level))?;
@@ -585,12 +570,12 @@ impl MultiplayerScreen {
             crate::SongId::Missing => unreachable!(),
             crate::SongId::IntId(_) => {
                 let sp = self.sp.get_required_mut::<FileSongProvider>();
-                let sp = sp.write().unwrap();
+                let sp = sp.borrow_mut();
                 sp.load_song(&song_diff_id)
             }
             crate::SongId::StringId(_) => {
                 let sp = self.sp.get_required_mut::<NauticaSongProvider>();
-                let sp = sp.write().unwrap();
+                let sp = sp.borrow_mut();
                 sp.load_song(&song_diff_id)
             }
         }
@@ -670,7 +655,7 @@ impl Scene for MultiplayerScreen {
     }
 
     fn resume(&mut self) {
-        let mut s = self.service.write().unwrap();
+        let mut s = self.service.borrow_mut();
         _ = s.send(messages::server::ServerCommand::GetUpdate);
 
         self.suspended = false;
@@ -760,7 +745,7 @@ impl Scene for MultiplayerScreen {
 
 impl Drop for MultiplayerScreen {
     fn drop(&mut self) {
-        if let Ok(mut s) = self.service.write() {
+        if let Ok(mut s) = self.service.try_borrow_mut() {
             _ = s.send(messages::server::ServerCommand::Leave);
         }
     }
@@ -788,7 +773,7 @@ impl LuaTcp {
 #[mlua_bridge::mlua_bridge(rename_funcs = "PascalCase")]
 impl LuaTcp {
     fn send_line(s: &RefMut<MultiplayerService>, msg: String) -> Result<(), mlua::Error> {
-        let mut service = s.write().unwrap();
+        let mut service = s.borrow_mut();
         service
             .send(messages::server::ServerCommand::Raw(msg))
             .map_err(mlua::Error::external)

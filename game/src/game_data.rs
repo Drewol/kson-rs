@@ -1,6 +1,7 @@
 use std::{
     collections::HashMap,
     ops::DerefMut,
+    rc::Rc,
     sync::{atomic::AtomicUsize, Arc},
     time::Duration,
 };
@@ -30,7 +31,7 @@ impl Injectable for GameData {
         InjectBuilder::new(
             Activator::new::<Self, Self>(
                 |sp| {
-                    Arc::new(GameData {
+                    Rc::new(GameData {
                         resolution: (800, 600),
                         mouse_pos: (0.0, 0.0),
                         input_state: InputState::clone(&sp.get_required()),
@@ -39,7 +40,7 @@ impl Injectable for GameData {
                     })
                 },
                 |sp| {
-                    Arc::new(
+                    Rc::new(
                         GameData {
                             resolution: (800, 600),
                             mouse_pos: (0.0, 0.0),
@@ -61,11 +62,11 @@ pub struct GameDataLua;
 impl GameDataLua {
     //GetMousePos
     fn get_mouse_pos(game_data: &RefMut<GameData>) -> (f64, f64) {
-        game_data.read().expect("Lock error").mouse_pos
+        game_data.borrow().mouse_pos
     }
 
     fn get_resolution(game_data: &RefMut<GameData>) -> (u32, u32) {
-        game_data.read().expect("Lock error").resolution
+        game_data.borrow().resolution
     }
 
     /*
@@ -95,7 +96,7 @@ impl GameDataLua {
     }
 
     fn load_skin_sample(game_data: &RefMut<GameData>, name: String) -> mlua::Result<()> {
-        let mut gd_lock = game_data.write().expect("Lock error");
+        let mut gd_lock = game_data.borrow_mut();
         let game_data = gd_lock.deref_mut();
         if game_data.audio_samples.contains_key(&name) {
             return Ok(());
@@ -124,11 +125,11 @@ impl GameDataLua {
 
     fn play_sample(
         game_data: &RefMut<GameData>,
-        mixer: &RuscMixer,
+        mixer: &Rc<RuscMixer>,
         name: String,
         do_loop: bool,
     ) -> mlua::Result<()> {
-        let mut gd_lock = game_data.write().expect("Lock error");
+        let mut gd_lock = game_data.borrow_mut();
         let game_data = gd_lock.deref_mut();
         let Some(sample) = game_data.audio_samples.get(&name) else {
             warn!("No sample named: {name}");
@@ -173,8 +174,7 @@ impl GameDataLua {
 
     fn stop_sample(game_data: &RefMut<GameData>, name: String) -> mlua::Result<()> {
         game_data
-            .write()
-            .expect("Lock Error")
+            .borrow_mut()
             .audio_sample_play_status
             .entry(name)
             .and_modify(|x| x.store(0, std::sync::atomic::Ordering::SeqCst));
@@ -183,7 +183,7 @@ impl GameDataLua {
     }
 
     fn is_sample_playing(game_data: &RefMut<GameData>, name: String) -> mlua::Result<Option<bool>> {
-        let game_data = game_data.read().expect("Lock error");
+        let game_data = game_data.borrow();
         if !game_data.audio_samples.contains_key(&name) {
             return Ok(None);
         }
@@ -204,7 +204,7 @@ impl GameDataLua {
     }
 
     fn get_button(game_data: &RefMut<GameData>, button: u8) -> mlua::Result<bool> {
-        let game_data = game_data.read().expect("Lock error");
+        let game_data = game_data.borrow();
         Ok(game_data
             .input_state
             .is_button_held(UscButton::from(button))
@@ -212,7 +212,7 @@ impl GameDataLua {
     }
 
     fn get_knob(game_data: &RefMut<GameData>, knob: i32) -> mlua::Result<f32> {
-        let game_data = game_data.read().expect("Lock error");
+        let game_data = game_data.borrow();
         match knob {
             0 => Ok(game_data.input_state.get_axis(kson::Side::Left).pos),
             1 => Ok(game_data.input_state.get_axis(kson::Side::Right).pos),

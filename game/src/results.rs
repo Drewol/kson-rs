@@ -12,7 +12,6 @@ use luals_gen::ToLuaLsType;
 use serde::Serialize;
 
 use crate::{
-    async_service::AsyncService,
     button_codes::UscButton,
     config::GameConfig,
     game::{
@@ -366,16 +365,12 @@ impl SongResultData {
 
 impl SceneData for SongResultData {
     fn make_scene(self: Box<Self>, services: ServiceProvider) -> anyhow::Result<Box<dyn Scene>> {
-        services
-            .get_required_mut::<AsyncService>()
-            .read()
-            .expect("Lock error")
-            .save_config(); // Save config in case of changed hispeed
+        GameConfig::save_async(); // Save config in case of changed hispeed
 
         let ir_request = if ir::InternetRanking::enabled() {
-            Some(poll_promise::Promise::spawn_async(
-                ir::InternetRanking::submit(ir::ScoreSubmission::from(self.as_ref())),
-            ))
+            Some(tokio::task::spawn(ir::InternetRanking::submit(
+                ir::ScoreSubmission::from(self.as_ref()),
+            )))
         } else {
             None
         };
@@ -533,13 +528,13 @@ pub struct SongResult {
     close: bool,
     score_service: RefMut<dyn ScoreProvider>,
     screenshot_state: ScreenshotState,
-    ir_request: Option<poll_promise::Promise<anyhow::Result<ir::IrServerResponse>>>,
+    ir_request: Option<tokio::task::JoinHandle<anyhow::Result<ir::IrServerResponse>>>,
 }
 
 impl Scene for SongResult {
     fn init(&mut self, app_control_tx: Sender<ControlMessage>) -> anyhow::Result<()> {
         self.score_service
-            .write()
+            .try_borrow_mut()
             .expect("Lock error")
             .insert_score(&self.data.song_id, Score::from(&self.data))?;
 
@@ -563,9 +558,9 @@ impl Scene for SongResult {
         _dt: f64,
         _knob_state: crate::button_codes::LaserState,
     ) -> anyhow::Result<()> {
-        if let Some(promise) = self.ir_request.take_if(|x| x.ready().is_some()) {
-            match promise.block_and_take() {
-                Ok(result) => {
+        if let Some(promise) = self.ir_request.take_if(|x| x.is_finished()) {
+            match tokio::runtime::Handle::current().block_on(promise) {
+                Ok(Ok(result)) => {
                     self.data.ir_description = result.description;
                     self.data.ir_state = result.status_code;
                     if let Some(IrResponseBody::ScoreSubmit(ir::ScoreSubmitResponse {
@@ -595,8 +590,11 @@ impl Scene for SongResult {
                         .globals()
                         .set("result", self.lua.to_value(&self.data)?)?;
                 }
-                Err(e) => {
+                Ok(Err(e)) => {
                     warn!("Could not submit score: {e}");
+                }
+                Err(e) => {
+                    warn!("JoinHandle Error: {e}");
                 }
             }
         }
@@ -633,7 +631,7 @@ impl Scene for SongResult {
                         .map(|(x, y, w, h)| ((x, y), (w, h)));
 
                     let vgfx = self.lua.app_data_ref::<RefMut<Vgfx>>().unwrap();
-                    let screenshot = help::take_screenshot(&vgfx.read().unwrap(), capture_rect);
+                    let screenshot = help::take_screenshot(&vgfx.borrow(), capture_rect);
                     match screenshot {
                         Ok(p) => {
                             log::info!("Saved screenshot to: {:?}", &p);

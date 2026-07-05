@@ -64,16 +64,10 @@ impl LuaProvider {
         set_global_env(InternetRankingLua, "IRData", &lua)?;
         set_global_env(InternetRankingLua, "IR", &lua)?;
 
-        arena
-            .write()
-            .expect("Could not get lock to lua arena")
-            .0
-            .push(lua.clone());
+        arena.borrow_mut().0.push(lua.clone());
 
         {
-            vgfx.write()
-                .expect("Lock error")
-                .init_asset_scope(lua_address(&lua))
+            vgfx.borrow_mut().init_asset_scope(lua_address(&lua))
         }
 
         {

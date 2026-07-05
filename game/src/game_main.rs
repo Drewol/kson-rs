@@ -10,7 +10,7 @@ use std::{
 };
 
 use anyhow::Context;
-use di::{RefMut, ServiceProvider};
+use di::{Ref, RefMut, ServiceProvider};
 use egui_glow::EguiGlow;
 use femtovg::Paint;
 use log::info;
@@ -106,7 +106,7 @@ pub enum ControlMessage {
 
 pub struct GameMain {
     lua_arena: di::RefMut<LuaArena>,
-    lua_provider: Arc<LuaProvider>,
+    lua_provider: di::Ref<LuaProvider>,
     companion_server: di::RefMut<companion_interface::CompanionServer>,
     companion_update: u8,
     scenes: Scenes,
@@ -118,15 +118,15 @@ pub struct GameMain {
     fps_paint: Paint,
     transition_lua: Rc<Lua>,
     transition_song_lua: Rc<Lua>,
-    game_data: Arc<RwLock<GameData>>,
-    vgfx: Arc<RwLock<Vgfx>>,
+    game_data: di::RefMut<GameData>,
+    vgfx: di::RefMut<Vgfx>,
     frame_count: u32,
     gui: EguiGlow,
     show_debug_ui: bool,
     mousex: f64,
     mousey: f64,
     input_state: InputState,
-    mixer: RuscMixer,
+    mixer: Ref<RuscMixer>,
     modifiers: Modifiers,
     service_provider: ServiceProvider,
     show_fps: bool,
@@ -200,20 +200,19 @@ impl GameMain {
         {
             for ele in self.service_provider.get_all_mut::<dyn WorkerService>() {
                 profile_scope!("Worker update");
-                ele.write().expect("Worker service closed").update()
+                ele.borrow_mut().update()
             }
         }
 
         {
             self.lighting_service
-                .write()
-                .unwrap()
+                .borrow_mut()
                 .update(self.scenes.lighting());
         }
 
         if self.companion_update == 0 {
             profile_scope!("Companion update");
-            let server = self.companion_server.read().unwrap();
+            let server = self.companion_server.borrow();
 
             if server.active.load(std::sync::atomic::Ordering::Relaxed) {
                 let state = self
@@ -301,7 +300,7 @@ impl GameMain {
 
         knob_state.zero_deltas();
 
-        for lua in lua_arena.read().expect("Lock error").0.iter() {
+        for lua in lua_arena.borrow().0.iter() {
             lua.set_app_data(frame_input.clone());
         }
         let _lua_frame_input = frame_input.clone();
@@ -309,8 +308,8 @@ impl GameMain {
 
         if frame_input.first_frame {
             frame_input.screen().clear(td::ClearState::default());
-            let vgfx = vgfx.write().expect("Lock error");
-            let mut canvas = vgfx.canvas.lock().expect("Lock error");
+            let vgfx = vgfx.borrow_mut();
+            let mut canvas = vgfx.canvas.borrow_mut();
             canvas.reset();
             canvas.set_size(frame_input.viewport.width, frame_input.viewport.height, 1.0);
             _ = canvas.fill_text(
@@ -342,7 +341,7 @@ impl GameMain {
                 ControlMessage::SongSelect(song_provider_selection) => {
                     scenes.suspend_top();
 
-                    if let Ok(_arena) = lua_arena.read() {
+                    if let Ok(_arena) = lua_arena.try_borrow() {
                         let transition_lua = transition_lua.clone();
                         scenes.transition = Transition::new(
                             transition_lua,
@@ -358,7 +357,7 @@ impl GameMain {
                     MainMenuButton::Start => {
                         scenes.suspend_top();
 
-                        if let Ok(_arena) = lua_arena.read() {
+                        if let Ok(_arena) = lua_arena.try_borrow() {
                             let transition_lua = transition_lua.clone();
                             scenes.transition = Transition::new(
                                 transition_lua,
@@ -398,7 +397,7 @@ impl GameMain {
                     song,
                     autoplay,
                 } => {
-                    if let Ok(_arena) = lua_arena.read() {
+                    if let Ok(_arena) = lua_arena.try_borrow() {
                         let transition_lua = transition_song_lua.clone();
                         scenes.transition = Transition::new(
                             transition_lua,
@@ -428,7 +427,7 @@ impl GameMain {
                     manual_exit,
                     hash,
                 } => {
-                    if let Ok(_arena) = lua_arena.read() {
+                    if let Ok(_arena) = lua_arena.try_borrow() {
                         let transition_lua = transition_lua.clone();
                         scenes.transition = Transition::new(
                             transition_lua,
@@ -492,7 +491,7 @@ impl GameMain {
 
                     let sink = service_provider.get_required::<InnerRuscMixer>();
 
-                    lighting_service.write().unwrap().restart();
+                    lighting_service.borrow_mut().restart();
                     settings.save();
                 }
                 ControlMessage::ReloadScripts => {
@@ -539,7 +538,7 @@ impl GameMain {
         });
         gui.paint(window);
 
-        Self::run_lua_gc(lua_arena, &mut vgfx.write().expect("Lock error"));
+        Self::run_lua_gc(lua_arena, &mut vgfx.borrow_mut());
 
         let exit = scenes.is_empty();
         if exit {
@@ -842,7 +841,7 @@ impl GameMain {
 
     fn run_lua_gc(lua_arena: &mut RefMut<LuaArena>, vgfx: &mut Vgfx) {
         profile_scope!("Garbage collect");
-        lua_arena.write().expect("Lock error").0.retain(|lua| {
+        lua_arena.borrow_mut().0.retain(|lua| {
             //lua.gc_collect();
             if Rc::strong_count(lua) > 1 {
                 LuaHttp::poll(lua);
@@ -855,7 +854,7 @@ impl GameMain {
         });
     }
 
-    fn debug_ui(gui_context: &egui::Context, scenes: &mut Scenes, vgfx: &Arc<RwLock<Vgfx>>) {
+    fn debug_ui(gui_context: &egui::Context, scenes: &mut Scenes, vgfx: &di::RefMut<Vgfx>) {
         profile_function!();
         if let Some(s) = scenes.active.last_mut() {
             crate::log_result!(s.debug_ui(gui_context));
@@ -893,7 +892,7 @@ impl GameMain {
             }
 
             if ui.button("Take screenshot").clicked() {
-                match help::take_screenshot(&vgfx.read().unwrap(), None) {
+                match help::take_screenshot(&vgfx.borrow(), None) {
                     Ok(p) => {
                         log::info!("Saved screenshot to: {p:?}")
                     }
@@ -906,16 +905,16 @@ impl GameMain {
     }
 
     fn render_overlays(
-        vgfx: &Arc<RwLock<Vgfx>>,
+        vgfx: &di::RefMut<Vgfx>,
         frame_input: &crate::FrameInput,
         fps: f64,
         fps_paint: &vg::Paint,
         show_fps: bool,
     ) {
         profile_function!();
-        let vgfx_lock = vgfx.write();
+        let vgfx_lock = vgfx.try_borrow_mut();
         if let Ok(vgfx) = vgfx_lock {
-            let mut canvas_lock = vgfx.canvas.try_lock();
+            let mut canvas_lock = vgfx.canvas.try_borrow_mut();
             if let Ok(ref mut canvas) = canvas_lock {
                 canvas.reset();
                 if show_fps {
@@ -936,7 +935,7 @@ impl GameMain {
     }
 
     fn update_game_data_and_clear(
-        game_data: &Arc<RwLock<GameData>>,
+        game_data: &di::RefMut<GameData>,
         mousex: f64,
         mousey: f64,
         frame_input: &crate::FrameInput,
@@ -945,7 +944,7 @@ impl GameMain {
     ) {
         profile_function!();
         {
-            let lock = game_data.write();
+            let lock = game_data.try_borrow_mut();
             if let Ok(mut game_data) = lock {
                 *game_data = GameData {
                     mouse_pos: if mouse_knobs {
@@ -972,9 +971,9 @@ impl GameMain {
     }
 
     fn reset_viewport_size(&self, size: &PhysicalSize<u32>) {
-        let vgfx_lock = self.vgfx.write();
+        let vgfx_lock = self.vgfx.try_borrow_mut();
         if let Ok(vgfx) = vgfx_lock {
-            let mut canvas_lock = vgfx.canvas.try_lock();
+            let mut canvas_lock = vgfx.canvas.try_borrow_mut();
             if let Ok(ref mut canvas) = canvas_lock {
                 canvas.reset();
                 canvas.set_size(size.width, size.height, 1.0);

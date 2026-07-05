@@ -185,7 +185,7 @@ impl UserData for GameBackgroundLua {
 
 impl Drop for GameBackground {
     fn drop(&mut self) {
-        if let Ok(mut vgfx) = self.vgfx.write() {
+        if let Ok(mut vgfx) = self.vgfx.try_borrow_mut() {
             vgfx.drop_assets(lua_address(&self.lua));
         }
     }
@@ -220,7 +220,7 @@ impl GameBackground {
         lua.globals().set(full_name, GameBackgroundLua)?;
 
         {
-            vgfx.write()
+            vgfx.try_borrow_mut()
                 .expect("Lock error")
                 .init_asset_scope(lua_address(&lua))
         }

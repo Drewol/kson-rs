@@ -517,6 +517,12 @@ impl GameConfig {
         migrations::migrate_config();
     }
 
+    pub fn save_async() {
+        tokio::task::spawn(async {
+            GameConfig::get().save();
+        });
+    }
+
     pub fn save(&self) {
         info!("Saving config: {:?}", &self.config_file);
 

@@ -1,9 +1,8 @@
-use crate::{config::GameConfig, game::HitWindow};
+use crate::{config::GameConfig, game::HitWindow, util::TokioTaskExt};
 use log::warn;
 use luals_gen::ToLuaLsType;
 use mlua::{Function, Lua, LuaSerdeExt, RegistryKey, Value};
 use mlua_bridge::mlua_bridge;
-use poll_promise::Promise;
 use reqwest::{
     header::{HeaderMap, HeaderValue},
     Method, RequestBuilder,
@@ -76,7 +75,10 @@ pub struct IrServerResponse {
 }
 
 pub struct InternetRanking {
-    requests: Vec<(RegistryKey, Promise<anyhow::Result<IrServerResponse>>)>,
+    requests: Vec<(
+        RegistryKey,
+        tokio::task::JoinHandle<anyhow::Result<IrServerResponse>>,
+    )>,
 }
 
 pub struct InternetRankingLua;
@@ -278,7 +280,7 @@ impl InternetRanking {
             let result = response.json().await?;
             Ok(result)
         };
-        let promise = poll_promise::Promise::spawn_async(fut);
+        let promise = tokio::spawn(fut);
         self.requests.push((key, promise));
 
         None
@@ -289,13 +291,14 @@ impl InternetRanking {
             return;
         };
         ir.requests
-            .retain_mut(|(key, promise)| match promise.poll() {
-                std::task::Poll::Ready(result) => {
+            .retain_mut(|(key, promise)| match promise.poll_mut() {
+                Some(result) => {
                     match result {
                         Ok(response) => {
                             let function = lua.registry_value::<Function>(key);
                             if let Ok(function) = function {
-                                _ = function.call::<()>(lua.to_value(response).unwrap_or_default());
+                                _ = function
+                                    .call::<()>(lua.to_value(&response).unwrap_or_default());
                             }
                         }
                         Err(e) => {
@@ -304,7 +307,7 @@ impl InternetRanking {
                     }
                     false
                 }
-                std::task::Poll::Pending => true,
+                None => true,
             });
     }
 }

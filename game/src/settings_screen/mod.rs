@@ -73,8 +73,7 @@ impl SettingsScreen {
 
         services
             .get_required_mut::<LightingService>()
-            .write()
-            .unwrap()
+            .borrow_mut()
             .stop();
 
         let mut skins_folder = crate::installer::default_game_dir();

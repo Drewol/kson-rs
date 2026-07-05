@@ -6,7 +6,7 @@ use di::{RefMut, ServiceProvider};
 use futures::executor::block_on;
 use log::warn;
 use mlua::{Function, Lua, LuaSerdeExt};
-use poll_promise::Promise;
+
 use rodio::Source;
 use serde_json::json;
 use three_d::{ColorMaterial, Gm, Mat3, Rad, Rectangle, Texture2DRef, Vec2, Zero};
@@ -18,7 +18,7 @@ use crate::{
     results::SongResultData,
     scene::{Scene, SceneData},
     songselect::{Song, SongProviderSelection, SongSelect},
-    util::{back_pixels, lua_address},
+    util::{back_pixels, lua_address, TokioTaskExt},
     ControlMessage,
 };
 
@@ -33,7 +33,7 @@ pub enum TransitionState {
 
 pub struct Transition {
     target: ControlMessage,
-    target_state: Option<Promise<anyhow::Result<Box<dyn SceneData + Send>>>>,
+    target_state: Option<tokio::task::JoinHandle<anyhow::Result<Box<dyn SceneData + Send>>>>,
     loaded_scene: Option<Box<dyn Scene>>,
     pub state: TransitionState,
     transition_lua: Rc<Lua>,
@@ -97,7 +97,7 @@ impl Transition {
         let prev_grab = screen_grab(context, viewport);
 
         if let ControlMessage::Song { song, diff, .. } = &target {
-            let mut vgfx = vgfx.write().expect("Failed to lock VG");
+            let mut vgfx = vgfx.borrow_mut();
             let diff = song
                 .difficulties
                 .read()
@@ -200,13 +200,7 @@ impl Scene for Transition {
 
     fn render_ui(&mut self, dt: f64) -> anyhow::Result<()> {
         {
-            self.vgfx
-                .read()
-                .expect("Lock error")
-                .canvas
-                .lock()
-                .expect("Lock error")
-                .reset();
+            self.vgfx.borrow().canvas.borrow_mut().reset();
         }
         //TODO: Render last frame before transition
         //TODO: Handle rendering of next scene during outro
@@ -221,22 +215,30 @@ impl Scene for Transition {
 
                     self.target_state = match target {
                         ControlMessage::SongSelect(sps) => {
-                            Some(Promise::spawn_thread("Load song select", move || {
-                                load_songs(sps)
-                            }))
+                            Some(tokio::spawn(async move { load_songs(sps) }))
                         }
                         ControlMessage::MainMenu(MainMenuButton::Start) => {
-                            Some(Promise::spawn_thread("Load song select", move || {
+                            Some(tokio::spawn(async move {
                                 load_songs(SongProviderSelection::Default)
                             }))
                         }
                         ControlMessage::MainMenu(MainMenuButton::Multiplayer) => {
                             let scope = self.service_provider.create_scope();
-                            Some(Promise::spawn_async(async move {
-                                let service: RefMut<crate::multiplayer::MultiplayerService> =
-                                    scope.get_required();
-                                block_on(service.write().unwrap().connect())?;
-                                Ok(Box::new(service) as Box<dyn SceneData + Send>)
+                            let service: RefMut<crate::multiplayer::MultiplayerService> =
+                                scope.get_required();
+                            let connected = block_on(service.borrow_mut().connect()).is_ok();
+                            Some(tokio::spawn(async move {
+                                connected
+                                    .then_some(Box::new(
+                                        |sp: ServiceProvider| -> anyhow::Result<Box<dyn Scene>> {
+                                            Ok(Box::new(crate::multiplayer::MultiplayerScreen::new(
+                                                sp,
+                                            )?)
+                                                as Box<dyn Scene>)
+                                        },
+                                    )
+                                        as Box<dyn SceneData + Send>)
+                                    .ok_or(anyhow!("Multi not connected"))
                             }))
                         }
                         ControlMessage::Song {
@@ -245,9 +247,9 @@ impl Scene for Transition {
                             loader,
                             autoplay,
                         } => {
-                            let skin_folder = self.vgfx.read().expect("Lock error").skin_folder();
-                            Some(Promise::spawn_thread("Load song", move || {
-                                let (chart, audio, chart_path) = loader()?;
+                            let skin_folder = self.vgfx.borrow().skin_folder();
+                            Some(tokio::spawn(async move {
+                                let (chart, audio, chart_path) = loader.await?;
                                 load_chart(
                                     chart,
                                     song,
@@ -271,24 +273,21 @@ impl Scene for Transition {
                             duration,
                             manual_exit,
                             hash,
-                        } => Some(Promise::spawn_thread(
-                            "Load song",
-                            move || -> anyhow::Result<Box<dyn SceneData + Send>> {
-                                Ok(Box::new(SongResultData::from_diff(
-                                    song,
-                                    diff_idx,
-                                    score,
-                                    hit_ratings,
-                                    gauge,
-                                    hit_window,
-                                    autoplay,
-                                    max_combo,
-                                    duration,
-                                    manual_exit,
-                                    hash,
-                                )?))
-                            },
-                        )),
+                        } => Some(tokio::spawn(async move {
+                            Ok(Box::new(SongResultData::from_diff(
+                                song,
+                                diff_idx,
+                                score,
+                                hit_ratings,
+                                gauge,
+                                hit_window,
+                                autoplay,
+                                max_combo,
+                                duration,
+                                manual_exit,
+                                hash,
+                            )?) as Box<dyn SceneData + Send>)
+                        })),
                         _ => None,
                     }
                 }

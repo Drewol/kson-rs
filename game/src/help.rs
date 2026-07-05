@@ -1,4 +1,5 @@
 use std::{
+    cell::RefCell,
     path::PathBuf,
     sync::{Arc, Mutex, RwLock},
     time::{Duration, SystemTime},
@@ -12,24 +13,14 @@ use itertools::Itertools;
 use rfd::AsyncFileDialog;
 use winit::event::ElementState;
 
+#[cfg(not(target_os = "android"))]
+use crate::util::TokioTaskExt;
 use crate::{
     button_codes::{UscButton, UscInputEvent},
     config::GameConfig,
     vg_ui::Vgfx,
     worker_service::WorkerService,
 };
-
-pub async fn await_task<T: Send + 'static>(mut t: poll_promise::Promise<T>) -> T {
-    loop {
-        t = match t.try_take() {
-            Ok(t) => break t,
-            Err(t) => {
-                tokio::task::yield_now().await;
-                t
-            }
-        };
-    }
-}
 
 pub fn button_click_event(b: UscButton) -> Vec<UscInputEvent> {
     vec![
@@ -52,7 +43,7 @@ pub trait ServiceHelper {
 
 impl ServiceHelper for ServiceCollection {
     fn add_worker<T: WorkerService + 'static>(&mut self) -> &mut Self {
-        self.add(transient_factory::<RwLock<dyn WorkerService>, _>(|sp| {
+        self.add(transient_factory::<RefCell<dyn WorkerService>, _>(|sp| {
             sp.get_required_mut::<T>()
         }))
     }
@@ -98,7 +89,7 @@ impl AsyncPicker {
         s: &mut S,
         ui: &mut egui::Ui,
     ) {
-        type Dialog = Arc<Mutex<poll_promise::Promise<Option<rfd::FileHandle>>>>;
+        type Dialog = Arc<Mutex<tokio::task::JoinHandle<Option<rfd::FileHandle>>>>;
         let task = ui
             .data_mut(|x| x.remove_temp::<Option<Dialog>>(id))
             .flatten();
@@ -110,15 +101,13 @@ impl AsyncPicker {
             ui.data_mut(|x| {
                 x.insert_temp::<Option<Dialog>>(
                     id,
-                    Some(Arc::new(Mutex::new(poll_promise::Promise::spawn_async(
-                        async move {
-                            if self.1 {
-                                self.0.pick_file().await
-                            } else {
-                                self.0.pick_folder().await
-                            }
-                        },
-                    )))),
+                    Some(Arc::new(Mutex::new(tokio::task::spawn(async move {
+                        if self.1 {
+                            self.0.pick_file().await
+                        } else {
+                            self.0.pick_folder().await
+                        }
+                    })))),
                 )
             })
         }
@@ -126,14 +115,14 @@ impl AsyncPicker {
         let completed = if let Some(task) = task.clone() {
             let mut task = task.lock().unwrap();
             match task.poll_mut() {
-                std::task::Poll::Ready(x) => {
+                Some(mut x) => {
                     if let Some(f) = x.take() {
                         log::info!("Picked file/folder: {:?}", f.path());
                         s.replace_with(f.path().to_str().unwrap_or(""))
                     }
                     true
                 }
-                std::task::Poll::Pending => false,
+                None => false,
             }
         } else {
             false
@@ -176,7 +165,7 @@ pub fn take_screenshot(
 ) -> anyhow::Result<PathBuf> {
     let img = vgfx
         .canvas
-        .try_lock()
+        .try_borrow_mut()
         .map_err(|_| anyhow!("Failed to lock vgfx"))?
         .screenshot()?;
 
