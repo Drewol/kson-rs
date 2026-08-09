@@ -24,6 +24,11 @@ pub struct RuscFilter {
 
 pub struct CustomBindingFilter;
 
+#[cfg(target_os = "windows")]
+const AXIS_BITS: u32 = 1 << 16;
+#[cfg(not(target_os = "windows"))]
+const AXIS_BITS: u32 = 3 << 16;
+
 impl RuscFilter {
     pub fn new(offset: i32) -> (Self, Sender<i32>) {
         let (offset_tx, offset_rx) = channel();
@@ -40,8 +45,8 @@ impl RuscFilter {
                 ]),
                 axis_map: HashMap::from([
                     //Axis to_u32 are marked with a 1 in the 2^16 bit
-                    (1 << 16, (Axis::LeftStickX, 1.0)),
-                    (1 << 16 | 1, (Axis::RightStickX, -1.0)),
+                    (AXIS_BITS, (Axis::LeftStickX, 1.0)),
+                    (AXIS_BITS | 1, (Axis::RightStickX, -1.0)),
                 ]),
                 offset: Duration::from_millis(offset.unsigned_abs() as _),
                 offset_neg: offset < 0,
