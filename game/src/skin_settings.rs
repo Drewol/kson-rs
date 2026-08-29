@@ -1,9 +1,23 @@
+use std::str::FromStr;
+
+use anyhow::Context;
 use egui::Color32;
 use mlua::{FromLua, IntoLuaMulti, MultiValue, Value};
 use serde::{de::Visitor, Deserialize, Serialize};
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, Default)]
 pub struct SettingsColor(pub Color32);
+
+impl FromStr for SettingsColor {
+    type Err = anyhow::Error;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        ColorVisitor
+            .visit_str::<serde_json::Error>(s)
+            .map(Self)
+            .context("Color parse error")
+    }
+}
 
 impl Serialize for SettingsColor {
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
@@ -15,7 +29,7 @@ impl Serialize for SettingsColor {
     }
 }
 
-struct ColorVisitor;
+pub struct ColorVisitor;
 
 impl Visitor<'_> for ColorVisitor {
     type Value = Color32;

@@ -191,6 +191,7 @@ impl Datum {
                     .collect_vec()
                     .into(),
             ),
+            ..Default::default()
         }
     }
 }

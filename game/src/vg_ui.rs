@@ -280,6 +280,10 @@ impl Vgfx {
         res.push(&self.skin);
         res
     }
+
+    pub fn clear_tint(&mut self) {
+        self.image_tint.take();
+    }
 }
 
 use mlua_bridge::mlua_bridge;
@@ -354,15 +358,15 @@ impl VgfxLua {
 
     fn fill_color(
         _vgfx: &RefMut<Vgfx>,
-        r: u8,
-        g: u8,
-        b: u8,
-        a: Option<u8>,
+        r: i32,
+        g: i32,
+        b: i32,
+        a: Option<i32>,
     ) -> Result<(), mlua::Error> {
         let mut _vgfx_lock = _vgfx.write().expect("Lock error");
         let _vgfx = _vgfx_lock.deref_mut();
 
-        let color = Color::rgba(r, g, b, a.unwrap_or(255));
+        let color = Color::rgba(r as _, g as _, b as _, a.map_or(255, |x| x as u8));
         _vgfx.label_color = color;
         if let Some(paint) = _vgfx.fill_paint.as_mut() {
             paint.set_color(color);
@@ -937,17 +941,20 @@ impl VgfxLua {
     fn stroke_color(
         _lua_index: &LuaKey,
         _vgfx: &RefMut<Vgfx>,
-        r: u8,
-        g: u8,
-        b: u8,
-        a: Option<u8>,
+        r: i32,
+        g: i32,
+        b: i32,
+        a: Option<i32>,
     ) -> mlua::Result<()> {
         let mut _vgfx_lock = _vgfx.write().expect("Lock error");
         let _vgfx = _vgfx_lock.deref_mut();
 
-        _vgfx
-            .stroke_paint
-            .set_color(Color::rgba(r, g, b, a.unwrap_or(255)));
+        _vgfx.stroke_paint.set_color(Color::rgba(
+            r as _,
+            g as _,
+            b as _,
+            a.map_or(255, |a| a as u8),
+        ));
         Ok(())
     }
 
@@ -1609,15 +1616,15 @@ impl VgfxLua {
     fn set_image_tint(
         _lua_index: &LuaKey,
         _vgfx: &RefMut<Vgfx>,
-        r: u8,
-        g: u8,
-        b: u8,
+        r: i32,
+        g: i32,
+        b: i32,
     ) -> mlua::Result<u32> {
         let mut _vgfx_lock = _vgfx.write().expect("Lock error");
         let _vgfx = _vgfx_lock.deref_mut();
 
         if let Some(_paint) = _vgfx.fill_paint.as_mut() {
-            _vgfx.image_tint = Some(Color::rgb(r, g, b));
+            _vgfx.image_tint = Some(Color::rgb(r as _, g as _, b as _));
         }
         Ok(0)
     }

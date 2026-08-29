@@ -73,6 +73,8 @@ pub struct Song {
     pub bpm: String,                                //ex. "170-200"
     pub id: SongId,                                 //unique static identifier
     pub difficulties: Arc<RwLock<Vec<Difficulty>>>, //array of all difficulties for this song
+    #[deprecated = "Only exists for compatibility with skins that have not been updated"]
+    pub path: String,
 }
 
 #[derive(Serialize)]

@@ -158,11 +158,7 @@ impl SongResultData {
         } = song.difficulties.read().expect("Lock error")[diff_idx].clone();
 
         let Song {
-            title,
-            artist,
-            bpm,
-            id: _,
-            difficulties: _,
+            title, artist, bpm, ..
         } = (*song).clone();
 
         let grade = match score {

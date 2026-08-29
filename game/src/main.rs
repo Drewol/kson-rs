@@ -501,6 +501,7 @@ impl UscApp {
                     }]
                     .into(),
                 ),
+                ..Default::default()
             };
 
             let audio = rodio::Decoder::new(std::fs::File::open(

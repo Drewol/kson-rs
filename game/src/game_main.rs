@@ -336,6 +336,12 @@ impl GameMain {
             *frame_count += 1;
         }
 
+        // Clear image tint, might be more things that need resetting between frames
+        {
+            let mut vgfx = vgfx.write().expect("Lock error");
+            vgfx.clear_tint();
+        }
+
         while let Ok(control_msg) = control_rx.try_recv() {
             match control_msg {
                 ControlMessage::None => {}

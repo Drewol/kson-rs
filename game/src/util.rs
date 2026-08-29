@@ -14,6 +14,7 @@ use winit::{
 };
 pub mod beat_pulser;
 pub mod laser_navigation;
+pub mod legacy_skin_config;
 
 use crate::button_codes::UscInputEvent;
 

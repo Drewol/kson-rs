@@ -13,6 +13,7 @@ use winit::dpi::{PhysicalPosition, PhysicalSize};
 use winit::keyboard::PhysicalKey;
 
 use crate::lighting::{self, LightingMap};
+use crate::util::legacy_skin_config::convert_legacy_config;
 use crate::{
     button_codes::{CustomBindings, UscButton},
     game::{self, HitWindow},
@@ -410,8 +411,9 @@ impl GameConfig {
             .skin_config_path()
             .with_file_name("config-definitions.json");
 
-        let file = File::open(definition_path)?;
-        let definitions: Vec<SkinSettingEntry> = serde_json::from_reader(file)?;
+        let file = File::open(&definition_path)?;
+        let definitions: Vec<SkinSettingEntry> = serde_json::from_reader(file)
+            .or_else(|_| convert_legacy_config(File::open(&definition_path)?))?;
 
         for def in &definitions {
             let entry = match def {
