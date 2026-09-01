@@ -201,7 +201,7 @@ impl EffectEditor for kson::effects::AudioEffect {
                 ui.add(param_editor(mix, false));
                 ui.end_row();
             }
-            kson::effects::AudioEffect::TapeStop(kson::effects::TapeStop {
+            kson::effects::AudioEffect::Tapestop(kson::effects::TapeStop {
                 speed,
                 trigger,
                 mix,

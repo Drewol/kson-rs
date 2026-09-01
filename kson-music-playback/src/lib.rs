@@ -336,7 +336,7 @@ impl AudioPlayback {
                                         w.lo_freq.interpolate(1.0, true) as _,
                                         w.hi_freq.interpolate(1.0, true) as _,
                                     )),
-                                    kson::effects::AudioEffect::TapeStop(_t) => {
+                                    kson::effects::AudioEffect::Tapestop(_t) => {
                                         Box::new(tape_stop(base, start, duration))
                                     }
                                     kson::effects::AudioEffect::Echo(r) => {

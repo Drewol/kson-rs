@@ -1134,7 +1134,7 @@ fn convert_params(effect: &AudioEffect, params: &mut Dict<String>) {
             AudioEffect::PitchShift(_) => "12",
             AudioEffect::BitCrusher(_) => "5",
             AudioEffect::Wobble(_) => "12",
-            AudioEffect::TapeStop(_) => "50",
+            AudioEffect::Tapestop(_) => "50",
             AudioEffect::Echo(_) => "4",
             _ => "",
         }
@@ -1160,7 +1160,7 @@ fn convert_params(effect: &AudioEffect, params: &mut Dict<String>) {
         AudioEffect::BitCrusher(_) => {
             params.insert("reduction".to_string(), format!("{p1}samples"));
         }
-        AudioEffect::TapeStop(_) => {
+        AudioEffect::Tapestop(_) => {
             params.insert("speed".to_string(), format!("{p1}%"));
         }
         AudioEffect::Echo(_) => {
