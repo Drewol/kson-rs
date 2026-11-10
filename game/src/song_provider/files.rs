@@ -585,20 +585,37 @@ impl SongProvider for FileSongProvider {
 
         Ok(Box::new(move || {
             let data = std::fs::read(&path)?;
-            let data = encoding::decode(
-                &data,
-                encoding::DecoderTrap::Strict,
-                encoding::all::WINDOWS_31J,
-            )
-            .0
-            .map_err(|_| anyhow!("Bad encodiing"))?;
 
-            let mut chart = kson::Chart::from_ksh(&data)?;
+            let mut chart = if path
+                .extension()
+                .context("File extension missing")?
+                .to_string_lossy()
+                .to_lowercase()
+                == "kson"
+            {
+                serde_json::from_slice(&data)?
+            } else {
+                let data = encoding::decode(
+                    &data,
+                    encoding::DecoderTrap::Strict,
+                    encoding::all::WINDOWS_31J,
+                )
+                .0
+                .map_err(|_| anyhow!("Bad encoding"))?;
+
+                kson::Chart::from_ksh(&data)?
+            };
             chart.file_hash = hash;
+            info!(
+                "Parsed chart {} from {:?} with hash {}",
+                chart.meta.title, path, chart.file_hash
+            );
 
-            let audio = rodio::decoder::Decoder::new(std::fs::File::open(
-                path.with_file_name(&chart.audio.bgm.filename),
-            )?)?
+            let audio = rodio::decoder::Decoder::new(
+                std::fs::File::open(path.with_file_name(&chart.audio.bgm.filename)).with_context(
+                    || format!("Failed to open file: {}", chart.audio.bgm.filename.clone()),
+                )?,
+            )?
             .consume_one()?;
 
             Ok((
