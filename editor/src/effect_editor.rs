@@ -135,11 +135,12 @@ impl EffectEditor for kson::effects::AudioEffect {
             kson::effects::AudioEffect::Phaser(kson::effects::Phaser {
                 period,
                 stage,
-                lo_freq,
-                hi_freq,
+                freq_1,
+                freq_2,
                 q,
                 feedback,
                 stereo_width,
+                hi_cut_gain,
                 mix,
             }) => {
                 ui.label("period");
@@ -150,12 +151,12 @@ impl EffectEditor for kson::effects::AudioEffect {
                 ui.add(param_editor(stage, false));
                 ui.end_row();
 
-                ui.label("lo_freq");
-                ui.add(param_editor(lo_freq, false));
+                ui.label("freq_1");
+                ui.add(param_editor(freq_1, false));
                 ui.end_row();
 
-                ui.label("hi_freq");
-                ui.add(param_editor(hi_freq, false));
+                ui.label("freq_2");
+                ui.add(param_editor(freq_2, false));
                 ui.end_row();
 
                 ui.label("q");
@@ -170,14 +171,18 @@ impl EffectEditor for kson::effects::AudioEffect {
                 ui.add(param_editor(stereo_width, false));
                 ui.end_row();
 
+                ui.label("hi_cut_gain");
+                ui.add(param_editor(hi_cut_gain, false));
+                ui.end_row();
+
                 ui.label("Mix");
                 ui.add(param_editor(mix, false));
                 ui.end_row();
             }
             kson::effects::AudioEffect::Wobble(kson::effects::Wobble {
                 wave_length,
-                lo_freq,
-                hi_freq,
+                freq_1,
+                freq_2,
                 q,
                 mix,
             }) => {
@@ -185,12 +190,12 @@ impl EffectEditor for kson::effects::AudioEffect {
                 ui.add(param_editor(wave_length, false));
                 ui.end_row();
 
-                ui.label("lo_freq");
-                ui.add(param_editor(lo_freq, false));
+                ui.label("freq_1");
+                ui.add(param_editor(freq_1, false));
                 ui.end_row();
 
-                ui.label("hi_freq");
-                ui.add(param_editor(hi_freq, false));
+                ui.label("freq_2");
+                ui.add(param_editor(freq_2, false));
                 ui.end_row();
 
                 ui.label("q");

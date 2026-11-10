@@ -73,6 +73,7 @@ pub enum EffectParameterValue {
     Pitch(RangeInclusive<f32>),
     Int(RangeInclusive<i32>),
     Float(RangeInclusive<f32>),
+    Decibel(RangeInclusive<f32>),
     Filename(String),
     #[default]
     Undefined,
@@ -115,6 +116,7 @@ impl EffectParameterValue {
             }
             EffectParameterValue::Switch(_) => Duration::ZERO,
             EffectParameterValue::Pitch(_) => Duration::ZERO,
+            EffectParameterValue::Decibel(_) => Duration::ZERO,
             EffectParameterValue::Filename(_) => Duration::ZERO,
             EffectParameterValue::Undefined => Duration::ZERO,
         }
@@ -166,7 +168,8 @@ impl EffectParam for EffectParameterValue {
                 .unwrap_or(0.0),
             EffectParameterValue::Rate(r)
             | EffectParameterValue::Pitch(r)
-            | EffectParameterValue::Float(r) => r.interpolate(v, shape),
+            | EffectParameterValue::Float(r)
+            | EffectParameterValue::Decibel(r) => r.interpolate(v, shape),
             EffectParameterValue::Freq(f) => f.interpolate(v, shape),
             EffectParameterValue::Sample(i) | EffectParameterValue::Int(i) => {
                 i.interpolate(v, shape)
@@ -192,20 +195,15 @@ impl<T: Any> Serialize for EffectParameter<T> {
     where
         S: serde::Serializer,
     {
-        if let Some(on) = &self.on {
-            serializer.collect_str(&format_args!("{}>{}", self.off, on))
-        } else {
-            serializer.collect_str(&self.off)
-        }
+        serializer.collect_str(self)
     }
 }
 
 impl<T: Any> Display for EffectParameter<T> {
     fn fmt(&self, formatter: &mut std::fmt::Formatter) -> std::fmt::Result {
-        if let Some(on) = &self.on {
-            formatter.write_fmt(format_args!("{}>{}", self.off, on))
-        } else {
-            formatter.write_fmt(format_args!("{}", &self.off))
+        match &self.on {
+            Some(on) => formatter.write_fmt(format_args!("{}>{}", self.off, on)),
+            None => formatter.write_fmt(format_args!("{}", &self.off)),
         }
     }
 }
@@ -241,22 +239,63 @@ impl<'de, T: Default> Deserialize<'de> for EffectParameter<T> {
 impl<T: Default> FromStr for EffectParameter<T> {
     type Err = &'static str;
 
+    /// Parses one of the spec formats: `Off`, `Off>OnMin`, `OnMin-OnMax` or `Off>OnMin-OnMax`.
     fn from_str(s: &str) -> Result<Self, Self::Err> {
-        let (a, b) = {
-            let mut split = s.split('>');
-            if let Some(a) = split.next() {
-                Ok((a.to_string(), split.next().map(str::to_string)))
-            } else {
-                Err("Missing value")
+        let (off, on) = match s.split_once('>') {
+            Some((off, on)) => {
+                let off: EffectParameterValue = off.parse()?;
+                (off, EffectParameterValue::from_str(on).ok())
             }
-        }?;
-        let off: EffectParameterValue = a.parse()?;
+            None => {
+                let value: EffectParameterValue = s.parse()?;
+                match value.range_start() {
+                    // `OnMin-OnMax`: Off inherits the OnMin value
+                    Some(on_min) if value.is_range() => (on_min, Some(value)),
+                    _ => (value, None),
+                }
+            }
+        };
 
         Ok(Self {
             v: T::default(),
-            on: b.and_then(|o| EffectParameterValue::from_str(&o).ok()),
+            on,
             shape: off.default_shape(),
             off,
+        })
+    }
+}
+
+impl EffectParameterValue {
+    fn is_range(&self) -> bool {
+        fn r<T: PartialEq>(r: &RangeInclusive<T>) -> bool {
+            r.start() != r.end()
+        }
+        match self {
+            EffectParameterValue::Length(l, _) => r(l),
+            EffectParameterValue::Sample(l) | EffectParameterValue::Int(l) => r(l),
+            EffectParameterValue::Switch(l) => r(l),
+            EffectParameterValue::Rate(l)
+            | EffectParameterValue::Pitch(l)
+            | EffectParameterValue::Float(l)
+            | EffectParameterValue::Decibel(l) => r(l),
+            EffectParameterValue::Freq(l) => r(l),
+            EffectParameterValue::Filename(_) | EffectParameterValue::Undefined => false,
+        }
+    }
+
+    /// Returns a single (non-range) value equal to the start of this value's range
+    fn range_start(&self) -> Option<Self> {
+        Some(match self {
+            EffectParameterValue::Length(l, t) => EffectParameterValue::Length(*l.start()..=*l.start(), *t),
+            EffectParameterValue::Sample(l) => EffectParameterValue::Sample(*l.start()..=*l.start()),
+            EffectParameterValue::Int(l) => EffectParameterValue::Int(*l.start()..=*l.start()),
+            EffectParameterValue::Switch(l) => EffectParameterValue::Switch(*l.start()..=*l.start()),
+            EffectParameterValue::Rate(l) => EffectParameterValue::Rate(*l.start()..=*l.start()),
+            EffectParameterValue::Pitch(l) => EffectParameterValue::Pitch(*l.start()..=*l.start()),
+            EffectParameterValue::Float(l) => EffectParameterValue::Float(*l.start()..=*l.start()),
+            EffectParameterValue::Decibel(l) => EffectParameterValue::Decibel(*l.start()..=*l.start()),
+            EffectParameterValue::Freq(l) => EffectParameterValue::Freq(*l.start()..=*l.start()),
+            EffectParameterValue::Filename(_) | EffectParameterValue::Undefined => return None,
         })
     }
 }
@@ -283,13 +322,15 @@ impl Display for EffectParameterValue {
                 }
             }),
             EffectParameterValue::Rate(r) => serialize_range(r, |v| {
-                //TODO: Cleaner
-                format!("{:.1}", (v * 100.0))
-                    .trim_end_matches('0')
-                    .trim_end_matches('.')
-                    .to_string()
-                    + "%"
+                // The spec only allows `[int]%`; use the `[float]` form otherwise
+                let percent = v * 100.0;
+                if (percent - percent.round()).abs() < 1e-3 {
+                    format!("{}%", percent.round() as i32)
+                } else {
+                    v.to_string()
+                }
             }),
+            EffectParameterValue::Decibel(r) => serialize_range(r, |v| format!("{v}dB")),
             EffectParameterValue::Pitch(r) | EffectParameterValue::Float(r) => {
                 serialize_range(r, |v| v.to_string())
             }
@@ -359,6 +400,12 @@ impl FromStr for EffectParameterValue {
                 }
             }
 
+            if v.ends_with("dB") {
+                if let Ok(r) = v.trim_end_matches("dB").parse::<f32>() {
+                    return EffectParameterValue::Decibel(r..=r);
+                }
+            }
+
             if v.ends_with('%') {
                 if let Ok(r) = v.trim_end_matches('%').parse::<f32>() {
                     let r = r / 100.0;
@@ -410,9 +457,15 @@ impl FromStr for EffectParameterValue {
             }
         };
 
-        if v.contains('-') {
-            // Range
-            if let Some((a, b)) = v.split_once('-') {
+        // Range separator: the first '-' that is not a leading minus sign
+        let separator = v
+            .char_indices()
+            .skip(1)
+            .find(|(_, c)| *c == '-')
+            .map(|(i, _)| i);
+        if let Some(i) = separator {
+            {
+                let (a, b) = (&v[..i], &v[i + 1..]);
                 let parsed = match (parse_part(a), parse_part(b)) {
                     (EffectParameterValue::Length(a, ab), EffectParameterValue::Length(b, bb)) => {
                         EffectParameterValue::Length(*a.start()..=*b.end(), ab || bb)
@@ -438,6 +491,9 @@ impl FromStr for EffectParameterValue {
                     }
                     (EffectParameterValue::Float(a), EffectParameterValue::Float(b)) => {
                         EffectParameterValue::Float(*a.start()..=*b.end())
+                    }
+                    (EffectParameterValue::Decibel(a), EffectParameterValue::Decibel(b)) => {
+                        EffectParameterValue::Decibel(*a.start()..=*b.end())
                     }
                     _ => EffectParameterValue::Filename(v.to_string()),
                 };

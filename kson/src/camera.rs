@@ -32,8 +32,8 @@ impl ResolvedTiltValue {
         match self {
             ResolvedTiltValue::Named(v) => match v {
                 NamedTiltValue::Normal | NamedTiltValue::KeepNormal => 1.0,
-                NamedTiltValue::Bigger | NamedTiltValue::KeepBigger => 1.5,
-                NamedTiltValue::Biggest | NamedTiltValue::KeepBiggest => 2.0,
+                NamedTiltValue::Bigger | NamedTiltValue::KeepBigger => 1.75,
+                NamedTiltValue::Biggest | NamedTiltValue::KeepBiggest => 2.5,
                 NamedTiltValue::Zero => 0.0,
             },
             ResolvedTiltValue::Manual(_) => 1.0,
@@ -242,6 +242,7 @@ pub struct CamPatternInvokeSwing(
 );
 
 #[derive(Debug, Serialize, Deserialize, Copy, Clone, PartialEq)]
+#[serde(default)]
 pub struct CamPatternInvokeSwingValue {
     pub scale: f32,  // scale
     pub repeat: u32, // number of repetitions
@@ -254,9 +255,9 @@ pub struct CamPatternInvokeSwingValue {
 impl Default for CamPatternInvokeSwingValue {
     fn default() -> Self {
         Self {
-            scale: 1.0,
-            repeat: 1,
-            decay_order: 0,
+            scale: 250.0,
+            repeat: 3,
+            decay_order: 2,
         }
     }
 }
@@ -266,13 +267,15 @@ type GraphVec = Vec<GraphPoint>;
 #[derive(Serialize, Deserialize, Clone, Default)]
 #[serde(default)]
 pub struct CamGraphs {
-    pub zoom_bottom: GraphVec,
-    pub zoom_size: GraphVec,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
     pub zoom_top: GraphVec,
-    pub rotation_z: GraphVec,
-    #[serde(rename = "rotation_z.highway")]
-    pub rotation_z_highway: GraphVec,
-    #[serde(rename = "rotation_z.jdgline")]
-    pub rotation_z_jdgline: GraphVec,
-    pub split: GraphVec,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub zoom_bottom: GraphVec,
+    #[serde(skip_serializing_if = "Vec::is_empty", alias = "zoom_size")]
+    pub zoom_side: GraphVec,
+    /// Rotation degree (affects both highway & judgment line)
+    #[serde(skip_serializing_if = "Vec::is_empty", alias = "rotation_z")]
+    pub rotation_deg: GraphVec,
+    #[serde(skip_serializing_if = "Vec::is_empty", alias = "split")]
+    pub center_split: GraphVec,
 }

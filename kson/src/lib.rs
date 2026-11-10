@@ -28,7 +28,7 @@ use std::slice::Windows;
 use std::str;
 pub use vox::*;
 
-type Dict<T> = HashMap<String, T>;
+pub type Dict<T> = HashMap<String, T>;
 
 #[inline]
 pub fn beat_in_ms(bpm: f64) -> f64 {
@@ -463,10 +463,17 @@ fn default_one<T: From<u8>>() -> T {
 }
 
 #[derive(Serialize, Deserialize, Clone)]
+#[serde(default)]
 pub struct NoteInfo {
     pub bt: [Vec<Interval>; 4],
     pub fx: [Vec<Interval>; 2],
     pub laser: [Vec<LaserSection>; 2],
+}
+
+impl Default for NoteInfo {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl NoteInfo {
@@ -491,14 +498,20 @@ pub struct DifficultyInfo {
 pub struct MetaInfo {
     pub title: String,
     #[serde(skip_serializing_if = "Option::is_none")]
+    pub title_translit: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub title_img_filename: Option<String>,
+    /// Not part of the kson spec
     #[serde(skip_serializing_if = "Option::is_none")]
     pub subtitle: Option<String>,
     pub artist: String,
-    pub gauge: Option<GaugeInfo>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub artist_translit: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub artist_img_filename: Option<String>,
     pub chart_author: String,
+    /// Difficulty index 0-3. A difficulty name (string) in kson falls back to index 3.
+    #[serde(deserialize_with = "deserialize_difficulty")]
     pub difficulty: u8,
     pub level: u8,
     pub disp_bpm: String,
@@ -507,11 +520,32 @@ pub struct MetaInfo {
     pub jacket_filename: String,
     pub jacket_author: String,
     #[serde(skip_serializing_if = "Option::is_none")]
+    pub icon_filename: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub information: Option<String>,
 }
 
-#[derive(Serialize, Deserialize, Clone)]
+fn deserialize_difficulty<'de, D>(deserializer: D) -> Result<u8, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    #[derive(Deserialize)]
+    #[serde(untagged)]
+    enum Difficulty {
+        Index(u8),
+        Name(#[allow(dead_code)] String),
+    }
+
+    Ok(match Difficulty::deserialize(deserializer)? {
+        Difficulty::Index(i) => i,
+        Difficulty::Name(_) => 3,
+    })
+}
+
+#[derive(Serialize, Deserialize, Clone, Default)]
+#[serde(default)]
 pub struct GaugeInfo {
+    /// 0 means automatically set
     pub total: u32,
 }
 
@@ -519,10 +553,11 @@ impl MetaInfo {
     fn new() -> MetaInfo {
         MetaInfo {
             title: String::new(),
+            title_translit: None,
             title_img_filename: None,
             subtitle: None,
-            gauge: None,
             artist: String::new(),
+            artist_translit: None,
             artist_img_filename: None,
             chart_author: String::new(),
             difficulty: 0,
@@ -531,6 +566,7 @@ impl MetaInfo {
             std_bpm: None,
             jacket_filename: String::new(),
             jacket_author: String::new(),
+            icon_filename: None,
             information: None,
         }
     }
@@ -738,6 +774,9 @@ pub struct BeatInfo {
     pub bpm: ByPulse<f64>,
     pub time_sig: ByMeasureIdx<TimeSignature>,
     pub scroll_speed: Vec<GraphPoint>,
+    /// (y, duration)
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub stop: ByPulse<u32>,
 }
 
 impl Default for BeatInfo {
@@ -749,6 +788,7 @@ impl Default for BeatInfo {
                 v: 1.0,
                 ..Default::default()
             }],
+            stop: Vec::new(),
         }
     }
 }
@@ -761,11 +801,12 @@ impl BeatInfo {
             bpm: Vec::new(),
             time_sig: Vec::new(),
             scroll_speed: Vec::new(),
+            stop: Vec::new(),
         }
     }
 }
 
-#[derive(Serialize, Deserialize, Clone, Default)]
+#[derive(Serialize, Deserialize, Clone)]
 #[serde(default)]
 pub struct BgmInfo {
     #[serde(default, skip_serializing_if = "String::is_empty")]
@@ -775,22 +816,50 @@ pub struct BgmInfo {
     #[serde(default = "default_zero::<i32>")]
     pub offset: i32,
     pub preview: PreviewInfo,
+    #[serde(skip_serializing_if = "LegacyBgmInfo::is_empty")]
     pub legacy: LegacyBgmInfo,
 }
 
+impl LegacyBgmInfo {
+    fn is_empty(&self) -> bool {
+        self.fp_filenames.is_empty()
+    }
+}
+
 #[derive(Serialize, Deserialize, Clone, Default)]
+#[serde(default)]
 pub struct LegacyBgmInfo {
     pub fp_filenames: Vec<String>,
 }
 
-#[derive(Serialize, Deserialize, Clone, Default)]
+#[derive(Serialize, Deserialize, Clone)]
 pub struct PreviewInfo {
     #[serde(default = "default_zero::<u32>")]
     pub offset: u32,
-    #[serde(default = "default_zero::<u32>")]
+    #[serde(default = "default_preview_duration")]
     pub duration: u32,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub preview_filename: Option<String>,
+}
+
+fn default_preview_duration() -> u32 {
+    15000
+}
+
+impl Default for PreviewInfo {
+    fn default() -> Self {
+        Self {
+            offset: 0,
+            duration: default_preview_duration(),
+            preview_filename: None,
+        }
+    }
+}
+
+impl Default for BgmInfo {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl BgmInfo {
@@ -812,17 +881,42 @@ pub struct KeySoundInfo {
     pub laser: KeySoundLaserInfo,
 }
 
-#[derive(Serialize, Deserialize, Clone, Default, PartialEq)]
+#[derive(Serialize, Deserialize, Clone, PartialEq)]
+#[serde(default)]
 pub struct KeySoundLaserInfo {
     pub vol: ByPulse<f64>,
+    /// Key sound name -> laser slam pulses
+    #[serde(skip_serializing_if = "HashMap::is_empty")]
+    pub slam_event: Dict<Vec<u32>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub legacy: Option<KeySoundLaserLegacyInfo>,
+}
+
+impl Default for KeySoundLaserInfo {
+    fn default() -> Self {
+        Self {
+            vol: vec![(0, 0.5)],
+            slam_event: Default::default(),
+            legacy: None,
+        }
+    }
 }
 
 #[derive(Serialize, Deserialize, Clone, Default, PartialEq)]
+#[serde(default)]
+pub struct KeySoundLaserLegacyInfo {
+    /// "chokkakuautovol" in KSH
+    pub vol_auto: bool,
+}
+
+#[derive(Serialize, Deserialize, Clone, Default, PartialEq)]
+#[serde(default)]
 pub struct KeySoundFXInfo {
     pub chip_event: HashMap<String, [Vec<ByPulseOption<KeySoundInvokeFX>>; 2]>,
 }
 
 #[derive(Serialize, Deserialize, Copy, Clone, PartialEq)]
+#[serde(default)]
 pub struct KeySoundInvokeFX {
     pub vol: f64,
 }
@@ -835,7 +929,7 @@ impl Default for KeySoundInvokeFX {
 
 type NoteParamChange = ByPulseOption<Dict<String>>;
 
-type DefKeyValuePair<T> = (String, T);
+pub type DefKeyValuePair<T> = (String, T);
 
 pub trait DefKeyValuePairExt<T> {
     fn get_by_key(&self, key: impl AsRef<str>) -> Option<&T>;
@@ -894,9 +988,27 @@ pub struct AudioEffectLaserInfo {
     pub pulse_event: Dict<Vec<u32>>,
     #[serde(default = "default_zero::<i32>")]
     pub peaking_filter_delay: i32,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub legacy: Option<AudioEffectLaserLegacyInfo>,
+}
+
+#[derive(Serialize, Deserialize, Clone, PartialEq)]
+#[serde(default)]
+pub struct AudioEffectLaserLegacyInfo {
+    /// "pfiltergain" in KSH (0.0-1.0)
+    pub filter_gain: ByPulse<f64>,
+}
+
+impl Default for AudioEffectLaserLegacyInfo {
+    fn default() -> Self {
+        Self {
+            filter_gain: vec![(0, 0.5)],
+        }
+    }
 }
 
 #[derive(Serialize, Deserialize, Clone, Default, PartialEq)]
+#[serde(default)]
 pub struct AudioEffectInfo {
     pub fx: AudioEffectFXInfo,
     pub laser: AudioEffectLaserInfo,
@@ -920,14 +1032,21 @@ impl AudioInfo {
 #[derive(Serialize, Deserialize, Clone)]
 pub struct Chart {
     pub meta: MetaInfo,
+    #[serde(default)]
     pub note: NoteInfo,
     pub beat: BeatInfo,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub gauge: Option<GaugeInfo>,
+    #[serde(default)]
     pub audio: AudioInfo,
     #[serde(default)]
     pub camera: camera::CameraInfo,
     pub format_version: u32,
+    #[serde(default)]
     pub bg: BgInfo,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub editor: Option<EditorInfo>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub compat: Option<CompatInfo>,
     #[serde(skip)]
     pub file_hash: String,
@@ -936,23 +1055,70 @@ pub struct Chart {
 #[derive(Serialize, Deserialize, Clone, Default)]
 #[serde(default)]
 pub struct EditorInfo {
+    #[serde(skip_serializing_if = "String::is_empty")]
     pub app_name: String,
+    #[serde(skip_serializing_if = "String::is_empty")]
     pub app_version: String,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
     pub comment: ByPulse<String>,
 }
 
 #[derive(Serialize, Deserialize, Clone, Default)]
 #[serde(default)]
 pub struct CompatInfo {
+    #[serde(skip_serializing_if = "String::is_empty")]
     pub ksh_version: String,
+    #[serde(skip_serializing_if = "KshUnknownInfo::is_empty")]
+    pub ksh_unknown: KshUnknownInfo,
+}
+
+impl CompatInfo {
+    /// Whether the chart was converted from a KSH file with "ver" earlier than "200"
+    pub fn is_legacy_ksh(&self) -> bool {
+        !self.ksh_version.is_empty() && ksh_version_number(&self.ksh_version) < 200
+    }
+}
+
+/// Numeric part of a KSH "ver" value (e.g. "120b" -> 120)
+pub(crate) fn ksh_version_number(ver: &str) -> u32 {
+    ver.chars()
+        .take_while(|c| c.is_ascii_digit())
+        .collect::<String>()
+        .parse()
+        .unwrap_or(100)
+}
+
+/// Unrecognized data in ksh-to-kson conversion
+#[derive(Serialize, Deserialize, Clone, Default)]
+#[serde(default)]
+pub struct KshUnknownInfo {
+    #[serde(skip_serializing_if = "HashMap::is_empty")]
+    pub meta: Dict<String>,
+    #[serde(skip_serializing_if = "HashMap::is_empty")]
+    pub option: Dict<ByPulse<String>>,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub line: ByPulse<String>,
+}
+
+impl KshUnknownInfo {
+    pub fn is_empty(&self) -> bool {
+        self.meta.is_empty() && self.option.is_empty() && self.line.is_empty()
+    }
 }
 
 #[derive(Serialize, Deserialize, Clone)]
 pub struct BgInfo {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub filename: Option<String>,
-    #[serde(default)]
+    /// Not part of the kson spec
+    #[serde(default, skip_serializing_if = "is_zero_i32")]
     pub offset: i32,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub legacy: Option<LegacyBgInfo>,
+}
+
+fn is_zero_i32(v: &i32) -> bool {
+    *v == 0
 }
 
 impl BgInfo {
@@ -972,14 +1138,19 @@ impl Default for BgInfo {
 }
 
 #[derive(Serialize, Deserialize, Clone, Default)]
+#[serde(default)]
 pub struct LegacyBgInfo {
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub bg: Option<Vec<KshBgInfo>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub layer: Option<KshLayerInfo>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub movie: Option<KshMovieInfo>,
 }
 
 #[derive(Serialize, Deserialize, Clone)]
 pub struct KshLayerInfo {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub filename: Option<String>, // self-explanatory (can be KSM default animation layer such as "arrow")
     /// one-loop duration in milliseconds.
     ///
@@ -988,22 +1159,28 @@ pub struct KshLayerInfo {
     /// If the value is zero, the play speed is tempo-synchronized and set to 1 frame per 0.035 measure (= 28.571... frames/measure).
     #[serde(default)]
     pub duration: i32,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub rotation: Option<KshLayerRotationInfo>, // rotation conditions
 }
 
 #[derive(Serialize, Deserialize, Clone)]
 pub struct KshLayerRotationInfo {
+    #[serde(default = "default_true::<bool>")]
     pub tilt: bool, // whether lane tilts affect rotation of BG/layer
+    #[serde(default = "default_true::<bool>")]
     pub spin: bool, // whether lane spins affect rotation of BG/layer
 }
 #[derive(Serialize, Deserialize, Clone)]
 pub struct KshMovieInfo {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub filename: Option<String>, // self-explanatory
-    pub offset: i32,              // movie offset in millisecond
+    #[serde(default)]
+    pub offset: i32, // movie offset in millisecond
 }
 
 #[derive(Serialize, Deserialize, Clone)]
 pub struct KshBgInfo {
+    #[serde(default)]
     pub filename: String,
 }
 
@@ -1051,6 +1228,7 @@ impl Chart {
             beat: BeatInfo::new(),
             audio: AudioInfo::new(),
             camera: CameraInfo::default(),
+            gauge: None,
             format_version: 1,
             bg: BgInfo::new(),
             file_hash: String::new(),

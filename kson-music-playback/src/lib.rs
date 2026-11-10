@@ -333,8 +333,8 @@ impl AudioPlayback {
                                         base,
                                         1.0 / ((240.0 * w.wave_length.interpolate(1.0, true))
                                             / bpm as f32),
-                                        w.lo_freq.interpolate(1.0, true) as _,
-                                        w.hi_freq.interpolate(1.0, true) as _,
+                                        w.freq_1.interpolate(1.0, true) as _,
+                                        w.freq_2.interpolate(1.0, true) as _,
                                     )),
                                     kson::effects::AudioEffect::Tapestop(_t) => {
                                         Box::new(tape_stop(base, start, duration))
