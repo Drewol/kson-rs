@@ -8,7 +8,7 @@ use chart_view::ChartView;
 pub struct ChartCamera {
     pub kson_radius: f32,
     pub kson_angle: f32,
-    pub tilt: f32,
+    pub tilt: (f32, f32),
     pub view_size: Vec2,
     pub shakes: Vec<CameraShake>,
     pub spins: Vec<CameraSpin>,
@@ -99,7 +99,7 @@ impl CameraShake {
 }
 
 // Statics for easier testing of values during dev
-#[cfg(feature = "camera_test")]
+#[cfg(feature = "camera-test")]
 mod camera_consts {
     pub static mut FOV_LANDSCAPE: f32 = 40.0;
     pub static mut FOV_PORTRAIT: f32 = 70.0;
@@ -109,7 +109,7 @@ mod camera_consts {
     pub static mut RADIUS_PORTRAIT: f32 = 1.7;
 }
 
-#[cfg(not(feature = "camera_test"))]
+#[cfg(not(feature = "camera-test"))]
 mod camera_consts {
     pub const FOV_LANDSCAPE: f32 = 40.0;
     pub const FOV_PORTRAIT: f32 = 70.0;
@@ -132,7 +132,7 @@ impl ChartCamera {
         ChartCamera {
             kson_angle: 0.0,
             kson_radius: 0.0,
-            tilt: 0.0,
+            tilt: (0.0, 0.0),
             view_size: vec2(2.0, 1.0),
             shakes: vec![],
             spins: vec![],
@@ -141,7 +141,7 @@ impl ChartCamera {
     }
 
     fn base_values(&self) -> (f32, f32, f32) {
-        #[cfg(feature = "camera_test")]
+        #[cfg(feature = "camera-test")]
         unsafe {
             if self.portrait {
                 (FOV_PORTRAIT, ANGLE_PORTRAIT, RADIUS_PORTRAIT)
@@ -150,7 +150,7 @@ impl ChartCamera {
             }
         }
 
-        #[cfg(not(feature = "camera_test"))]
+        #[cfg(not(feature = "camera-test"))]
         {
             if self.portrait {
                 (FOV_PORTRAIT, ANGLE_PORTRAIT, RADIUS_PORTRAIT)
@@ -174,7 +174,7 @@ impl ChartCamera {
         egui::Grid::new("camera_widget")
             .num_columns(2)
             .show(ui, |ui| {
-                #[cfg(feature = "camera_test")]
+                #[cfg(feature = "camera-test")]
                 {
                     let (fov, angle, radius) = unsafe {
                         if self.portrait {
@@ -202,7 +202,8 @@ impl ChartCamera {
                 }
 
                 ui.label("Tilt");
-                ui.add(egui::Slider::new(&mut self.tilt, -360.0..=360.0));
+                ui.add(egui::Slider::new(&mut self.tilt.0, -360.0..=360.0));
+                ui.add(egui::Slider::new(&mut self.tilt.1, -360.0..=360.0));
                 ui.end_row();
             })
             .response
@@ -247,7 +248,7 @@ impl From<&ChartCamera> for Camera {
         let z_far = end_dist.max(begin_dist);
 
         let roll =
-            Matrix4::from_axis_angle(ChartView::TRACK_DIRECTION.to_array().into(), Deg(-val.tilt));
+            Matrix4::from_axis_angle(ChartView::TRACK_DIRECTION.to_array().into(), Deg(-(val.tilt.0 + val.tilt.1)));
         let target = roll.transform_vector((target - final_camera_pos).to_array().into())
             + Vec3::from(final_camera_pos.to_array());
         let up = roll.transform_vector(up.to_array().into());

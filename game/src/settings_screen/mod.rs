@@ -1,8 +1,11 @@
 mod controller_binding;
+#[cfg(not(target_os = "android"))]
+mod lighting;
 pub mod skin_select;
 
 use std::{collections::HashMap, path::PathBuf, sync::mpsc::Sender, time::Duration};
 
+use controller_binding::KeyboardBindingUi;
 use di::ServiceProvider;
 use egui::{CollapsingResponse, InnerResponse, RichText, Separator, Slider, TextEdit, Ui};
 use gilrs::GamepadId;
@@ -13,12 +16,14 @@ use winit::{
     monitor::MonitorHandle,
 };
 
+#[cfg(not(target_os = "android"))]
+use crate::help::AsyncPicker;
 use crate::{
-    config::{Fullscreen, GameConfig, ScoreDisplayMode, ScoreScreenshot},
+    config::{Fullscreen, GameConfig, Keybinds, ScoreDisplayMode, ScoreScreenshot},
     game::HitWindow,
     game_main::ControlMessage,
-    help::AsyncPicker,
     input_state::InputState,
+    lighting::LightingService,
     scene::Scene,
     skin_settings::SkinSettingValue,
 };
@@ -31,11 +36,14 @@ pub struct SettingsScreen {
     input_state: InputState,
     selected_controller: Option<GamepadId>,
     binding_ui: Option<BindingUi>,
+    key_binding_ui: KeyboardBindingUi,
     controllers: HashMap<GamepadId, String>,
     monitors: Vec<MonitorHandle>,
     primary_monitor: Option<MonitorHandle>,
     tx: Sender<ControlMessage>,
     skins: Vec<(SkinMeta, PathBuf)>,
+    #[cfg(not(target_os = "android"))]
+    lighting: self::lighting::LightingConfig,
 }
 
 impl SettingsScreen {
@@ -45,18 +53,31 @@ impl SettingsScreen {
         window: &winit::window::Window,
     ) -> Self {
         let input_state = InputState::clone(&services.get_required());
+        input_state.set_text_input_active(true);
+
         let controllers = {
             let lock_gilrs = input_state.lock_gilrs();
             lock_gilrs
-                .gamepads()
-                .map(|(id, pad)| (id, pad.name().to_string()))
-                .collect()
+                .as_ref()
+                .map(|gilrs| {
+                    gilrs
+                        .gamepads()
+                        .map(|(id, pad)| (id, pad.name().to_string()))
+                        .collect::<HashMap<_, _>>()
+                })
+                .unwrap_or_default()
         };
 
         let monitors = window.available_monitors().collect_vec();
         let primary_monitor = window.current_monitor();
 
-        let mut skins_folder = crate::default_game_dir();
+        services
+            .get_required_mut::<LightingService>()
+            .write()
+            .unwrap()
+            .stop();
+
+        let mut skins_folder = crate::installer::default_game_dir();
         skins_folder.push("skins");
         let skins = skins_folder
             .read_dir()
@@ -80,9 +101,12 @@ impl SettingsScreen {
                 }
             })
             .collect();
-
+        let mut altered_settings = GameConfig::get().clone();
+        if altered_settings.keybinds.is_empty() {
+            altered_settings.keybinds.push(Keybinds::default());
+        }
         Self {
-            altered_settings: GameConfig::get().clone(),
+            altered_settings,
             close: false,
             input_state,
             selected_controller: None,
@@ -92,6 +116,9 @@ impl SettingsScreen {
             primary_monitor,
             tx,
             skins,
+            key_binding_ui: KeyboardBindingUi::new(),
+            #[cfg(not(target_os = "android"))]
+            lighting: self::lighting::LightingConfig::new(),
         }
     }
 
@@ -99,6 +126,12 @@ impl SettingsScreen {
         let mut c = GameConfig::get_mut();
         *c = self.altered_settings.clone();
         _ = self.tx.send(ControlMessage::ApplySettings);
+    }
+}
+
+impl Drop for SettingsScreen {
+    fn drop(&mut self) {
+        self.input_state.set_text_input_active(false);
     }
 }
 
@@ -155,6 +188,10 @@ impl Scene for SettingsScreen {
         true
     }
 
+    fn touch_as_mouse(&self) -> bool {
+        true
+    }
+
     fn render_egui(&mut self, ctx: &egui::Context) -> anyhow::Result<()> {
         egui::panel::TopBottomPanel::bottom("settings_buttons").show(ctx, |ui| {
             if ui.button("Cancel").clicked() {
@@ -165,10 +202,16 @@ impl Scene for SettingsScreen {
                 self.apply();
                 self.close = true;
             }
+
+            #[cfg(target_os = "android")]
+            ui.add_space(50.0);
         });
 
         egui::panel::CentralPanel::default().show(ctx, |ui| {
             egui::ScrollArea::vertical().show(ui, |ui| {
+                #[cfg(target_os = "android")]
+                ui.add_space(50.0);
+
                 settings_section("Input", ui, |ui| {
                     ui.label("Offset");
                     ui.add(Slider::new(
@@ -183,6 +226,16 @@ impl Scene for SettingsScreen {
                     ui.end_row();
                     ui.checkbox(&mut self.altered_settings.keyboard_knobs, "Keyboard knobs");
                     ui.end_row();
+
+                    if self.altered_settings.keyboard_knobs
+                        || self.altered_settings.keyboard_buttons
+                    {
+                        settings_section("Keybinds", ui, |ui| {
+                            self.key_binding_ui.ui(ui, &mut self.altered_settings);
+                        });
+                        ui.end_row();
+                    }
+
                     ui.checkbox(&mut self.altered_settings.mouse_knobs, "Mouse knobs");
                     ui.end_row();
 
@@ -287,6 +340,8 @@ impl Scene for SettingsScreen {
                         .to_string();
 
                     ui.label("Songs path");
+
+                    #[cfg(not(target_os = "android"))]
                     AsyncPicker::new()
                         .folder()
                         .show("song_folder".into(), &mut songs_path, ui);
@@ -345,6 +400,8 @@ impl Scene for SettingsScreen {
                         .to_string();
 
                     ui.label("Screenshots path");
+
+                    #[cfg(not(target_os = "android"))]
                     AsyncPicker::new().folder().show(
                         "screenshot_folder".into(),
                         &mut screenshot_path,
@@ -353,6 +410,41 @@ impl Scene for SettingsScreen {
 
                     self.altered_settings.screenshot_path = PathBuf::from(screenshot_path);
                 });
+
+                settings_section("Online", ui, |ui| {
+                    ui.heading("Multiplayer");
+                    ui.end_row();
+
+                    ui.label("Server");
+                    ui.text_edit_singleline(&mut self.altered_settings.multiplayer.server);
+                    ui.end_row();
+
+                    ui.label("Username");
+                    ui.text_edit_singleline(&mut self.altered_settings.multiplayer.name);
+                    ui.end_row();
+
+                    ui.add(Separator::default().grow(0.0).spacing(5.0).horizontal());
+
+                    ui.heading("Internet Ranking");
+                    ui.end_row();
+
+                    ui.label("IR Server");
+                    ui.text_edit_singleline(&mut self.altered_settings.ir_endpoint);
+                    ui.end_row();
+
+                    ui.label("IR Token");
+                    egui::TextEdit::singleline(&mut self.altered_settings.ir_api_token)
+                        .password(true)
+                        .show(ui);
+                    ui.end_row();
+                });
+
+                #[cfg(not(target_os = "android"))]
+                settings_section(
+                    "Controller Lights",
+                    ui,
+                    self.lighting.render(&mut self.altered_settings.lighting),
+                );
 
                 settings_section("Graphics", ui, |ui| {
                     ui.checkbox(&mut self.altered_settings.graphics.vsync, "VSync");
@@ -676,6 +768,20 @@ impl Scene for SettingsScreen {
         });
 
         Ok(())
+    }
+    fn on_event(&mut self, event: &winit::event::Event<crate::button_codes::UscInputEvent>) {
+        let winit::event::Event::WindowEvent { event, .. } = event else {
+            return;
+        };
+
+        let winit::event::WindowEvent::KeyboardInput { event, .. } = event else {
+            return;
+        };
+
+        if event.state.is_pressed() {
+            self.key_binding_ui
+                .key_pressed(event.physical_key, &mut self.altered_settings);
+        }
     }
 }
 

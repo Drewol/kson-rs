@@ -1,12 +1,12 @@
 use cpal::Sample as CpalSample;
-use rodio::{cpal, Sample, Source};
+use rodio::{cpal, ChannelCount, SampleRate, Source};
 
 pub struct ChartAudio {
     /// twice the length of the song, second half is effected
     samples: Vec<f32>,
     cursor: usize,
-    channels: u16,
-    sample_rate: u32,
+    channels: ChannelCount,
+    sample_rate: SampleRate,
     effec_active: bool,
     effect_offset: usize,
 }
@@ -14,7 +14,6 @@ pub struct ChartAudio {
 pub trait ChartAudioSource: Source
 where
     Self: Sized,
-    Self::Item: Sample,
 {
     fn chart_audio(self, chart: kson::Chart) -> ChartAudio {
         let channels = self.channels();
@@ -45,21 +44,21 @@ where
 }
 
 impl Source for ChartAudio {
-    fn current_frame_len(&self) -> Option<usize> {
+    fn current_span_len(&self) -> Option<usize> {
         None
     }
 
-    fn channels(&self) -> u16 {
+    fn channels(&self) -> ChannelCount {
         self.channels
     }
 
-    fn sample_rate(&self) -> u32 {
+    fn sample_rate(&self) -> SampleRate {
         self.sample_rate
     }
 
     fn total_duration(&self) -> Option<std::time::Duration> {
         Some(std::time::Duration::from_secs_f64(
-            (self.effect_offset - self.cursor) as f64 / self.sample_rate as f64,
+            (self.effect_offset - self.cursor) as f64 / self.sample_rate.get() as f64,
         ))
     }
 }

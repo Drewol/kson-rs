@@ -1,12 +1,23 @@
-use egui::Color32;
-use serde::{de::Visitor, Deserialize, Serialize};
-use tealr::{
-    mlu::mlua::{FromLua, IntoLuaMulti, MultiValue, Value},
-    ToTypename,
-};
+use std::str::FromStr;
 
-#[derive(Debug, Clone, Copy)]
+use anyhow::Context;
+use egui::Color32;
+use mlua::{FromLua, IntoLuaMulti, MultiValue, Value};
+use serde::{de::Visitor, Deserialize, Serialize};
+
+#[derive(Debug, Clone, Copy, Default)]
 pub struct SettingsColor(pub Color32);
+
+impl FromStr for SettingsColor {
+    type Err = anyhow::Error;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        ColorVisitor
+            .visit_str::<serde_json::Error>(s)
+            .map(Self)
+            .context("Color parse error")
+    }
+}
 
 impl Serialize for SettingsColor {
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
@@ -18,9 +29,9 @@ impl Serialize for SettingsColor {
     }
 }
 
-struct ColorVisitor;
+pub struct ColorVisitor;
 
-impl<'de> Visitor<'de> for ColorVisitor {
+impl Visitor<'_> for ColorVisitor {
     type Value = Color32;
 
     fn expecting(&self, formatter: &mut std::fmt::Formatter) -> std::fmt::Result {
@@ -110,7 +121,7 @@ pub enum SkinSettingEntry {
     },
 }
 
-#[derive(Debug, Serialize, Deserialize, Clone, ToTypename)]
+#[derive(Debug, Serialize, Deserialize, Clone)]
 #[serde(untagged)]
 pub enum SkinSettingValue {
     None,
@@ -121,18 +132,15 @@ pub enum SkinSettingValue {
     Text(String),
 }
 
-impl<'lua> FromLua<'lua> for SkinSettingValue {
-    fn from_lua(
-        lua_value: tealr::mlu::mlua::Value<'lua>,
-        _: &'lua tealr::mlu::mlua::Lua,
-    ) -> tealr::mlu::mlua::Result<Self> {
+impl FromLua for SkinSettingValue {
+    fn from_lua(lua_value: mlua::Value, _: &mlua::Lua) -> mlua::Result<Self> {
         match lua_value {
-            tealr::mlu::mlua::Value::Nil => Ok(Self::None),
-            tealr::mlu::mlua::Value::Boolean(b) => Ok(Self::Bool(b)),
-            tealr::mlu::mlua::Value::Integer(n) => Ok(Self::Integer(n)),
-            tealr::mlu::mlua::Value::Number(n) => Ok(Self::Float(n)),
-            tealr::mlu::mlua::Value::String(s) => Ok(Self::Text(String::from(s.to_str()?))),
-            tealr::mlu::mlua::Value::Table(t) => {
+            mlua::Value::Nil => Ok(Self::None),
+            mlua::Value::Boolean(b) => Ok(Self::Bool(b)),
+            mlua::Value::Integer(n) => Ok(Self::Integer(n)),
+            mlua::Value::Number(n) => Ok(Self::Float(n)),
+            mlua::Value::String(s) => Ok(Self::Text(s.to_str()?.to_string())),
+            mlua::Value::Table(t) => {
                 let a: Result<Vec<u8>, _> = t.sequence_values::<u8>().collect();
                 let a = a?;
 
@@ -145,39 +153,36 @@ impl<'lua> FromLua<'lua> for SkinSettingValue {
                         a[0], a[1], a[2],
                     ))))
                 } else {
-                    Err(tealr::mlu::mlua::Error::FromLuaConversionError {
+                    Err(mlua::Error::FromLuaConversionError {
                         from: "table",
-                        to: "SkinSettingValue::Color",
+                        to: "SkinSettingValue::Color".to_owned(),
                         message: Some("Not a color array".to_string()),
                     })
                 }
             }
-            v => Err(tealr::mlu::mlua::Error::FromLuaConversionError {
+            v => Err(mlua::Error::FromLuaConversionError {
                 from: v.type_name(),
-                to: "SkinSettingValue",
+                to: "SkinSettingValue".to_owned(),
                 message: None,
             }),
         }
     }
 }
 
-impl<'lua> IntoLuaMulti<'lua> for SkinSettingValue {
-    fn into_lua_multi(
-        self,
-        lua: &'lua tealr::mlu::mlua::Lua,
-    ) -> tealr::mlu::mlua::Result<tealr::mlu::mlua::MultiValue<'lua>> {
+impl IntoLuaMulti for SkinSettingValue {
+    fn into_lua_multi(self, lua: &mlua::Lua) -> mlua::Result<mlua::MultiValue> {
         match self {
-            SkinSettingValue::Color(c) => Ok(MultiValue::from_vec(vec![
+            SkinSettingValue::Color(c) => Ok(MultiValue::from_iter(vec![
                 Value::Integer(c.0.r() as i64),
                 Value::Integer(c.0.g() as i64),
                 Value::Integer(c.0.b() as i64),
                 Value::Integer(c.0.a() as i64),
             ])),
             SkinSettingValue::None => Ok(MultiValue::default()),
-            SkinSettingValue::Integer(v) => Ok(MultiValue::from_vec(vec![Value::Integer(v)])),
-            SkinSettingValue::Float(v) => Ok(MultiValue::from_vec(vec![Value::Number(v)])),
-            SkinSettingValue::Bool(v) => Ok(MultiValue::from_vec(vec![Value::Boolean(v)])),
-            SkinSettingValue::Text(v) => Ok(MultiValue::from_vec(vec![Value::String(
+            SkinSettingValue::Integer(v) => Ok(MultiValue::from_iter(vec![Value::Integer(v)])),
+            SkinSettingValue::Float(v) => Ok(MultiValue::from_iter(vec![Value::Number(v)])),
+            SkinSettingValue::Bool(v) => Ok(MultiValue::from_iter(vec![Value::Boolean(v)])),
+            SkinSettingValue::Text(v) => Ok(MultiValue::from_iter(vec![Value::String(
                 lua.create_string(&v)?,
             )])),
         }

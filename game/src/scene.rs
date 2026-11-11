@@ -9,6 +9,7 @@ use crate::{
     button_codes::{LaserState, UscButton, UscInputEvent},
     companion_interface::GameState,
     help::RenderContext,
+    lighting::LightingData,
     ControlMessage, Viewport,
 };
 
@@ -41,12 +42,22 @@ pub trait Scene {
     }
     fn suspend(&mut self) {}
     fn resume(&mut self) {}
+    fn reload_scripts(&mut self) -> Result<()> {
+        Ok(())
+    }
     fn is_suspended(&self) -> bool;
     fn debug_ui(&mut self, ctx: &egui::Context) -> Result<()>;
     fn closed(&self) -> bool;
     fn name(&self) -> &str;
     fn game_state(&self) -> GameState {
         GameState::None
+    }
+    fn lighting(&self) -> LightingData {
+        LightingData::default()
+    }
+
+    fn touch_as_mouse(&self) -> bool {
+        false
     }
 }
 

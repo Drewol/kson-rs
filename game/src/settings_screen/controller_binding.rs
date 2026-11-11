@@ -3,8 +3,13 @@ use std::collections::HashMap;
 use egui::Stroke;
 use gilrs::{ev::Code, Axis, Button, GamepadId};
 use uuid::Uuid;
+use winit::keyboard::PhysicalKey;
 
-use crate::{button_codes::UscButton, config::GameConfig, input_state::InputState};
+use crate::{
+    button_codes::UscButton,
+    config::{GameConfig, Keybinds},
+    input_state::InputState,
+};
 
 #[derive(Debug, PartialEq, Default)]
 enum ActiveBinding {
@@ -24,7 +29,10 @@ pub struct BindingUi {
 impl BindingUi {
     pub fn new(controller: GamepadId, input_state: InputState) -> Self {
         let uuid = {
-            let gilrs = input_state.lock_gilrs();
+            let lock_gilrs = input_state.lock_gilrs();
+            let gilrs = lock_gilrs
+                .as_ref()
+                .expect("Controllers not supported on this platform");
             let uuid = gilrs.gamepad(controller).uuid();
             uuid::Uuid::from_bytes(uuid)
         };
@@ -39,7 +47,10 @@ impl BindingUi {
 
     pub fn run_checks(&mut self, settings: &mut GameConfig) {
         let lock_gilrs = self.input_state.lock_gilrs();
-        let gamepad = lock_gilrs.gamepad(self.controller);
+        let gilrs = lock_gilrs
+            .as_ref()
+            .expect("Controllers not supported on platform");
+        let gamepad = gilrs.gamepad(self.controller);
         let state = gamepad.state();
         let bindings = settings.controller_binds.entry(self.uuid).or_default();
 
@@ -115,8 +126,11 @@ impl BindingUi {
         };
 
         let axes_states = || {
-            self.input_state
-                .lock_gilrs()
+            let lock_gilrs = self.input_state.lock_gilrs();
+            let gilrs = lock_gilrs
+                .as_ref()
+                .expect("Controllers not supported on platform");
+            gilrs
                 .gamepad(self.controller)
                 .state()
                 .axes()
@@ -185,5 +199,70 @@ impl BindingUi {
                 }
             }
         }
+    }
+}
+
+pub struct KeyboardBindingUi {
+    currently_binding: (UscButton, usize),
+    key_names: HashMap<PhysicalKey, String>,
+}
+
+impl KeyboardBindingUi {
+    pub fn new() -> Self {
+        Self {
+            currently_binding: (UscButton::Other(Button::Unknown), 0),
+            key_names: HashMap::new(),
+        }
+    }
+
+    pub fn ui(&mut self, ui: &mut egui::Ui, settings: &mut GameConfig) {
+        let stroke = Stroke::new(2.0, egui::Color32::GREEN);
+
+        egui::Grid::new("keybinds_ui").striped(true).show(ui, |ui| {
+            for binding in UscButton::iter() {
+                ui.label(format!("{binding}:"));
+
+                for (i, b) in settings.keybinds.iter().enumerate() {
+                    let active =
+                        binding == self.currently_binding.0 && i == self.currently_binding.1;
+                    let old_bind = b.get(binding).unwrap();
+
+                    let key_name =
+                        self.key_names
+                            .entry(old_bind)
+                            .or_insert_with(|| match old_bind {
+                                winit::keyboard::PhysicalKey::Code(key_code) => {
+                                    format!("{key_code:?}")
+                                        .trim_start_matches("Key")
+                                        .trim_start_matches("Digit")
+                                        .to_string()
+                                }
+                                winit::keyboard::PhysicalKey::Unidentified(_) => "Unk".to_owned(),
+                            });
+
+                    let mut button = egui::Button::new(key_name.as_str());
+                    if active {
+                        button = button.stroke(stroke)
+                    }
+                    if ui.add(button).clicked() {
+                        self.currently_binding = (binding, i)
+                    }
+                }
+                ui.end_row();
+            }
+        });
+        ui.end_row();
+        if ui.button("Add key set").clicked() {
+            settings.keybinds.push(Keybinds::default());
+        }
+
+        if settings.keybinds.len() > 1 && ui.button("Remove last key set").clicked() {
+            _ = settings.keybinds.pop();
+        }
+    }
+
+    pub fn key_pressed(&mut self, key: PhysicalKey, settings: &mut GameConfig) {
+        settings.keybinds[self.currently_binding.1].set(self.currently_binding.0, key);
+        self.currently_binding = (UscButton::Other(Button::Unknown), 0);
     }
 }

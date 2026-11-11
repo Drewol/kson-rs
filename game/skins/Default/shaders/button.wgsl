@@ -5,16 +5,19 @@
 struct VertexOutput {
     @builtin(position) position: vec4<f32>,
     @location(0) tex_coords: vec2<f32>,
+    // Per note data, set by the game
+    @location(1) data: vec4<f32>,
 };
 
 
 @vertex
 fn vs_main(
-    @location(0) position: vec3f, @location(1) tex: vec2f
+    @location(0) position: vec3f, @location(1) tex: vec2f, @location(2) data: vec4f
 ) -> VertexOutput {
     var res: VertexOutput;
     res.position = proj * camera * world * vec4(position, 1.0);
     res.tex_coords = tex;
+    res.data = data;
     return res;
 
 }
@@ -22,13 +25,13 @@ fn vs_main(
 @group(1) @binding(0) var mainTex: texture_2d<f32>; 
 @group(1) @binding(1) var mainTex_s: sampler; 
 
-@group(2) @binding(0) var<uniform> hasSample: i32;
-@group(2) @binding(1) var<uniform> trackPos: f32;
-@group(2) @binding(2) var<uniform> trackScale: f32;
-@group(2) @binding(3) var<uniform> hiddenCutoff: f32;
-@group(2) @binding(4) var<uniform> hiddenFadeWindow: f32;
-@group(2) @binding(5) var<uniform> suddenCutoff: f32;
-@group(2) @binding(6) var<uniform> suddenFadeWindow: f32;
+// data.x: 1.0 if the chip has a key sound
+@group(2) @binding(0) var<uniform> trackPos: f32;
+@group(2) @binding(1) var<uniform> trackScale: f32;
+@group(2) @binding(2) var<uniform> hiddenCutoff: f32;
+@group(2) @binding(3) var<uniform> hiddenFadeWindow: f32;
+@group(2) @binding(4) var<uniform> suddenCutoff: f32;
+@group(2) @binding(5) var<uniform> suddenFadeWindow: f32;
 
 // The OpenGL standard leave the case when `edge0 >= edge1` undefined,
 // so this function was made to remove the ambiguity when `edge0 >= edge1`.
@@ -64,7 +67,7 @@ fn hide(position: vec4f) -> f32 {
 fn fs_main(v: VertexOutput) -> @location(0) vec4f {
     var main_color = textureSample(mainTex, mainTex_s, v.tex_coords);
     
-    if(hasSample != 0)
+    if(v.data.x > 0.5)
     {
         var addition = abs(0.5 - v.tex_coords.x) * - 1.;
         addition += 0.2;

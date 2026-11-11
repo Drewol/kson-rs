@@ -1,10 +1,11 @@
-use std::time::Duration;
-
+use rodio::{ChannelCount, SampleRate};
 use rodio::{Sample, Source};
+use std::ops::Mul;
+use std::time::Duration;
 
 use super::mix_source::MixSource;
 
-pub struct Gate<I: Source<Item = D>, D: Sample> {
+pub struct Gate<I: Source> {
     input: I,
     cursor: u64,
     length: u64,
@@ -14,15 +15,15 @@ pub struct Gate<I: Source<Item = D>, D: Sample> {
     amount: f32,
 }
 
-pub fn gate<I: Source<Item = D>, D: Sample>(
+pub fn gate<I: Source>(
     source: I,
     start: Duration,
     duration: Duration,
     gate: f64,
     amount: f32,
-) -> Gate<I, D> {
-    let channels = source.channels() as f64;
-    let sample_rate = source.sample_rate() as f64;
+) -> Gate<I> {
+    let channels = source.channels().get() as f64;
+    let sample_rate = source.sample_rate().get() as f64;
 
     Gate {
         input: source,
@@ -35,12 +36,11 @@ pub fn gate<I: Source<Item = D>, D: Sample>(
     }
 }
 
-impl<I, D> Iterator for Gate<I, D>
+impl<I> Iterator for Gate<I>
 where
-    I: Source<Item = D>,
-    D: Sample,
+    I: Source,
 {
-    type Item = D;
+    type Item = I::Item;
 
     fn next(&mut self) -> Option<Self::Item> {
         let original = self.input.next();
@@ -60,24 +60,23 @@ where
             1.0
         };
 
-        original.map(|x| x.amplify(mix))
+        original.map(|x| x.mul(mix))
     }
 }
 
-impl<I, D> Source for Gate<I, D>
+impl<I> Source for Gate<I>
 where
-    I: Source<Item = D>,
-    D: Sample,
+    I: Source,
 {
-    fn current_frame_len(&self) -> Option<usize> {
-        self.input.current_frame_len()
+    fn current_span_len(&self) -> Option<usize> {
+        self.input.current_span_len()
     }
 
-    fn channels(&self) -> u16 {
+    fn channels(&self) -> ChannelCount {
         self.input.channels()
     }
 
-    fn sample_rate(&self) -> u32 {
+    fn sample_rate(&self) -> SampleRate {
         self.input.sample_rate()
     }
 
@@ -86,10 +85,9 @@ where
     }
 }
 
-impl<I, D> MixSource for Gate<I, D>
+impl<I> MixSource for Gate<I>
 where
-    I: Source<Item = D>,
-    D: Sample,
+    I: Source,
 {
     fn set_mix(&mut self, mix: f32) {
         self.mix = mix;

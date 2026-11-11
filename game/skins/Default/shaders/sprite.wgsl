@@ -5,16 +5,19 @@
 struct VertexOutput {
     @builtin(position) position: vec4<f32>,
     @location(0) tex_coords: vec2<f32>,
+    // Per note data, set by the game
+    @location(1) data: vec4<f32>,
 };
 
 
 @vertex
 fn vs_main(
-    @location(0) position: vec3f, @location(1) tex: vec2f
+    @location(0) position: vec3f, @location(1) tex: vec2f, @location(2) data: vec4f
 ) -> VertexOutput {
     var res: VertexOutput;
     res.position = proj * camera * world * vec4(position, 1.0);
     res.tex_coords = tex;
+    res.data = data;
     return res;
 
 }
@@ -22,10 +25,8 @@ fn vs_main(
 @group(1) @binding(0) var mainTex: texture_2d<f32>; 
 @group(1) @binding(1) var mainTex_s: sampler; 
 
-@group(2) @binding(0) var<uniform> color: vec4f;
-
 @fragment
 fn fs_main(v: VertexOutput) -> @location(0) vec4f {
         let mainColor = textureSample(mainTex, mainTex_s, v.tex_coords);
-        return mainColor * color;
+        return mainColor * v.data;
 }

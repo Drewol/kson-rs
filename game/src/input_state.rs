@@ -4,7 +4,9 @@ use std::{
     time::SystemTime,
 };
 
+use itertools::{Itertools, MinMaxResult};
 use kson::Side;
+use log::warn;
 use winit::event::ElementState;
 
 use crate::button_codes::{LaserAxis, LaserState, UscButton, UscInputEvent};
@@ -13,17 +15,26 @@ use crate::button_codes::{LaserAxis, LaserState, UscButton, UscInputEvent};
 pub struct InputState {
     text_input_active: Arc<AtomicBool>,
     laser_state: Arc<RwLock<LaserState>>,
-    gilrs: Arc<Mutex<gilrs::Gilrs>>,
+    gilrs: Arc<Mutex<Option<gilrs::Gilrs>>>,
     buttons_held: Arc<RwLock<HashMap<UscButton, SystemTime>>>,
 }
 
 impl InputState {
-    pub fn new(gilrs: Arc<Mutex<gilrs::Gilrs>>) -> Self {
+    pub fn new(gilrs: Arc<Mutex<Option<gilrs::Gilrs>>>) -> Self {
         Self {
             text_input_active: Arc::new(AtomicBool::new(false)),
             laser_state: Arc::new(RwLock::new(LaserState::default())),
             gilrs,
             buttons_held: Arc::new(RwLock::new(HashMap::default())),
+        }
+    }
+
+    pub fn dummy() -> Self {
+        Self {
+            text_input_active: Arc::new(AtomicBool::default()),
+            laser_state: Arc::new(LaserState::default().into()),
+            gilrs: Arc::new(None.into()),
+            buttons_held: Arc::new(HashMap::new().into()),
         }
     }
 
@@ -63,7 +74,7 @@ impl InputState {
         self.laser_state.read().expect("Lock error").get_axis(side)
     }
 
-    pub fn lock_gilrs(&self) -> std::sync::MutexGuard<'_, gilrs::Gilrs> {
+    pub fn lock_gilrs(&self) -> std::sync::MutexGuard<'_, Option<gilrs::Gilrs>> {
         self.gilrs.lock().expect("Lock error")
     }
 
@@ -72,8 +83,42 @@ impl InputState {
             .load(std::sync::atomic::Ordering::Relaxed)
     }
 
-    pub fn set_text_input_active(&mut self, text_input_active: bool) {
+    pub fn set_text_input_active(&self, text_input_active: bool) {
+        log::info!(
+            "Setting text input: {}",
+            if text_input_active {
+                "active"
+            } else {
+                "inactive"
+            }
+        );
         self.text_input_active
             .store(text_input_active, std::sync::atomic::Ordering::Relaxed);
+    }
+
+    pub fn clone_laser(&self) -> LaserState {
+        *self.laser_state.read().expect("Lock error")
+    }
+
+    pub fn pressed_together<const N: usize>(&self, buttons: [UscButton; N]) -> bool {
+        // Check that it's *only* these buttons being pressed?
+
+        let Ok(held) = self.buttons_held.read() else {
+            warn!("Lock error");
+            return false;
+        };
+
+        let times = buttons.iter().filter_map(|b| held.get(b)).collect_vec();
+        let MinMaxResult::MinMax(min, max) = times.iter().minmax() else {
+            return N == times.len(); // Input was probably zero or one button which are always pressed "together"
+        };
+
+        let Ok(delta) = max.duration_since(**min) else {
+            warn!("Failed to find pressed delta");
+            return false;
+        };
+
+        const SIMULTANIOUS_PRESS_THRESHOLD_MS: u128 = 100;
+        delta.as_millis() < SIMULTANIOUS_PRESS_THRESHOLD_MS && N == times.len()
     }
 }

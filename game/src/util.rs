@@ -1,73 +1,23 @@
-use std::sync::mpsc::{self, Receiver, Sender};
+use std::{
+    fmt::Display,
+    sync::mpsc::{self, Receiver, Sender},
+    time::SystemTime,
+};
 
-use femtovg::rgb::bytemuck;
-use futures::executor::block_on;
-use tealr::mlu::mlua::Lua;
-use wgpu::{BufferUsages, ImageCopyBuffer, Origin3d, SurfaceTexture};
+use log::warn;
+use mlua::Lua;
+use winit::{
+    event::*,
+    keyboard::{Key, NamedKey},
+};
+pub mod beat_pulser;
+pub mod laser_navigation;
+pub mod legacy_skin_config;
 
-use crate::{help::RenderContext, Viewport};
-
-pub fn back_pixels(
-    context: &RenderContext,
-    viewport: Viewport,
-    surface: &SurfaceTexture,
-) -> Vec<[u8; 4]> {
-    let mut encoder = context
-        .device
-        .create_command_encoder(&wgpu::CommandEncoderDescriptor { label: None });
-    let buffer = context.device.create_buffer(&wgpu::BufferDescriptor {
-        label: None,
-        size: 0,
-        usage: BufferUsages::COPY_DST | BufferUsages::MAP_READ,
-        mapped_at_creation: true,
-    });
-
-    encoder.copy_texture_to_buffer(
-        wgpu::ImageCopyTextureBase {
-            texture: &surface.texture,
-            mip_level: 0,
-            origin: Origin3d::ZERO,
-            aspect: wgpu::TextureAspect::All,
-        },
-        wgpu::ImageCopyBuffer {
-            buffer: &buffer,
-            layout: wgpu::ImageDataLayout {
-                offset: 0,
-                bytes_per_row: None,
-                rows_per_image: None,
-            },
-        },
-        wgpu::Extent3d {
-            width: viewport.width,
-            height: viewport.height,
-            depth_or_array_layers: 0,
-        },
-    );
-    let c = encoder.finish();
-    let x = context.queue.submit([c]);
-    let buffer_slice = buffer.slice(..);
-    let (sender, reciever) = flume::bounded(1);
-    buffer_slice.map_async(wgpu::MapMode::Read, move |f| sender.send(f).unwrap());
-
-    context
-        .device
-        .poll(wgpu::MaintainBase::WaitForSubmissionIndex(x));
-
-    block_on(reciever.recv_async())
-        .ok()
-        .map(|x| x.ok())
-        .flatten()
-        .expect("Could not read back buffer");
-
-    let data = buffer_slice.get_mapped_range();
-    let result = bytemuck::cast_slice(&data).to_vec();
-    drop(data);
-    buffer.unmap();
-    result
-}
+use crate::button_codes::UscInputEvent;
 
 pub fn lua_address(lua: &Lua) -> usize {
-    let ptr = &**lua as *const _;
+    let ptr = lua as *const _;
     ptr as usize
 }
 
@@ -104,9 +54,27 @@ pub fn pipe<T, U>() -> (Pipe<U, T>, Pipe<T, U>) {
     (Pipe { tx: t_tx, rx: u_rx }, Pipe { tx: u_tx, rx: t_rx })
 }
 
+pub trait TokioTaskExt<T> {
+    type S;
+    fn try_take(self) -> Result<T, Self::S>;
+}
+
+impl<T> TokioTaskExt<T> for tokio::task::JoinHandle<T> {
+    type S = Self;
+    fn try_take(self) -> Result<T, Self> {
+        if self.is_finished() {
+            Ok(tokio::runtime::Handle::current()
+                .block_on(self)
+                .expect("Task failed"))
+        } else {
+            Err(self)
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
-    use tealr::mlu::mlua::Lua;
+    use mlua::Lua;
 
     use super::lua_address;
 
@@ -119,4 +87,69 @@ mod tests {
         println!("{a}");
         assert!(a == b);
     }
+}
+
+pub fn do_text_event(value: &mut String, event: &winit::event::Event<UscInputEvent>) -> bool {
+    let mut updated = true;
+    match event {
+        Event::WindowEvent {
+            window_id: _,
+            event:
+                WindowEvent::KeyboardInput {
+                    event:
+                        KeyEvent {
+                            text: Some(text),
+                            state: ElementState::Pressed,
+                            ..
+                        },
+                    ..
+                },
+        } if !text.chars().any(char::is_control) => {
+            *value += text.as_str();
+        }
+        Event::WindowEvent {
+            window_id: _,
+            event: WindowEvent::Ime(Ime::Commit(s)),
+        } => value.push_str(s.as_str()),
+        Event::WindowEvent {
+            event:
+                WindowEvent::KeyboardInput {
+                    event:
+                        KeyEvent {
+                            state: ElementState::Pressed,
+                            logical_key: Key::Named(NamedKey::Backspace),
+                            ..
+                        },
+                    ..
+                },
+            ..
+        } => {
+            value.pop();
+        }
+        _ => {
+            updated = false;
+        }
+    }
+    updated
+}
+
+pub trait Warn<T> {
+    fn warn(self, context: &'static str) -> Option<T>;
+}
+
+impl<T, E: Display> Warn<T> for Result<T, E> {
+    fn warn(self, context: &'static str) -> Option<T> {
+        self.inspect_err(|e| warn!("{context}: {e}")).ok()
+    }
+}
+
+pub fn timed_value(period: u32, values: u32) -> u32 {
+    let value_len = period / values;
+    let period = (SystemTime::now()
+        .duration_since(SystemTime::UNIX_EPOCH)
+        .expect("Systemtime before epoch")
+        .as_millis()
+        % period as u128) as u32;
+
+    period.saturating_sub(1) / (value_len + 1)
 }

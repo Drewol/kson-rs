@@ -41,6 +41,7 @@ impl CursorObject for BpmTool {
         chart: &Chart,
         _actions: &mut ActionStack<Chart>,
         _pos: Pos2,
+        _modifiers: eframe::egui::Modifiers,
     ) {
         if let CursorToolStates::None = self.state {
             //check for bpm changes on selected tick
@@ -170,6 +171,7 @@ impl CursorObject for TimeSigTool {
         chart: &Chart,
         _actions: &mut ActionStack<Chart>,
         _pos: Pos2,
+        _modifiers: eframe::egui::Modifiers,
     ) {
         let measure = chart.tick_to_measure(tick);
         if let CursorToolStates::None = self.state {

@@ -4,6 +4,7 @@ use std::{
     collections::HashSet,
     default,
     fmt::{format, Debug, Display, Write},
+    path::PathBuf,
     str::FromStr,
     sync::Arc,
     time::Duration,
@@ -14,16 +15,17 @@ use egui::util::hash;
 use kson::Chart;
 use log::LevelFilter;
 use luals_gen::ToLuaLsType;
+use mlua::UserData;
 use poll_promise::Promise;
 use rodio::Source;
 use serde::{Deserialize, Serialize};
 use serde_with::{DeserializeFromStr, SerializeDisplay};
-use tealr::{
-    mlu::{mlua::UserData, TealData, UserData},
-    ToTypename, TypeName,
-};
 
-use crate::{results::Score, songselect::Song};
+use crate::{
+    multiplayer,
+    results::Score,
+    songselect::{self, Song},
+};
 use specta::Type;
 mod files;
 mod nautica;
@@ -180,8 +182,6 @@ impl SongFilter {
 
 #[derive(
     Debug,
-    ToTypename,
-    UserData,
     Clone,
     Hash,
     PartialEq,
@@ -191,8 +191,10 @@ impl SongFilter {
     ToLuaLsType,
     SerializeDisplay,
     DeserializeFromStr,
+    Default,
 )]
 pub enum SongId {
+    #[default]
     Missing,
     IntId(i64),
     StringId(String),
@@ -237,18 +239,8 @@ impl SongId {
     }
 }
 
-impl TealData for SongId {}
-
-impl Default for SongId {
-    fn default() -> Self {
-        Self::Missing
-    }
-}
-
 #[derive(
     Debug,
-    ToTypename,
-    UserData,
     Clone,
     DeserializeFromStr,
     SerializeDisplay,
@@ -276,19 +268,12 @@ impl FromStr for DiffId {
     }
 }
 
-impl TealData for DiffId {}
-
-#[derive(Debug, ToTypename, UserData, Clone, ToLuaLsType, Serialize, Deserialize)]
+#[derive(Debug, Clone, ToLuaLsType, Serialize, Deserialize, Default)]
 pub enum SongDiffId {
+    #[default]
     Missing,
     DiffOnly(DiffId),
     SongDiff(SongId, DiffId),
-}
-
-impl Default for SongDiffId {
-    fn default() -> Self {
-        Self::Missing
-    }
 }
 
 impl SongDiffId {
@@ -309,10 +294,14 @@ impl SongDiffId {
     }
 }
 
-impl TealData for SongDiffId {}
 pub type PreviewResult = anyhow::Result<(Box<dyn Source<Item = f32> + Send>, Duration, Duration)>;
-pub type LoadSongFn =
-    Box<dyn FnOnce() -> anyhow::Result<(Chart, Box<dyn rodio::Source<Item = f32> + Send>)> + Send>;
+pub type LoadSongFn = Box<
+    dyn FnOnce() -> anyhow::Result<(
+            Chart,
+            Box<dyn rodio::Source<Item = f32> + Send>,
+            Option<PathBuf>,
+        )> + Send,
+>;
 
 pub trait SongProvider: Send {
     fn subscribe(&mut self) -> bus::BusReader<SongProviderEvent>;
@@ -323,11 +312,26 @@ pub trait SongProvider: Send {
     fn set_filter(&mut self, filter: SongFilter);
     fn set_current_index(&mut self, index: u64);
     fn load_song(&self, id: &SongDiffId) -> anyhow::Result<LoadSongFn>;
+    fn set_multiplayer_song(
+        &self,
+        id: &SongDiffId,
+    ) -> anyhow::Result<multiplayer_protocol::messages::server::SetSong>;
+
+    fn get_multiplayer_song(
+        &self,
+        hash: &str,
+        path: &str,
+        diff: u32,
+        level: u32,
+    ) -> anyhow::Result<Arc<Song>>;
     fn add_score(&self, id: SongDiffId, score: Score);
     /// Returns: `(music, skip, duration)`
     fn get_preview(&self, id: &SongId) -> Promise<PreviewResult>;
     fn get_all(&self) -> (Vec<Arc<Song>>, Vec<SongId>);
     fn refresh(&mut self) {}
+    fn get_collections(&self, id: &SongId) -> Vec<songselect::favourite_dialog::Collection>;
+    fn add_to_collection(&mut self, id: &SongId, collection: String) -> anyhow::Result<()>;
+    fn remove_from_collection(&mut self, id: &SongId, collection: String) -> anyhow::Result<()>;
 }
 
 pub trait ScoreProvider {

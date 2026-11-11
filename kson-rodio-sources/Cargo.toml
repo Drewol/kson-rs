@@ -7,9 +7,11 @@ edition = "2021"
 
 [dependencies]
 rodio = { workspace = true }
-soundtouch = { git = 'https://github.com/Drewol/soundtouch-rs.git' }
 rand = { workspace = true }
 
 
 [profile.dev]
 opt = "3"
+
+[target.'cfg(not(target_os = "android"))'.dependencies]
+soundtouch = { git = 'https://github.com/Drewol/soundtouch-rs.git' }

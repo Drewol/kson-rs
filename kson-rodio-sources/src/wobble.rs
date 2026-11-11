@@ -1,3 +1,5 @@
+use rodio::Source;
+use rodio::{ChannelCount, SampleRate};
 use std::f32::consts::SQRT_2;
 use std::sync::mpsc::channel;
 
@@ -5,11 +7,10 @@ use super::biquad::{biquad, BiQuad, BiQuadState, BiQuadType, BiquadController};
 use super::mix_source::MixSource;
 use super::triangle::TriangleWave;
 use rodio::source::UniformSourceIterator;
-use rodio::Source;
 
 pub struct Wobble<I: Source<Item = f32>> {
     input: BiQuad<I>,
-    wobble: UniformSourceIterator<TriangleWave, f32>,
+    wobble: UniformSourceIterator<TriangleWave>,
     f_min: f32,
     f_max: f32,
     update: u32,
@@ -50,7 +51,7 @@ where
     fn next(&mut self) -> Option<Self::Item> {
         self.update += 1;
         let wobble_phase = self.wobble.next().unwrap_or_default() * 0.5 + 0.5;
-        if self.update >= self.input.channels() as u32 * 10 {
+        if self.update >= self.input.channels().get() as u32 * 10 {
             let freq = self.f_min * (self.f_max / self.f_min).powf(wobble_phase);
 
             _ = self.biquad_control.send((
@@ -68,15 +69,15 @@ impl<I> Source for Wobble<I>
 where
     I: Source<Item = f32>,
 {
-    fn current_frame_len(&self) -> Option<usize> {
-        self.input.current_frame_len()
+    fn current_span_len(&self) -> Option<usize> {
+        self.input.current_span_len()
     }
 
-    fn channels(&self) -> u16 {
+    fn channels(&self) -> ChannelCount {
         self.input.channels()
     }
 
-    fn sample_rate(&self) -> u32 {
+    fn sample_rate(&self) -> SampleRate {
         self.input.sample_rate()
     }
 

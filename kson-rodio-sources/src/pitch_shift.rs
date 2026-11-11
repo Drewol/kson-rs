@@ -1,18 +1,19 @@
+use rodio::{ChannelCount, SampleRate};
+use rodio::{Sample, Source};
 use std::collections::VecDeque;
 
-use rodio::Source;
 use soundtouch::SoundTouch;
 
 use super::mix_source::MixSource;
 
 pub fn pitch_shift<I: Source<Item = f32>>(mut input: I, semitones: i32) -> PitchShift<I> {
     let channels = input.channels();
-    let mut st = SoundTouch::new(channels, input.sample_rate());
+    let mut st = SoundTouch::new(channels.get(), input.sample_rate().get());
     st.set_pitch_semi_tones(semitones);
     let min_samples = st.get_setting(soundtouch::settings::SETTING_NOMINAL_INPUT_SEQUENCE) as usize
-        * channels as usize;
-    let initial_latency =
-        st.get_setting(soundtouch::settings::SETTING_INITIAL_LATENCY) as usize * channels as usize;
+        * channels.get() as usize;
+    let initial_latency = st.get_setting(soundtouch::settings::SETTING_INITIAL_LATENCY) as usize
+        * channels.get() as usize;
     let mut out_buffer = VecDeque::new();
     out_buffer.resize(initial_latency, 0.0);
     out_buffer.make_contiguous();
@@ -65,7 +66,7 @@ where
                 .read_samples(self.out_buffer.as_mut_slices().0);
 
             self.out_buffer
-                .truncate((read * self.input.channels() as u32) as usize)
+                .truncate((read * self.input.channels().get() as u32) as usize)
         }
 
         match (
@@ -84,15 +85,15 @@ impl<I> Source for PitchShift<I>
 where
     I: Source<Item = f32>,
 {
-    fn current_frame_len(&self) -> Option<usize> {
+    fn current_span_len(&self) -> Option<usize> {
         Some(self.min_samples)
     }
 
-    fn channels(&self) -> u16 {
+    fn channels(&self) -> ChannelCount {
         self.input.channels()
     }
 
-    fn sample_rate(&self) -> u32 {
+    fn sample_rate(&self) -> SampleRate {
         self.input.sample_rate()
     }
 

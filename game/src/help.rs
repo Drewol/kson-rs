@@ -6,22 +6,13 @@ use std::{
 };
 
 use anyhow::anyhow;
-use di::{transient_factory, RefMut, ServiceCollection};
-use femtovg::rgb::ComponentSlice;
+use di::{transient_factory, ServiceCollection};
+use femtovg::rgb::{ComponentBytes, ComponentSlice};
 use itertools::Itertools;
 use puffin::profile_function;
+#[cfg(not(target_os = "android"))]
 use rfd::AsyncFileDialog;
-use tealr::{
-    mlu::{
-        mlua::{self, FromLuaMulti, IntoLuaMulti, Lua, Result},
-        MaybeSend,
-    },
-    TealMultiValue, ToTypename,
-};
-use wgpu::{
-    util::DeviceExt, Extent3d, Origin3d, RenderPassDescriptor, SurfaceConfiguration,
-    SurfaceTexture, Texture, TextureFormat, TextureUsages,
-};
+use wgpu::{util::DeviceExt, Extent3d, Origin3d, SurfaceTexture, Texture, TextureUsages};
 use winit::{dpi::PhysicalSize, event::ElementState};
 
 use crate::{
@@ -52,50 +43,6 @@ pub async fn await_task<T: Send + 'static>(mut t: poll_promise::Promise<T>) -> T
     }
 }
 
-pub(crate) fn add_lua_static_method<'lua, M, A, R, F, T: 'static + Sized + ToTypename>(
-    methods: &mut M,
-    name: &'static str,
-    mut function: F,
-) where
-    M: Sized + tealr::mlu::TealDataMethods<'lua, T>,
-    A: FromLuaMulti<'lua> + TealMultiValue,
-    R: IntoLuaMulti<'lua> + TealMultiValue,
-    F: 'static + MaybeSend + FnMut(&'lua Lua, &mut T, A) -> Result<R>,
-{
-    let scope_id = puffin::ThreadProfiler::call(|f| f.register_function_scope(name, "Lua", 0));
-
-    methods.add_function_mut(name, move |lua, p: A| {
-        let _profile_scope = if puffin::are_scopes_on() && !name.ends_with("Profile") {
-            Some(puffin::ProfilerScope::new(
-                scope_id,
-                format!(
-                    "{}:{}",
-                    lua.inspect_stack(1)
-                        .and_then(|s| s.source().source.map(|s| s.to_string()))
-                        .unwrap_or_default(),
-                    lua.inspect_stack(1).map(|s| s.curr_line()).unwrap_or(-1)
-                ),
-            ))
-        } else {
-            None
-        };
-
-        let mut maybe_data = { lua.app_data_ref::<RefMut<T>>().map(|x| x.clone()) };
-        if let Some(data_rc) = maybe_data.take() {
-            let data = data_rc.clone();
-            drop(data_rc);
-            drop(maybe_data);
-            let data_lock = data.try_write();
-            match data_lock {
-                Ok(mut data) => function(lua, &mut data, p),
-                Err(e) => Err(mlua::Error::external(format!("{e}"))),
-            }
-        } else {
-            Err(mlua::Error::external("App data not set"))
-        }
-    })
-}
-
 pub fn button_click_event(b: UscButton) -> Vec<UscInputEvent> {
     vec![
         UscInputEvent::Button(
@@ -122,9 +69,10 @@ impl ServiceHelper for ServiceCollection {
         }))
     }
 }
-
+#[cfg(not(target_os = "android"))]
 pub struct AsyncPicker(rfd::AsyncFileDialog, bool);
 
+#[cfg(not(target_os = "android"))]
 #[allow(unused)]
 impl AsyncPicker {
     pub fn new() -> Self {
@@ -213,21 +161,24 @@ impl AsyncPicker {
     }
 }
 
-pub fn transform_shader(s: String) -> String {
+pub fn transform_shader(mut s: String) -> String {
+    thread_local! {
+        static LAYOUT_REGEX: std::cell::OnceCell<regex::Regex> = const { std::cell::OnceCell::new() };
+    }
+
+    LAYOUT_REGEX
+        .try_with(|cell| {
+            let regex = cell.get_or_init(|| {
+                regex::Regex::new(r"layout\(location=[0-9]+\)\W*").expect("Failed to compile regex")
+            });
+
+            s = regex.replace_all(&s, "").into_owned();
+        })
+        .expect("Could not run shader regex");
+
     s.lines()
         .filter(|x| !x.starts_with("#version"))
         .filter(|x| !x.starts_with("#extension"))
-        .map(|x| {
-            if x.starts_with("layout") {
-                let i = x[5..]
-                    .find(" in ")
-                    .or_else(|| x[5..].find(" out "))
-                    .unwrap_or(0);
-                x[(i + 5)..].trim()
-            } else {
-                x
-            }
-        })
         .join("\n")
 }
 
@@ -248,7 +199,6 @@ pub fn take_screenshot(
     };
 
     let (buf, width, height) = img.to_contiguous_buf();
-
     let config = GameConfig::get();
     let mut path = config.game_folder.clone();
 
@@ -266,7 +216,7 @@ pub fn take_screenshot(
 
     image::save_buffer(
         &path,
-        buf.as_slice(),
+        unsafe { std::mem::transmute(buf.as_ref()) },
         width as _,
         height as _,
         image::ColorType::Rgba8,
@@ -300,8 +250,8 @@ pub enum ConfigCommand {
 
 #[derive(Clone)]
 pub struct RenderContext {
-    pub queue: Arc<wgpu::Queue>,
-    pub device: Arc<wgpu::Device>,
+    pub queue: wgpu::Queue,
+    pub device: wgpu::Device,
     pub surface_ctx: Arc<wgpu::Surface<'static>>,
     pub surface_config: wgpu::SurfaceConfiguration,
     pub gui: Arc<egui_wgpu::RenderState>,
@@ -393,7 +343,6 @@ impl RenderContext {
         viewport: Viewport,
         surface: &SurfaceTexture,
     ) -> (wgpu::Texture, wgpu::CommandBuffer) {
-        self.device.poll(wgpu::MaintainBase::Wait);
         let mut encoder = self
             .device
             .create_command_encoder(&wgpu::CommandEncoderDescriptor { label: None });
@@ -412,13 +361,13 @@ impl RenderContext {
         });
 
         encoder.copy_texture_to_texture(
-            wgpu::ImageCopyTextureBase {
+            wgpu::TexelCopyTextureInfoBase {
                 texture: &surface.texture,
                 mip_level: 0,
                 origin: wgpu::Origin3d::ZERO,
                 aspect: wgpu::TextureAspect::All,
             },
-            wgpu::ImageCopyTextureBase {
+            wgpu::TexelCopyTextureInfoBase {
                 texture: &target_texture,
                 mip_level: 0,
                 origin: wgpu::Origin3d::ZERO,
@@ -439,13 +388,13 @@ impl RenderContext {
         let mut encoder = self.encoder(None);
 
         encoder.copy_texture_to_texture(
-            wgpu::ImageCopyTextureBase {
+            wgpu::TexelCopyTextureInfoBase {
                 texture: &surface.texture,
                 mip_level: 0,
                 origin: Origin3d::ZERO,
                 aspect: wgpu::TextureAspect::All,
             },
-            wgpu::ImageCopyTextureBase {
+            wgpu::TexelCopyTextureInfoBase {
                 texture: &texture,
                 mip_level: 0,
                 origin: Origin3d::ZERO,
@@ -480,19 +429,55 @@ impl RenderContext {
         render_pass
     }
 
+    /// Clears the surface texture to black, should be the first command buffer of a frame
+    pub fn clear_surface(&self, surface: &wgpu::Texture) -> wgpu::CommandBuffer {
+        self.clear_texture(surface, wgpu::Color::BLACK)
+    }
+
+    pub fn clear_texture(&self, texture: &wgpu::Texture, color: wgpu::Color) -> wgpu::CommandBuffer {
+        let mut encoder = self.encoder(Some("Clear texture"));
+        encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+            label: Some("Clear texture"),
+            color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                view: &texture.create_view(&Default::default()),
+                resolve_target: None,
+                ops: wgpu::Operations {
+                    load: wgpu::LoadOp::Clear(color),
+                    store: wgpu::StoreOp::Store,
+                },
+            })],
+            depth_stencil_attachment: None,
+            timestamp_writes: None,
+            occlusion_query_set: None,
+        });
+        encoder.finish()
+    }
+
     pub fn encoder(&self, desc: Option<&str>) -> wgpu::CommandEncoder {
         self.device
             .create_command_encoder(&wgpu::CommandEncoderDescriptor { label: desc })
     }
 
     pub(crate) fn new_empty_screen_texture(&self, label: Option<&str>) -> wgpu::Texture {
-        self.device.create_texture(&wgpu::TextureDescriptor {
+        self.new_screen_format_texture(
             label,
-            size: Extent3d {
+            Extent3d {
                 width: self.surface_config.width,
                 height: self.surface_config.height,
                 depth_or_array_layers: 1,
             },
+        )
+    }
+
+    /// Creates a texture with the same format as the surface that can be rendered to and sampled
+    pub(crate) fn new_screen_format_texture(
+        &self,
+        label: Option<&str>,
+        size: Extent3d,
+    ) -> wgpu::Texture {
+        self.device.create_texture(&wgpu::TextureDescriptor {
+            label,
+            size,
             mip_level_count: 1,
             sample_count: 1,
             dimension: wgpu::TextureDimension::D2,

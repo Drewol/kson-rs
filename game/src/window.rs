@@ -1,10 +1,10 @@
 use std::sync::Arc;
 
-use femtovg::{Canvas, Renderer};
+use femtovg::Canvas;
 use winit::event_loop::ActiveEventLoop;
 use winit::window::Window;
 
-use wgpu::{InstanceDescriptor, TextureUsages};
+use wgpu::TextureUsages;
 use winit::{
     dpi::{PhysicalPosition, PhysicalSize},
     monitor::MonitorHandle,
@@ -19,22 +19,31 @@ pub fn find_monitor(
     monitors.find(|x| x.position() == pos)
 }
 
-type WindowCreation<'a> = (
+type WindowCreation = (
     Arc<winit::window::Window>,
-    wgpu::Surface<'a>,
+    wgpu::Surface<'static>,
     egui_wgpu::RenderState,
     Canvas<femtovg::renderer::WGPURenderer>,
     wgpu::SurfaceConfiguration,
 );
 
+pub fn present_mode(vsync: bool) -> wgpu::PresentMode {
+    if vsync {
+        wgpu::PresentMode::AutoVsync
+    } else {
+        wgpu::PresentMode::AutoNoVsync
+    }
+}
+
 /// Mostly borrowed code from femtovg/examples
-pub async fn create_window<'a>(el: &ActiveEventLoop) -> anyhow::Result<WindowCreation<'a>> {
+pub async fn create_window(el: &ActiveEventLoop) -> anyhow::Result<WindowCreation> {
     let settings = &GameConfig::get().graphics;
 
     let window_builder = Window::default_attributes()
         .with_resizable(true)
         .with_title("USC Game");
 
+    #[cfg(not(target_os = "android"))]
     let window_builder = match settings.fullscreen {
         crate::config::Fullscreen::Windowed { pos, size } => {
             window_builder.with_position(pos).with_inner_size(size)
@@ -59,16 +68,7 @@ pub async fn create_window<'a>(el: &ActiveEventLoop) -> anyhow::Result<WindowCre
         }
     };
 
-    let backends = wgpu::util::backend_bits_from_env().unwrap_or_default();
-    let dx12_shader_compiler = wgpu::util::dx12_shader_compiler_from_env().unwrap_or_default();
-    let gles_minor_version = wgpu::util::gles_minor_version_from_env().unwrap_or_default();
-
-    let instance = wgpu::Instance::new(InstanceDescriptor {
-        backends,
-        flags: wgpu::InstanceFlags::from_build_config().with_env(),
-        dx12_shader_compiler,
-        gles_minor_version,
-    });
+    let instance = wgpu::Instance::new(&wgpu::InstanceDescriptor::from_env_or_default());
 
     let window = Arc::new(el.create_window(window_builder)?);
 
@@ -78,7 +78,9 @@ pub async fn create_window<'a>(el: &ActiveEventLoop) -> anyhow::Result<WindowCre
 
     let adapter = wgpu::util::initialize_adapter_from_env_or_default(&instance, Some(&surface))
         .await
-        .expect("Failed to find an appropriate adapter");
+        .ok_or_else(|| anyhow::anyhow!("Failed to find an appropriate graphics adapter"))?;
+
+    log::info!("Using graphics adapter: {:?}", adapter.get_info());
 
     // Create the logical device and command queue
     let (device, queue) = adapter
@@ -89,14 +91,15 @@ pub async fn create_window<'a>(el: &ActiveEventLoop) -> anyhow::Result<WindowCre
                 // Make sure we use the texture resolution limits from the adapter, so we can support images the size of the swapchain.
                 required_limits: wgpu::Limits::downlevel_webgl2_defaults()
                     .using_resolution(adapter.limits()),
-                memory_hints: wgpu::MemoryHints::MemoryUsage,
+                memory_hints: wgpu::MemoryHints::Performance,
             },
             None,
         )
-        .await
-        .expect("Failed to create device");
+        .await?;
 
-    let mut surface_config = surface.get_default_config(&adapter, 1280, 720).unwrap();
+    let mut surface_config = surface
+        .get_default_config(&adapter, width.max(1), height.max(1))
+        .ok_or_else(|| anyhow::anyhow!("Surface not supported by adapter"))?;
 
     let swapchain_capabilities = surface.get_capabilities(&adapter);
     let swapchain_format = swapchain_capabilities
@@ -106,19 +109,18 @@ pub async fn create_window<'a>(el: &ActiveEventLoop) -> anyhow::Result<WindowCre
         .copied()
         .unwrap_or_else(|| swapchain_capabilities.formats[0]);
     surface_config.format = swapchain_format;
-    surface_config.usage = surface_config.usage | TextureUsages::COPY_SRC | TextureUsages::COPY_DST;
+    surface_config.usage |= TextureUsages::COPY_SRC | TextureUsages::COPY_DST;
+    surface_config.present_mode = present_mode(settings.vsync);
     surface.configure(&device, &surface_config);
 
     let renderer = egui_wgpu::Renderer::new(&device, surface_config.format, None, 1, false);
 
-    let device = Arc::new(device);
-
     let egui_state = egui_wgpu::RenderState {
-        adapter: Arc::new(adapter),
-        available_adapters: Arc::new([]),
-        device: device,
-        queue: Arc::new(queue),
-        target_format: wgpu::TextureFormat::Rgba8Unorm,
+        adapter,
+        available_adapters: vec![],
+        device,
+        queue,
+        target_format: surface_config.format,
         renderer: Arc::new(egui::mutex::RwLock::new(renderer)),
     };
 

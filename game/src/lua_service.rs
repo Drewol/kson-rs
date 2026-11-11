@@ -2,20 +2,19 @@ use std::{marker::PhantomData, rc::Rc, sync::Arc};
 
 use crate::{
     config::GameConfig,
-    game_data::{self, ExportGame, LuaPath},
+    game_data::{self, GameDataLua, LuaPath},
     help::RenderContext,
+    ir::{InternetRanking, InternetRankingLua},
     lua_http::{ExportLuaHttp, LuaHttp},
     util::lua_address,
-    vg_ui::{ExportVgfx, Vgfx},
+    vg_ui::{Vgfx, VgfxLua},
     InnerRuscMixer, LuaArena,
 };
 use anyhow::Result;
 use di::{injectable, Ref, RefMut};
 use log::info;
+use mlua::{AppDataRefMut, Lua, UserData};
 use puffin::profile_scope;
-use serde_json::json;
-use tealr::mlu::mlua::LuaSerdeExt;
-use tealr::mlu::mlua::{AppDataRefMut, Lua};
 
 //TODO: Used expanded macro because of wrong dependencies, use macro when fixed
 #[injectable]
@@ -25,6 +24,26 @@ pub struct LuaProvider {
     context: Ref<RenderContext>,
     mixer: Ref<InnerRuscMixer>,
     game_data: RefMut<game_data::GameData>,
+}
+
+pub struct LuaKey(usize);
+
+impl LuaKey {
+    pub fn new(l: &Lua) -> Self {
+        Self(lua_address(l))
+    }
+
+    pub fn key(&self) -> usize {
+        self.0
+    }
+}
+
+pub fn set_global_env<T: UserData + 'static>(
+    v: T,
+    name: &str,
+    l: &Lua,
+) -> std::result::Result<(), mlua::Error> {
+    l.globals().set(name, v)
 }
 
 impl LuaProvider {
@@ -39,16 +58,13 @@ impl LuaProvider {
         let vgfx = self.vgfx.clone();
         let game_data = self.game_data.clone();
 
-        tealr::mlu::set_global_env(ExportVgfx, &lua)?;
-        tealr::mlu::set_global_env(ExportGame, &lua)?;
-        tealr::mlu::set_global_env(LuaPath, &lua)?;
-        tealr::mlu::set_global_env(ExportLuaHttp, &lua)?;
-        lua.globals().set(
-            "IRData",
-            lua.to_value(&json!({
-                "Active": false
-            }))?,
-        )?;
+        set_global_env(VgfxLua, "gfx", &lua)?;
+        set_global_env(GameDataLua, "game", &lua)?;
+        set_global_env(LuaPath, "path", &lua)?;
+        set_global_env(ExportLuaHttp, "http", &lua)?;
+        set_global_env(InternetRankingLua, "IRData", &lua)?;
+        set_global_env(InternetRankingLua, "IR", &lua)?;
+
         arena
             .write()
             .expect("Could not get lock to lua arena")
@@ -67,11 +83,13 @@ impl LuaProvider {
             lua.set_app_data(self.context.clone());
             lua.set_app_data(self.mixer.clone());
             lua.set_app_data(LuaHttp::default());
+            lua.set_app_data(InternetRanking::new());
+            lua.set_app_data(LuaKey::new(&lua));
             //lua.gc_stop();
         }
 
         {
-            let package: tealr::mlu::mlua::Table = lua.globals().get("package")?;
+            let package: mlua::Table = lua.globals().get("package")?;
             let old_path: String = package.get("path")?;
 
             let package_path = format!(
@@ -110,7 +128,7 @@ impl LuaProvider {
 
 pub(crate) struct LuaRenderPass<'lua, 'encoder>(&'lua Lua, PhantomData<&'encoder ()>);
 
-impl<'lua, 'encoder> Drop for LuaRenderPass<'lua, 'encoder> {
+impl Drop for LuaRenderPass<'_, '_> {
     fn drop(&mut self) {
         let rp = self
             .0
@@ -122,7 +140,7 @@ impl<'lua, 'encoder> Drop for LuaRenderPass<'lua, 'encoder> {
 }
 
 pub trait LuaExt {
-    fn render_pass(&self) -> Option<AppDataRefMut<wgpu::RenderPass<'static>>>;
+    fn render_pass(&self) -> Option<AppDataRefMut<'_, wgpu::RenderPass<'static>>>;
     fn wgpu_surface(&self) -> Rc<wgpu::SurfaceTexture>;
     fn render_context(&self) -> Arc<RenderContext>;
     fn wgpu_encoder(&self, label: Option<&str>) -> wgpu::CommandEncoder;
@@ -134,7 +152,7 @@ pub trait LuaExt {
     ) -> LuaRenderPass<'lua, 'encoder>;
 }
 
-impl LuaExt for tealr::mlu::mlua::Lua {
+impl LuaExt for Lua {
     fn wgpu_encoder(&self, label: Option<&str>) -> wgpu::CommandEncoder {
         let ctx = self
             .app_data_ref::<Arc<RenderContext>>()
@@ -154,7 +172,7 @@ impl LuaExt for tealr::mlu::mlua::Lua {
             .clone()
     }
 
-    fn render_pass(&self) -> Option<AppDataRefMut<wgpu::RenderPass<'static>>> {
+    fn render_pass(&self) -> Option<AppDataRefMut<'_, wgpu::RenderPass<'static>>> {
         self.app_data_mut()
     }
 

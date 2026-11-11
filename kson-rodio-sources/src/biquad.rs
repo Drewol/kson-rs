@@ -1,9 +1,9 @@
+use rodio::{ChannelCount, SampleRate};
+use rodio::{Sample, Source};
 use std::{
     f32::consts::SQRT_2,
     sync::mpsc::{Receiver, Sender},
 };
-
-use rodio::Source;
 
 use super::mix_source::MixSource;
 
@@ -62,8 +62,8 @@ pub fn biquad<I: Source<Item = f32>>(
         b0: 0.0,
         b1: 0.0,
         b2: 0.0,
-        za: vec![[0.0; 2]; channels as usize],
-        zb: vec![[0.0; 2]; channels as usize],
+        za: vec![[0.0; 2]; channels.get() as usize],
+        zb: vec![[0.0; 2]; channels.get() as usize],
         current_channel: 0,
         updater,
         state,
@@ -85,14 +85,15 @@ pub struct BiQuad<I: Source<Item = f32>> {
     mix: f32,
     input: I,
     current_channel: u16,
-    channels: u16,
+    channels: ChannelCount,
     updater: Option<Receiver<(Option<BiQuadState>, Option<f32>)>>,
     state: BiQuadState,
 }
 
 impl<I: Source<Item = f32>> BiQuad<I> {
     fn set_peaking(&mut self, gain: f32) {
-        let w0 = (2.0 * std::f32::consts::PI * self.state.freq) / self.input.sample_rate() as f32;
+        let w0 =
+            (2.0 * std::f32::consts::PI * self.state.freq) / self.input.sample_rate().get() as f32;
         let cw0 = w0.cos();
         let alpha = w0.sin() / (2.0 * self.state.q);
         let a = 10.0_f32.powf(gain / 40.0);
@@ -106,7 +107,8 @@ impl<I: Source<Item = f32>> BiQuad<I> {
     }
 
     fn set_allpass(&mut self) {
-        let w0 = (2.0 * std::f32::consts::PI * self.state.freq) / self.input.sample_rate() as f32;
+        let w0 =
+            (2.0 * std::f32::consts::PI * self.state.freq) / self.input.sample_rate().get() as f32;
         let cw0 = w0.cos();
         let alpha = w0.sin() / (2.0 * self.state.q);
 
@@ -119,7 +121,8 @@ impl<I: Source<Item = f32>> BiQuad<I> {
     }
 
     fn set_lowpass(&mut self) {
-        let w0 = (2.0 * std::f32::consts::PI * self.state.freq) / self.input.sample_rate() as f32;
+        let w0 =
+            (2.0 * std::f32::consts::PI * self.state.freq) / self.input.sample_rate().get() as f32;
         let cw0 = w0.cos();
         let alpha = w0.sin() / (2.0 * self.state.q);
 
@@ -132,7 +135,8 @@ impl<I: Source<Item = f32>> BiQuad<I> {
     }
 
     fn set_highpass(&mut self) {
-        let w0 = (2.0 * std::f32::consts::PI * self.state.freq) / self.input.sample_rate() as f32;
+        let w0 =
+            (2.0 * std::f32::consts::PI * self.state.freq) / self.input.sample_rate().get() as f32;
         let cw0 = w0.cos();
         let alpha = w0.sin() / (2.0 * self.state.q);
 
@@ -145,7 +149,8 @@ impl<I: Source<Item = f32>> BiQuad<I> {
     }
 
     fn set_high_shelf(&mut self, gain: f32) {
-        let w0 = (2.0 * std::f32::consts::PI * self.state.freq) / self.input.sample_rate() as f32;
+        let w0 =
+            (2.0 * std::f32::consts::PI * self.state.freq) / self.input.sample_rate().get() as f32;
         let cw0 = w0.cos();
         let alpha = w0.sin() / (2.0 * self.state.q);
         let a = 10.0_f32.powf(gain / 40.0);
@@ -185,7 +190,7 @@ impl<I: Source<Item = f32>> BiQuad<I> {
     fn process(&mut self, sample: f32) -> f32 {
         let c = self.current_channel as usize;
         self.current_channel += 1;
-        if self.current_channel >= self.channels {
+        if self.current_channel >= self.channels.get() {
             self.current_channel = 0;
             while let Some((filter, mix)) = self.updater.as_ref().and_then(|x| x.try_recv().ok()) {
                 if let Some(filter) = filter {
@@ -242,15 +247,15 @@ impl<I> Source for BiQuad<I>
 where
     I: Source<Item = f32>,
 {
-    fn current_frame_len(&self) -> Option<usize> {
-        self.input.current_frame_len()
+    fn current_span_len(&self) -> Option<usize> {
+        self.input.current_span_len()
     }
 
-    fn channels(&self) -> u16 {
+    fn channels(&self) -> ChannelCount {
         self.channels
     }
 
-    fn sample_rate(&self) -> u32 {
+    fn sample_rate(&self) -> SampleRate {
         self.input.sample_rate()
     }
 

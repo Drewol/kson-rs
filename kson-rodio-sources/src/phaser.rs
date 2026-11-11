@@ -1,8 +1,10 @@
 #![allow(unused)]
+use rodio::{nz, ChannelCount, SampleRate};
+use rodio::{Sample, Source};
 
 use std::sync::mpsc::channel;
 
-use rodio::{source::UniformSourceIterator, Source};
+use rodio::source::UniformSourceIterator;
 
 use super::{
     biquad::{biquad, BiQuadState, BiquadController},
@@ -14,7 +16,7 @@ pub fn phaser(mut input: Box<dyn Source<Item = f32>>, stage: u32) -> Phaser {
     let sample_rate = input.sample_rate();
 
     let mut stage_controls = vec![];
-    input = Box::new(UniformSourceIterator::new(input, 2, sample_rate));
+    input = Box::new(UniformSourceIterator::new(input, nz!(2), sample_rate));
     for _ in 0..stage {
         let (controls, reader) = channel();
         input = Box::new(biquad(
@@ -81,15 +83,15 @@ impl Iterator for Phaser {
 }
 
 impl Source for Phaser {
-    fn current_frame_len(&self) -> Option<usize> {
-        self.input.current_frame_len()
+    fn current_span_len(&self) -> Option<usize> {
+        self.input.current_span_len()
     }
 
-    fn channels(&self) -> u16 {
-        2
+    fn channels(&self) -> ChannelCount {
+        nz!(2)
     }
 
-    fn sample_rate(&self) -> u32 {
+    fn sample_rate(&self) -> SampleRate {
         self.input.sample_rate()
     }
 

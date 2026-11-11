@@ -1,3 +1,4 @@
+use crate::vg_ui::{Vgfx, VgfxSyncExt};
 use crate::{
     async_service::AsyncService,
     button_codes::{LaserAxis, LaserState, UscButton, UscInputEvent},
@@ -6,6 +7,7 @@ use crate::{
     help::await_task,
     input_state::InputState,
     lua_service::LuaProvider,
+    multiplayer::{self, MultiplayerState},
     results::Score,
     scene::{Scene, SceneData},
     settings_dialog::SettingsDialog,
@@ -13,17 +15,20 @@ use crate::{
         self, DiffId, ScoreProvider, ScoreProviderEvent, SongDiffId, SongFilter, SongFilterType,
         SongId, SongProvider, SongProviderEvent, SongSort,
     },
+    songselect::favourite_dialog::CollectionDialog,
     take_duration_fade::take_duration_fade,
-    vg_ui::{Vgfx, VgfxSyncExt},
-    ControlMessage, RuscMixer,
+    util::{self, Warn},
+    ControlMessage, FileSongProvider, NauticaSongProvider, RuscMixer,
 };
 use anyhow::{anyhow, ensure, Result};
 use di::{RefMut, ServiceProvider};
 use itertools::Itertools;
+use kson::BtLane;
 use kson_rodio_sources::owned_source::{self, owned_source};
 use log::warn;
+use mlua::{self, Function, Lua, LuaSerdeExt};
 use puffin::{profile_function, profile_scope};
-use rodio::Source;
+use rodio::{nz, Source};
 use serde::Serialize;
 use serde_json::json;
 use std::{
@@ -38,22 +43,17 @@ use std::{
     },
     time::{Duration, SystemTime},
 };
-use tealr::{
-    mlu::{
-        mlua::{self, Function, Lua, LuaSerdeExt},
-        TealData, UserData,
-    },
-    SingleType, ToTypename,
-};
+use winit::event::{ElementState, Event, WindowEvent};
 use winit::{
-    event::{ElementState, Event, Ime, KeyEvent, WindowEvent},
+    event::KeyEvent,
     keyboard::{Key, NamedKey},
 };
 
+pub mod favourite_dialog;
 mod song_collection;
 use song_collection::*;
 
-#[derive(Debug, ToTypename, Clone, Serialize, UserData)]
+#[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Difficulty {
     pub jacket_path: PathBuf,
@@ -67,47 +67,25 @@ pub struct Difficulty {
     pub illustrator: String,
 }
 
-impl TealData for Difficulty {
-    fn add_fields<'lua, F: tealr::mlu::TealDataFields<'lua, Self>>(fields: &mut F) {
-        fields.add_field_method_get("jacketPath", |_, diff| {
-            diff.jacket_path
-                .clone()
-                .into_os_string()
-                .into_string()
-                .map_err(|_| mlua::Error::external("Bad path"))
-        });
-        fields.add_field_method_get("level", |_, diff| Ok(diff.level));
-        fields.add_field_method_get("difficulty", |_, diff| Ok(diff.difficulty));
-        fields.add_field_method_get("id", |_, diff| Ok(diff.id.clone()));
-        fields.add_field_method_get("effector", |_, diff| Ok(diff.effector.clone()));
-        fields.add_field_method_get("topBadge", |_, diff| Ok(diff.top_badge));
-        fields.add_field_method_get("scores", |_, diff| Ok(diff.scores.clone()));
-    }
-}
-
-#[derive(Debug, ToTypename, UserData, Clone, Serialize, Default)]
+#[derive(Debug, Clone, Serialize, Default)]
 pub struct Song {
     pub title: String,
     pub artist: String,
     pub bpm: String,                                //ex. "170-200"
     pub id: SongId,                                 //unique static identifier
     pub difficulties: Arc<RwLock<Vec<Difficulty>>>, //array of all difficulties for this song
+    #[deprecated = "Only exists for compatibility with skins that have not been updated"]
+    pub path: String,
 }
 
-//Keep tealdata for generating type definitions
-impl TealData for Song {
-    fn add_fields<'lua, F: tealr::mlu::TealDataFields<'lua, Self>>(fields: &mut F) {
-        fields.add_field_method_get("title", |_, song| Ok(song.title.clone()));
-        fields.add_field_method_get("artist", |_, song| Ok(song.artist.clone()));
-        fields.add_field_method_get("bpm", |_, song| Ok(song.bpm.clone()));
-        fields.add_field_method_get("id", |_, song| Ok(song.id.clone()));
-        fields.add_field_method_get("difficulties", |_, song| {
-            Ok(song.difficulties.read().expect("Lock error").clone())
-        });
-    }
+#[derive(Serialize)]
+pub enum SongProviderSelection {
+    Default,
+    Files,
+    Nautica,
 }
 
-#[derive(Serialize, UserData)]
+#[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct SongSelect {
     songs: SongCollection,
@@ -119,35 +97,11 @@ pub struct SongSelect {
     preview_countdown: f64,
     preview_finished: Arc<AtomicUsize>,
     preview_playing: Arc<AtomicU64>,
-}
-
-impl TealData for SongSelect {
-    fn add_fields<'lua, F: tealr::mlu::TealDataFields<'lua, Self>>(fields: &mut F) {
-        fields.add_field_method_get("songs", |_, _| Ok([] as [Song; 0]));
-        fields.add_field_method_get("searchInputActive", |_, songwheel| {
-            Ok(songwheel.search_input_active)
-        });
-        fields.add_field_method_get("searchText", |_, songwheel| {
-            Ok(songwheel.search_text.clone())
-        });
-        fields.add_field_method_get(
-            "searchStatus",
-            |_, _| -> Result<Option<String>, tealr::mlu::mlua::Error> { Ok(None) },
-        );
-    }
-}
-
-impl ToTypename for SongSelect {
-    fn to_typename() -> tealr::Type {
-        tealr::Type::Single(SingleType {
-            name: tealr::Name(std::borrow::Cow::Borrowed("songwheel")),
-            kind: tealr::KindOfType::External,
-        })
-    }
+    song_provider: SongProviderSelection,
 }
 
 impl SongSelect {
-    pub fn new() -> Self {
+    pub fn new(song_provider: SongProviderSelection) -> Self {
         Self {
             songs: Default::default(),
             search_input_active: false,
@@ -158,6 +112,7 @@ impl SongSelect {
             preview_countdown: 1500.0,
             preview_finished: Arc::new(AtomicUsize::new(0)),
             preview_playing: Arc::new(AtomicU64::new(0)),
+            song_provider,
         }
     }
 }
@@ -203,6 +158,7 @@ pub struct SongSelectScene {
     async_worker: RefMut<AsyncService>,
     sort_lua: Rc<Lua>,
     filter_lua: Rc<Lua>,
+    collection_lua: Rc<Lua>,
     level_filter: u8,
     folder_filter_index: usize,
     sort_index: usize,
@@ -210,13 +166,20 @@ pub struct SongSelectScene {
     sorts: Vec<song_provider::SongSort>,
     auto_rx: Receiver<crate::game_main::AutoPlay>,
     vgfx: RefMut<Vgfx>,
+    multiplayer: RefMut<multiplayer::MultiplayerService>,
+    collection_dialog: Option<favourite_dialog::CollectionDialog>,
 }
 
 impl SongSelectScene {
     pub fn new(mut song_select: Box<SongSelect>, services: ServiceProvider) -> Self {
         let sample_owner = owned_source::Marker::new();
         let input_state = InputState::clone(&services.get_required());
-        let song_provider: RefMut<dyn SongProvider> = services.get_required();
+        let song_provider: RefMut<dyn SongProvider> = match song_select.song_provider {
+            SongProviderSelection::Default => services.get_required(),
+            SongProviderSelection::Files => services.get_required_mut::<FileSongProvider>(),
+            SongProviderSelection::Nautica => services.get_required_mut::<NauticaSongProvider>(),
+        };
+
         let score_provider: RefMut<dyn ScoreProvider> = services.get_required();
         let score_events = score_provider.write().expect("Lock error").subscribe();
         let song_events = song_provider.write().expect("Lock error").subscribe();
@@ -230,6 +193,7 @@ impl SongSelectScene {
         Self {
             filter_lua: LuaProvider::new_lua(),
             sort_lua: LuaProvider::new_lua(),
+            collection_lua: LuaProvider::new_lua(),
             background_lua: LuaProvider::new_lua(),
             lua: LuaProvider::new_lua(),
             state: song_select,
@@ -247,6 +211,7 @@ impl SongSelectScene {
                 auto_tx,
             ),
             async_worker: services.get_required(),
+            multiplayer: services.get_required(),
             song_events,
             score_events,
             song_provider,
@@ -261,46 +226,54 @@ impl SongSelectScene {
             sorts: vec![],
             settings_closed: SystemTime::UNIX_EPOCH,
             auto_rx,
+            collection_dialog: None,
         }
     }
 
     fn on_search(&mut self) {
-        _ = self.update_lua();
+        _ = self.update_lua(&self.lua);
         self.song_provider
             .write()
             .expect("Lock error")
             .set_search(&self.state.search_text);
     }
 
-    fn update_lua(&self) -> anyhow::Result<()> {
+    fn update_lua(&self, lua: &Lua) -> anyhow::Result<()> {
         profile_function!();
-        Ok(self
-            .lua
-            .globals()
-            .set("songwheel", self.lua.to_value(&self.state)?)?)
+        Ok(lua.globals().set(
+            "songwheel",
+            lua.to_value_with(
+                &self.state,
+                mlua::serde::ser::Options::new().serialize_none_to_null(false),
+            )?,
+        )?)
     }
 
-    fn update_filter_sort_lua(&self) -> anyhow::Result<(Vec<SongFilterType>, Vec<SongSort>)> {
+    fn update_filter_sort_lua(
+        &self,
+        sort_lua: &Lua,
+        filter_lua: &Lua,
+    ) -> anyhow::Result<(Vec<SongFilterType>, Vec<SongSort>)> {
         let (filters, sorts) = {
             let sp = self.song_provider.read().expect("Lock error");
             (sp.get_available_filters(), sp.get_available_sorts())
         };
 
-        self.sort_lua
+        sort_lua
             .globals()
             .set("sorts", sorts.iter().map(ToString::to_string).collect_vec())?;
 
-        self.filter_lua.globals().set(
+        filter_lua.globals().set(
             "filters",
-            self.filter_lua.to_value(&json!({
+            filter_lua.to_value(&json!({
                 "folder": filters.iter().map(|x| x.to_string()).collect_vec(),
                 "level": (0..=20).map(|x| if x == 0 {"All".to_owned()} else {format!("Level: {x}")}).collect_vec(),
             }))?,
         )?;
 
-        let set_selection: Function = self.filter_lua.globals().get("set_selection")?;
-        set_selection.call((self.level_filter + 1, false))?;
-        set_selection.call((self.folder_filter_index + 1, true))?;
+        let set_selection: Function = filter_lua.globals().get("set_selection")?;
+        set_selection.call::<()>((self.level_filter + 1, false))?;
+        set_selection.call::<()>((self.folder_filter_index + 1, true))?;
 
         Ok((filters, sorts))
     }
@@ -357,15 +330,38 @@ impl SongSelectScene {
 
     fn start_song(&mut self, autoplay: AutoPlay) {
         let state = &self.state;
-        let song = self.state.songs.get(state.selected_index as usize).cloned();
+        let Some(song) = self.state.songs.get(state.selected_index as usize).cloned() else {
+            return;
+        };
 
-        if let (Some(pc), Some(song)) = (&self.program_control, song) {
-            let diff = state.selected_diff_index as usize;
-            let song_diff = SongDiffId::SongDiff(song.id.clone(), {
-                song.difficulties.read().expect("Lock error")[diff]
-                    .id
-                    .clone()
-            });
+        let diff = state.selected_diff_index as usize;
+        let song_diff = SongDiffId::SongDiff(song.id.clone(), {
+            song.difficulties.read().expect("Lock error")[diff]
+                .id
+                .clone()
+        });
+
+        let mut multi = self.multiplayer.write().unwrap();
+        if multi.state() == MultiplayerState::Connected {
+            let Ok(multi_song) = self
+                .song_provider
+                .write()
+                .unwrap()
+                .set_multiplayer_song(&song_diff)
+                .inspect_err(|e| warn!("Could not find song {song_diff:?}: {e}"))
+            else {
+                self.closed = true;
+                return;
+            };
+
+            _ = multi
+                .send(multiplayer_protocol::messages::server::ServerCommand::SetSong(multi_song));
+
+            self.closed = true;
+            return;
+        }
+
+        if let Some(pc) = &self.program_control {
             match self
                 .song_provider
                 .read()
@@ -395,6 +391,18 @@ impl SongSelectScene {
             .read()
             .expect("Lock error")
             .init_scores(&mut songs)
+    }
+
+    fn set_lua_song_index(&self, lua: &Lua) -> Result<(), anyhow::Error> {
+        let set_song_idx: Function = lua.globals().get("set_index")?;
+        set_song_idx.call::<()>(self.state.selected_index + 1)?;
+        Ok(())
+    }
+
+    fn set_lua_diff_index(&self, lua: &Lua) -> Result<(), anyhow::Error> {
+        let set_diff_idx: Function = lua.globals().get("set_diff")?;
+        set_diff_idx.call::<()>(self.state.selected_diff_index + 1)?;
+        Ok(())
     }
 }
 
@@ -448,27 +456,34 @@ fn add_preview_source<T: Source<Item = f32> + Send + 'static>(
 }
 
 impl Scene for SongSelectScene {
-    fn render_ui(
-        &mut self,
-        dt: f64,
-    ) -> std::result::Result<std::vec::Vec<wgpu::CommandBuffer>, anyhow::Error> {
+    fn render_ui(&mut self, dt: f64) -> Result<Vec<wgpu::CommandBuffer>> {
         profile_function!();
         let render_bg: Function = self.background_lua.globals().get("render")?;
-        render_bg.call(dt / 1000.0)?;
+        render_bg.call::<()>(dt / 1000.0)?;
 
         let render_wheel: Function = self.lua.globals().get("render")?;
-        render_wheel.call(dt / 1000.0)?;
+        render_wheel.call::<()>(dt / 1000.0)?;
 
         let render_filters: Function = self.filter_lua.globals().get("render")?;
-        render_filters.call((
+        render_filters.call::<()>((
             dt / 1000.0,
             matches!(self.menu_state, MenuState::Folders | MenuState::Levels),
         ))?;
 
         let render_sorting: Function = self.sort_lua.globals().get("render")?;
-        render_sorting.call((dt / 1000.0, self.menu_state == MenuState::Sorting))?;
+        render_sorting.call::<()>((dt / 1000.0, self.menu_state == MenuState::Sorting))?;
 
         self.settings_dialog.render(dt)?;
+
+        if let Some(d) = self.collection_dialog.take() {
+            if d.render(dt / 1000.0) {
+                self.collection_dialog = Some(d);
+            } else {
+                // Dialog closed, update available collections list
+                (self.filters, self.sorts) =
+                    self.update_filter_sort_lua(&self.sort_lua, &self.filter_lua)?;
+            }
+        }
 
         Ok(self.vgfx.take_commands())
     }
@@ -504,7 +519,7 @@ impl Scene for SongSelectScene {
 
                                 let set_song_idx: Function = self.lua.globals().get("set_index")?;
 
-                                set_song_idx.call::<_, i32>(state.selected_index + 1)?;
+                                set_song_idx.call::<i32>(state.selected_index + 1)?;
                             }
                         }
                         ui.end_row();
@@ -551,7 +566,7 @@ impl Scene for SongSelectScene {
     }
 
     fn init(&mut self, app_control_tx: Sender<ControlMessage>) -> anyhow::Result<()> {
-        self.update_lua()?;
+        self.update_lua(&self.lua)?;
 
         let lua_provider = self.services.get_required::<LuaProvider>();
 
@@ -563,13 +578,15 @@ impl Scene for SongSelectScene {
 
         lua_provider.register_libraries(self.filter_lua.clone(), "songselect/filterwheel.lua")?;
         lua_provider.register_libraries(self.sort_lua.clone(), "songselect/sortwheel.lua")?;
-        (self.filters, self.sorts) = self.update_filter_sort_lua()?;
+        lua_provider.register_libraries(self.collection_lua.clone(), "collectiondialog.lua")?;
+        (self.filters, self.sorts) =
+            self.update_filter_sort_lua(&self.sort_lua, &self.filter_lua)?;
 
         let mut bgm_amp = 1_f32;
         let preview_playing = self.state.preview_finished.clone();
         let suspended = self.suspended.clone();
         self.mixer.add(owned_source(
-            rodio::source::Zero::new(2, 44100) //TODO: Load something from skin audio
+            rodio::source::Zero::new(nz!(2), nz!(44100)) //TODO: Load something from skin audio
                 .amplify(0.2)
                 .pausable(false)
                 .amplify(1.0)
@@ -685,7 +702,7 @@ impl Scene for SongSelectScene {
         if songs_dirty {
             profile_scope!("Updating state after songs change");
             self.reload_scores()?;
-            self.update_lua()?;
+            self.update_lua(&self.lua)?;
 
             if had_no_songs {
                 if let Some(id) = GameConfig::get().song_select.last_played.get_song() {
@@ -697,8 +714,7 @@ impl Scene for SongSelectScene {
             }
 
             if index_dirty {
-                let set_song_idx: Function = self.lua.globals().get("set_index")?;
-                set_song_idx.call::<_, i32>(self.state.selected_index + 1)?;
+                self.set_lua_song_index(&self.lua)?;
             }
 
             let diff = self.state.selected_diff_index;
@@ -717,9 +733,20 @@ impl Scene for SongSelectScene {
                     .min(self.state.selected_diff_index as usize) as _;
 
             if diff != self.state.selected_diff_index {
-                let set_diff_idx: Function = self.lua.globals().get("set_diff")?;
-                set_diff_idx.call::<_, ()>(self.state.selected_diff_index + 1)?;
+                self.set_lua_diff_index(&self.lua)?;
             }
+        }
+
+        if let Some(d) = self.collection_dialog.as_mut() {
+            if diff_advance_steps != 0 {
+                d.advance_selection(diff_advance_steps);
+            }
+            if song_advance_steps != 0 {
+                d.advance_selection(song_advance_steps);
+            }
+
+            d.tick();
+            return Ok(());
         }
 
         match self.menu_state {
@@ -734,9 +761,7 @@ impl Scene for SongSelectScene {
                         .set_current_index(song_idx as _);
 
                     if song_advance_steps != 0 {
-                        let set_song_idx: Function = self.lua.globals().get("set_index")?;
-
-                        set_song_idx.call::<_, ()>(self.state.selected_index + 1)?;
+                        self.set_lua_song_index(&self.lua)?;
                     }
 
                     if diff_advance_steps != 0 || song_advance_steps != 0 {
@@ -753,8 +778,7 @@ impl Scene for SongSelectScene {
                             );
 
                         if prev_diff != self.state.selected_diff_index {
-                            let set_diff_idx: Function = self.lua.globals().get("set_diff")?;
-                            set_diff_idx.call::<_, ()>(self.state.selected_diff_index + 1)?;
+                            self.set_lua_diff_index(&self.lua)?;
                         }
                     }
                 }
@@ -774,7 +798,7 @@ impl Scene for SongSelectScene {
                             .set_sort(self.sorts[self.sort_index]);
                         let set_selection: Function =
                             self.sort_lua.globals().get("set_selection")?;
-                        set_selection.call(self.sort_index + 1)?;
+                        set_selection.call::<()>(self.sort_index + 1)?;
                     }
                 }
             }
@@ -791,7 +815,7 @@ impl Scene for SongSelectScene {
                             self.level_filter,
                         ));
                     let set_selection: Function = self.filter_lua.globals().get("set_selection")?;
-                    set_selection.call((self.level_filter + 1, false))?;
+                    set_selection.call::<()>((self.level_filter + 1, false))?;
                 }
             }
             MenuState::Folders => {
@@ -809,7 +833,7 @@ impl Scene for SongSelectScene {
                         );
                         let set_selection: Function =
                             self.filter_lua.globals().get("set_selection")?;
-                        set_selection.call((self.folder_filter_index + 1, true))?;
+                        set_selection.call::<()>((self.folder_filter_index + 1, true))?;
                     }
                 }
             }
@@ -831,6 +855,17 @@ impl Scene for SongSelectScene {
             return;
         }
 
+        // This laser advance is shared with collection dialog but not settings dialog
+        if let Event::UserEvent(UscInputEvent::Laser(ls, _time)) = event {
+            self.song_advance += LaserAxis::from(ls.get(kson::Side::Right)).delta;
+            self.diff_advance += LaserAxis::from(ls.get(kson::Side::Left)).delta;
+        }
+
+        if let Some(diag) = self.collection_dialog.as_mut() {
+            diag.on_input(event);
+            return;
+        }
+
         if let Event::WindowEvent {
             event:
                 WindowEvent::KeyboardInput {
@@ -848,7 +883,7 @@ impl Scene for SongSelectScene {
             self.state.search_input_active = !self.state.search_input_active;
             self.input_state
                 .set_text_input_active(self.state.search_input_active);
-            _ = self.update_lua();
+            _ = self.update_lua(&self.lua);
             return;
         }
 
@@ -867,8 +902,8 @@ impl Scene for SongSelectScene {
                             self.filters[self.folder_filter_index].clone(),
                             self.level_filter,
                         ));
-                    _ = self.update_lua();
-                    _ = self.update_filter_sort_lua();
+                    _ = self.update_lua(&self.lua);
+                    _ = self.update_filter_sort_lua(&self.sort_lua, &self.filter_lua);
                 }
                 crate::companion_interface::ClientEvent::SetSongFilterType(song_filter_type) => {
                     if let Some(pos) = self
@@ -884,16 +919,16 @@ impl Scene for SongSelectScene {
                                 song_filter_type.clone(),
                                 self.level_filter,
                             ));
-                        _ = self.update_lua();
-                        _ = self.update_filter_sort_lua();
+                        _ = self.update_lua(&self.lua);
+                        _ = self.update_filter_sort_lua(&self.sort_lua, &self.filter_lua);
                     }
                 }
                 crate::companion_interface::ClientEvent::SetSongSort(song_sort) => {
                     if let Some(pos) = self.sorts.iter().find_position(|x| **x == *song_sort) {
                         self.sort_index = pos.0;
                         self.song_provider.write().unwrap().set_sort(*song_sort);
-                        _ = self.update_lua();
-                        _ = self.update_filter_sort_lua();
+                        _ = self.update_lua(&self.lua);
+                        _ = self.update_filter_sort_lua(&self.sort_lua, &self.filter_lua);
                     }
                 }
                 _ => {}
@@ -902,55 +937,10 @@ impl Scene for SongSelectScene {
 
         if self.state.search_input_active {
             //Text input handling
-            let mut updated = true;
-            match event {
-                Event::WindowEvent {
-                    window_id: _,
-                    event:
-                        WindowEvent::KeyboardInput {
-                            event:
-                                KeyEvent {
-                                    text: Some(text),
-                                    state: ElementState::Pressed,
-                                    ..
-                                },
-                            ..
-                        },
-                } if !text.chars().any(char::is_control) => {
-                    self.state.search_text += text.as_str();
-                }
-                Event::WindowEvent {
-                    window_id: _,
-                    event: WindowEvent::Ime(Ime::Commit(s)),
-                } => self.state.search_text.push_str(s.as_str()),
-                Event::WindowEvent {
-                    event:
-                        WindowEvent::KeyboardInput {
-                            event:
-                                KeyEvent {
-                                    state: ElementState::Pressed,
-                                    logical_key: Key::Named(NamedKey::Backspace),
-                                    ..
-                                },
-                            ..
-                        },
-                    ..
-                } => {
-                    self.state.search_text.pop();
-                }
-                _ => {
-                    updated = false;
-                }
-            }
-
+            let updated = util::do_text_event(&mut self.state.search_text, event);
             if updated {
                 self.on_search();
             }
-        }
-
-        if let Event::UserEvent(UscInputEvent::Laser(ls, _time)) = event {
-            self.song_advance += LaserAxis::from(ls.get(kson::Side::Right)).delta;
-            self.diff_advance += LaserAxis::from(ls.get(kson::Side::Left)).delta;
         }
     }
 
@@ -958,6 +948,11 @@ impl Scene for SongSelectScene {
         if self.settings_dialog.show {
             self.settings_dialog.on_button_press(button);
             self.settings_closed = SystemTime::now();
+            return;
+        }
+
+        if let Some(diag) = self.collection_dialog.as_mut() {
+            diag.on_button_pressed(button);
             return;
         }
 
@@ -990,8 +985,8 @@ impl Scene for SongSelectScene {
                 }
 
                 if let MenuState::Folders | MenuState::Levels = self.menu_state {
-                    if let Ok(set_mode) = self.filter_lua.globals().get::<_, Function>("set_mode") {
-                        _ = set_mode.call::<_, ()>(self.menu_state == MenuState::Folders);
+                    if let Ok(set_mode) = self.filter_lua.globals().get::<Function>("set_mode") {
+                        _ = set_mode.call::<()>(self.menu_state == MenuState::Folders);
                     }
                 }
             }
@@ -1006,6 +1001,34 @@ impl Scene for SongSelectScene {
                     if detla_ms < 100 && self.menu_state == MenuState::Songs {
                         self.settings_dialog.show = true;
                     }
+                }
+            }
+
+            UscButton::BT(BtLane::B | BtLane::C)
+                if self
+                    .input_state
+                    .pressed_together([UscButton::BT(BtLane::B), UscButton::BT(BtLane::C)]) =>
+            {
+                let update_provider = self.song_provider.clone();
+                if let Some(song) = self.state.songs.get(self.state.selected_index as _) {
+                    let id = song.id.clone();
+                    let collections = self.song_provider.read().unwrap().get_collections(&id);
+                    self.collection_dialog = Some(CollectionDialog::new(
+                        collections,
+                        self.collection_lua.clone(),
+                        song.title.clone(),
+                        self.input_state.clone(),
+                        move |name, exists| {
+                            let mut p = update_provider.write().unwrap();
+                            if exists {
+                                p.remove_from_collection(&id, name)
+                                    .warn("Failed to remove from collection");
+                            } else {
+                                p.add_to_collection(&id, name)
+                                    .warn("Failed to add to collection");
+                            }
+                        },
+                    ))
                 }
             }
 
@@ -1042,8 +1065,8 @@ impl Scene for SongSelectScene {
             };
 
             if let MenuState::Folders | MenuState::Levels = self.menu_state {
-                if let Ok(set_mode) = self.filter_lua.globals().get::<_, Function>("set_mode") {
-                    _ = set_mode.call::<_, ()>(self.menu_state == MenuState::Folders);
+                if let Ok(set_mode) = self.filter_lua.globals().get::<Function>("set_mode") {
+                    _ = set_mode.call::<()>(self.menu_state == MenuState::Folders);
                 }
             }
         }
@@ -1080,5 +1103,38 @@ impl Scene for SongSelectScene {
             filters: self.filters.clone(),
             sorts: self.sorts.clone(),
         }
+    }
+
+    fn reload_scripts(&mut self) -> Result<()> {
+        let lua_provider = self.services.get_required::<LuaProvider>();
+
+        let lua = LuaProvider::new_lua();
+        let filter_lua = LuaProvider::new_lua();
+        let sort_lua = LuaProvider::new_lua();
+        let bg_lua = LuaProvider::new_lua();
+        let collection_lua = LuaProvider::new_lua();
+
+        self.update_lua(&lua)?;
+
+        lua_provider.register_libraries(lua.clone(), "songselect/songwheel.lua")?;
+        lua_provider.register_libraries(bg_lua.clone(), "songselect/background.lua")?;
+
+        lua_provider.register_libraries(filter_lua.clone(), "songselect/filterwheel.lua")?;
+        lua_provider.register_libraries(sort_lua.clone(), "songselect/sortwheel.lua")?;
+        lua_provider.register_libraries(collection_lua.clone(), "collectiondialog.lua")?;
+
+        self.update_filter_sort_lua(&sort_lua, &filter_lua)?;
+        self.settings_dialog.reload_script(&lua_provider)?;
+
+        self.set_lua_song_index(&lua)?;
+        self.set_lua_diff_index(&lua)?;
+
+        self.lua = lua;
+        self.sort_lua = sort_lua;
+        self.filter_lua = filter_lua;
+        self.background_lua = bg_lua;
+        self.collection_lua = collection_lua;
+
+        Ok(())
     }
 }

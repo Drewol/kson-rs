@@ -7,20 +7,28 @@ pub mod parameter;
 pub mod score_ticks;
 mod vox;
 
+#[cfg(test)]
+mod tests;
+
 use camera::CameraInfo;
 use effects::AudioEffect;
 pub use graph::*;
 pub use ksh::*;
+pub use rand;
+
+use rand::seq::SliceRandom;
 use serde::de::Visitor;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::collections::HashSet;
+use std::fmt::Write;
 use std::marker::PhantomData;
+use std::ops::RangeBounds;
 use std::slice::Windows;
 use std::str;
 pub use vox::*;
 
-type Dict<T> = HashMap<String, T>;
+pub type Dict<T> = HashMap<String, T>;
 
 #[inline]
 pub fn beat_in_ms(bpm: f64) -> f64 {
@@ -43,8 +51,9 @@ pub fn ms_from_ticks(ticks: i64, bpm: f64, tpqn: u32) -> f64 {
 }
 
 #[repr(usize)]
-#[derive(Debug, Hash, PartialEq, Eq, Clone, Copy, Serialize, Deserialize)]
+#[derive(Debug, Hash, PartialEq, Eq, Clone, Copy, Serialize, Deserialize, Default)]
 pub enum Side {
+    #[default]
     Left = 0,
     Right,
 }
@@ -61,13 +70,62 @@ impl Side {
     }
 }
 
+impl std::fmt::Display for Side {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Side::Left => f.write_str("Left"),
+            Side::Right => f.write_str("Right"),
+        }
+    }
+}
+
 #[repr(usize)]
-#[derive(Debug, Hash, PartialEq, Eq, Clone, Copy, Serialize, Deserialize)]
+#[derive(Debug, Hash, PartialEq, Eq, Clone, Copy, Serialize, Deserialize, Default)]
 pub enum BtLane {
+    #[default]
     A = 0,
     B,
     C,
     D,
+}
+
+impl BtLane {
+    pub fn iter() -> impl Iterator<Item = Self> {
+        [Self::A, Self::B, Self::C, Self::D].into_iter()
+    }
+}
+
+impl TryFrom<usize> for BtLane {
+    type Error = usize;
+
+    fn try_from(value: usize) -> Result<Self, Self::Error> {
+        match value {
+            0 => Ok(BtLane::A),
+            1 => Ok(BtLane::B),
+            2 => Ok(BtLane::C),
+            3 => Ok(BtLane::D),
+            _ => Err(value),
+        }
+    }
+}
+
+impl std::fmt::Display for BtLane {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            BtLane::A => f.write_char('A'),
+            BtLane::B => f.write_char('B'),
+            BtLane::C => f.write_char('C'),
+            BtLane::D => f.write_char('D'),
+        }
+    }
+}
+
+#[derive(thiserror::Error, Debug)]
+pub enum ChartEditError {
+    #[error("Failed to apply mirror: {0}")]
+    MirrorError(String),
+    #[error("Failed to apply random: {0}")]
+    RandomizeError(String),
 }
 
 #[derive(Debug, Hash, PartialEq, Eq, Clone, Copy)]
@@ -249,6 +307,16 @@ impl GraphSectionPoint {
             b: 0.5,
         }
     }
+
+    pub fn with_curve(mut self, a: f64, b: f64) -> Self {
+        self.a = a;
+        self.b = b;
+        self
+    }
+
+    pub fn is_linear(&self) -> bool {
+        (self.a - self.b).abs() < 0.01
+    }
 }
 
 #[derive(Copy, Clone, Debug)]
@@ -362,7 +430,7 @@ impl LaserSection {
     pub fn tick(&self) -> u32 {
         self.0
     }
-    pub fn segments(&self) -> Windows<GraphSectionPoint> {
+    pub fn segments(&self) -> Windows<'_, GraphSectionPoint> {
         self.1.windows(2)
     }
 
@@ -381,11 +449,12 @@ impl LaserSection {
 
 //https://github.com/m4saka/ksh2kson/issues/4#issuecomment-573343229
 pub fn do_curve(x: f64, a: f64, b: f64) -> f64 {
-    let t = if x < f64::EPSILON || a < f64::EPSILON {
+    let t = if (x < 0.01 || a < 0.01) && ((a - 0.5).abs() > 0.01) {
         (a - (a * a + x - 2.0 * a * x).sqrt()) / (-1.0 + 2.0 * a)
     } else {
         x / (a + (a * a + (1.0 - 2.0 * a) * x).sqrt())
     };
+    debug_assert!(t.is_finite());
     2.0 * (1.0 - t) * t * b + t * t
 }
 
@@ -394,10 +463,17 @@ fn default_one<T: From<u8>>() -> T {
 }
 
 #[derive(Serialize, Deserialize, Clone)]
+#[serde(default)]
 pub struct NoteInfo {
     pub bt: [Vec<Interval>; 4],
     pub fx: [Vec<Interval>; 2],
     pub laser: [Vec<LaserSection>; 2],
+}
+
+impl Default for NoteInfo {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl NoteInfo {
@@ -418,17 +494,24 @@ pub struct DifficultyInfo {
 }
 
 #[derive(Serialize, Deserialize, Clone)]
+#[serde(default)]
 pub struct MetaInfo {
     pub title: String,
     #[serde(skip_serializing_if = "Option::is_none")]
+    pub title_translit: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub title_img_filename: Option<String>,
+    /// Not part of the kson spec
     #[serde(skip_serializing_if = "Option::is_none")]
     pub subtitle: Option<String>,
     pub artist: String,
-    pub gauge: Option<GaugeInfo>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub artist_translit: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub artist_img_filename: Option<String>,
     pub chart_author: String,
+    /// Difficulty index 0-3. A difficulty name (string) in kson falls back to index 3.
+    #[serde(deserialize_with = "deserialize_difficulty")]
     pub difficulty: u8,
     pub level: u8,
     pub disp_bpm: String,
@@ -437,11 +520,32 @@ pub struct MetaInfo {
     pub jacket_filename: String,
     pub jacket_author: String,
     #[serde(skip_serializing_if = "Option::is_none")]
+    pub icon_filename: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub information: Option<String>,
 }
 
-#[derive(Serialize, Deserialize, Clone)]
+fn deserialize_difficulty<'de, D>(deserializer: D) -> Result<u8, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    #[derive(Deserialize)]
+    #[serde(untagged)]
+    enum Difficulty {
+        Index(u8),
+        Name(#[allow(dead_code)] String),
+    }
+
+    Ok(match Difficulty::deserialize(deserializer)? {
+        Difficulty::Index(i) => i,
+        Difficulty::Name(_) => 3,
+    })
+}
+
+#[derive(Serialize, Deserialize, Clone, Default)]
+#[serde(default)]
 pub struct GaugeInfo {
+    /// 0 means automatically set
     pub total: u32,
 }
 
@@ -449,10 +553,11 @@ impl MetaInfo {
     fn new() -> MetaInfo {
         MetaInfo {
             title: String::new(),
+            title_translit: None,
             title_img_filename: None,
             subtitle: None,
-            gauge: None,
             artist: String::new(),
+            artist_translit: None,
             artist_img_filename: None,
             chart_author: String::new(),
             difficulty: 0,
@@ -461,8 +566,15 @@ impl MetaInfo {
             std_bpm: None,
             jacket_filename: String::new(),
             jacket_author: String::new(),
+            icon_filename: None,
             information: None,
         }
+    }
+}
+
+impl Default for MetaInfo {
+    fn default() -> Self {
+        Self::new()
     }
 }
 
@@ -657,10 +769,28 @@ impl TimeSignature {
 }
 
 #[derive(Serialize, Deserialize, Clone)]
+#[serde(default)]
 pub struct BeatInfo {
     pub bpm: ByPulse<f64>,
     pub time_sig: ByMeasureIdx<TimeSignature>,
     pub scroll_speed: Vec<GraphPoint>,
+    /// (y, duration)
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub stop: ByPulse<u32>,
+}
+
+impl Default for BeatInfo {
+    fn default() -> Self {
+        Self {
+            bpm: Default::default(),
+            time_sig: vec![(0, TimeSignature(4, 4))],
+            scroll_speed: vec![GraphPoint {
+                v: 1.0,
+                ..Default::default()
+            }],
+            stop: Vec::new(),
+        }
+    }
 }
 
 pub const KSON_RESOLUTION: u32 = 240;
@@ -671,11 +801,13 @@ impl BeatInfo {
             bpm: Vec::new(),
             time_sig: Vec::new(),
             scroll_speed: Vec::new(),
+            stop: Vec::new(),
         }
     }
 }
 
-#[derive(Serialize, Deserialize, Clone, Default)]
+#[derive(Serialize, Deserialize, Clone)]
+#[serde(default)]
 pub struct BgmInfo {
     #[serde(default, skip_serializing_if = "String::is_empty")]
     pub filename: String,
@@ -684,22 +816,50 @@ pub struct BgmInfo {
     #[serde(default = "default_zero::<i32>")]
     pub offset: i32,
     pub preview: PreviewInfo,
+    #[serde(skip_serializing_if = "LegacyBgmInfo::is_empty")]
     pub legacy: LegacyBgmInfo,
 }
 
+impl LegacyBgmInfo {
+    fn is_empty(&self) -> bool {
+        self.fp_filenames.is_empty()
+    }
+}
+
 #[derive(Serialize, Deserialize, Clone, Default)]
+#[serde(default)]
 pub struct LegacyBgmInfo {
     pub fp_filenames: Vec<String>,
 }
 
-#[derive(Serialize, Deserialize, Clone, Default)]
+#[derive(Serialize, Deserialize, Clone)]
 pub struct PreviewInfo {
     #[serde(default = "default_zero::<u32>")]
     pub offset: u32,
-    #[serde(default = "default_zero::<u32>")]
+    #[serde(default = "default_preview_duration")]
     pub duration: u32,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub preview_filename: Option<String>,
+}
+
+fn default_preview_duration() -> u32 {
+    15000
+}
+
+impl Default for PreviewInfo {
+    fn default() -> Self {
+        Self {
+            offset: 0,
+            duration: default_preview_duration(),
+            preview_filename: None,
+        }
+    }
+}
+
+impl Default for BgmInfo {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl BgmInfo {
@@ -714,33 +874,104 @@ impl BgmInfo {
     }
 }
 
-#[derive(Serialize, Deserialize, Clone, Default)]
+#[derive(Serialize, Deserialize, Clone, Default, PartialEq)]
+#[serde(default)]
 pub struct KeySoundInfo {
     pub fx: KeySoundFXInfo,
     pub laser: KeySoundLaserInfo,
 }
 
-#[derive(Serialize, Deserialize, Clone, Default)]
+#[derive(Serialize, Deserialize, Clone, PartialEq)]
+#[serde(default)]
 pub struct KeySoundLaserInfo {
     pub vol: ByPulse<f64>,
+    /// Key sound name -> laser slam pulses
+    #[serde(skip_serializing_if = "HashMap::is_empty")]
+    pub slam_event: Dict<Vec<u32>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub legacy: Option<KeySoundLaserLegacyInfo>,
 }
 
-#[derive(Serialize, Deserialize, Clone, Default)]
+impl Default for KeySoundLaserInfo {
+    fn default() -> Self {
+        Self {
+            vol: vec![(0, 0.5)],
+            slam_event: Default::default(),
+            legacy: None,
+        }
+    }
+}
+
+#[derive(Serialize, Deserialize, Clone, Default, PartialEq)]
+#[serde(default)]
+pub struct KeySoundLaserLegacyInfo {
+    /// "chokkakuautovol" in KSH
+    pub vol_auto: bool,
+}
+
+#[derive(Serialize, Deserialize, Clone, Default, PartialEq)]
+#[serde(default)]
 pub struct KeySoundFXInfo {
-    pub chip_event: HashMap<String, [Vec<ByPulse<KeySoundInvokeFX>>; 2]>,
+    pub chip_event: HashMap<String, [Vec<ByPulseOption<KeySoundInvokeFX>>; 2]>,
 }
 
-#[derive(Serialize, Deserialize, Clone)]
+#[derive(Serialize, Deserialize, Copy, Clone, PartialEq)]
+#[serde(default)]
 pub struct KeySoundInvokeFX {
     pub vol: f64,
 }
 
+impl Default for KeySoundInvokeFX {
+    fn default() -> Self {
+        Self { vol: 1.0 }
+    }
+}
+
 type NoteParamChange = ByPulseOption<Dict<String>>;
+
+pub type DefKeyValuePair<T> = (String, T);
+
+pub trait DefKeyValuePairExt<T> {
+    fn get_by_key(&self, key: impl AsRef<str>) -> Option<&T>;
+    fn get_mut_by_key(&mut self, key: impl AsRef<str>) -> Option<&mut T>;
+    fn get_or_insert(&mut self, key: String, v: T) -> &T;
+    fn keys(&self) -> impl Iterator<Item = &String>;
+    fn contains_key(&self, key: impl AsRef<str>) -> bool;
+}
+
+impl<T> DefKeyValuePairExt<T> for Vec<DefKeyValuePair<T>> {
+    fn get_by_key(&self, key: impl AsRef<str>) -> Option<&T> {
+        let key = key.as_ref();
+        self.iter().find(|v| v.0 == key).map(|v| &v.1)
+    }
+
+    fn get_mut_by_key(&mut self, key: impl AsRef<str>) -> Option<&mut T> {
+        let key = key.as_ref();
+        self.iter_mut().find(|v| v.0 == key).map(|v| &mut v.1)
+    }
+
+    fn get_or_insert(&mut self, key: String, v: T) -> &T {
+        if let Ok(t) = self.binary_search_by_key(&&key, |a| &a.0) {
+            &self[t].1
+        } else {
+            self.push((key, v));
+            &self.last().unwrap().1
+        }
+    }
+
+    fn keys(&self) -> impl Iterator<Item = &String> {
+        self.iter().map(|x| &x.0)
+    }
+
+    fn contains_key(&self, key: impl AsRef<str>) -> bool {
+        self.get_by_key(key).is_some()
+    }
+}
 
 #[derive(Serialize, Deserialize, Clone, Default, PartialEq)]
 pub struct AudioEffectFXInfo {
-    #[serde(default, skip_serializing_if = "HashMap::is_empty")]
-    pub def: Dict<AudioEffect>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub def: Vec<DefKeyValuePair<AudioEffect>>,
     #[serde(default, skip_serializing_if = "HashMap::is_empty")]
     pub param_change: Dict<Dict<ByPulse<String>>>,
     #[serde(default, skip_serializing_if = "HashMap::is_empty")]
@@ -749,17 +980,35 @@ pub struct AudioEffectFXInfo {
 
 #[derive(Serialize, Deserialize, Clone, Default, PartialEq)]
 pub struct AudioEffectLaserInfo {
-    #[serde(default, skip_serializing_if = "HashMap::is_empty")]
-    def: Dict<AudioEffect>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub def: Vec<DefKeyValuePair<AudioEffect>>,
     #[serde(default, skip_serializing_if = "HashMap::is_empty")]
     pub param_change: Dict<Dict<ByPulse<String>>>,
     #[serde(default, skip_serializing_if = "HashMap::is_empty")]
-    pub pulse_event: Dict<ByPulse<()>>,
+    pub pulse_event: Dict<Vec<u32>>,
     #[serde(default = "default_zero::<i32>")]
     pub peaking_filter_delay: i32,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub legacy: Option<AudioEffectLaserLegacyInfo>,
+}
+
+#[derive(Serialize, Deserialize, Clone, PartialEq)]
+#[serde(default)]
+pub struct AudioEffectLaserLegacyInfo {
+    /// "pfiltergain" in KSH (0.0-1.0)
+    pub filter_gain: ByPulse<f64>,
+}
+
+impl Default for AudioEffectLaserLegacyInfo {
+    fn default() -> Self {
+        Self {
+            filter_gain: vec![(0, 0.5)],
+        }
+    }
 }
 
 #[derive(Serialize, Deserialize, Clone, Default, PartialEq)]
+#[serde(default)]
 pub struct AudioEffectInfo {
     pub fx: AudioEffectFXInfo,
     pub laser: AudioEffectLaserInfo,
@@ -771,7 +1020,6 @@ pub struct AudioInfo {
     pub bgm: BgmInfo,
     #[serde(default, skip_serializing_if = "crate::IsDefault::is_default")]
     pub audio_effect: AudioEffectInfo,
-    #[serde(skip_deserializing)]
     pub key_sound: KeySoundInfo,
 }
 
@@ -784,21 +1032,93 @@ impl AudioInfo {
 #[derive(Serialize, Deserialize, Clone)]
 pub struct Chart {
     pub meta: MetaInfo,
+    #[serde(default)]
     pub note: NoteInfo,
     pub beat: BeatInfo,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub gauge: Option<GaugeInfo>,
+    #[serde(default)]
     pub audio: AudioInfo,
     #[serde(default)]
     pub camera: camera::CameraInfo,
-    pub version: String,
+    pub format_version: u32,
+    #[serde(default)]
     pub bg: BgInfo,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub editor: Option<EditorInfo>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub compat: Option<CompatInfo>,
+    #[serde(skip)]
+    pub file_hash: String,
+}
+
+#[derive(Serialize, Deserialize, Clone, Default)]
+#[serde(default)]
+pub struct EditorInfo {
+    #[serde(skip_serializing_if = "String::is_empty")]
+    pub app_name: String,
+    #[serde(skip_serializing_if = "String::is_empty")]
+    pub app_version: String,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub comment: ByPulse<String>,
+}
+
+#[derive(Serialize, Deserialize, Clone, Default)]
+#[serde(default)]
+pub struct CompatInfo {
+    #[serde(skip_serializing_if = "String::is_empty")]
+    pub ksh_version: String,
+    #[serde(skip_serializing_if = "KshUnknownInfo::is_empty")]
+    pub ksh_unknown: KshUnknownInfo,
+}
+
+impl CompatInfo {
+    /// Whether the chart was converted from a KSH file with "ver" earlier than "200"
+    pub fn is_legacy_ksh(&self) -> bool {
+        !self.ksh_version.is_empty() && ksh_version_number(&self.ksh_version) < 200
+    }
+}
+
+/// Numeric part of a KSH "ver" value (e.g. "120b" -> 120)
+pub(crate) fn ksh_version_number(ver: &str) -> u32 {
+    ver.chars()
+        .take_while(|c| c.is_ascii_digit())
+        .collect::<String>()
+        .parse()
+        .unwrap_or(100)
+}
+
+/// Unrecognized data in ksh-to-kson conversion
+#[derive(Serialize, Deserialize, Clone, Default)]
+#[serde(default)]
+pub struct KshUnknownInfo {
+    #[serde(skip_serializing_if = "HashMap::is_empty")]
+    pub meta: Dict<String>,
+    #[serde(skip_serializing_if = "HashMap::is_empty")]
+    pub option: Dict<ByPulse<String>>,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub line: ByPulse<String>,
+}
+
+impl KshUnknownInfo {
+    pub fn is_empty(&self) -> bool {
+        self.meta.is_empty() && self.option.is_empty() && self.line.is_empty()
+    }
 }
 
 #[derive(Serialize, Deserialize, Clone)]
 pub struct BgInfo {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub filename: Option<String>,
-    #[serde(default)]
+    /// Not part of the kson spec
+    #[serde(default, skip_serializing_if = "is_zero_i32")]
     pub offset: i32,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub legacy: Option<LegacyBgInfo>,
+}
+
+fn is_zero_i32(v: &i32) -> bool {
+    *v == 0
 }
 
 impl BgInfo {
@@ -817,15 +1137,20 @@ impl Default for BgInfo {
     }
 }
 
-#[derive(Serialize, Deserialize, Clone)]
+#[derive(Serialize, Deserialize, Clone, Default)]
+#[serde(default)]
 pub struct LegacyBgInfo {
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub bg: Option<Vec<KshBgInfo>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub layer: Option<KshLayerInfo>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub movie: Option<KshMovieInfo>,
 }
 
 #[derive(Serialize, Deserialize, Clone)]
 pub struct KshLayerInfo {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub filename: Option<String>, // self-explanatory (can be KSM default animation layer such as "arrow")
     /// one-loop duration in milliseconds.
     ///
@@ -834,22 +1159,28 @@ pub struct KshLayerInfo {
     /// If the value is zero, the play speed is tempo-synchronized and set to 1 frame per 0.035 measure (= 28.571... frames/measure).
     #[serde(default)]
     pub duration: i32,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub rotation: Option<KshLayerRotationInfo>, // rotation conditions
 }
 
 #[derive(Serialize, Deserialize, Clone)]
 pub struct KshLayerRotationInfo {
+    #[serde(default = "default_true::<bool>")]
     pub tilt: bool, // whether lane tilts affect rotation of BG/layer
+    #[serde(default = "default_true::<bool>")]
     pub spin: bool, // whether lane spins affect rotation of BG/layer
 }
 #[derive(Serialize, Deserialize, Clone)]
 pub struct KshMovieInfo {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub filename: Option<String>, // self-explanatory
-    pub offset: i32,              // movie offset in millisecond
+    #[serde(default)]
+    pub offset: i32, // movie offset in millisecond
 }
 
 #[derive(Serialize, Deserialize, Clone)]
 pub struct KshBgInfo {
+    #[serde(default)]
     pub filename: String,
 }
 
@@ -897,8 +1228,12 @@ impl Chart {
             beat: BeatInfo::new(),
             audio: AudioInfo::new(),
             camera: CameraInfo::default(),
-            version: "0.7.0".to_string(),
+            gauge: None,
+            format_version: 1,
             bg: BgInfo::new(),
+            file_hash: String::new(),
+            compat: None,
+            editor: None,
         }
     }
 
@@ -1042,7 +1377,10 @@ impl Chart {
                     new_start,
                     Box::new(move |y| {
                         let adjusted = y - new_start;
-                        Some((y + ticks_per_beat, (adjusted % ticks_per_measure) == 0))
+                        Some((
+                            y + ticks_per_beat,
+                            adjusted.is_multiple_of(ticks_per_measure),
+                        ))
                     }),
                 ));
             } else {
@@ -1088,6 +1426,173 @@ impl Chart {
         }
         last_tick
     }
+
+    pub fn randomize(
+        &mut self,
+        range: impl RangeBounds<u32>,
+        seed: u64,
+    ) -> Result<(), ChartEditError> {
+        let (start_tick, end_tick) = start_end_from_range(range);
+        let mut rng: rand::rngs::SmallRng = rand::SeedableRng::seed_from_u64(seed);
+        if !self.check_mirr_rand(start_tick, end_tick, true) {
+            return Err(ChartEditError::RandomizeError(
+                "Hold notes or lasers extend outside the selected range".to_string(),
+            ));
+        }
+
+        let mut bt_lookup = [0usize, 1, 2, 3];
+        bt_lookup.shuffle(&mut rng);
+        let mut fx_lookup = [0usize, 1];
+        fx_lookup.shuffle(&mut rng);
+
+        let mut randomized_bt: [Vec<Interval>; 4] = [vec![], vec![], vec![], vec![]];
+        let mut randomized_fx: [Vec<Interval>; 2] = [vec![], vec![]];
+
+        for i in 0..6 {
+            let (source, target) = match i {
+                0..4 => (&mut self.note.bt[i], &mut randomized_bt[bt_lookup[i]]),
+                _ => (
+                    &mut self.note.fx[i - 4],
+                    &mut randomized_fx[fx_lookup[i - 4]],
+                ),
+            };
+
+            // we've already checked for overlaps
+            target.extend(source.extract_if(.., |x| x.y >= start_tick && x.y + x.l <= end_tick));
+        }
+
+        for i in 0..6 {
+            let (source, target) = match i {
+                0..4 => (&mut randomized_bt[i], &mut self.note.bt[i]),
+                _ => (&mut randomized_fx[i - 4], &mut self.note.fx[i - 4]),
+            };
+
+            target.append(source);
+            target.sort_by_key(|note| note.y);
+        }
+
+        Ok(())
+    }
+
+    pub fn mirror(&mut self, range: impl RangeBounds<u32>) -> Result<(), ChartEditError> {
+        let (start_tick, end_tick) = start_end_from_range(range);
+
+        if !self.check_mirr_rand(start_tick, end_tick, false) {
+            return Err(ChartEditError::MirrorError(
+                "Hold notes or lasers extend outside the selected range".to_string(),
+            ));
+        }
+
+        let mut mirrored: [Vec<Interval>; 6] = [vec![], vec![], vec![], vec![], vec![], vec![]];
+        let mut mirrored_laser: [Vec<LaserSection>; 2] = [vec![], vec![]];
+
+        for (i, target) in mirrored.iter_mut().enumerate() {
+            let source = match i {
+                0..4 => &mut self.note.bt[3 - i],
+                i => &mut self.note.fx[1 - (i - 4)],
+            };
+
+            target.extend(source.extract_if(.., |x| x.y >= start_tick && x.y + x.l <= end_tick));
+        }
+
+        for (i, target) in mirrored_laser.iter_mut().enumerate() {
+            let source = &mut self.note.laser[1 - i];
+
+            target.extend(source.extract_if(.., |x| {
+                x.0 >= start_tick && x.0 + x.1.last().map(|x| x.ry).unwrap_or_default() <= end_tick
+            }));
+        }
+        for (i, source) in mirrored.iter_mut().enumerate() {
+            let target = match i {
+                0..4 => &mut self.note.bt[i],
+                i => &mut self.note.fx[i - 4],
+            };
+
+            target.append(source);
+            target.sort_by_key(|x| x.y);
+        }
+
+        for (source, target) in mirrored_laser.iter_mut().zip(self.note.laser.iter_mut()) {
+            // Flip values
+            for section in source.iter_mut() {
+                for point in &mut section.1 {
+                    point.v = 1.0 - point.v;
+                    if let Some(vf) = point.vf.as_mut() {
+                        *vf = 1.0 - *vf;
+                    }
+                }
+            }
+
+            target.append(source);
+            target.sort_by_key(|x| x.0);
+        }
+
+        Ok(())
+    }
+
+    /// Check for holds or lasers that begin before the range or end after the range
+    pub fn check_mirr_rand(&self, start: u32, end: u32, skip_laser: bool) -> bool {
+        for x in self
+            .note
+            .bt
+            .iter()
+            .chain(self.note.fx.iter())
+            .flat_map(|x| x.iter())
+        {
+            if x.y > end {
+                continue;
+            }
+
+            if x.y < start && x.y + x.l > start {
+                return false;
+            }
+
+            if x.y + x.l > end {
+                return false;
+            }
+        }
+
+        if skip_laser {
+            return true;
+        }
+
+        for x in self.note.laser.iter().flatten() {
+            if x.0 > end {
+                continue;
+            }
+
+            let Some(ry_max) = x.1.iter().last().map(|x| x.ry) else {
+                // Maybe something else as this is an invalid entry?
+                continue;
+            };
+
+            if x.0 < start && x.0 + ry_max > start {
+                return false;
+            }
+
+            if x.0 + ry_max > end {
+                return false;
+            }
+        }
+
+        true
+    }
+}
+
+fn start_end_from_range(range: impl RangeBounds<u32>) -> (u32, u32) {
+    let start_tick = match range.start_bound() {
+        std::ops::Bound::Included(y) => *y,
+        std::ops::Bound::Excluded(y) => *y, // Only a custom range impl could do this, so just handle it like this
+        std::ops::Bound::Unbounded => 0,
+    };
+
+    let end_tick = match range.end_bound() {
+        std::ops::Bound::Included(y) => *y,
+        std::ops::Bound::Excluded(y) => y.saturating_sub(1),
+        std::ops::Bound::Unbounded => u32::MAX,
+    };
+
+    (start_tick, end_tick)
 }
 
 pub trait IsDefault {
@@ -1100,50 +1605,5 @@ where
 {
     fn is_default(&self) -> bool {
         self.eq(&T::default())
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use serde_test::Token;
-
-    use crate::parameter::{self, EffectFloat, EffectFreq, EffectParameterValue};
-
-    #[test]
-    fn effect_param() {
-        let mut param = parameter::EffectParameter {
-            on: Some(EffectParameterValue::Freq(
-                EffectFreq::Khz(10.0)..=EffectFreq::Khz(20.0),
-            )),
-            off: EffectParameterValue::Freq(EffectFreq::Hz(500)..=EffectFreq::Hz(500)),
-            v: 0.0_f32,
-            ..Default::default()
-        };
-
-        serde_test::assert_tokens(&param, &[Token::Str("500Hz>10kHz-20kHz")]);
-
-        param.on = None;
-        param.off =
-            EffectParameterValue::Filename("e9fda14b-d635-4cd8-8c7a-ca12f8d9b78a".to_string());
-
-        serde_test::assert_tokens(
-            &param,
-            &[Token::Str("e9fda14b-d635-4cd8-8c7a-ca12f8d9b78a")],
-        );
-
-        param.off = EffectParameterValue::Sample(100..=100);
-        serde_test::assert_tokens(&param, &[Token::Str("100samples")]);
-        param.off = EffectParameterValue::Sample(100..=1000);
-        serde_test::assert_tokens(&param, &[Token::Str("100samples-1000samples")]);
-
-        param.off = EffectParameterValue::Length(
-            EffectFloat::Fraction(1, 2)..=EffectFloat::Fraction(1, 2),
-            true,
-        );
-        serde_test::assert_tokens(&param, &[Token::Str("1/2")]);
-
-        param.off = EffectParameterValue::Switch(false..=false);
-        param.on = Some(EffectParameterValue::Switch(false..=true));
-        serde_test::assert_tokens(&param, &[Token::Str("off>off-on")]);
     }
 }

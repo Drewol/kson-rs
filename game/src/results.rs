@@ -2,7 +2,7 @@ use std::{
     path::PathBuf,
     rc::Rc,
     sync::{mpsc::Sender, Arc},
-    time::SystemTime,
+    time::{Duration, SystemTime},
 };
 
 use di::{RefMut, ServiceProvider};
@@ -21,6 +21,7 @@ use crate::{
     },
     game_main::AutoPlay,
     help,
+    ir::{self, IrResponseBody, ServerScore},
     lua_service::LuaProvider,
     scene::{Scene, SceneData},
     song_provider::{DiffId, ScoreProvider, SongDiffId, SongId},
@@ -28,74 +29,73 @@ use crate::{
     vg_ui::{Vgfx, VgfxSyncExt},
     ControlMessage,
 };
+use mlua::{Function, Lua, LuaSerdeExt, Value};
 use serde_with::*;
-use tealr::{
-    mlu::{
-        mlua::{Function, Lua, LuaSerdeExt},
-        TealData, UserData,
-    },
-    ToTypename,
-};
 
-#[derive(Debug, ToTypename, Clone, Serialize, Default, ToLuaLsType)]
+#[derive(Debug, Clone, Serialize, Default, ToLuaLsType)]
 #[serde(rename_all = "camelCase")]
 struct HidSud {}
 
 #[serde_as]
-#[derive(Debug, Clone, Serialize, Default, luals_gen::ToLuaLsType)]
+#[derive(Debug, Clone, Serialize, Default, ToLuaLsType)]
 #[serde(rename_all = "camelCase")]
 pub struct SongResultData {
-    score: u32,
-    gauge_type: u8,    // 0 = normal, 1 = hard. Should be defined in constants sometime
-    gauge_option: i32, // type specific, such as difficulty level for the same gauge type if available
-    mirror: bool,
-    random: bool,
-    auto_flags: i32, //bits for autoplay settings, 0 = no autoplay
-    gauge: f32,      // value of the gauge at the end of the song
-    misses: i32,
-    goods: i32,
-    perfects: i32,
-    max_combo: i32,
-    level: u8,
-    difficulty: u8,
-    title: String,      // With the player name in multiplayer
-    real_title: String, // Always without the player name
-    artist: String,
-    effector: String,
-    illustrator: String,
-    bpm: String,
-    duration: i32, // Length of the chart in milliseconds
-    jacket_path: PathBuf,
-    median_hit_delta: f64,
-    mean_hit_delta: f64,
-    median_hit_delta_abs: f64,
-    mean_hit_delta_abs: f64,
-    earlies: i32,
-    lates: i32,
-    badge: u8, // same as song wheel badge (except 0 which means the user manually exited)
-    gauge_samples: Vec<f32>, // gauge values sampled throughout the song
-    grade: String, // "S", "AAA+", "AAA", etc.
-    high_scores: Vec<Score>, // Same as song wheel scores
-    player_name: String,
-    display_index: i32, // Only on multiplayer; which player's score (not necessarily the viewer's) is being shown right not
+    pub score: u32,
+    pub gauge_type: u8, // 0 = normal, 1 = hard. Should be defined in constants sometime
+    pub gauge_option: i32, // type specific, such as difficulty level for the same gauge type if available
+    pub mirror: bool,
+    pub random: bool,
+    pub auto_flags: i32, //bits for autoplay settings, 0 = no autoplay
+    pub gauge: f32,      // value of the gauge at the end of the song
+    pub misses: i32,
+    pub goods: i32,
+    pub perfects: i32,
+    pub max_combo: i32,
+    pub level: u8,
+    pub difficulty: u8,
+    pub title: String,      // With the player name in multiplayer
+    pub real_title: String, // Always without the player name
+    pub artist: String,
+    pub effector: String,
+    pub illustrator: String,
+    pub bpm: String,
+    pub duration: i32, // Length of the chart in milliseconds
+    pub jacket_path: PathBuf,
+    pub median_hit_delta: f64,
+    pub mean_hit_delta: f64,
+    pub median_hit_delta_abs: f64,
+    pub mean_hit_delta_abs: f64,
+    pub earlies: i32,
+    pub lates: i32,
+    pub badge: u8, // same as song wheel badge (except 0 which means the user manually exited)
+    pub gauge_samples: Vec<f32>, // gauge values sampled throughout the song
+    pub grade: String, // "S", "AAA+", "AAA", etc.
+    pub high_scores: Vec<Score>, // Same as song wheel scores
+    pub player_name: String,
+    pub display_index: i32, // Only on multiplayer; which player's score (not necessarily the viewer's) is being shown right not
     #[serde(skip_serializing_if = "Option::is_none")]
-    uid: Option<String>, // Only on multiplayer; the UID of the viewer
-    hit_window: HitWindow, // Same as gameplay HitWindow
-    autoplay: bool,
-    playback_speed: f32,
-    mission: String,               // Only on practice mode
-    retry_count: i32,              // Only on practice mode
-    is_self: bool, // Whether this score is viewer's in multiplayer; always true for singleplayer
-    speed_mod_type: i32, // Only when isSelf is true; 0 for XMOD, 1 for MMOD, 2 for CMOD
-    speed_mod_value: f64, // Only when isSelf is true; HiSpeed for XMOD, ModSpeed for MMOD and CMOD
-    note_hit_stats: Vec<HitStat>, // Only when isSelf is true; contains HitStat for notes (excluding hold notes and lasers)
-    hold_hit_stats: Vec<HitStat>, // Only when isSelf is true; contains HitStat for holds
-    laser_hit_stats: Vec<HitStat>, // Only when isSelf is true; contains HitStat for lasers
-    is_local: bool,               // Whether this score was set locally
-    song_id: SongDiffId,
+    pub uid: Option<String>, // Only on multiplayer; the UID of the viewer
+    pub hit_window: HitWindow, // Same as gameplay HitWindow
+    pub autoplay: bool,
+    pub playback_speed: f32,
+    pub mission: String,               // Only on practice mode
+    pub retry_count: i32,              // Only on practice mode
+    pub is_self: bool, // Whether this score is viewer's in multiplayer; always true for singleplayer
+    pub speed_mod_type: i32, // Only when isSelf is true; 0 for XMOD, 1 for MMOD, 2 for CMOD
+    pub speed_mod_value: f64, // Only when isSelf is true; HiSpeed for XMOD, ModSpeed for MMOD and CMOD
+    pub note_hit_stats: Vec<HitStat>, // Only when isSelf is true; contains HitStat for notes (excluding hold notes and lasers)
+    pub hold_hit_stats: Vec<HitStat>, // Only when isSelf is true; contains HitStat for holds
+    pub laser_hit_stats: Vec<HitStat>, // Only when isSelf is true; contains HitStat for lasers
+    pub is_local: bool,               // Whether this score was set locally
+    pub song_id: SongDiffId,
+    pub chart_hash: String,
+    pub ir_state: i32,
+    pub ir_description: String,
+    pub ir_scores: Vec<ServerScore>,
 }
 
 #[repr(u8)]
+#[derive(Clone, Copy, strum::FromRepr)]
 pub enum ClearMark {
     None = 0,
     Played,
@@ -141,6 +141,7 @@ impl SongResultData {
         max_combo: i32,
         duration: i32,
         manual_exit: bool,
+        hash: String,
     ) -> anyhow::Result<Self> {
         use itertools::Itertools;
         use statrs::statistics::{Data, Median, Statistics};
@@ -157,11 +158,7 @@ impl SongResultData {
         } = song.difficulties.read().expect("Lock error")[diff_idx].clone();
 
         let Song {
-            title,
-            artist,
-            bpm,
-            id: _,
-            difficulties: _,
+            title, artist, bpm, ..
         } = (*song).clone();
 
         let grade = match score {
@@ -320,7 +317,7 @@ impl SongResultData {
             ),
             gauge_type: GaugeType::try_from(gauge)
                 .map(|x| x as u8)
-                .inspect(|e| warn!("Could not convert gauge type: {e}"))
+                .inspect_err(|e| warn!("Could not convert gauge type: {e}"))
                 .unwrap_or_default(),
             hit_window,
             playback_speed: 1.0,
@@ -351,6 +348,14 @@ impl SongResultData {
             speed_mod_type: 0,
             speed_mod_value: GameConfig::get().mod_speed,
             is_local: true,
+            chart_hash: hash,
+            ir_description: String::new(),
+            ir_scores: vec![],
+            ir_state: if ir::InternetRanking::enabled() {
+                10
+            } else {
+                0
+            },
         })
     }
 }
@@ -363,6 +368,14 @@ impl SceneData for SongResultData {
             .expect("Lock error")
             .save_config(); // Save config in case of changed hispeed
 
+        let ir_request = if ir::InternetRanking::enabled() {
+            Some(poll_promise::Promise::spawn_async(
+                ir::InternetRanking::submit(ir::ScoreSubmission::from(self.as_ref())),
+            ))
+        } else {
+            None
+        };
+
         Ok(Box::new(SongResult {
             score_service: services.get_required(),
             close: false,
@@ -372,13 +385,14 @@ impl SceneData for SongResultData {
             vgfx: services.get_required(),
             services,
             screenshot_state: ScreenshotState::NotRendered,
+            ir_request,
         }))
     }
 }
 
-#[derive(Debug, ToTypename, Clone, Serialize, Default, ToLuaLsType)]
+#[derive(Debug, Clone, Serialize, Default, ToLuaLsType)]
 #[serde(rename_all = "camelCase")]
-struct HitStat {
+pub struct HitStat {
     rating: i32,    // 0 for miss, 1 for near, 2 for crit
     lane: i32,      // 0-3 btn, 4-5 fx, 6-7 lasers
     time: i32,      // In milliseconds
@@ -425,7 +439,7 @@ impl TryFrom<HitRating> for HitStat {
     }
 }
 
-#[derive(Debug, ToTypename, Clone, Serialize, UserData, Default, ToLuaLsType)]
+#[derive(Debug, Clone, Serialize, Default, ToLuaLsType)]
 #[serde(rename_all = "camelCase")]
 pub struct Score {
     ///range 0.0 -> 1.0
@@ -502,8 +516,6 @@ impl From<&SongResultData> for Score {
     }
 }
 
-impl TealData for Score {}
-
 enum ScreenshotState {
     NotRendered,
     Rendered,
@@ -519,6 +531,7 @@ pub struct SongResult {
     close: bool,
     score_service: RefMut<dyn ScoreProvider>,
     screenshot_state: ScreenshotState,
+    ir_request: Option<poll_promise::Promise<anyhow::Result<ir::IrServerResponse>>>,
 }
 
 impl Scene for SongResult {
@@ -536,19 +549,62 @@ impl Scene for SongResult {
             .globals()
             .set("result", self.lua.to_value(&self.data)?)?;
 
-        if let Ok(result_set) = self.lua.globals().get::<_, Function>("result_set") {
-            result_set.call::<_, ()>(())?;
+        if let Ok(result_set) = self.lua.globals().get::<Function>("result_set") {
+            result_set.call::<()>(())?;
         }
         self.control_tx = Some(app_control_tx);
         Ok(())
     }
 
-    fn render_ui(
+    fn tick(
         &mut self,
-        dt: f64,
-    ) -> std::result::Result<std::vec::Vec<wgpu::CommandBuffer>, anyhow::Error> {
+        _dt: f64,
+        _knob_state: crate::button_codes::LaserState,
+    ) -> anyhow::Result<()> {
+        if let Some(promise) = self.ir_request.take_if(|x| x.ready().is_some()) {
+            match promise.block_and_take() {
+                Ok(result) => {
+                    self.data.ir_description = result.description;
+                    self.data.ir_state = result.status_code;
+                    if let Some(IrResponseBody::ScoreSubmit(ir::ScoreSubmitResponse {
+                        mut score,
+                        mut adjacent_above,
+                        mut adjacent_below,
+                        server_record,
+                        ..
+                    })) = result.body
+                    {
+                        if server_record != score {
+                            self.data.ir_scores = vec![server_record];
+                        } else {
+                            self.data.ir_scores.clear();
+                        }
+                        score.extra.just_set = SystemTime::UNIX_EPOCH
+                            .checked_add(Duration::from_secs(score.timestamp))
+                            .and_then(|t| SystemTime::now().duration_since(t).ok())
+                            .is_some_and(|d| d.as_secs() < 60);
+                        score.extra.yours = true;
+
+                        self.data.ir_scores.append(&mut adjacent_above);
+                        self.data.ir_scores.push(score);
+                        self.data.ir_scores.append(&mut adjacent_below);
+                    }
+                    self.lua
+                        .globals()
+                        .set("result", self.lua.to_value(&self.data)?)?;
+                }
+                Err(e) => {
+                    warn!("Could not submit score: {e}");
+                }
+            }
+        }
+
+        Ok(())
+    }
+
+    fn render_ui(&mut self, dt: f64) -> anyhow::Result<Vec<wgpu::CommandBuffer>> {
         let render_fn: Function = self.lua.globals().get("render")?;
-        render_fn.call(dt / 1000.0)?;
+        render_fn.call::<()>(dt / 1000.0)?;
 
         self.screenshot_state = match self.screenshot_state {
             ScreenshotState::NotRendered => ScreenshotState::Rendered,
@@ -571,8 +627,7 @@ impl Scene for SongResult {
                         self.lua.globals().get("get_capture_rect").ok();
 
                     let capture_rect = get_capture_rect
-                        .map(|f| f.call::<_, (usize, usize, usize, usize)>(()).ok())
-                        .flatten()
+                        .and_then(|f| f.call::<(usize, usize, usize, usize)>(()).ok())
                         .map(|(x, y, w, h)| ((x, y), (w, h)));
 
                     let vgfx = self.lua.app_data_ref::<RefMut<Vgfx>>().unwrap();
@@ -583,9 +638,8 @@ impl Scene for SongResult {
                             let screenshot_captured: Option<Function> =
                                 self.lua.globals().get("screenshot_captured").ok();
 
-                            screenshot_captured.and_then(|x| {
-                                x.call::<_, ()>(p.as_os_str().to_string_lossy()).ok()
-                            });
+                            screenshot_captured
+                                .and_then(|x| x.call::<()>(p.as_os_str().to_string_lossy()).ok());
                         }
                         Err(e) => log::warn!("Failed to save screenshot: {e}"),
                     }
@@ -625,5 +679,27 @@ impl Scene for SongResult {
 
     fn name(&self) -> &str {
         "Song Result"
+    }
+
+    fn reload_scripts(&mut self) -> anyhow::Result<()> {
+        let new_lua = LuaProvider::new_lua();
+        self.services
+            .get_required::<LuaProvider>()
+            .register_libraries(new_lua.clone(), "result.lua")?;
+
+        let results: Value = self.lua.globals().get("result")?;
+        let results: serde_json::Value = self.lua.from_value(results)?;
+
+        new_lua
+            .globals()
+            .set("result", new_lua.to_value(&results)?)?;
+
+        if let Ok(result_set) = new_lua.globals().get::<Function>("result_set") {
+            result_set.call::<()>(())?;
+        }
+
+        self.lua = new_lua;
+
+        Ok(())
     }
 }

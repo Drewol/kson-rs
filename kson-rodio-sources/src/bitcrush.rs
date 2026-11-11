@@ -1,23 +1,24 @@
+use rodio::{ChannelCount, SampleRate};
 use rodio::{Sample, Source};
 
 use super::mix_source::MixSource;
 
-pub struct BitCrush<I: Source<Item = D>, D: Sample> {
+pub struct BitCrush<I: Source> {
     input: I,
     samples: u32,
     hold: Vec<I::Item>,
     mix: f32,
     sample_counter: u32,
     current_channel: u16,
-    channels: u16,
+    channels: ChannelCount,
 }
 
-pub fn bit_crusher<I: Source<Item = D>, D: Sample>(input: I, samples: u32) -> BitCrush<I, D> {
+pub fn bit_crusher<I: Source>(input: I, samples: u32) -> BitCrush<I> {
     let channels = input.channels();
     BitCrush {
         input,
         samples,
-        hold: vec![D::zero_value(); channels as usize],
+        hold: vec![I::Item::default(); channels.get() as usize],
         mix: 0.8,
         sample_counter: 0,
         current_channel: 0,
@@ -25,10 +26,9 @@ pub fn bit_crusher<I: Source<Item = D>, D: Sample>(input: I, samples: u32) -> Bi
     }
 }
 
-impl<I, D> Iterator for BitCrush<I, D>
+impl<I> Iterator for BitCrush<I>
 where
-    I: Source<Item = D>,
-    D: Sample,
+    I: Source,
 {
     type Item = I::Item;
 
@@ -47,7 +47,7 @@ where
 
         self.current_channel += 1;
 
-        if self.current_channel >= self.channels {
+        if self.current_channel >= self.channels.get() {
             self.sample_counter += 1;
 
             if self.sample_counter >= self.samples {
@@ -57,7 +57,7 @@ where
             self.current_channel = 0;
         }
 
-        Some(Sample::lerp(
+        Some(crate::lerp(
             source,
             crushed,
             (self.mix * 1000.0) as u32,
@@ -66,20 +66,19 @@ where
     }
 }
 
-impl<I, D> Source for BitCrush<I, D>
+impl<I> Source for BitCrush<I>
 where
-    I: Source<Item = D>,
-    D: Sample,
+    I: Source,
 {
-    fn current_frame_len(&self) -> Option<usize> {
-        self.input.current_frame_len()
+    fn current_span_len(&self) -> Option<usize> {
+        self.input.current_span_len()
     }
 
-    fn channels(&self) -> u16 {
+    fn channels(&self) -> ChannelCount {
         self.channels
     }
 
-    fn sample_rate(&self) -> u32 {
+    fn sample_rate(&self) -> SampleRate {
         self.input.sample_rate()
     }
 
@@ -88,10 +87,9 @@ where
     }
 }
 
-impl<I, D> MixSource for BitCrush<I, D>
+impl<I> MixSource for BitCrush<I>
 where
-    I: Source<Item = D>,
-    D: Sample,
+    I: Source,
 {
     fn set_mix(&mut self, mix: f32) {
         self.mix = mix;

@@ -11,12 +11,15 @@ use eframe::egui::{Painter, Rgba};
 use eframe::epaint::FontId;
 use egui::Ui;
 use kson::overlaps::Overlaps;
-use kson::{ByPulseOption, GraphPoint, GraphSectionPoint, Interval, Ksh, Vox, KSON_RESOLUTION};
+use kson::{
+    ByPulseOption, DefKeyValuePairExt, GraphPoint, GraphSectionPoint, Interval, Vox,
+    KSON_RESOLUTION,
+};
 use kson_music_playback as playback;
 
 use puffin::profile_scope;
+use rodio::MixerDeviceSink;
 
-use rodio::OutputStream;
 use std::collections::VecDeque;
 use std::ffi::OsStr;
 use std::fs::File;
@@ -28,7 +31,7 @@ use std::time::Duration;
 pub const EGUI_ID: &str = "chart_editor";
 
 pub struct MainState {
-    pub audio_out: Option<(rodio::OutputStream, rodio::OutputStreamHandle)>,
+    pub audio_out: Option<MixerDeviceSink>,
     pub chart: kson::Chart,
     pub save_path: Option<PathBuf>,
     pub mouse_x: f32,
@@ -784,6 +787,7 @@ impl MainState {
                             ChartTool::BPM => Some(Box::new(BpmTool::new())),
                             ChartTool::TimeSig => Some(Box::new(TimeSigTool::new())),
                             ChartTool::Camera => Some(Box::<CameraTool>::default()),
+                            ChartTool::Select => Some(Box::new(RangeSelect::default())),
                         };
                         self.current_tool = new_tool;
                         ctx.request_repaint();
@@ -888,7 +892,8 @@ impl MainState {
                                 self.audio_playback.build_effects(&self.chart);
                                 self.audio_playback.play();
                                 drop(self.audio_out.take());
-                                let audio_out = OutputStream::try_default()?;
+                                let audio_out = rodio::DeviceSinkBuilder::from_default_device()?
+                                    .open_stream()?;
                                 use rodio::source::Source;
                                 let audio_file = self
                                     .audio_playback
@@ -898,9 +903,9 @@ impl MainState {
                                 self.audio_playback.set_fx_enable(true, true);
 
                                 self.audio_playback.play();
-                                audio_out.1.play_raw(
-                                    audio_file.skip_duration(Duration::from_millis(ms as _)),
-                                )?;
+                                audio_out
+                                    .mixer()
+                                    .add(audio_file.skip_duration(Duration::from_millis(ms as _)));
                                 self.audio_out = Some(audio_out);
                             }
                             Err(msg) => {
@@ -1347,7 +1352,7 @@ impl MainState {
         (lane, tick, tick_f)
     }
 
-    pub fn primary_clicked(&mut self, pos: Pos2) {
+    pub fn primary_clicked(&mut self, pos: Pos2, modifiers: eframe::egui::Modifiers) {
         self.mouse_x = pos.x;
         self.mouse_y = pos.y;
         let (lane, tick, tick_f) = self.get_clicked_data(pos);
@@ -1362,6 +1367,7 @@ impl MainState {
                 &self.chart,
                 &mut self.actions,
                 pos2(pos.x, pos.y),
+                modifiers,
             );
         }
     }

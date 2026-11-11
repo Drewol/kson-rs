@@ -133,7 +133,7 @@ fn tick_is_short(score_tick: PlacedScoreTick) -> bool {
             start: _,
             end: _,
         } => true,
-        ScoreTick::Chip { lane: _ } => true,
+        ScoreTick::Chip { .. } => true,
         ScoreTick::Hold { .. } => false,
     }
 }

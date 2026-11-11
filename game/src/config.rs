@@ -1,3 +1,5 @@
+pub mod migrations;
+
 use std::{
     collections::HashMap, fmt::Display, fs::File, io::Read, path::PathBuf, sync::RwLock,
     time::Duration,
@@ -10,6 +12,8 @@ use serde::{Deserialize, Serialize};
 use winit::dpi::{PhysicalPosition, PhysicalSize};
 use winit::keyboard::PhysicalKey;
 
+use crate::lighting::{self, LightingMap};
+use crate::util::legacy_skin_config::convert_legacy_config;
 use crate::{
     button_codes::{CustomBindings, UscButton},
     game::{self, HitWindow},
@@ -115,6 +119,25 @@ pub struct GameConfig {
     pub companion_address: Option<String>,
     pub score_screenshots: ScoreScreenshot,
     pub screenshot_path: PathBuf,
+    pub ir_endpoint: String,
+    pub ir_api_token: String,
+    pub multiplayer: MultiplayerSettings,
+    pub lighting: lighting::LightingMap,
+}
+
+#[derive(Debug, Deserialize, Serialize, Clone)]
+pub struct MultiplayerSettings {
+    pub server: String,
+    pub name: String,
+}
+
+impl Default for MultiplayerSettings {
+    fn default() -> Self {
+        Self {
+            server: "usc-multi.drewol.me:39079".into(),
+            name: Default::default(),
+        }
+    }
 }
 
 #[derive(Debug, Deserialize, Serialize, Clone)]
@@ -181,9 +204,67 @@ pub struct Keybinds {
     refresh: PhysicalKey,
     laser_l: (PhysicalKey, PhysicalKey),
     laser_r: (PhysicalKey, PhysicalKey),
+    reload_scripts: PhysicalKey,
 }
 
 impl Keybinds {
+    pub fn get(&self, button: UscButton) -> Option<PhysicalKey> {
+        match button {
+            UscButton::BT(bt_lane) => Some(match bt_lane {
+                kson::BtLane::A => self.bt_a,
+                kson::BtLane::B => self.bt_b,
+                kson::BtLane::C => self.bt_c,
+                kson::BtLane::D => self.bt_d,
+            }),
+            UscButton::FX(side) => Some(match side {
+                kson::Side::Left => self.fx_l,
+                kson::Side::Right => self.fx_r,
+            }),
+            UscButton::Start => Some(self.start),
+            UscButton::Back => Some(self.back),
+            UscButton::Refresh => Some(self.refresh),
+            UscButton::Laser(side, dir) => Some(match (side, dir) {
+                (kson::Side::Left, kson::Side::Left) => self.laser_l.0,
+                (kson::Side::Left, kson::Side::Right) => self.laser_l.1,
+                (kson::Side::Right, kson::Side::Left) => self.laser_r.0,
+                (kson::Side::Right, kson::Side::Right) => self.laser_r.1,
+            }),
+            UscButton::Other(_) => None,
+        }
+    }
+
+    pub fn set(&mut self, button: UscButton, key: PhysicalKey) {
+        let b = match button {
+            UscButton::BT(bt_lane) => Some(match bt_lane {
+                kson::BtLane::A => &mut self.bt_a,
+                kson::BtLane::B => &mut self.bt_b,
+                kson::BtLane::C => &mut self.bt_c,
+                kson::BtLane::D => &mut self.bt_d,
+            }),
+            UscButton::FX(side) => Some(match side {
+                kson::Side::Left => &mut self.fx_l,
+                kson::Side::Right => &mut self.fx_r,
+            }),
+            UscButton::Start => Some(&mut self.start),
+            UscButton::Back => Some(&mut self.back),
+            UscButton::Refresh => Some(&mut self.refresh),
+            UscButton::Laser(side, dir) => Some(match (side, dir) {
+                (kson::Side::Left, kson::Side::Left) => &mut self.laser_l.0,
+                (kson::Side::Left, kson::Side::Right) => &mut self.laser_l.1,
+                (kson::Side::Right, kson::Side::Left) => &mut self.laser_r.0,
+                (kson::Side::Right, kson::Side::Right) => &mut self.laser_r.1,
+            }),
+            UscButton::Other(_) => None,
+        };
+        if let Some(b) = b {
+            *b = key;
+        }
+    }
+
+    pub fn is_reload_script(&self, key: PhysicalKey) -> bool {
+        key == self.reload_scripts
+    }
+
     pub fn match_button(&self, key: PhysicalKey) -> Option<UscButton> {
         let Keybinds {
             bt_a,
@@ -197,6 +278,7 @@ impl Keybinds {
             refresh,
             laser_l: (ll_l, ll_r),
             laser_r: (rl_l, rl_r),
+            reload_scripts: _,
         } = self;
 
         //TODO: Better way?
@@ -240,6 +322,7 @@ impl Default for Keybinds {
                 PhysicalKey::Code(KeyCode::KeyO),
                 PhysicalKey::Code(KeyCode::KeyP),
             ), // (O,P)
+            reload_scripts: PhysicalKey::Code(KeyCode::F9),
         }
     }
 }
@@ -254,7 +337,7 @@ impl Default for GameConfig {
             skin_definition: vec![],
             mod_speed: 400.0,
             laser_hues: [200.0, 330.0],
-            game_folder: crate::default_game_dir(),
+            game_folder: crate::installer::default_game_dir(),
             args: Default::default(),
             mappings: vec![
             String::from("03000000d01600006d0a000000000000,Pocket Voltex Rev4,a:b1,b:b2,y:b3,x:b4,leftshoulder:b5,rightshoulder:b6,start:b0,leftx:a0,rightx:a1"),
@@ -283,6 +366,10 @@ impl Default for GameConfig {
             companion_address: Some("127.0.0.1:9002".to_string()),
             score_screenshots: ScoreScreenshot::default(),
             screenshot_path: PathBuf::from_iter([".", "screenshots"]),
+            ir_api_token: String::new(),
+            ir_endpoint: String::new(),
+            multiplayer: MultiplayerSettings::default(),
+            lighting: LightingMap::default()
         }
     }
 }
@@ -324,8 +411,9 @@ impl GameConfig {
             .skin_config_path()
             .with_file_name("config-definitions.json");
 
-        let file = File::open(definition_path)?;
-        let definitions: Vec<SkinSettingEntry> = serde_json::from_reader(file)?;
+        let file = File::open(&definition_path)?;
+        let definitions: Vec<SkinSettingEntry> = serde_json::from_reader(file)
+            .or_else(|_| convert_legacy_config(File::open(&definition_path)?))?;
 
         for def in &definitions {
             let entry = match def {
@@ -427,10 +515,12 @@ impl GameConfig {
         if let Err(err) = GameConfig::get_mut().init_skin_settings() {
             log::warn!("{}", err)
         };
+
+        migrations::migrate_config();
     }
 
     pub fn save(&self) {
-        info!("Saving config");
+        info!("Saving config: {:?}", &self.config_file);
 
         if let Err(e) = toml::to_string_pretty(self)
             .map_err(|e| anyhow::anyhow!(e))

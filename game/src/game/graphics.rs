@@ -39,64 +39,76 @@ impl CpuMesh {
         colors.as_mut().map(|x| x.clear());
     }
 
+    /// Appends `other` to this mesh in place.
     pub fn extend(&mut self, other: CpuMesh) {
-        *self = extend_mesh(std::mem::take(self), other)
+        let index_offset = self.positions.len() as u32;
+        let other_len = other.positions.len();
+
+        match (self.indices.as_mut(), other.indices) {
+            (Some(a), Some(b)) => a.extend(b.into_iter().map(|i| i + index_offset)),
+            (Some(a), None) => a.extend(index_offset..index_offset + other_len as u32),
+            (None, Some(b)) => {
+                let mut indices: Vec<u32> = (0..index_offset).collect();
+                indices.extend(b.into_iter().map(|i| i + index_offset));
+                self.indices = Some(indices);
+            }
+            (None, None) => {}
+        }
+
+        match (self.uvs.as_mut(), other.uvs) {
+            (Some(a), Some(b)) => a.extend(b),
+            (Some(a), None) => a.extend(std::iter::repeat_n(Vec2::ZERO, other_len)),
+            (None, Some(b)) => {
+                let mut uvs = vec![Vec2::ZERO; self.positions.len()];
+                uvs.extend(b);
+                self.uvs = Some(uvs);
+            }
+            (None, None) => {}
+        }
+
+        match (self.colors.as_mut(), other.colors) {
+            (Some(a), Some(b)) => a.extend(b),
+            (Some(a), None) => a.extend(std::iter::repeat_n(Vec4::ONE, other_len)),
+            (None, Some(b)) => {
+                let mut colors = vec![Vec4::ONE; self.positions.len()];
+                colors.extend(b);
+                self.colors = Some(colors);
+            }
+            (None, None) => {}
+        }
+
+        self.positions.extend(other.positions);
+    }
+
+    /// Appends `base` transformed by `transform` with every vertex set to `color`.
+    pub fn push_transformed(&mut self, base: &CpuMesh, transform: glam::Mat4, color: Vec4) {
+        let index_offset = self.positions.len() as u32;
+        let base_len = base.positions.len();
+
+        let indices = self.indices.get_or_insert_with(Vec::new);
+        match base.indices.as_ref() {
+            Some(b) => indices.extend(b.iter().map(|i| i + index_offset)),
+            None => indices.extend(index_offset..index_offset + base_len as u32),
+        }
+
+        let uvs = self.uvs.get_or_insert_with(Vec::new);
+        match base.uvs.as_ref() {
+            Some(b) => uvs.extend_from_slice(b),
+            None => uvs.extend(std::iter::repeat_n(Vec2::ZERO, base_len)),
+        }
+
+        self.colors
+            .get_or_insert_with(Vec::new)
+            .extend(std::iter::repeat_n(color, base_len));
+
+        self.positions
+            .extend(base.positions.iter().map(|p| transform.transform_point3(*p)));
     }
 }
 
-pub fn extend_mesh(a: CpuMesh, b: CpuMesh) -> CpuMesh {
-    let CpuMesh {
-        mut positions,
-        indices,
-        normals,
-        tangents,
-        uvs,
-        mut colors,
-    } = a;
-
-    let index_offset = positions.len();
-
-    let CpuMesh {
-        positions: mut b_positions,
-        indices: b_indices,
-        normals: _b_normals,
-        tangents: _b_tangents,
-        uvs: b_uvs,
-        colors: mut b_colors,
-    } = b;
-
-    let indices = match (indices, b_indices) {
-        (None, None) => None,
-        (None, Some(mut b)) => {
-            b.iter_mut().for_each(|idx| *idx += index_offset as u32);
-            Some(b)
-        }
-        (Some(a), None) => Some(a),
-        (Some(mut a), Some(mut b)) => {
-            b.iter_mut().for_each(|idx| *idx += index_offset as u32);
-            a.append(&mut b);
-            Some(a)
-        }
-    };
-    {
-        positions.append(&mut b_positions);
-    }
-
-    if let (Some(a), Some(b)) = (colors.as_mut(), b_colors.as_mut()) {
-        a.append(b)
-    } else {
-        colors = None;
-    }
-
-    let uvs: Option<Vec<_>> = Some(uvs.iter().chain(b_uvs.iter()).flatten().copied().collect());
-    CpuMesh {
-        positions,
-        indices,
-        normals,
-        tangents,
-        uvs,
-        colors,
-    }
+pub fn extend_mesh(mut a: CpuMesh, b: CpuMesh) -> CpuMesh {
+    a.extend(b);
+    a
 }
 
 #[derive(Debug)]

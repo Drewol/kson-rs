@@ -1,5 +1,6 @@
 use anyhow::bail;
 use eframe::egui::{self, ComboBox};
+use kson::DefKeyValuePairExt;
 
 use crate::{
     chart_editor::MainState,
@@ -25,13 +26,21 @@ pub fn effect_panel(state: &mut MainState) -> impl egui::Widget + '_ {
     move |ui: &mut egui::Ui| {
         ui.heading(i18n::fl!("effect_definitions"));
 
-        let mut keys: Vec<_> = state.chart.audio.audio_effect.fx.def.iter_mut().collect();
-        keys.sort_by_key(|x| x.0);
+        let mut keys: Vec<_> = state
+            .chart
+            .audio
+            .audio_effect
+            .fx
+            .def
+            .iter_mut()
+            .map(|a| (&mut a.0, &mut a.1))
+            .collect();
+        keys.sort_by(|a, b| a.0.cmp(&b.0));
 
         for (key, effect) in keys {
             let unaltered = effect.clone();
 
-            ui.collapsing(key, |ui| {
+            ui.collapsing(key.as_str(), |ui| {
                 effect.edit(ui);
             });
 
@@ -41,7 +50,8 @@ pub fn effect_panel(state: &mut MainState) -> impl egui::Widget + '_ {
                 state
                     .actions
                     .new_action(fl!("alter_effect", name = key.clone()), move |c| {
-                        let Some(original) = c.audio.audio_effect.fx.def.get_mut(&key) else {
+                        let Some(original) = c.audio.audio_effect.fx.def.get_mut_by_key(&key)
+                        else {
                             bail!("Effect not defined")
                         };
                         *original = effect.clone();
@@ -87,7 +97,7 @@ pub fn effect_panel(state: &mut MainState) -> impl egui::Widget + '_ {
                             .audio_effect
                             .fx
                             .def
-                            .insert(new_name.clone(), effect.clone());
+                            .push((new_name.clone(), effect.clone()));
                         Ok(())
                     },
                 );

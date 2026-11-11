@@ -6,7 +6,7 @@ members = [
     "editor",
     "game",
     "game/rusc_database",
-    "kson-rodio-sources",
+    "kson-rodio-sources", "multiplayer-protocol",
 ]
 resolver = "2"
 
@@ -14,17 +14,16 @@ resolver = "2"
 opt-level = 3
 
 [profile.release]
-debug = true
-
+strip = true
 
 [workspace.dependencies]
 serde = { version = "1", features = ["derive"] }
-puffin = "0.19.1"
+puffin = "0.19"
 puffin_http = "0.16.0"
-egui = "0.27"
-emath = "0.27"
-egui_glow = "0.27"
-eframe = { version = "0.27", features = ["persistence"] }
+egui = "0.31"
+emath = "0.31"
+egui_glow = "0.31"
+eframe = { version = "0.31", features = ["persistence"] }
 simple_logger = "4.0.0"
 image = { version = "0.25", default_features = false, features = [
     "png",
@@ -32,10 +31,11 @@ image = { version = "0.25", default_features = false, features = [
 ] }
 serde_json = "1"
 rodio = { version = "0", default-features = false, features = [
-    'symphonia-wav',
-    "flac",
-    "vorbis",
+    "playback",
     "mp3",
+    "vorbis",
+    "wav",
+    "flac",
 ] }
 anyhow = "1"
 rand = "0.8.5"

@@ -166,7 +166,7 @@ impl Scene for CameraTest {
         self.camera
             .update(vec2(viewport.width as f32, viewport.height as f32));
         let camera: three_d_asset::Camera = (&self.camera).into();
-        self.track_shader.draw_camera(&camera, &mut rp);
+        crate::log_result!(self.track_shader.draw_camera(&camera, &mut rp));
 
         drop(rp);
         vec![encocer.finish()]

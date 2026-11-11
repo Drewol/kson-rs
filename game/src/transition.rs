@@ -1,18 +1,14 @@
-use std::{
-    path::PathBuf,
-    rc::Rc,
-    sync::{mpsc::Sender, Arc},
-};
+use std::{path::PathBuf, rc::Rc, sync::Arc};
 
 use anyhow::anyhow;
 use di::{RefMut, ServiceProvider};
 
-use glam::{vec2, Mat4};
+use futures::executor::block_on;
 use log::warn;
+use mlua::{Function, Lua, LuaSerdeExt};
 use poll_promise::Promise;
 use rodio::Source;
 use serde_json::json;
-use tealr::mlu::mlua::{Function, Lua, LuaSerdeExt};
 use wgpu::{Origin3d, SurfaceTexture, Texture};
 
 use crate::{
@@ -22,9 +18,8 @@ use crate::{
     main_menu::MainMenuButton,
     results::SongResultData,
     scene::{Scene, SceneData},
-    shaded_mesh::ShadedMesh,
-    songselect::{Song, SongSelect},
-    util::{back_pixels, lua_address},
+    songselect::{Song, SongProviderSelection, SongSelect},
+    util::lua_address,
     vg_ui::VgfxSyncExt,
     ControlMessage, Viewport,
 };
@@ -41,7 +36,7 @@ pub enum TransitionState {
 pub struct Transition {
     target: ControlMessage,
     target_state: Option<Promise<anyhow::Result<Box<dyn SceneData + Send>>>>,
-    control_tx: Sender<ControlMessage>,
+    loaded_scene: Option<Box<dyn Scene>>,
     pub state: TransitionState,
     transition_lua: Rc<Lua>,
     vgfx: RefMut<crate::Vgfx>,
@@ -50,8 +45,8 @@ pub struct Transition {
     first_frame: bool,
 }
 
-fn load_songs() -> anyhow::Result<Box<dyn SceneData + Send>> {
-    Ok(Box::new(SongSelect::new()))
+fn load_songs(provider: SongProviderSelection) -> anyhow::Result<Box<dyn SceneData + Send>> {
+    Ok(Box::new(SongSelect::new(provider)))
 }
 
 fn load_chart(
@@ -61,6 +56,7 @@ fn load_chart(
     skin_folder: PathBuf,
     audio: Box<dyn Source<Item = f32> + Send>,
     autoplay: AutoPlay,
+    chart_folder: Option<PathBuf>,
 ) -> anyhow::Result<Box<dyn SceneData + Send>> {
     Ok(Box::new(crate::game::GameData::new(
         song,
@@ -69,6 +65,7 @@ fn load_chart(
         skin_folder,
         audio,
         autoplay,
+        chart_folder,
     )?))
 }
 
@@ -77,18 +74,21 @@ impl Transition {
         self.state = TransitionState::Countdown(5);
     }
 
+    pub fn take_loaded(&mut self) -> Option<Box<dyn Scene>> {
+        self.loaded_scene.take()
+    }
+
     pub fn new(
         transition_lua: Rc<Lua>,
         target: ControlMessage,
-        control_tx: Sender<ControlMessage>,
         vgfx: RefMut<crate::Vgfx>,
         viewport: Viewport,
         surface: &SurfaceTexture,
         service_provider: ServiceProvider,
         commands: &mut Vec<wgpu::CommandBuffer>,
     ) -> anyhow::Result<Self> {
-        if let Ok(reset_fn) = transition_lua.globals().get::<_, Function>("reset") {
-            if let Some(e) = reset_fn.call::<(), ()>(()).err() {
+        if let Ok(reset_fn) = transition_lua.globals().get::<Function>("reset") {
+            if let Some(e) = reset_fn.call::<()>(()).err() {
                 warn!("Error resetting transition: {}", e);
             };
         }
@@ -129,7 +129,7 @@ impl Transition {
             target,
             transition_lua,
             target_state: None,
-            control_tx,
+            loaded_scene: None,
             state: TransitionState::Intro,
             vgfx,
             prev_screengrab: prev_grab,
@@ -164,26 +164,32 @@ impl Scene for Transition {
         &mut self,
         _dt: f64,
         context: &RenderContext,
-        viewport: Viewport,
+        _viewport: Viewport,
         s: Rc<SurfaceTexture>,
-    ) -> std::vec::Vec<wgpu::CommandBuffer> {
+    ) -> Vec<wgpu::CommandBuffer> {
+        let first_frame = std::mem::replace(&mut self.first_frame, false);
         match self.state {
-            TransitionState::Intro if !self.first_frame => {
-                let mut encoder = context.encoder(None);
+            TransitionState::Intro if !first_frame => {
+                let grab_size = self.prev_screengrab.size();
+                if grab_size != s.texture.size() {
+                    // Window was resized during the transition, can't reuse the old grab
+                    return vec![];
+                }
+                let mut encoder = context.encoder(Some("Transition screen grab"));
                 encoder.copy_texture_to_texture(
-                    wgpu::ImageCopyTextureBase {
+                    wgpu::TexelCopyTextureInfoBase {
                         texture: &self.prev_screengrab,
                         mip_level: 0,
                         origin: Origin3d::ZERO,
                         aspect: wgpu::TextureAspect::All,
                     },
-                    wgpu::ImageCopyTextureBase {
+                    wgpu::TexelCopyTextureInfoBase {
                         texture: &s.texture,
                         mip_level: 0,
                         origin: Origin3d::ZERO,
                         aspect: wgpu::TextureAspect::All,
                     },
-                    viewport.extend3d(1),
+                    grab_size,
                 );
 
                 return vec![encoder.finish()];
@@ -192,14 +198,10 @@ impl Scene for Transition {
             TransitionState::Countdown(c) => self.state = TransitionState::Countdown(c - 1),
             _ => (),
         }
-        self.first_frame = false;
         vec![]
     }
 
-    fn render_ui(
-        &mut self,
-        dt: f64,
-    ) -> std::result::Result<std::vec::Vec<wgpu::CommandBuffer>, anyhow::Error> {
+    fn render_ui(&mut self, dt: f64) -> anyhow::Result<Vec<wgpu::CommandBuffer>> {
         {
             self.vgfx
                 .read()
@@ -221,9 +223,23 @@ impl Scene for Transition {
                     let target = std::mem::take(&mut self.target);
 
                     self.target_state = match target {
+                        ControlMessage::SongSelect(sps) => {
+                            Some(Promise::spawn_thread("Load song select", move || {
+                                load_songs(sps)
+                            }))
+                        }
                         ControlMessage::MainMenu(MainMenuButton::Start) => {
                             Some(Promise::spawn_thread("Load song select", move || {
-                                load_songs()
+                                load_songs(SongProviderSelection::Default)
+                            }))
+                        }
+                        ControlMessage::MainMenu(MainMenuButton::Multiplayer) => {
+                            let scope = self.service_provider.create_scope();
+                            Some(Promise::spawn_async(async move {
+                                let service: RefMut<crate::multiplayer::MultiplayerService> =
+                                    scope.get_required();
+                                block_on(service.write().unwrap().connect())?;
+                                Ok(Box::new(service) as Box<dyn SceneData + Send>)
                             }))
                         }
                         ControlMessage::Song {
@@ -234,8 +250,16 @@ impl Scene for Transition {
                         } => {
                             let skin_folder = self.vgfx.read().expect("Lock error").skin_folder();
                             Some(Promise::spawn_thread("Load song", move || {
-                                let (chart, audio) = loader()?;
-                                load_chart(chart, song, diff, skin_folder, audio, autoplay)
+                                let (chart, audio, chart_path) = loader()?;
+                                load_chart(
+                                    chart,
+                                    song,
+                                    diff,
+                                    skin_folder,
+                                    audio,
+                                    autoplay,
+                                    chart_path,
+                                )
                             }))
                         }
                         ControlMessage::Result {
@@ -249,6 +273,7 @@ impl Scene for Transition {
                             max_combo,
                             duration,
                             manual_exit,
+                            hash,
                         } => Some(Promise::spawn_thread(
                             "Load song",
                             move || -> anyhow::Result<Box<dyn SceneData + Send>> {
@@ -263,6 +288,7 @@ impl Scene for Transition {
                                     max_combo,
                                     duration,
                                     manual_exit,
+                                    hash,
                                 )?))
                             },
                         )),
@@ -272,15 +298,13 @@ impl Scene for Transition {
             }
             TransitionState::Loading | TransitionState::Countdown(_) => {
                 let render: Function = self.transition_lua.globals().get("render")?;
-                render.call(dt / 1000_f64)?;
+                render.call::<()>(dt / 1000_f64)?;
                 if let Some(target_state) = self.target_state.take() {
                     match target_state.try_take() {
-                        Ok(Ok(finished)) => self
-                            .control_tx
-                            .send(ControlMessage::TransitionComplete(
-                                finished.make_scene(self.service_provider.create_scope())?,
-                            ))
-                            .expect("Failed to communicate with main game"),
+                        Ok(Ok(finished)) => {
+                            self.loaded_scene =
+                                Some(finished.make_scene(self.service_provider.create_scope())?)
+                        }
                         Ok(Err(loading_error)) => {
                             log::error!("{}", loading_error);
                             self.state = TransitionState::Countdown(5);

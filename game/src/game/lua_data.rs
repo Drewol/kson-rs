@@ -1,13 +1,10 @@
-use glam::vec3;
-use glam::Mat4;
-use glam::Vec2;
-use glam::Vec3Swizzles;
 use luals_gen::LuaLsType;
 use luals_gen::ToLuaLsType;
 use serde::Deserialize;
 use serde::Serialize;
+use serde_with::formats::Flexible;
 use serde_with::serde_as;
-use serde_with::DurationMilliSecondsWithFrac;
+use serde_with::DurationNanoSeconds;
 
 use std::time::Duration;
 
@@ -59,15 +56,15 @@ pub(crate) struct LuaGauge {
 pub struct HitWindow {
     #[serde(rename = "type")]
     pub variant: i32,
-    #[serde_as(as = "DurationMilliSecondsWithFrac<f64>")]
+    #[serde_as(as = "DurationNanoSeconds<u64, Flexible>")]
     pub perfect: Duration,
-    #[serde_as(as = "DurationMilliSecondsWithFrac<f64>")]
+    #[serde_as(as = "DurationNanoSeconds<u64, Flexible>")]
     pub good: Duration,
-    #[serde_as(as = "DurationMilliSecondsWithFrac<f64>")]
+    #[serde_as(as = "DurationNanoSeconds<u64, Flexible>")]
     pub hold: Duration,
-    #[serde_as(as = "DurationMilliSecondsWithFrac<f64>")]
+    #[serde_as(as = "DurationNanoSeconds<u64, Flexible>")]
     pub miss: Duration,
-    #[serde_as(as = "DurationMilliSecondsWithFrac<f64>")]
+    #[serde_as(as = "DurationNanoSeconds<u64, Flexible>")]
     pub slam: Duration,
 }
 
@@ -84,6 +81,10 @@ impl ToLuaLsType for HitWindow {
                 ("slam".into(), LuaLsType::Primitive("number".into())),
             ]),
         )
+    }
+
+    fn lua_ls_type_name() -> std::borrow::Cow<'static, str> {
+        "HitWindow".into()
     }
 }
 
@@ -140,15 +141,14 @@ impl Cursor {
     pub fn new(pos: f32, camera: &three_d_asset::Camera, alpha: f32) -> Self {
         let pos = (pos - 0.5) * (5.0 / 6.0);
 
-        let crit_pos = camera.pixel_at_position(three_d_asset::vec3(0.0, 0.0, 0.0));
-        let c_pos = camera.pixel_at_position(three_d_asset::vec3(pos, 0.0, 0.0));
-        let c_pos_up = camera.pixel_at_position(three_d_asset::vec3(pos, 0.2, 0.0));
-        let c_pos_down = camera.pixel_at_position(three_d_asset::vec3(pos, -0.2, 0.0));
+        let to_glam = |v: three_d_asset::PixelPoint| glam::vec2(v.x, v.y);
+        let crit_pos = to_glam(camera.pixel_at_position(three_d_asset::vec3(0.0, 0.0, 0.0)));
+        let c_pos = to_glam(camera.pixel_at_position(three_d_asset::vec3(pos, 0.0, 0.0)));
+        let c_pos_up = to_glam(camera.pixel_at_position(three_d_asset::vec3(pos, 0.2, 0.0)));
+        let c_pos_down = to_glam(camera.pixel_at_position(three_d_asset::vec3(pos, -0.2, 0.0)));
         let dist_from_crit_center =
-            (glam::vec2(crit_pos.x, crit_pos.y) - (glam::vec2(c_pos.x, c_pos.y))).length()
-                * if pos < 0.0 { -1.0 } else { 1.0 };
-        let cursor_angle_vector =
-            glam::vec2(c_pos_up.x, c_pos_up.y) - glam::vec2(c_pos_down.x, c_pos_down.y);
+            (crit_pos - c_pos).length() * if pos < 0.0 { -1.0 } else { 1.0 };
+        let cursor_angle_vector = c_pos_up - c_pos_down;
 
         let skew = cursor_angle_vector.y.atan2(cursor_angle_vector.x) + std::f32::consts::FRAC_PI_2;
 

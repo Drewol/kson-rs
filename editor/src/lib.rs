@@ -188,6 +188,7 @@ pub enum ChartTool {
     BPM,
     TimeSig,
     Camera,
+    Select,
 }
 
 #[derive(Debug, Serialize, Deserialize, Hash, PartialEq, Eq, Clone)]
@@ -419,6 +420,10 @@ impl Default for Config {
                 KeyCombo::new(Key::Num7, nomod),
                 GuiEvent::ToolChanged(ChartTool::Camera),
             );
+            default_bindings.insert(
+                KeyCombo::new(Key::Num8, nomod),
+                GuiEvent::ToolChanged(ChartTool::Select),
+            );
         }
 
         default_bindings.insert(KeyCombo::new(Key::Space, nomod), GuiEvent::Play);
@@ -531,7 +536,7 @@ impl AppState {
         Grid::new("hotkey_grid").striped(true).show(ui, |ui| {
             for (key, event) in binding_vec {
                 ui.label(format!("{}", event));
-                ui.add(Label::new(format!("{}", key)).wrap(false));
+                ui.add(Label::new(format!("{}", key)).wrap_mode(egui::TextWrapMode::Extend));
                 ui.end_row();
             }
         });
@@ -542,7 +547,7 @@ impl AppState {
     }
 }
 
-const CONFIG_KEY: &str = "CONFIG_2";
+const CONFIG_KEY: &str = "CONFIG_3";
 
 fn menu_ui(ui: &mut Ui, title: impl ToString, min_width: f32, add_contents: impl FnOnce(&mut Ui)) {
     menu::menu_button(ui, title.to_string(), |ui| {
@@ -852,25 +857,23 @@ impl App for AppState {
                     }
 
                     if response.clicked() {
-                        self.editor.primary_clicked(pos)
-                    }
-
-                    if response.middle_clicked() {
+                        info!("Clicked");
+                        self.editor.primary_clicked(pos, ctx.input(|i| i.modifiers))
+                    } else if response.middle_clicked() {
+                        info!("Middle clicked");
                         self.editor.middle_clicked(pos)
-                    }
-
-                    if response.drag_started()
+                    } else if response.drag_started()
                         && ctx.input(|x| x.pointer.button_down(egui::PointerButton::Primary))
                     {
+                        info!("Drag start");
                         self.editor.drag_start(
                             egui::PointerButton::Primary,
                             pos.x,
                             pos.y,
                             &Modifiers::from(ctx.input(|x| x.modifiers)),
                         )
-                    }
-
-                    if response.drag_stopped() {
+                    } else if response.drag_stopped() {
+                        info!("Drag end");
                         self.editor
                             .drag_end(egui::PointerButton::Primary, pos.x, pos.y)
                     }
@@ -958,7 +961,7 @@ pub fn main() -> eframe::Result<()> {
             app.editor.screen.beats_per_col = config.beats_per_column;
             cc.egui_ctx.set_visuals(Visuals::dark());
 
-            Box::new(app)
+            Ok(Box::new(app))
         }),
     )
 }

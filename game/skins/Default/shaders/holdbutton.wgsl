@@ -5,16 +5,19 @@
 struct VertexOutput {
     @builtin(position) position: vec4<f32>,
     @location(0) tex_coords: vec2<f32>,
+    // Per note data, set by the game
+    @location(1) data: vec4<f32>,
 };
 
 
 @vertex
 fn vs_main(
-    @location(0) position: vec3f, @location(1) tex: vec2f
+    @location(0) position: vec3f, @location(1) tex: vec2f, @location(2) data: vec4f
 ) -> VertexOutput {
     var res: VertexOutput;
     res.position = proj * camera * world * vec4(position, 1.0);
     res.tex_coords = tex;
+    res.data = data;
     return res;
 
 }
@@ -22,18 +25,14 @@ fn vs_main(
 @group(1) @binding(0) var mainTex: texture_2d<f32>; 
 @group(1) @binding(1) var mainTex_s: sampler; 
 
-@group(2) @binding(0) var<uniform> color: vec4f;
-
-@group(2) @binding(1) var<uniform> objectGlow: f32;
-@group(2) @binding(2) var<uniform> trackPos: f32;
-@group(2) @binding(3) var<uniform> trackScale: f32;
-@group(2) @binding(4) var<uniform> hiddenCutoff: f32;
-@group(2) @binding(5) var<uniform> hiddenFadeWindow: f32;
-@group(2) @binding(6) var<uniform> suddenCutoff: f32;
-@group(2) @binding(7) var<uniform> suddenFadeWindow: f32;
-
-// 20Hz flickering. 0 = Miss, 1 = Inactive, 2 & 3 = Active alternating.
-@group(2) @binding(8) var<uniform> hitState: i32;
+// data.x: object glow
+// data.y: hit state, 20Hz flickering. 0 = Miss, 1 = Inactive, 2 & 3 = Active alternating.
+@group(2) @binding(0) var<uniform> trackPos: f32;
+@group(2) @binding(1) var<uniform> trackScale: f32;
+@group(2) @binding(2) var<uniform> hiddenCutoff: f32;
+@group(2) @binding(3) var<uniform> hiddenFadeWindow: f32;
+@group(2) @binding(4) var<uniform> suddenCutoff: f32;
+@group(2) @binding(5) var<uniform> suddenFadeWindow: f32;
 
 
 // The OpenGL standard leave the case when `edge0 >= edge1` undefined,
@@ -69,6 +68,7 @@ fn hide(position: vec4f) -> f32 {
 @fragment
 fn fs_main(v: VertexOutput) -> @location(0) vec4f {
 
+    let objectGlow = v.data.x;
     var main_color = textureSample(mainTex, mainTex_s, v.tex_coords);
     
     main_color = main_color * (vec4<f32>(vec3(1.0 + objectGlow * 0.3), 1.0));

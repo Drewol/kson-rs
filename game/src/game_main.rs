@@ -1,7 +1,5 @@
 use std::{
     marker::PhantomData,
-    mem::{ManuallyDrop, MaybeUninit},
-    num::NonZeroU32,
     ops::{Add, Sub},
     ptr,
     rc::Rc,
@@ -12,26 +10,29 @@ use std::{
     time::{Duration, SystemTime},
 };
 
+use anyhow::Context;
 use di::{RefMut, ServiceProvider};
-use femtovg::{ImageId, Paint};
-use futures::executor::block_on;
-use itertools::Itertools;
-use log::warn;
+use femtovg::Paint;
+use log::info;
 use wgpu::SurfaceTexture;
 use winit::{
     dpi::{PhysicalPosition, PhysicalSize},
     event,
-    keyboard::{Key, NamedKey},
-    platform::modifier_supplement::KeyEventExtModifierSupplement,
-    window::Window,
+    keyboard::{Key, NamedKey, PhysicalKey},
+    window::{Window, WindowId},
 };
 
 use puffin::{profile_function, profile_scope};
 
-use tealr::mlu::mlua::Lua;
+use crate::{
+    button_codes::UscButton, ir::InternetRanking, lighting::LightingService,
+    songselect::SongProviderSelection, touch::TouchHelper, util::Warn, FrameInput, InnerRuscMixer,
+};
+use mlua::Lua;
 
 use femtovg as vg;
 
+use crate::LuaArena;
 use crate::{
     button_codes::{LaserState, UscInputEvent},
     companion_interface::{self},
@@ -43,7 +44,6 @@ use crate::{
     lua_http::LuaHttp,
     lua_service::LuaProvider,
     main_menu::MainMenuButton,
-    scene,
     settings_screen::SettingsScreen,
     song_provider, songselect,
     transition::Transition,
@@ -51,7 +51,7 @@ use crate::{
     vg_ui::Vgfx,
     window::find_monitor,
     worker_service::WorkerService,
-    FrameInput, LuaArena, RuscMixer, Scenes, FRAME_ACC_SIZE,
+    RuscMixer, Scenes, FRAME_ACC_SIZE,
 };
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -68,16 +68,19 @@ impl AutoPlay {
     }
 }
 
+#[derive(Default)]
 pub enum ControlMessage {
+    #[default]
     None,
     MainMenu(MainMenuButton),
+    SongSelect(SongProviderSelection),
     Song {
         song: Arc<songselect::Song>,
         diff: usize,
         loader: song_provider::LoadSongFn,
         autoplay: AutoPlay,
     },
-    TransitionComplete(Box<dyn scene::Scene>),
+
     Result {
         song: Arc<songselect::Song>,
         diff_idx: usize,
@@ -89,15 +92,11 @@ pub enum ControlMessage {
         max_combo: i32,
         duration: i32,
         manual_exit: bool,
+        hash: String,
     },
 
     ApplySettings,
-}
-
-impl Default for ControlMessage {
-    fn default() -> Self {
-        Self::None
-    }
+    ReloadScripts,
 }
 
 pub struct GameMain {
@@ -128,6 +127,10 @@ pub struct GameMain {
     show_fps: bool,
     frame_end: std::time::SystemTime,
     frame_duration: Duration,
+    touch_tracker: TouchHelper,
+    mouse_knobs: bool,
+    mouse_locked: bool,
+    lighting_service: di::RefMut<LightingService>,
     render_context: RenderContext,
 }
 
@@ -199,6 +202,7 @@ impl GameMain {
             lua_arena: service_provider.get_required(),
             lua_provider: service_provider.get_required(),
             companion_server: service_provider.get_required(),
+            lighting_service: service_provider.get_required(),
             scenes,
             control_tx,
             control_rx,
@@ -223,6 +227,9 @@ impl GameMain {
             companion_update: 0,
             frame_end: SystemTime::UNIX_EPOCH,
             frame_duration: get_frame_duration(&GameConfig::get()),
+            touch_tracker: TouchHelper::new(egui::accesskit::Vec2::new(500.0, 500.0)),
+            mouse_knobs: GameConfig::get().mouse_knobs,
+            mouse_locked: false,
             render_context,
         }
     }
@@ -237,6 +244,13 @@ impl GameMain {
                 profile_scope!("Worker update");
                 ele.write().expect("Worker service closed").update()
             }
+        }
+
+        {
+            self.lighting_service
+                .write()
+                .unwrap()
+                .update(self.scenes.lighting());
         }
 
         if self.companion_update == 0 {
@@ -258,7 +272,7 @@ impl GameMain {
 
         self.companion_update -= 1;
 
-        if GameConfig::get().keyboard_knobs {
+        if GameConfig::get().keyboard_knobs || cfg!(target_os = "android") {
             let mut ls = LaserState::default();
             for l in [kson::Side::Left, kson::Side::Right] {
                 for d in [kson::Side::Left, kson::Side::Right] {
@@ -286,8 +300,7 @@ impl GameMain {
             });
         }
     }
-
-    /// Returns true if exit is requested
+    /// Returns true if exit is requested, along with the command buffers to submit for this frame
     pub fn render(
         &mut self,
         frame_input: FrameInput,
@@ -322,6 +335,10 @@ impl GameMain {
             companion_update: _,
             frame_end,
             frame_duration,
+            touch_tracker: _,
+            mouse_knobs,
+            mouse_locked,
+            lighting_service,
             render_context,
         } = self;
 
@@ -335,11 +352,9 @@ impl GameMain {
         let _lua_mixer = mixer.clone();
 
         if frame_input.first_frame {
-            // frame_input.context.clear(wgpu::Color::BLACK);
             let vgfx = vgfx.write().expect("Lock error");
             let mut canvas = vgfx.canvas.lock().expect("Lock error");
             canvas.reset();
-
             _ = canvas.fill_text(
                 10.0,
                 10.0,
@@ -349,14 +364,9 @@ impl GameMain {
                     .with_text_baseline(vg::Baseline::Top),
             );
             let commands = vec![canvas.flush_to_surface(&surface.texture)];
-
-            canvas.set_render_target(femtovg::RenderTarget::Screen); //wgpu renderer bug
-
             *frame_count += 1;
-
             return (false, commands);
         }
-
         if *frame_count == 1 {
             lua_provider
                 .register_libraries(transition_lua.clone(), "transition.lua")
@@ -370,9 +380,32 @@ impl GameMain {
 
         let mut transition_commands = vec![];
 
+        // Clear image tint, might be more things that need resetting between frames
+        {
+            let mut vgfx = vgfx.write().expect("Lock error");
+            vgfx.clear_tint();
+        }
+
         while let Ok(control_msg) = control_rx.try_recv() {
             match control_msg {
                 ControlMessage::None => {}
+                ControlMessage::SongSelect(song_provider_selection) => {
+                    scenes.suspend_top();
+
+                    if let Ok(_arena) = lua_arena.read() {
+                        let transition_lua = transition_lua.clone();
+                        scenes.transition = Transition::new(
+                            transition_lua,
+                            ControlMessage::SongSelect(song_provider_selection),
+                            vgfx.clone(),
+                            frame_input.viewport,
+                            surface.as_ref(),
+                            service_provider.create_scope(),
+                            &mut transition_commands,
+                        )
+                        .ok()
+                    }
+                }
                 ControlMessage::MainMenu(b) => match b {
                     MainMenuButton::Start => {
                         scenes.suspend_top();
@@ -382,7 +415,6 @@ impl GameMain {
                             scenes.transition = Transition::new(
                                 transition_lua,
                                 ControlMessage::MainMenu(MainMenuButton::Start),
-                                control_tx.clone(),
                                 vgfx.clone(),
                                 frame_input.viewport,
                                 surface.as_ref(),
@@ -391,6 +423,19 @@ impl GameMain {
                             )
                             .ok()
                         }
+                    }
+                    MainMenuButton::Multiplayer => {
+                        scenes.suspend_top();
+                        scenes.transition = Transition::new(
+                            transition_lua.clone(),
+                            ControlMessage::MainMenu(MainMenuButton::Multiplayer),
+                            vgfx.clone(),
+                            frame_input.viewport,
+                            surface.as_ref(),
+                            service_provider.create_scope(),
+                            &mut transition_commands,
+                        )
+                        .ok();
                     }
                     MainMenuButton::Downloads => {}
                     MainMenuButton::Exit => {
@@ -419,7 +464,6 @@ impl GameMain {
                                 song,
                                 autoplay,
                             },
-                            control_tx.clone(),
                             vgfx.clone(),
                             frame_input.viewport,
                             surface.as_ref(),
@@ -429,7 +473,6 @@ impl GameMain {
                         .ok()
                     }
                 }
-                ControlMessage::TransitionComplete(scene_data) => scenes.loaded.push(scene_data),
                 ControlMessage::Result {
                     song,
                     diff_idx,
@@ -441,6 +484,7 @@ impl GameMain {
                     max_combo,
                     duration,
                     manual_exit,
+                    hash,
                 } => {
                     if let Ok(_arena) = lua_arena.read() {
                         let transition_lua = transition_lua.clone();
@@ -457,8 +501,8 @@ impl GameMain {
                                 max_combo,
                                 duration,
                                 manual_exit,
+                                hash,
                             },
-                            control_tx.clone(),
                             vgfx.clone(),
                             frame_input.viewport,
                             surface.as_ref(),
@@ -478,6 +522,7 @@ impl GameMain {
                     });
 
                     *show_fps = settings.graphics.show_fps;
+                    *mouse_knobs = settings.mouse_knobs;
 
                     *frame_duration = get_frame_duration(&settings);
 
@@ -502,8 +547,18 @@ impl GameMain {
                         }
                     });
 
-                    let sink = service_provider.get_required::<rodio::Sink>();
-                    sink.set_volume(settings.master_volume);
+                    let sink = service_provider.get_required::<InnerRuscMixer>();
+
+                    lighting_service.write().unwrap().restart();
+                    settings.save();
+                }
+                ControlMessage::ReloadScripts => {
+                    info!("Reloading scripts");
+                    scenes.for_each_active_mut(|s| {
+                        s.reload_scripts()
+                            .with_context(|| s.name().to_string())
+                            .warn("Reloading scripts failed");
+                    })
                 }
             }
         }
@@ -518,6 +573,7 @@ impl GameMain {
             *mousey,
             &frame_input,
             self.input_state.clone(),
+            *mouse_knobs,
         );
 
         let mut commands = scenes.render(&frame_input, vgfx, surface.clone());
@@ -542,9 +598,10 @@ impl GameMain {
                 scenes.render_egui(ctx);
 
                 if *show_debug_ui {
-                    Self::debug_ui(ctx, scenes, &vgfx);
+                    Self::debug_ui(ctx, scenes, vgfx);
                 }
             });
+            gui.handle_platform_output(window, egui_out.platform_output);
 
             let mut egui_renderer = render_context.gui.renderer.write();
             for (id, delta) in egui_out.textures_delta.set {
@@ -560,58 +617,72 @@ impl GameMain {
                 egui_renderer.free_texture(&id);
             }
 
-            let sd = egui_wgpu::ScreenDescriptor {
-                size_in_pixels: window.inner_size().into(),
-                pixels_per_point: window.scale_factor() as _,
-            };
-            let shapes = gui
-                .egui_ctx()
-                .tessellate(egui_out.shapes, window.scale_factor() as _);
-            let mut encoder = render_context.encoder(Some("egui"));
+            if !egui_out.shapes.is_empty() {
+                let sd = egui_wgpu::ScreenDescriptor {
+                    size_in_pixels: window.inner_size().into(),
+                    pixels_per_point: egui_out.pixels_per_point,
+                };
+                let shapes = gui
+                    .egui_ctx()
+                    .tessellate(egui_out.shapes, egui_out.pixels_per_point);
+                let mut encoder = render_context.encoder(Some("egui"));
 
-            {
-                let mut cmds = egui_renderer.update_buffers(
+                commands.append(&mut egui_renderer.update_buffers(
                     &render_context.device,
                     &render_context.queue,
                     &mut encoder,
                     &shapes,
                     &sd,
-                );
-                commands.append(&mut cmds);
-            }
+                ));
 
-            let mut rpass = encoder
-                .begin_render_pass(&wgpu::RenderPassDescriptor {
-                    label: Some("egui"),
-                    color_attachments: &[Some(wgpu::RenderPassColorAttachment {
-                        view: &surface
-                            .texture
-                            .create_view(&wgpu::TextureViewDescriptor::default()),
-                        resolve_target: None,
-                        ops: wgpu::Operations {
-                            load: wgpu::LoadOp::Load,
-                            store: wgpu::StoreOp::Store,
-                        },
-                    })],
-                    depth_stencil_attachment: None,
-                    occlusion_query_set: None,
-                    timestamp_writes: None,
-                })
-                .forget_lifetime();
-            egui_renderer.render(&mut rpass, &shapes, &sd);
-            drop(rpass);
-            commands.push(encoder.finish());
+                let mut rpass = encoder
+                    .begin_render_pass(&wgpu::RenderPassDescriptor {
+                        label: Some("egui"),
+                        color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                            view: &surface
+                                .texture
+                                .create_view(&wgpu::TextureViewDescriptor::default()),
+                            resolve_target: None,
+                            ops: wgpu::Operations {
+                                load: wgpu::LoadOp::Load,
+                                store: wgpu::StoreOp::Store,
+                            },
+                        })],
+                        depth_stencil_attachment: None,
+                        occlusion_query_set: None,
+                        timestamp_writes: None,
+                    })
+                    .forget_lifetime();
+                egui_renderer.render(&mut rpass, &shapes, &sd);
+                drop(rpass);
+                commands.push(encoder.finish());
+            }
         }
 
         Self::run_lua_gc(lua_arena, &mut vgfx.write().expect("Lock error"));
 
-        if let Ok(mut a) = game_data.write() {
-            a.profile_stack.clear()
-        }
-
         let exit = scenes.is_empty();
         if exit {
             GameConfig::get().save()
+        }
+
+        let lock_mouse = !gui.egui_ctx().is_pointer_over_area()
+            && *mouse_knobs
+            && !*show_debug_ui
+            && window.has_focus()
+            && !self.input_state.text_input_active();
+
+        if lock_mouse != *mouse_locked {
+            *mouse_locked = lock_mouse;
+            if lock_mouse {
+                let s = window.inner_size();
+                _ = window.set_cursor_position(PhysicalPosition::new(s.width / 2, s.height / 2));
+                _ = window.set_cursor_grab(winit::window::CursorGrabMode::Locked);
+                window.set_cursor_visible(false);
+            } else {
+                window.set_cursor_visible(true);
+                _ = window.set_cursor_grab(winit::window::CursorGrabMode::None);
+            }
         }
 
         {
@@ -619,13 +690,10 @@ impl GameMain {
             crate::help::wait_until(*frame_end);
             *frame_end = SystemTime::now() + *frame_duration;
         }
+
         (exit, commands)
     }
-    pub fn handle(
-        &mut self,
-        window: &winit::window::Window,
-        event: &winit::event::Event<UscInputEvent>,
-    ) {
+    pub fn handle(&mut self, window: &Window, event: &winit::event::Event<UscInputEvent>) {
         use winit::event::*;
         if let Event::WindowEvent {
             window_id: _,
@@ -676,6 +744,11 @@ impl GameMain {
                 if let Fullscreen::Windowed { size, .. } = windowed {
                     *size = *physical_size;
                 }
+                self.touch_tracker = TouchHelper::new(egui::accesskit::Vec2::new(
+                    physical_size.width as f64,
+                    physical_size.height as f64,
+                ));
+
                 self.reset_viewport_size(physical_size)
             }
             Event::WindowEvent {
@@ -694,6 +767,61 @@ impl GameMain {
             } => {
                 self.mousex = position.x;
                 self.mousey = position.y;
+            }
+            Event::WindowEvent {
+                window_id: _,
+                event: WindowEvent::Touch(t),
+            } => {
+                info!("{:?}", t);
+
+                if self.scenes.touch_as_mouse() {
+                    self.handle(
+                        window,
+                        &Event::WindowEvent {
+                            window_id: WindowId::dummy(),
+                            event: WindowEvent::CursorMoved {
+                                device_id: DeviceId::dummy(),
+                                position: t.location,
+                            },
+                        },
+                    );
+
+                    match t.phase {
+                        TouchPhase::Started => {
+                            self.handle(
+                                window,
+                                &Event::WindowEvent {
+                                    window_id: WindowId::dummy(),
+                                    event: WindowEvent::MouseInput {
+                                        device_id: DeviceId::dummy(),
+                                        state: ElementState::Pressed,
+                                        button: MouseButton::Left,
+                                    },
+                                },
+                            );
+                        }
+                        TouchPhase::Moved => {}
+                        TouchPhase::Ended | TouchPhase::Cancelled => {
+                            self.handle(
+                                window,
+                                &Event::WindowEvent {
+                                    window_id: WindowId::dummy(),
+                                    event: WindowEvent::MouseInput {
+                                        device_id: DeviceId::dummy(),
+                                        state: ElementState::Released,
+                                        button: MouseButton::Left,
+                                    },
+                                },
+                            );
+                        }
+                    }
+                } else if let Some((e, opt)) = self.touch_tracker.update(t) {
+                    info!("{:?}, {:?}", e, opt);
+                    self.handle(window, &Event::UserEvent(e));
+                    if let Some(e) = opt {
+                        self.handle(window, &Event::UserEvent(e));
+                    }
+                }
             }
 
             Event::WindowEvent {
@@ -715,7 +843,7 @@ impl GameMain {
                 event: WindowEvent::KeyboardInput { event: key, .. },
                 ..
             } if key.state == ElementState::Pressed
-                && key.key_without_modifiers() == Key::Character("d".into())
+                && key.physical_key == PhysicalKey::Code(winit::keyboard::KeyCode::KeyD)
                 && self.modifiers.alt
                 && !text_input_active =>
             {
@@ -741,6 +869,7 @@ impl GameMain {
                             KeyEvent {
                                 physical_key,
                                 state,
+                                logical_key,
                                 ..
                             },
                         ..
@@ -748,11 +877,8 @@ impl GameMain {
                 ..
             } => {
                 if !text_input_active {
-                    for button in GameConfig::get()
-                        .keybinds
-                        .iter()
-                        .filter_map(|x| x.match_button(*physical_key))
-                    {
+                    let binds = &GameConfig::get().keybinds;
+                    for button in binds.iter().filter_map(|x| x.match_button(*physical_key)) {
                         if self.input_state.is_button_held(button).is_none()
                             || *state == ElementState::Released
                         {
@@ -768,27 +894,46 @@ impl GameMain {
                             transformed_event = Some(Event::UserEvent(button));
                         }
                     }
+
+                    if binds.iter().any(|x| x.is_reload_script(*physical_key))
+                        && *state == ElementState::Released
+                    {
+                        self.control_tx
+                            .send(ControlMessage::ReloadScripts)
+                            .expect("Got event before program control initialized");
+                    }
+
+                    #[cfg(target_os = "android")]
+                    {
+                        let button = match logical_key {
+                            Key::Named(NamedKey::BrowserBack) => Some(UscButton::Back),
+                            //TODO: Figure out gamepad input
+                            _ => None,
+                        };
+
+                        if let Some(btn) = button {
+                            transformed_event = Some(Event::UserEvent(UscInputEvent::Button(
+                                btn,
+                                *state,
+                                SystemTime::now(),
+                            )));
+                        }
+                    }
                 }
             }
             Event::DeviceEvent {
                 event: winit::event::DeviceEvent::MouseMotion { delta },
                 ..
             } if !text_input_active && GameConfig::get().mouse_knobs => {
-                {
-                    //TODO: Move somewhere else?
-                    let s = window.inner_size();
-                    _ = window
-                        .set_cursor_position(PhysicalPosition::new(s.width / 2, s.height / 2));
-                }
-
-                let sens = GameConfig::get().mouse_ppr;
-                let mut ls = LaserState::default();
-                ls.update(kson::Side::Left, (delta.0 / sens) as _);
-                ls.update(kson::Side::Right, (delta.1 / sens) as _);
+                let sens = GameConfig::get().mouse_ppr as f32;
+                let mut state = self.input_state.clone_laser();
+                state.zero_deltas();
+                state.update_delta(kson::Side::Left, delta.0 as f32 / sens);
+                state.update_delta(kson::Side::Right, delta.1 as f32 / sens);
 
                 transformed_event = Some(Event::UserEvent(UscInputEvent::Laser(
-                    ls,
-                    SystemTime::now().sub(offset),
+                    state,
+                    SystemTime::now(),
                 )));
             }
             _ => (),
@@ -821,6 +966,7 @@ impl GameMain {
             //lua.gc_collect();
             if Rc::strong_count(lua) > 1 {
                 LuaHttp::poll(lua);
+                InternetRanking::poll(lua);
                 true
             } else {
                 vgfx.drop_assets(lua_address(lua));
@@ -881,7 +1027,7 @@ impl GameMain {
 
     fn render_overlays(
         vgfx: &Arc<RwLock<Vgfx>>,
-        frame_input: &FrameInput,
+        frame_input: &crate::FrameInput,
         fps: f64,
         fps_paint: &vg::Paint,
         show_fps: bool,
@@ -906,7 +1052,6 @@ impl GameMain {
                     //also flushes game game ui, can take longer than it looks like it should
                     profile_scope!("Flush Canvas");
                     let commands = canvas.flush_to_surface(&surface.texture);
-
                     canvas.reset();
                     Some(commands)
                 }
@@ -922,17 +1067,21 @@ impl GameMain {
         game_data: &Arc<RwLock<GameData>>,
         mousex: f64,
         mousey: f64,
-        frame_input: &FrameInput,
+        frame_input: &crate::FrameInput,
         input_state: InputState,
+        mouse_knobs: bool,
     ) {
         profile_function!();
         {
             let lock = game_data.write();
             if let Ok(mut game_data) = lock {
                 *game_data = GameData {
-                    mouse_pos: (mousex, mousey),
+                    mouse_pos: if mouse_knobs {
+                        (-1.0, -1.0)
+                    } else {
+                        (mousex, mousey)
+                    },
                     resolution: (frame_input.viewport.width, frame_input.viewport.height),
-                    profile_stack: std::mem::take(&mut game_data.profile_stack),
                     input_state,
                     audio_samples: std::mem::take(&mut game_data.audio_samples),
                     audio_sample_play_status: std::mem::take(
@@ -942,10 +1091,6 @@ impl GameMain {
             }
         }
 
-        {
-
-            // .render(&camera, [&model], &[]);
-        }
     }
 
     fn reset_viewport_size(&self, size: &PhysicalSize<u32>) {
@@ -984,7 +1129,6 @@ impl GameMain {
         }
     }
 }
-
 #[cfg(test)]
 mod tests {
     use std::{cell::OnceCell, sync::atomic};
@@ -1016,7 +1160,7 @@ mod tests {
         {
             let _handle = LuaAppDataOwnedHandle::set(&lua, &mut data);
             let f = lua
-                .create_function::<(), _, _>(|l, _| {
+                .create_function(|l, _: ()| {
                     let mut foo = l.app_data_mut::<Foo>().unwrap();
                     foo.s = format!("{} world", foo.s);
                     foo.v *= foo.v;

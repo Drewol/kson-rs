@@ -1,3 +1,4 @@
+use core::f32;
 use std::{
     borrow::BorrowMut,
     collections::HashMap,
@@ -23,6 +24,11 @@ pub struct RuscFilter {
 
 pub struct CustomBindingFilter;
 
+#[cfg(target_os = "windows")]
+const AXIS_BITS: u32 = 1 << 16;
+#[cfg(not(target_os = "windows"))]
+const AXIS_BITS: u32 = 3 << 16;
+
 impl RuscFilter {
     pub fn new(offset: i32) -> (Self, Sender<i32>) {
         let (offset_tx, offset_rx) = channel();
@@ -39,8 +45,8 @@ impl RuscFilter {
                 ]),
                 axis_map: HashMap::from([
                     //Axis to_u32 are marked with a 1 in the 2^16 bit
-                    (1 << 16, (Axis::LeftStickX, 1.0)),
-                    (1 << 16 | 1, (Axis::RightStickX, -1.0)),
+                    (AXIS_BITS, (Axis::LeftStickX, 1.0)),
+                    (AXIS_BITS | 1, (Axis::RightStickX, -1.0)),
                 ]),
                 offset: Duration::from_millis(offset.unsigned_abs() as _),
                 offset_neg: offset < 0,
@@ -73,47 +79,56 @@ impl FilterFn for RuscFilter {
                     _ => {
                         // apply default mapping
                         // a:b1,b:b2,x:b4,y:b3,start:b0,leftshoulder:b5,rightshoulder:b6,leftx:a0,rightx:a1
-
+                        // TODO: every match arm returns Some(ev), can probably be simplified
                         match ev.event {
                             gilrs::EventType::ButtonPressed(_, code) => {
-                                self.button_map.get(&code.into_u32()).map(|b| Event {
-                                    id: ev.id,
-                                    event: gilrs::EventType::ButtonPressed(*b, code),
-                                    time: ev.time,
-                                })
+                                ev.event = self
+                                    .button_map
+                                    .get(&code.into_u32())
+                                    .map(|b| gilrs::EventType::ButtonPressed(*b, code))
+                                    .unwrap_or(ev.event);
+
+                                Some(ev)
                             }
                             gilrs::EventType::ButtonRepeated(_, code) => {
-                                self.button_map.get(&code.into_u32()).map(|b| Event {
-                                    id: ev.id,
-                                    event: gilrs::EventType::ButtonRepeated(*b, code),
-                                    time: ev.time,
-                                })
+                                ev.event = self
+                                    .button_map
+                                    .get(&code.into_u32())
+                                    .map(|b| gilrs::EventType::ButtonRepeated(*b, code))
+                                    .unwrap_or(ev.event);
+                                Some(ev)
                             }
                             gilrs::EventType::ButtonReleased(_, code) => {
-                                self.button_map.get(&code.into_u32()).map(|b| Event {
-                                    id: ev.id,
-                                    event: gilrs::EventType::ButtonReleased(*b, code),
-                                    time: ev.time,
-                                })
+                                ev.event = self
+                                    .button_map
+                                    .get(&code.into_u32())
+                                    .map(|b| gilrs::EventType::ButtonReleased(*b, code))
+                                    .unwrap_or(ev.event);
+                                Some(ev)
                             }
                             gilrs::EventType::ButtonChanged(_, v, code) => {
-                                self.button_map.get(&code.into_u32()).map(|b| Event {
-                                    id: ev.id,
-                                    event: gilrs::EventType::ButtonChanged(*b, v, code),
-                                    time: ev.time,
-                                })
+                                ev.event = self
+                                    .button_map
+                                    .get(&code.into_u32())
+                                    .map(|b| gilrs::EventType::ButtonChanged(*b, v, code))
+                                    .unwrap_or(ev.event);
+                                Some(ev)
                             }
-                            gilrs::EventType::AxisChanged(_, v, code) => self
-                                .axis_map
-                                .get(&code.into_u32())
-                                .map(|(axis, sens)| Event {
-                                    id: ev.id,
-                                    event: gilrs::EventType::AxisChanged(*axis, *sens * v, code),
-                                    time: ev.time,
-                                }),
+                            gilrs::EventType::AxisChanged(_, v, code) => {
+                                ev.event = self
+                                    .axis_map
+                                    .get(&code.into_u32())
+                                    .copied()
+                                    .map(|(axis, sens)| {
+                                        gilrs::EventType::AxisChanged(axis, v * sens, code)
+                                    })
+                                    .unwrap_or(ev.event);
+                                Some(ev)
+                            }
                             gilrs::EventType::Connected => Some(ev),
                             gilrs::EventType::Disconnected => Some(ev),
                             gilrs::EventType::Dropped => Some(ev),
+                            _ => Some(ev),
                         }
                         .or(Some(ev))
                     }
@@ -155,6 +170,7 @@ impl FilterFn for CustomBindingFilter {
                         gilrs::EventType::Connected => {}
                         gilrs::EventType::Disconnected => {}
                         gilrs::EventType::Dropped => {}
+                        _ => {}
                     }
                 }
                 Some(ev)
@@ -177,6 +193,24 @@ pub enum UscButton {
 }
 
 impl UscButton {
+    pub fn iter() -> std::array::IntoIter<UscButton, 13> {
+        [
+            UscButton::Start,
+            UscButton::BT(BtLane::A),
+            UscButton::BT(BtLane::B),
+            UscButton::BT(BtLane::C),
+            UscButton::BT(BtLane::D),
+            UscButton::FX(Side::Left),
+            UscButton::FX(Side::Right),
+            UscButton::Laser(Side::Left, Side::Left),
+            UscButton::Laser(Side::Left, Side::Right),
+            UscButton::Laser(Side::Right, Side::Left),
+            UscButton::Laser(Side::Right, Side::Right),
+            UscButton::Back,
+            UscButton::Refresh,
+        ]
+        .into_iter()
+    }
     pub fn to_gilrs_code_u32(self) -> u32 {
         match self {
             UscButton::BT(bt) => match bt {
@@ -220,6 +254,12 @@ impl UscButton {
             },
             UscButton::Other(_) => "Unknown",
         }
+    }
+}
+
+impl std::fmt::Display for UscButton {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(self.as_str())
     }
 }
 
@@ -344,6 +384,19 @@ impl LaserState {
         }
     }
 
+    pub fn update_delta(&mut self, side: Side, delta: f32) {
+        let state = match side {
+            Side::Left => self.0.borrow_mut(),
+            Side::Right => self.1.borrow_mut(),
+        };
+        state.pos += delta;
+
+        state.pos =
+            (state.pos + f32::consts::PI).rem_euclid(f32::consts::PI * 2.0) - f32::consts::PI;
+
+        state.delta += delta;
+    }
+
     pub fn update(&mut self, side: Side, new_pos: f32) {
         let new_pos_pi = new_pos * std::f32::consts::PI;
 
@@ -354,7 +407,7 @@ impl LaserState {
 
         state.delta = new_pos_pi - state.pos;
         if state.delta.abs() > std::f32::consts::PI {
-            state.delta += std::f32::consts::TAU * (state.delta.signum() * -1.0);
+            state.delta += std::f32::consts::TAU * -state.delta.signum();
         }
         state.pos = new_pos_pi;
     }

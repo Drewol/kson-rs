@@ -5,25 +5,29 @@ use crate::{
     help::{self, RenderContext},
     input_state::InputState,
     log_result,
-    lua_service::{LuaExt, LuaProvider},
+    lua_service::LuaProvider,
+    multiplayer::{LuaTcp, MultiplayerService, MultiplayerState},
+    results::{calculate_clear_mark, ClearMark},
     scene::{Scene, SceneData},
-    shaded_mesh::{self, ShadedMesh},
+    shaded_mesh::ShadedMesh,
     songselect::Song,
-    vg_ui::Vgfx,
-    ControlMessage, Viewport,
+    util::{self, beat_pulser::BeatPulser},
+    vg_ui::{Vgfx, VgfxSyncExt},
+    ControlMessage, RuscMixer, Viewport,
 };
 
-use anyhow::{anyhow, ensure, Result};
+use anyhow::{anyhow, ensure, Context, Result};
 use di::{RefMut, ServiceProvider};
 use egui::epaint::Hsva;
 use egui_plot::{Line, PlotPoints};
-use femtovg::{Canvas, ImageFlags};
-use glam::{ivec2, vec2, vec3, vec4, Mat4, Quat, Vec3, Vec4};
 use image::GenericImageView;
 use itertools::Itertools;
 use kson::{
     effects::AudioEffect,
-    score_ticks::{PlacedScoreTick, ScoreTick, ScoreTickSummary, ScoreTicker},
+    overlaps::Overlaps,
+    score_ticks::{
+        KeySoundEvent, PlacedScoreTick, ScoreTick, ScoreTickSummary, ScoreTicker, ScoreTicks,
+    },
     Chart, Graph, Side,
 };
 use kson_music_playback::GetBiQuadState;
@@ -33,22 +37,23 @@ use kson_rodio_sources::{
 };
 
 use log::{info, warn};
+use mlua::{Function, Lua, LuaSerdeExt, RegistryKey};
+use multiplayer_protocol::messages::{client::ClientCommand, get_topic, types::User};
 use puffin::{profile_function, profile_scope};
-use rodio::{dynamic_mixer::DynamicMixerController, source::Buffered, Decoder, Source};
+use rodio::{source::Buffered, Decoder, Source};
 use std::{
     cmp::Ordering,
-    collections::{BTreeMap, VecDeque},
+    collections::{BTreeMap, HashMap, VecDeque},
     f32::consts::SQRT_2,
     ops::Sub,
     path::PathBuf,
     rc::Rc,
-    sync::{mpsc::Sender, Arc, Mutex},
+    sync::{mpsc::Sender, Arc},
     time::{Duration, SystemTime},
-    usize,
 };
-use tealr::mlu::mlua::{Function, Lua, LuaSerdeExt};
+use glam::{vec2, vec3, vec4, Mat4, Vec3, Vec4};
 use three_d_asset::Camera;
-use wgpu::{ImageCopyTextureBase, RenderPassDescriptor, SurfaceTexture};
+use wgpu::SurfaceTexture;
 
 pub mod chart_view;
 use chart_view::*;
@@ -64,11 +69,20 @@ pub mod graphics;
 const LASER_THRESHOLD: f64 = 1.0 / 12.0;
 const LEADIN: Duration = Duration::from_secs(3);
 
+#[repr(u8)]
+#[derive(Debug, Clone, Copy)]
+enum ComboState {
+    Normal,
+    FullCombo,
+    Perfect,
+}
+
 pub struct Game {
     view: ChartView,
     chart: kson::Chart,
     zero_time: SystemTime,
-    duration: u32,
+    duration_secs: f32,
+    duration_ticks: u32,
     fx_long_shaders: ShadedMesh,
     bt_long_shaders: ShadedMesh,
     fx_chip_shaders: ShadedMesh,
@@ -79,6 +93,7 @@ pub struct Game {
     camera: ChartCamera,
     lua_game_state: lua_data::LuaGameState,
     hit_window: HitWindow,
+    combo_state: ComboState,
     lua: Rc<Lua>,
     intro_done: bool,
     song: Arc<Song>,
@@ -88,7 +103,7 @@ pub struct Game {
     results_requested: bool,
     closed: bool,
     playback: kson_music_playback::AudioPlayback,
-    score_ticks: Vec<PlacedScoreTick>,
+    score_ticks: ScoreTicks,
     score_current_max: u64,
     score_summary: ScoreTickSummary,
     score_display: ScoreDisplayMode,
@@ -96,7 +111,7 @@ pub struct Game {
     display_score: u64,
     combo: u64,
     max_combo: u64,
-    current_tick: u32,
+    tick_queue: VecDeque<(u32, f64)>,
     input_state: InputState,
     laser_cursors: [f64; 2],
     laser_active: [bool; 2],
@@ -112,10 +127,11 @@ pub struct Game {
     target_roll: TargetRoll,
     current_roll: f64,
     hit_ratings: Vec<HitRating>,
-    mixer: Arc<DynamicMixerController<f32>>,
+    mixer: RuscMixer,
     biquad_control: BiquadController,
     source_owner: owned_source::Marker,
     slam_sample: Option<Buffered<Decoder<std::fs::File>>>,
+    key_sounds: HashMap<i32, Buffered<Decoder<std::fs::File>>>,
     slam_marker: owned_source::Marker,
     background: Option<GameBackground>,
     foreground: Option<GameBackground>,
@@ -124,6 +140,9 @@ pub struct Game {
     laser_effects: BTreeMap<u32, AudioEffect>,
     default_laser_effect: AudioEffect,
     autoplay: AutoPlay,
+    /// Render targets for the gameplay ui, [crit base, overlay]
+    vg_layers: [wgpu::Texture; 2],
+    vg_layer_meshes: [ShadedMesh; 2],
     slam_volume: f32,
     chip_h: f32,
     laser_buffer: [VecDeque<(SystemTime, f64)>; 2],
@@ -131,8 +150,9 @@ pub struct Game {
     laser_offset: f64,
     button_offset: f64,
     global_offset: f64,
-    vg_layers: [wgpu::Texture; 2],
-    vg_layer_meshes: [ShadedMesh; 2],
+    multiplayer: GameMultiplayerState,
+    render_ms: f64,
+    pulser: util::beat_pulser::BeatPulser,
 }
 
 #[derive(Clone, Copy)]
@@ -161,6 +181,153 @@ pub enum HitRating {
         delta: f64,
         time: f64,
     },
+}
+
+struct GameMultiplayerState {
+    service: RefMut<MultiplayerService>,
+    sync_send: bool,
+    started: bool,
+    users: Vec<User>,
+    user_id: String,
+    active: bool,
+    topic_handlers: HashMap<String, RegistryKey>,
+    rate: i32,
+    last_send_index: i32,
+}
+
+impl GameMultiplayerState {
+    fn new(sp: &ServiceProvider) -> Self {
+        let service: RefMut<MultiplayerService> = sp.get_required();
+        let (active, user_id, rate) = {
+            let s = service.read().unwrap();
+            (
+                s.state() == MultiplayerState::Connected,
+                s.user_id(),
+                s.rate(),
+            )
+        };
+
+        Self {
+            service,
+            sync_send: false,
+            started: false,
+            active,
+            user_id,
+            users: vec![],
+            topic_handlers: HashMap::new(),
+            rate,
+            last_send_index: -1,
+        }
+    }
+
+    fn poll(&mut self, lua: &Lua) -> anyhow::Result<()> {
+        if !self.started || !self.active {
+            return Ok(());
+        }
+
+        let mut s = self.service.write().unwrap();
+        while let Some(msg) = s.poll() {
+            info!("Recieved: {msg:?}");
+
+            let Some(topic) = get_topic(&msg) else {
+                continue;
+            };
+
+            let Some(handler) = self.topic_handlers.get(&topic) else {
+                continue;
+            };
+
+            let Ok(handler) = lua.registry_value::<Function>(handler) else {
+                continue;
+            };
+
+            handler.call::<()>(lua.to_value_with(
+                &msg,
+                mlua::SerializeOptions::new().serialize_none_to_null(false),
+            ))?;
+        }
+
+        Ok(())
+    }
+
+    fn init_lua(&mut self, lua: &Lua) {
+        if self.active {
+            self.topic_handlers = LuaTcp::init(lua, self.service.clone());
+        }
+    }
+
+    fn update_score(&mut self, score: i32, time: u128) -> anyhow::Result<()> {
+        if !self.active {
+            return Ok(());
+        }
+        let mut s = self.service.write().unwrap();
+        let time = time;
+
+        let send_index = (time / self.rate as u128) as i32;
+
+        if send_index <= self.last_send_index {
+            return Ok(());
+        }
+
+        let time = send_index * self.rate;
+
+        s.send(multiplayer_protocol::messages::server::ServerCommand::ScoreUpdate { time, score })?;
+        self.last_send_index = send_index;
+        Ok(())
+    }
+
+    fn should_start(&mut self, intro_done: bool) -> bool {
+        // Begin sync after intro is done
+        if !intro_done {
+            return false;
+        }
+
+        if !self.active {
+            self.started = true;
+        }
+
+        if self.started {
+            // Sync already completed
+            true
+        } else {
+            let mut s = self.service.write().unwrap();
+
+            if !self.sync_send {
+                self.sync_send = s
+                    .send(multiplayer_protocol::messages::server::ServerCommand::Sync)
+                    .is_ok();
+            }
+
+            loop {
+                let Some(msg) = s.poll() else {
+                    break false;
+                };
+
+                let ClientCommand::SyncStart(start) = msg else {
+                    continue;
+                };
+
+                self.users = start.users;
+                self.started = true;
+                break true;
+            }
+        }
+    }
+
+    fn send_final(&self, score: i32, combo: i32, clear: ClearMark) {
+        let mut s = self.service.write().unwrap();
+        _ = s
+            .send(
+                multiplayer_protocol::messages::server::ServerCommand::ScoreFinal {
+                    score,
+                    combo,
+                    clear: clear as u8,
+                },
+            )
+            .context("Final score send")
+            .inspect_err(|e| warn!("{e}"))
+            .ok()
+    }
 }
 
 #[derive(Debug, Default, Clone, Copy)]
@@ -289,8 +456,9 @@ pub struct GameData {
     diff_idx: usize,
     chart: kson::Chart,
     skin_folder: PathBuf,
-    audio: std::boxed::Box<(dyn rodio::source::Source<Item = f32> + std::marker::Send + 'static)>,
+    audio: std::boxed::Box<dyn rodio::source::Source + std::marker::Send + 'static>,
     autoplay: AutoPlay,
+    song_folder: Option<PathBuf>,
 }
 
 impl GameData {
@@ -299,8 +467,9 @@ impl GameData {
         diff_idx: usize,
         chart: kson::Chart,
         skin_folder: PathBuf,
-        audio: Box<dyn Source<Item = f32> + Send>,
+        audio: Box<dyn Source + Send>,
         autoplay: AutoPlay,
+        song_folder: Option<PathBuf>,
     ) -> anyhow::Result<Self> {
         //TODO: Does not belong in game crate
         //TODO: Sort effects for proper overlapping sounds
@@ -313,6 +482,7 @@ impl GameData {
             song,
             audio: Box::new(audio),
             autoplay,
+            song_folder,
         })
     }
 }
@@ -329,6 +499,7 @@ impl SceneData for GameData {
             song,
             audio,
             autoplay,
+            song_folder,
         } = *self;
         profile_function!();
 
@@ -345,7 +516,8 @@ impl SceneData for GameData {
         texture_folder.push("textures");
         texture_folder.push("dummy.png");
 
-        let mut fx_long_shader = ShadedMesh::new(&context, "holdbutton", &shader_folder)?
+        let mut fx_long_shader = ShadedMesh::new(&context, "holdbutton", &shader_folder)
+            ?
             .with_transform(Mat4::from_translation(vec3(-0.5, 0.0, 0.0)));
 
         let mut beam_shader =
@@ -372,7 +544,8 @@ impl SceneData for GameData {
             vec2(2.0 / 6.0, 1.0),
         ));
 
-        let mut bt_long_shader = ShadedMesh::new(&context, "holdbutton", &shader_folder)?
+        let mut bt_long_shader = ShadedMesh::new(&context, "holdbutton", &shader_folder)
+            ?
             .with_transform(Mat4::from_translation(vec3(-0.5, 0.0, 0.0)));
 
         bt_long_shader.use_texture(
@@ -387,7 +560,8 @@ impl SceneData for GameData {
             vec2(1.0 / 6.0, 1.0),
         ));
 
-        let mut fx_chip_shader = ShadedMesh::new(&context, "button", &shader_folder)?
+        let mut fx_chip_shader = ShadedMesh::new(&context, "button", &shader_folder)
+            ?
             .with_transform(Mat4::from_translation(vec3(-0.5, 0.0, 0.0)));
         fx_chip_shader.use_texture(
             "mainTex",
@@ -402,7 +576,8 @@ impl SceneData for GameData {
             vec2(2.0 / 6.0, fx_height),
         ));
 
-        let mut bt_chip_shader = ShadedMesh::new(&context, "button", &shader_folder)?
+        let mut bt_chip_shader = ShadedMesh::new(&context, "button", &shader_folder)
+            ?
             .with_transform(Mat4::from_translation(vec3(-0.5, 0.0, 0.0)));
         let bt_height = 1.0;
 
@@ -420,7 +595,8 @@ impl SceneData for GameData {
 
         let chip_h = (1.0 / 6.0) * (bt_tex.height() as f32 / bt_tex.width() as f32);
 
-        let mut track_shader = ShadedMesh::new(&context, "track", &shader_folder)?;
+        let mut track_shader =
+            ShadedMesh::new(&context, "track", &shader_folder)?;
         track_shader.set_data_mesh(&graphics::xy_rect(
             Vec3::ZERO,
             vec2(1.0, ChartView::TRACK_LENGTH * 2.0),
@@ -445,11 +621,15 @@ impl SceneData for GameData {
             true,
         )?;
 
-        let mut laser_left = ShadedMesh::new(&context, "laser", &shader_folder)?;
-        let mut laser_left_active = ShadedMesh::new(&context, "laser", &shader_folder)?;
+        let mut laser_left =
+            ShadedMesh::new(&context, "laser", &shader_folder)?;
+        let mut laser_left_active =
+            ShadedMesh::new(&context, "laser", &shader_folder)?;
 
-        let mut laser_right = ShadedMesh::new(&context, "laser", &shader_folder)?;
-        let mut laser_right_active = ShadedMesh::new(&context, "laser", &shader_folder)?;
+        let mut laser_right =
+            ShadedMesh::new(&context, "laser", &shader_folder)?;
+        let mut laser_right_active =
+            ShadedMesh::new(&context, "laser", &shader_folder)?;
 
         laser_left.use_texture(
             "mainTex",
@@ -509,55 +689,64 @@ impl SceneData for GameData {
         bg_folder.push("backgrounds");
         bg_folder.push(bg);
 
+        let mut bg_folders = vec![bg_folder.with_file_name("fallback"), bg_folder.clone()];
+
+        if let Some(mut song_folder) = song_folder.clone() {
+            if let Some(name) = chart
+                .bg
+                .legacy
+                .as_ref()
+                .and_then(|x| x.layer.as_ref())
+                .and_then(|x| x.filename.as_ref())
+            {
+                song_folder.push(name);
+                bg_folders.push(song_folder);
+            }
+        }
+
+        bg_folders.reverse();
+
         let bg_enabled = !GameConfig::get().graphics.disable_bg;
 
         let background = bg_enabled
             .then(|| {
-                match GameBackground::new(
-                    &context,
-                    true,
-                    &bg_folder,
-                    &chart,
-                    service_provider.get_required(),
-                    service_provider.get_required(),
-                )
-                .inspect_err(|e| log::warn!("Failed to load background: {e} \n {:?}", &bg_folder))
-                .or_else(|_| {
-                    GameBackground::new(
-                        &context,
-                        true,
-                        bg_folder.with_file_name("fallback"),
-                        &chart,
-                        service_provider.get_required(),
-                        service_provider.get_required(),
-                    )
-                }) {
-                    Ok(bg) => {
-                        log::info!("Background loaded");
-                        Some(bg)
-                    }
-                    Err(e) => {
-                        log::warn!(
-                            "Failed to load fallback background: {e} \n {:?}",
-                            &bg_folder.with_file_name("fallback")
-                        );
-                        None
-                    }
-                }
+                bg_folders
+                    .iter()
+                    .filter_map(|x| {
+                        GameBackground::new(
+                            &context,
+                            true,
+                            x,
+                            &chart,
+                            service_provider.get_required(),
+                            service_provider.get_required(),
+                        )
+                        .inspect_err(|e| warn!("Failed to load background from {x:?}: {e}"))
+                        .inspect(|_| info!("Succefully loaded background from {x:?}"))
+                        .ok()
+                    })
+                    .next()
             })
             .flatten();
 
         let foreground = bg_enabled
             .then(|| {
-                GameBackground::new(
-                    &context,
-                    false,
-                    bg_folder,
-                    &chart,
-                    service_provider.get_required(),
-                    service_provider.get_required(),
-                )
-                .ok()
+                bg_folders
+                    .iter()
+                    .filter_map(|x| {
+                        GameBackground::new(
+                            &context,
+                            false,
+                            x,
+                            &chart,
+                            service_provider.get_required(),
+                            service_provider.get_required(),
+                        )
+                        .inspect_err(|e| warn!("Failed to load background from {x:?}: {e}"))
+                        .inspect(|_| info!("Succefully loaded background from {x:?}"))
+                        .ok()
+                    })
+                    .next()
             })
             .flatten();
 
@@ -588,11 +777,14 @@ impl SceneData for GameData {
             autoplay,
             chip_h,
             laser_colors,
+            song_folder,
         )?))
     }
 }
 
 impl Game {
+    const AVG_DELTA_LEN: usize = 32;
+
     pub fn new(
         chart: Chart,
         skin_root: &PathBuf,
@@ -619,28 +811,73 @@ impl Game {
         autoplay: AutoPlay,
         chip_h: f32,
         laser_colors: [Vec4; 2],
+        song_folder: Option<PathBuf>,
     ) -> Result<Self> {
         let mut view = ChartView::new(skin_root, td)?;
         view.build_laser_meshes(&chart);
+
         view.hispeed = (GameConfig::get().mod_speed
             / chart
                 .mode_bpm()
                 .ok_or(anyhow!("Failed to calculate Mode BPM"))?) as f32;
-        let duration = chart.ms_to_tick(3000.0 + chart.tick_to_ms(chart.get_last_tick()));
+        let duration_secs = ((3000.0 + chart.tick_to_ms(chart.get_last_tick())) / 1000.0) as f32;
+
         let mut slam_path = skin_root.clone();
         slam_path.push("audio");
         slam_path.push("laser_slam.wav");
 
         let score_ticks = kson::score_ticks::generate_score_ticks(&chart);
+        view.build_key_sound_map(&score_ticks);
+
+        let mut key_sounds = HashMap::new();
+        for (key, file) in score_ticks.key_sound_map.iter() {
+            let Some(path) = song_folder
+                .iter()
+                .flat_map(|x| [x.join(file), x.join(file).with_extension("wav")])
+                .chain([
+                    slam_path.with_file_name(file),
+                    slam_path.with_file_name(file).with_extension("wav"),
+                ])
+                .find(|x| x.exists())
+            else {
+                warn!("No file found for keysound: {file}");
+                continue;
+            };
+            let Ok(file) = std::fs::File::open(&path) else {
+                warn!("Could not open keysound {path:?}");
+                continue;
+            };
+            let Ok(decoder) = Decoder::new(file) else {
+                warn!("Bad keysound audio file {path:?}");
+                continue;
+            };
+
+            key_sounds.insert(*key, decoder.buffered());
+        }
+
+        // Set up ticks to score for deterministic laser/hold scoring
+        let last_tick = chart.get_last_tick();
+        let last_tick = chart.ms_to_tick(chart.tick_to_ms(last_tick) + 3000.0);
+        let mut tick_queue = VecDeque::new();
+        for i in 0.. {
+            let ms = i as f64 * 1000.0 / 240.0;
+            let scored_tick = chart.ms_to_tick(ms);
+            tick_queue.push_back((scored_tick, ms));
+            if scored_tick > last_tick {
+                break;
+            }
+        }
 
         let mut res = Self {
+            pulser: BeatPulser::new(&chart),
             song,
             diff_idx,
             intro_done: false,
             lua: LuaProvider::new_lua(),
+            duration_ticks: last_tick,
             chart,
             view,
-            duration,
+            duration_secs,
             zero_time: SystemTime::now(),
             bt_chip_shader,
             track_shader,
@@ -659,12 +896,12 @@ impl Game {
             score_current_max: 0,
             score_display: GameConfig::get().score_display,
             score_ticks,
+            tick_queue,
             gauge: Gauges::default(),
             real_score: 0,
             display_score: u64::MAX,
             combo: 0,
             max_combo: 0,
-            current_tick: 0,
             input_state,
             laser_cursors: [0.0, 1.0],
             laser_active: [false, false],
@@ -684,6 +921,7 @@ impl Game {
             current_roll: 0.0,
             target_roll: TargetRoll::None,
             hit_ratings: Vec::new(),
+            multiplayer: GameMultiplayerState::new(&service_provider),
             mixer: service_provider.get_required(),
             biquad_control,
             background,
@@ -711,9 +949,12 @@ impl Game {
             button_offset: -GameConfig::get().button_offset as _,
             global_offset: -GameConfig::get().global_offset as _,
             laser_offset: -GameConfig::get().laser_offset as _,
+            combo_state: ComboState::Perfect,
+            render_ms: 0.0,
+            key_sounds,
             vg_layers: [
-                td.new_render_target(Some("Back")),
-                td.new_render_target(Some("Front")),
+                td.new_empty_screen_texture(Some("Gameplay UI back")),
+                td.new_empty_screen_texture(Some("Gameplay UI front")),
             ],
             vg_layer_meshes: [
                 ShadedMesh::new_fullscreen_tex(td)?,
@@ -756,8 +997,30 @@ impl Game {
             .iter_mut()
             .for_each(|rl| rl.set_param("color", self.laser_colors[1]));
 
-        self.vg_layer_meshes[0].use_texture_existing("mainTex", &self.vg_layers[0], (false, false));
-        self.vg_layer_meshes[1].use_texture_existing("mainTex", &self.vg_layers[1], (false, false));
+        self.update_vg_layers();
+    }
+
+    /// (Re)binds the gameplay ui render targets to the meshes used for compositing them
+    fn update_vg_layers(&mut self) {
+        for (mesh, layer) in self.vg_layer_meshes.iter_mut().zip(self.vg_layers.iter()) {
+            // femtovg renders with premultiplied alpha
+            mesh.set_blend(wgpu::BlendState::PREMULTIPLIED_ALPHA_BLENDING);
+            log_result!(mesh.use_texture_existing("mainTex", layer, (false, false)));
+        }
+    }
+
+    /// Recreates the gameplay ui render targets if the surface size changed
+    fn ensure_vg_layer_size(&mut self, context: &RenderContext, surface: &SurfaceTexture) {
+        if self.vg_layers[0].size() == surface.texture.size() {
+            return;
+        }
+
+        let size = surface.texture.size();
+        self.vg_layers = [
+            context.new_screen_format_texture(Some("Gameplay UI back"), size),
+            context.new_screen_format_texture(Some("Gameplay UI front"), size),
+        ];
+        self.update_vg_layers();
     }
 
     fn lua_game_state(
@@ -765,14 +1028,15 @@ impl Game {
         viewport: Viewport,
         camera: &Camera,
         hit_window: HitWindow,
+        render_tick: u32,
+        user_id: String,
     ) -> lua_data::LuaGameState {
-        profile_function!();
         let screen = vec2(viewport.width as f32, viewport.height as f32);
         let track_center = graphics::camera_to_screen(camera, Vec3::ZERO, screen);
 
         let track_left = graphics::camera_to_screen(camera, Vec3::X * -0.5, screen);
         let track_right = graphics::camera_to_screen(camera, Vec3::X * 0.5, screen);
-        let crit_line = vec2(track_right.x, track_right.y) - vec2(track_left.x, track_left.y);
+        let crit_line = track_right - track_left;
         let rotation = -crit_line.y.atan2(crit_line.x);
 
         lua_data::LuaGameState {
@@ -784,17 +1048,17 @@ impl Game {
             demo_mode: false,
             difficulty: self.chart.meta.difficulty,
             level: self.chart.meta.level,
-            progress: self.current_tick as f32 / self.chart.get_last_tick() as f32,
+            progress: (self.current_time().as_secs_f32() / self.duration_secs).clamp(0.0, 1.0),
             hispeed: self.view.hispeed,
             hispeed_adjust: 0,
-            bpm: self.chart.bpm_at_tick(self.current_tick) as f32,
+            bpm: self.chart.bpm_at_tick(render_tick) as f32,
             gauge: lua_data::LuaGauge::from(&self.gauge.active),
             hidden_cutoff: 0.0,
             sudden_cutoff: 0.0,
             hidden_fade: 0.0,
             sudden_fade: 0.0,
             autoplay: self.autoplay.any(),
-            combo_state: 0,
+            combo_state: self.combo_state as _,
             note_held: [false; 6],
             laser_active: [self.laser_active[0], self.laser_active[1]],
             score_replays: Vec::new(),
@@ -834,25 +1098,29 @@ impl Game {
             },
             hit_window,
             multiplayer: false,
-            user_id: "Player".into(),
+            user_id,
             practice_setup: false,
         }
     }
 
-    fn flush_canvas(&mut self, i: usize) -> Option<wgpu::CommandBuffer> {
+    /// Flushes the canvas into gameplay ui layer `i`, clearing it first
+    fn flush_canvas(&mut self, i: usize, context: &RenderContext) -> Vec<wgpu::CommandBuffer> {
         profile_function!();
 
-        let Some(surface) = self.vg_layers.get(i) else {
-            return None;
+        let Some(layer) = self.vg_layers.get(i) else {
+            return vec![];
         };
         let Some(vgfx) = self.lua.app_data_mut::<RefMut<Vgfx>>() else {
             log::error!("VGFX app data not set");
-            return None;
+            return vec![];
         };
 
         let vgfx = vgfx.write().expect("Lock error");
         let canvas = &mut vgfx.canvas.lock().expect("Lock error");
-        Some(canvas.flush_to_surface(&surface))
+        vec![
+            context.clear_texture(layer, wgpu::Color::TRANSPARENT),
+            canvas.flush_to_surface(layer),
+        ]
     }
 
     fn reset_canvas(&mut self, surface: &wgpu::SurfaceTexture) {
@@ -870,6 +1138,21 @@ impl Game {
         canvas.reset_scissor();
     }
 
+    fn composite_vg_layer(
+        &self,
+        surface: &SurfaceTexture,
+        i: usize,
+        encoder: &mut wgpu::CommandEncoder,
+        td: &RenderContext,
+    ) {
+        let Some(src) = self.vg_layer_meshes.get(i) else {
+            return;
+        };
+
+        let mut rp = td.default_render_pass(Some("Gameplay UI"), encoder, surface);
+        log_result!(src.draw(&mut rp));
+    }
+
     fn on_hit(&mut self, hit_rating: HitRating) {
         self.hit_ratings.push(hit_rating);
 
@@ -877,6 +1160,15 @@ impl Game {
             HitRating::Crit { .. } => 2,
             HitRating::Good { .. } => 1,
             _ => 0,
+        };
+
+        self.combo_state = match (hit_rating, self.combo_state) {
+            (_, ComboState::Normal) => ComboState::Normal,
+            (HitRating::None, _) => self.combo_state,
+            (HitRating::Crit { .. }, x) => x,
+            (HitRating::Good { .. }, ComboState::FullCombo) => ComboState::FullCombo,
+            (HitRating::Good { .. }, ComboState::Perfect) => ComboState::FullCombo,
+            (HitRating::Miss { .. }, _) => ComboState::Normal,
         };
 
         let combo_updated = match hit_rating {
@@ -897,8 +1189,8 @@ impl Game {
         };
 
         if combo_updated {
-            if let Ok(update_combo) = self.lua.globals().get::<_, Function>("update_combo") {
-                crate::log_result!(update_combo.call::<_, ()>(self.combo));
+            if let Ok(update_combo) = self.lua.globals().get::<Function>("update_combo") {
+                crate::log_result!(update_combo.call::<()>(self.combo));
             }
         }
 
@@ -908,11 +1200,15 @@ impl Game {
                 delta,
                 time: _,
             } => match tick.tick {
-                ScoreTick::Chip { lane } => {
+                ScoreTick::Chip { lane, key_sound } => {
                     self.beam_colors_current[lane] = self.get_beam_color(lane, 2, delta);
+
+                    if let Some(key_sound) = key_sound {
+                        self.play_keysound(key_sound);
+                    }
                 }
                 ScoreTick::Slam { lane, start, end } => {
-                    let laser_slam_hit = self.lua.globals().get::<_, Function>("laser_slam_hit");
+                    let laser_slam_hit = self.lua.globals().get::<Function>("laser_slam_hit");
 
                     let signum = (end - start).signum() as i32;
                     self.camera.shakes.push(CameraShake::new(
@@ -960,13 +1256,13 @@ impl Game {
                     if let Some(slam_sample) = self.slam_sample.clone() {
                         drop(std::mem::take(&mut self.slam_marker));
                         self.mixer.add(owned_source(
-                            slam_sample.convert_samples().amplify(self.slam_volume),
+                            slam_sample.amplify(self.slam_volume),
                             &self.slam_marker,
                         )); //TODO: Amplyfy with slam volume
                     }
 
                     if let Ok(laser_slam_hit) = laser_slam_hit {
-                        log_result!(laser_slam_hit.call::<_, ()>((
+                        log_result!(laser_slam_hit.call::<()>((
                             end - start,
                             start - 0.5,
                             end - 0.5,
@@ -981,28 +1277,24 @@ impl Game {
                 delta,
                 time: _,
             } => {
-                if let ScoreTick::Chip { lane } = tick.tick {
+                if let ScoreTick::Chip { lane, key_sound } = tick.tick {
                     self.beam_colors_current[lane] = self.get_beam_color(lane, 1, delta);
-                    if let Ok(near_hit) = self.lua.globals().get::<_, Function>("near_hit") {
-                        log_result!(near_hit.call::<_, ()>(delta < 0.0));
+                    if let Ok(near_hit) = self.lua.globals().get::<Function>("near_hit") {
+                        log_result!(near_hit.call::<()>(delta < 0.0));
+                    }
+
+                    if let Some(key_sound) = key_sound {
+                        self.play_keysound(key_sound);
                     }
                 }
             }
-            HitRating::Miss {
-                tick,
-                delta: _,
-                time: _,
-            } if tick.y > self.current_tick => {
-                if let ScoreTick::Chip { lane } = tick.tick {
-                    self.beam_colors_current[lane] = self.get_beam_color(lane, 0, 0.0);
-                }
-            }
+
             HitRating::Miss {
                 tick,
                 delta,
                 time: _,
             } => {
-                if let ScoreTick::Chip { lane } = tick.tick {
+                if let ScoreTick::Chip { lane, .. } = tick.tick {
                     if delta.abs() > f64::EPSILON {
                         self.beam_colors_current[lane] = self.get_beam_color(lane, 0, 0.0);
                     }
@@ -1015,13 +1307,22 @@ impl Game {
         self.gauge.on_hit(hit_rating);
     }
 
+    fn play_keysound(&self, KeySoundEvent { file, volume }: KeySoundEvent) {
+        let Some(sound) = self.key_sounds.get(&file) else {
+            return;
+        };
+
+        let sound = sound.clone().amplify(volume as _);
+        self.mixer.add(sound);
+    }
+
     fn get_beam_color(&mut self, lane: usize, rating: usize, delta: f64) -> [f32; 4] {
-        let button_hit = self.lua.globals().get::<_, Function>("button_hit");
+        let button_hit = self.lua.globals().get::<Function>("button_hit");
 
         let mut beam_color: [f32; 4] = (self.beam_colors[rating] / 255.0).into();
         if let Ok(button_hit) = &button_hit {
             let (r, g, b) = button_hit
-                .call::<_, (Option<u8>, Option<u8>, Option<u8>)>((lane, rating, delta))
+                .call::<(Option<u8>, Option<u8>, Option<u8>)>((lane, rating, delta))
                 .inspect_err(|e| warn!("{e}"))
                 .unwrap_or_default();
 
@@ -1053,7 +1354,8 @@ impl Game {
     }
 
     fn hold_ok(&self, lane: usize, start_tick: u32) -> bool {
-        let is_button_held = &self.input_state.is_button_held((lane as u8).into());
+        let is_button_held: &Option<SystemTime> =
+            &self.input_state.is_button_held((lane as u8).into());
         let start_ms = self.without_offset(self.chart.tick_to_ms(start_tick));
         let hold_start = self.zero_time + Duration::from_secs_f64(start_ms / 1000.0);
         let hold_start_thres = hold_start
@@ -1062,7 +1364,196 @@ impl Game {
         is_button_held.is_some_and(|t| t > hold_start_thres)
     }
 
-    fn process_tick(
+    fn process_tick(&mut self, tick: u32, time: &mut Duration, playback_ms: f64) {
+        let sys_time = SystemTime::now();
+
+        while self.take_laser_input(0, sys_time, tick) {}
+        while self.take_laser_input(1, sys_time, tick) {}
+
+        // Set roll despite chart not starting to set up correct start angle
+        let tilt_value = self.chart.camera.tilt_at(tick);
+        let keep_laser = tilt_value.is_keep();
+
+        self.target_roll = match tilt_value {
+            kson::camera::ResolvedTiltValue::Named(_named_tilt_value) => {
+                let current = self.target_roll;
+
+                let next = match self.laser_target {
+                    [Some(l), Some(r)] => TargetRoll::Laser(r + l - 1.0),
+                    [Some(l), None] => TargetRoll::Laser(l),
+                    [None, Some(r)] => TargetRoll::Laser(r - 1.0),
+                    _ => TargetRoll::None,
+                };
+
+                if keep_laser {
+                    match (current, next) {
+                        (TargetRoll::Laser(v), TargetRoll::None)
+                        | (TargetRoll::None, TargetRoll::Laser(v))
+                        | (TargetRoll::Manual(v), TargetRoll::None) => TargetRoll::Laser(v),
+                        (TargetRoll::Laser(cv), TargetRoll::Laser(nv))
+                        | (TargetRoll::Manual(cv), TargetRoll::Laser(nv)) => {
+                            if cv < f64::EPSILON {
+                                TargetRoll::Laser(nv)
+                            } else if cv.is_sign_negative() == nv.is_sign_negative() {
+                                TargetRoll::Laser(cv.abs().max(nv.abs()) * cv.signum())
+                            } else {
+                                TargetRoll::Laser(cv)
+                            }
+                        }
+                        _ => TargetRoll::None,
+                    }
+                } else {
+                    next
+                }
+            }
+            kson::camera::ResolvedTiltValue::Manual(v) => TargetRoll::Manual(v),
+        };
+
+        // Chart hasn't started, don't score anything yet
+        if tick == 0 && self.chart.ms_to_tick(self.with_offset(playback_ms)) == 0 {
+            self.tick_queue.push_front((0, 0.0));
+            return;
+        }
+
+        let avg_delta: f64 =
+            self.sync_delta.iter().fold(0.0, |a, c| a + c) / Self::AVG_DELTA_LEN as f64;
+
+        if playback_ms > 0.0 && !self.score_ticks.ticks.is_empty() {
+            if avg_delta.abs() > 250.0 {
+                self.sync_delta.clear();
+                self.zero_time = SystemTime::now().sub(Duration::from_millis(playback_ms as _));
+            } else if avg_delta.abs() > 1.0 {
+                if avg_delta > 0.0 {
+                    self.zero_time -= Duration::from_nanos(50000);
+                } else {
+                    self.zero_time += Duration::from_nanos(50000);
+                }
+            }
+
+            *time = self.current_time();
+        }
+
+        if self.tick_queue.is_empty() && !self.results_requested {
+            self.transition_to_results();
+            self.results_requested = true;
+        }
+        let missed_chip_tick = self.chart.ms_to_tick(
+            self.with_offset(time.saturating_sub(self.hit_window.good).as_secs_f64() * 1000.0),
+        );
+
+        let auto_lasers = self.auto_lasers();
+
+        for (side, ((laser_active, laser_target), wide)) in self
+            .laser_active
+            .iter_mut()
+            .zip(self.laser_target.iter_mut())
+            .zip(self.laser_wide.iter_mut())
+            .enumerate()
+        {
+            let was_none = laser_target.is_none();
+            *laser_target = self.chart.note.laser[side].value_at(tick as f64);
+            *wide = self.chart.note.laser[side].wide_at(tick as f64);
+            *laser_active = if let Some(val) = laser_target {
+                (*val - self.laser_cursors[side]).abs() < LASER_THRESHOLD
+            } else {
+                false
+            };
+
+            if (was_none && laser_target.is_some()) || auto_lasers {
+                self.laser_assist_ticks[side] = 10;
+            }
+            //TODO: Also check ahead
+        }
+
+        let laser_freq = match self.laser_target {
+            [Some(l), Some(r)] => Some(r.mul_add(-1.0, 1.0).max(l)),
+            [Some(l), None] => Some(l),
+            [None, Some(r)] => Some(r.mul_add(-1.0, 1.0)),
+            _ => None,
+        };
+
+        let laser_effect = self
+            .laser_effects
+            .range(0..=tick)
+            .rev()
+            .map(|x| x.1)
+            .next()
+            .unwrap_or(&self.default_laser_effect);
+
+        _ = if let Some((f, s)) =
+            laser_freq.and_then(|x| laser_effect.get_biquad_state(x as _).map(|v| (x, v)))
+        {
+            self.biquad_control.send((
+                Some(s),
+                Some((1.0 - (f - 0.5).abs() * 1.99).powf(0.1) as f32),
+            ))
+        } else {
+            self.biquad_control.send((None, Some(0.0)))
+        };
+
+        for (side, assist_ticks) in self.laser_assist_ticks.iter_mut().enumerate() {
+            //TODO: If on straight laser, keep assist high
+            let next_laser_is_slam = || {
+                self.score_ticks
+                    .ticks
+                    .iter()
+                    .find(|t| match t.tick {
+                        ScoreTick::Laser { lane, .. } => lane == side,
+                        ScoreTick::Slam { lane, .. } => lane == side,
+                        _ => false,
+                    })
+                    .map(|x| match x.tick {
+                        ScoreTick::Slam { .. } => x.y,
+                        _ => u32::MAX,
+                    })
+                    .unwrap_or(u32::MAX)
+            };
+            if *assist_ticks > 0 && tick < next_laser_is_slam() {
+                self.laser_cursors[side] = self.chart.note.laser[side]
+                    .value_at(tick as f64)
+                    .unwrap_or(self.laser_cursors[side]);
+            }
+            *assist_ticks = assist_ticks.saturating_sub(1);
+        }
+
+        let mut i = 0;
+        while i < self.score_ticks.ticks.len() {
+            if self.score_ticks.ticks[i].y > tick {
+                break;
+            }
+
+            match self.process_score_tick(
+                self.score_ticks.ticks[i],
+                missed_chip_tick,
+                missed_chip_tick,
+            ) {
+                HitRating::None => i += 1,
+                r => {
+                    self.on_hit(r);
+                    self.score_ticks.ticks.remove(i);
+                    self.score_current_max += 2;
+                }
+            }
+        }
+
+        self.playback.set_fx_enable(
+            self.input_state
+                .is_button_held(UscButton::FX(kson::Side::Left))
+                .is_some()
+                || self.auto_buttons(),
+            self.input_state
+                .is_button_held(UscButton::FX(kson::Side::Right))
+                .is_some()
+                || self.auto_buttons(),
+        );
+
+        self.camera.check_spins(tick);
+
+        self.gauge
+            .update_sample(GAUGE_SAMPLES * tick as usize / self.duration_ticks as usize);
+    }
+
+    fn process_score_tick(
         &mut self,
         tick: PlacedScoreTick,
         chip_miss_tick: u32,
@@ -1132,7 +1623,7 @@ impl Game {
                     HitRating::None
                 }
             }
-            ScoreTick::Chip { lane: _ } => {
+            ScoreTick::Chip { .. } => {
                 if tick.y < chip_miss_tick {
                     HitRating::Miss {
                         tick,
@@ -1152,7 +1643,7 @@ impl Game {
         }
     }
     fn current_time(&self) -> std::time::Duration {
-        if !self.intro_done {
+        if !self.intro_done || !self.multiplayer.started {
             Duration::ZERO
         } else {
             SystemTime::now()
@@ -1175,34 +1666,36 @@ impl Game {
             + self.playback.leadin().as_secs_f64() * 1000.0
     }
 
-    fn fail_song(&mut self) -> anyhow::Result<()> {
+    fn fail_song(&mut self) {
         //TODO: Enter fail transition state
-        self.transition_to_results()?;
-        Ok(())
+        self.transition_to_results();
     }
 
-    fn transition_to_results(&mut self) -> Result<(), anyhow::Error> {
+    fn transition_to_results(&mut self) {
         if let AutoPlay::None = self.autoplay {
-            self.control_tx
-                .as_ref()
-                .ok_or(anyhow!("control_tx not set"))?
-                .send(ControlMessage::Result {
-                    song: self.song.clone(),
-                    diff_idx: self.diff_idx,
-                    score: self.actual_display_score() as u32,
-                    gauge: std::mem::take(&mut self.gauge.active),
-                    hit_ratings: std::mem::take(&mut self.hit_ratings),
-                    autoplay: self.autoplay,
-                    duration: self.chart.tick_to_ms(self.duration) as i32,
-                    hit_window: self.hit_window,
-                    manual_exit: false,
-                    max_combo: self.max_combo as _,
-                })
-                .expect("Main loop messaging error");
+            let Some(tx) = self.control_tx.as_ref() else {
+                warn!("control_tx not set");
+                self.closed = true;
+                return;
+            };
+
+            tx.send(ControlMessage::Result {
+                song: self.song.clone(),
+                diff_idx: self.diff_idx,
+                score: self.actual_display_score() as u32,
+                gauge: std::mem::take(&mut self.gauge.active),
+                hit_ratings: std::mem::take(&mut self.hit_ratings),
+                autoplay: self.autoplay,
+                duration: (self.duration_secs * 1000.0) as i32,
+                hit_window: self.hit_window,
+                manual_exit: false,
+                max_combo: self.max_combo as _,
+                hash: self.chart.file_hash.clone(),
+            })
+            .expect("Main loop messaging error");
         } else {
             self.closed = true;
         }
-        Ok(())
     }
 
     fn auto_buttons(&self) -> bool {
@@ -1213,7 +1706,7 @@ impl Game {
         matches!(self.autoplay, AutoPlay::All | AutoPlay::Lasers)
     }
 
-    fn take_laser_input(&mut self, index: usize, now: SystemTime) -> bool {
+    fn take_laser_input(&mut self, index: usize, now: SystemTime, tick: u32) -> bool {
         let Some((time_stamp, delta)) = self.laser_buffer[index].pop_front() else {
             return false;
         };
@@ -1232,13 +1725,12 @@ impl Game {
 
         self.laser_cursors[index] = if self.laser_target[index].is_some() {
             let new_pos = (self.laser_cursors[index] + delta).clamp(0.0, 1.0);
-            let target_value = self.chart.note.laser[index].value_at(self.current_tick as f64);
+            let target_value = self.chart.note.laser[index].value_at(tick as f64);
 
             //TODO: Not sure this is a good way to do laser offset but it might work
-            let target_dir_offset =
-                self.laser_offset / self.chart.tick_duration_ms_at(self.current_tick);
+            let target_dir_offset = self.laser_offset / self.chart.tick_duration_ms_at(tick);
             let target_dir = self.chart.note.laser[index]
-                .direction_at(self.current_tick as f64 + target_dir_offset)
+                .direction_at(tick as f64 + target_dir_offset)
                 .map(|x| x.total_cmp(&0.0))
                 .unwrap_or(std::cmp::Ordering::Equal);
 
@@ -1292,14 +1784,18 @@ impl Game {
             self.with_offset(self.current_time().as_secs_f64() * 1000.0)
                 + miss.as_secs_f64() * 1000.0,
         ) + 1;
-        let mut hittable_ticks = self.score_ticks.iter().take_while(|x| x.y < last_tick);
+        let mut hittable_ticks = self
+            .score_ticks
+            .ticks
+            .iter()
+            .take_while(|x| x.y < last_tick);
         let mut hit_rating = HitRating::None;
         match button {
             crate::button_codes::UscButton::BT(_) | crate::button_codes::UscButton::FX(_)
                 if !self.auto_buttons() =>
             {
                 if let Some((index, score_tick)) = hittable_ticks.find_position(|x| {
-                    if let ScoreTick::Chip { lane } | ScoreTick::Hold { lane, .. } = x.tick {
+                    if let ScoreTick::Chip { lane, .. } | ScoreTick::Hold { lane, .. } = x.tick {
                         lane == button_num as usize
                     } else {
                         false
@@ -1335,7 +1831,7 @@ impl Game {
                         HitRating::None => {}
                         _ => {
                             self.on_hit(hit_rating);
-                            self.score_ticks.remove(index);
+                            self.score_ticks.ticks.remove(index);
                             self.score_current_max += 2;
                         }
                     }
@@ -1347,19 +1843,10 @@ impl Game {
         hit_rating
     }
 
-    fn copy_layer_to_surface(
-        &self,
-        surface: &SurfaceTexture,
-        i: usize,
-        encoder: &mut wgpu::CommandEncoder,
-        td: &RenderContext,
-    ) {
-        let Some(src) = self.vg_layer_meshes.get(i) else {
-            return;
-        };
-
-        let mut rp = td.default_render_pass(None, encoder, surface);
-        src.draw(&mut rp);
+    fn should_start(&mut self) -> bool {
+        self.intro_done
+            && !self.playback.is_playing()
+            && self.multiplayer.should_start(self.intro_done)
     }
 }
 
@@ -1367,10 +1854,7 @@ impl Scene for Game {
     fn closed(&self) -> bool {
         self.closed
     }
-    fn render_ui(
-        &mut self,
-        _dt: f64,
-    ) -> std::result::Result<std::vec::Vec<wgpu::CommandBuffer>, anyhow::Error> {
+    fn render_ui(&mut self, _dt: f64) -> anyhow::Result<Vec<wgpu::CommandBuffer>> {
         Ok(vec![])
     }
 
@@ -1380,208 +1864,32 @@ impl Scene for Game {
 
     fn tick(&mut self, _dt: f64, _knob_state: crate::button_codes::LaserState) -> Result<()> {
         profile_function!();
-        const AVG_DELTA_LEN: usize = 32;
         let mut time = self.current_time();
-        let sys_time = SystemTime::now();
 
         let playback_ms = self.playback.get_ms();
         let timing_delta = playback_ms.sub(time.as_secs_f64() * 1000.0);
-        if playback_ms > 0.0 {
-            self.sync_delta.push_front(timing_delta);
-            if self.sync_delta.len() > AVG_DELTA_LEN {
-                self.sync_delta.pop_back();
-            }
-        }
 
-        let avg_delta: f64 = self.sync_delta.iter().fold(0.0, |a, c| a + c) / AVG_DELTA_LEN as f64;
+        // Limit looping as a failsafe
+        for _ in 0..1000 {
+            let (tick, ms) = self
+                .tick_queue
+                .pop_front()
+                .unwrap_or((self.duration_ticks + 10, self.duration_secs as f64 * 1000.0));
 
-        if playback_ms > 0.0 && !self.score_ticks.is_empty() {
-            if avg_delta.abs() > 250.0 {
-                self.sync_delta.clear();
-                self.zero_time = SystemTime::now().sub(Duration::from_millis(playback_ms as _));
-            } else if avg_delta.abs() > 1.0 {
-                if avg_delta > 0.0 {
-                    self.zero_time -= Duration::from_nanos(50000);
-                } else {
-                    self.zero_time += Duration::from_nanos(50000);
-                }
-            }
-
-            time = self.current_time();
-        }
-
-        if self.current_tick >= self.duration && !self.results_requested {
-            self.transition_to_results()?;
-            self.results_requested = true;
-        }
-        let missed_chip_tick = self.chart.ms_to_tick(
-            self.with_offset(time.saturating_sub(self.hit_window.good).as_secs_f64() * 1000.0),
-        );
-
-        let auto_lasers = self.auto_lasers();
-
-        while self.take_laser_input(0, sys_time) {}
-        while self.take_laser_input(1, sys_time) {}
-
-        for (side, ((laser_active, laser_target), wide)) in self
-            .laser_active
-            .iter_mut()
-            .zip(self.laser_target.iter_mut())
-            .zip(self.laser_wide.iter_mut())
-            .enumerate()
-        {
-            let was_none = laser_target.is_none();
-            *laser_target = self.chart.note.laser[side].value_at(self.current_tick as f64);
-            *wide = self.chart.note.laser[side].wide_at(self.current_tick as f64);
-            *laser_active = if let Some(val) = laser_target {
-                (*val - self.laser_cursors[side]).abs() < LASER_THRESHOLD
-            } else {
-                false
-            };
-
-            if (was_none && laser_target.is_some()) || auto_lasers {
-                self.laser_assist_ticks[side] = 10;
-            }
-            //TODO: Also check ahead
-        }
-
-        let laser_freq = match self.laser_target {
-            [Some(l), Some(r)] => Some(r.mul_add(-1.0, 1.0).max(l)),
-            [Some(l), None] => Some(l),
-            [None, Some(r)] => Some(r.mul_add(-1.0, 1.0)),
-            _ => None,
-        };
-
-        let laser_effect = self
-            .laser_effects
-            .range(0..=self.current_tick)
-            .rev()
-            .map(|x| x.1)
-            .next()
-            .unwrap_or(&self.default_laser_effect);
-
-        _ = if let Some((f, s)) =
-            laser_freq.and_then(|x| laser_effect.get_biquad_state(x as _).map(|v| (x, v)))
-        {
-            self.biquad_control.send((
-                Some(s),
-                Some((1.0 - (f - 0.5).abs() * 1.99).powf(0.1) as f32),
-            ))
-        } else {
-            self.biquad_control.send((None, Some(0.0)))
-        };
-
-        let keep_laser = match self
-            .chart
-            .camera
-            .tilt
-            .keep
-            .binary_search_by_key(&self.current_tick, |x| x.0)
-        {
-            Ok(i) => self.chart.camera.tilt.keep[i].1,
-            Err(i) => {
-                if i == 0 {
-                    false
-                } else {
-                    self.chart.camera.tilt.keep[i.saturating_sub(1)].1
-                }
-            }
-        };
-
-        self.target_roll = self
-            .chart
-            .camera
-            .tilt
-            .manual
-            .value_at(self.current_tick as f64)
-            .map(TargetRoll::Manual)
-            .unwrap_or_else(|| {
-                let current = self.target_roll;
-
-                let next = match self.laser_target {
-                    [Some(l), Some(r)] => TargetRoll::Laser(r + l - 1.0),
-                    [Some(l), None] => TargetRoll::Laser(l),
-                    [None, Some(r)] => TargetRoll::Laser(r - 1.0),
-                    _ => TargetRoll::None,
-                };
-
-                if keep_laser {
-                    match (current, next) {
-                        (TargetRoll::Laser(v), TargetRoll::None)
-                        | (TargetRoll::None, TargetRoll::Laser(v))
-                        | (TargetRoll::Manual(v), TargetRoll::None) => TargetRoll::Laser(v),
-                        (TargetRoll::Laser(cv), TargetRoll::Laser(nv))
-                        | (TargetRoll::Manual(cv), TargetRoll::Laser(nv)) => {
-                            if cv < f64::EPSILON {
-                                TargetRoll::Laser(nv)
-                            } else if cv.is_sign_negative() == nv.is_sign_negative() {
-                                TargetRoll::Laser(cv.abs().max(nv.abs()) * cv.signum())
-                            } else {
-                                TargetRoll::Laser(cv)
-                            }
-                        }
-                        _ => TargetRoll::None,
-                    }
-                } else {
-                    next
-                }
-            });
-
-        for (side, assist_ticks) in self.laser_assist_ticks.iter_mut().enumerate() {
-            //TODO: If on straight laser, keep assist high
-            let next_laser_is_slam = || {
-                self.score_ticks
-                    .iter()
-                    .find(|t| match t.tick {
-                        ScoreTick::Laser { lane, .. } => lane == side,
-                        ScoreTick::Slam { lane, .. } => lane == side,
-                        _ => false,
-                    })
-                    .map(|x| match x.tick {
-                        ScoreTick::Slam { .. } => x.y,
-                        _ => u32::MAX,
-                    })
-                    .unwrap_or(u32::MAX)
-            };
-            if *assist_ticks > 0 && self.current_tick < next_laser_is_slam() {
-                self.laser_cursors[side] = self.chart.note.laser[side]
-                    .value_at(self.current_tick as f64)
-                    .unwrap_or(self.laser_cursors[side]);
-            }
-            *assist_ticks = assist_ticks.saturating_sub(1);
-        }
-
-        let mut i = 0;
-        while i < self.score_ticks.len() {
-            if self.score_ticks[i].y > self.current_tick {
+            if ms > self.render_ms {
+                self.tick_queue.push_front((tick, ms));
                 break;
             }
 
-            match self.process_tick(self.score_ticks[i], missed_chip_tick, missed_chip_tick) {
-                HitRating::None => i += 1,
-                r => {
-                    self.on_hit(r);
-                    self.score_ticks.remove(i);
-                    self.score_current_max += 2;
-                }
-            }
+            self.process_tick(tick, &mut time, playback_ms);
         }
 
-        self.playback.set_fx_enable(
-            self.input_state
-                .is_button_held(UscButton::FX(kson::Side::Left))
-                .is_some()
-                || self.auto_buttons(),
-            self.input_state
-                .is_button_held(UscButton::FX(kson::Side::Right))
-                .is_some()
-                || self.auto_buttons(),
-        );
-
-        self.camera.check_spins(self.current_tick);
-
-        self.gauge
-            .update_sample(GAUGE_SAMPLES * self.current_tick as usize / self.duration as usize);
+        if playback_ms > 0.0 {
+            self.sync_delta.push_front(timing_delta);
+            if self.sync_delta.len() > Self::AVG_DELTA_LEN {
+                self.sync_delta.pop_back();
+            }
+        }
 
         //Laser alerts
         if self.intro_done {
@@ -1600,8 +1908,8 @@ impl Scene for Game {
                     && !self.chart.note.laser[side as usize].is_empty()
                 {
                     if self.laser_target[side as usize].is_none() {
-                        if let Ok(f) = self.lua.globals().get::<_, Function>("laser_alert") {
-                            log_result!(f.call::<_, ()>(side == Side::Right));
+                        if let Ok(f) = self.lua.globals().get::<Function>("laser_alert") {
+                            log_result!(f.call::<()>(side == Side::Right));
                         }
                     }
                     self.laser_alert[side as usize] = next_laser;
@@ -1609,18 +1917,23 @@ impl Scene for Game {
             }
         }
 
+        self.multiplayer
+            .update_score(self.actual_display_score() as _, time.as_millis())?;
+
         //Score display
         let display_score = self.calculate_display_score();
         if display_score != self.display_score {
             self.display_score = display_score;
-            if let Ok(update_score) = self.lua.globals().get::<_, Function>("update_score") {
-                crate::log_result!(update_score.call::<_, ()>(display_score));
+            if let Ok(update_score) = self.lua.globals().get::<Function>("update_score") {
+                crate::log_result!(update_score.call::<()>(display_score));
             }
         }
 
         if self.gauge.is_dead() {
-            self.fail_song()?;
+            self.fail_song();
         }
+
+        self.multiplayer.poll(&self.lua)?;
 
         Ok(())
     }
@@ -1656,10 +1969,14 @@ impl Scene for Game {
         );
         self.control_tx = Some(app_control_tx);
         lua_provider.register_libraries(self.lua.clone(), "gameplay.lua")?;
+        self.multiplayer.init_lua(&self.lua);
         Ok(())
     }
 
     fn debug_ui(&mut self, ctx: &egui::Context) -> anyhow::Result<()> {
+        let current_tick = self
+            .chart
+            .ms_to_tick(self.current_time().as_secs_f64() * 1000.0);
         use egui::*;
         Window::new("Camera").show(ctx, |ui| {
             self.camera.egui_widget(ui);
@@ -1673,21 +1990,28 @@ impl Scene for Game {
                     .spacing([40.0, 4.0])
                     .show(ui, |ui| {
                         ui.label("Time");
-
+                        let mut current_sec = self.current_time().as_secs_f32();
                         if ui
-                            .add(Slider::new(&mut self.current_tick, 0..=self.duration))
+                            .add(Slider::new(&mut current_sec, 0.0..=self.duration_secs))
                             .changed()
                         {
-                            let new_time = self.chart.tick_to_ms(self.current_tick);
-
                             self.zero_time =
-                                SystemTime::now().sub(Duration::from_millis(new_time as _))
+                                SystemTime::now().sub(Duration::from_secs_f32(current_sec))
                         }
 
                         ui.end_row();
 
                         ui.label("Sync delta (ms)");
-
+                        let line: PlotPoints = self
+                            .sync_delta
+                            .iter()
+                            .enumerate()
+                            .map(|(x, y)| [x as f64, *y])
+                            .collect();
+                        let line = Line::new(line);
+                        egui_plot::Plot::new("sync_delta").show(ui, |plot| {
+                            plot.line(line);
+                        });
                         ui.end_row();
 
                         ui.label("HiSpeed");
@@ -1701,19 +2025,19 @@ impl Scene for Game {
                         ui.end_row();
 
                         for i in 0..6 {
-                            let mut next_tick = self
-                                .score_ticks
-                                .iter()
-                                .filter(|x| x.y > self.current_tick)
-                                .find(|x| match x.tick {
-                                    ScoreTick::Chip { lane } | ScoreTick::Hold { lane, .. } => {
-                                        lane == i
-                                    }
-                                    _ => false,
-                                })
-                                .map(|x| x.y)
-                                .unwrap_or(u32::MAX)
-                                .saturating_sub(self.current_tick);
+                            let mut next_tick =
+                                self.score_ticks
+                                    .ticks
+                                    .iter()
+                                    .filter(|x| x.y > current_tick)
+                                    .find(|x| match x.tick {
+                                        ScoreTick::Chip { lane, .. }
+                                        | ScoreTick::Hold { lane, .. } => lane == i,
+                                        _ => false,
+                                    })
+                                    .map(|x| x.y)
+                                    .unwrap_or(u32::MAX)
+                                    .saturating_sub(current_tick);
                             ui.label(match i {
                                 0 => "BT A",
                                 1 => "BT B",
@@ -1733,7 +2057,7 @@ impl Scene for Game {
                         ui.label("Left");
 
                         if let Some(mut lval) =
-                            self.chart.note.laser[0].value_at(self.current_tick as f64)
+                            self.chart.note.laser[0].value_at(current_tick as f64)
                         {
                             ui.add(egui::Slider::new(&mut lval, 0.0..=1.0));
                         }
@@ -1742,7 +2066,7 @@ impl Scene for Game {
 
                         ui.label("Right");
                         if let Some(mut rval) =
-                            self.chart.note.laser[1].value_at(self.current_tick as f64)
+                            self.chart.note.laser[1].value_at(current_tick as f64)
                         {
                             ui.add(egui::Slider::new(&mut rval, 0.0..=1.0));
                         }
@@ -1755,7 +2079,7 @@ impl Scene for Game {
                         ui.label(format!(
                             "{:?}",
                             self.chart.note.laser[0]
-                                .direction_at(self.current_tick as f64)
+                                .direction_at(current_tick as f64)
                                 .map(|x| x.total_cmp(&0.0))
                         ));
                         ui.end_row();
@@ -1764,7 +2088,7 @@ impl Scene for Game {
                         ui.label(format!(
                             "{:?}",
                             self.chart.note.laser[1]
-                                .direction_at(self.current_tick as f64)
+                                .direction_at(current_tick as f64)
                                 .map(|x| x.total_cmp(&0.0))
                         ));
                         ui.end_row();
@@ -1786,23 +2110,13 @@ impl Scene for Game {
         td_context: &RenderContext,
         viewport: Viewport,
         surface: Rc<SurfaceTexture>,
-    ) -> std::vec::Vec<wgpu::CommandBuffer> {
+    ) -> Vec<wgpu::CommandBuffer> {
         profile_function!();
-        // TODO:
-        // 1. render femtovg using render targets
-        // 2. submit femtovg commands
-        // 3. render bg
-        // 4. render track
-        // 5. blit crit base target to surface
-        // 6. render fg
-        // 7. blit crit overlay render target
-
-        self.vg_layer_meshes[0].set_param("viewport", ivec2(viewport.x as _, viewport.y as _));
-        self.vg_layer_meshes[1].set_param("viewport", ivec2(viewport.x as _, viewport.y as _));
+        self.ensure_vg_layer_size(td_context, &surface);
 
         self.camera
             .update(vec2(viewport.width as f32, viewport.height as f32));
-        if self.intro_done && !self.playback.is_playing() {
+        if self.should_start() {
             info!("Starting playback");
             self.zero_time = SystemTime::now();
             if !self.playback.play() {
@@ -1830,28 +2144,19 @@ impl Scene for Game {
         let time = self.current_time();
         let time_ms = time.as_secs_f64() * 1000.0 + leadin_ms;
 
+        self.view.cursor = self.with_offset(time.as_secs_f64() * 1000.0);
+
+        let render_tick = self.chart.ms_to_tick(self.view.cursor);
+        self.render_ms = self.view.cursor;
+
         //Update roll
         {
             profile_scope!("Update camera");
-            let max_roll_speed = dt / kson::beat_in_ms(self.chart.bpm_at_tick(self.current_tick));
+            let max_roll_speed = dt / kson::beat_in_ms(self.chart.bpm_at_tick(render_tick));
+            let current_tilt = self.chart.camera.tilt_at(render_tick);
             self.current_roll = match self.target_roll {
                 TargetRoll::Laser(target_roll) => {
-                    let scale = match self
-                        .chart
-                        .camera
-                        .tilt
-                        .scale
-                        .binary_search_by_key(&self.current_tick, |x| x.0)
-                    {
-                        Ok(i) => self.chart.camera.tilt.scale[i].1,
-                        Err(i) => {
-                            if i == 0 {
-                                1.0
-                            } else {
-                                self.chart.camera.tilt.scale[i.saturating_sub(1)].1
-                            }
-                        }
-                    };
+                    let scale = current_tilt.scale();
                     let target_roll = target_roll * scale;
                     if self.current_roll - target_roll < 0.0 {
                         (self.current_roll + max_roll_speed * 2.0 * scale).min(target_roll)
@@ -1870,97 +2175,49 @@ impl Scene for Game {
                 }
             };
 
-            self.camera.tilt = self.current_roll as f32 * 12.5;
-            self.camera.tilt += self
+            self.camera.tilt.0 = self.current_roll as f32 * 12.5;
+            self.camera.tilt.1 = self
                 .camera
                 .spins
                 .iter()
-                .map(|x| x.roll_at(self.current_tick as f32))
+                .map(|x| x.roll_at(render_tick as f32))
                 .sum::<f32>();
-
-            self.view.cursor = self.with_offset(time.as_secs_f64() * 1000.0);
-
-            self.current_tick = self.chart.ms_to_tick(self.view.cursor);
             self.camera.kson_radius = self
                 .chart
                 .camera
                 .cam
                 .body
-                .zoom
-                .value_at(self.current_tick as f64) as f32;
+                .zoom_bottom
+                .value_at(render_tick as f64) as f32;
             self.camera.kson_angle = self
                 .chart
                 .camera
                 .cam
                 .body
-                .rotation_x
-                .value_at(self.current_tick as f64) as f32;
+                .zoom_top
+                .value_at(render_tick as f64) as f32;
 
             self.camera.shakes.retain_mut(|x| {
                 x.tick(dt as _);
                 !x.completed()
             });
         }
-        let td_camera = Camera::from(&self.camera);
+        let td_camera: Camera = Camera::from(&self.camera);
 
-        let new_lua_state = self.lua_game_state(viewport, &td_camera, self.hit_window);
+        let new_lua_state = self.lua_game_state(
+            viewport,
+            &td_camera,
+            self.hit_window,
+            render_tick,
+            self.multiplayer.user_id.clone(),
+        );
         if new_lua_state != self.lua_game_state {
             profile_scope!("Update lua data");
             self.lua_game_state = new_lua_state;
-            let lua_game_state = match self.lua.to_value(&self.lua_game_state) {
-                Ok(s) => s,
-                Err(e) => {
-                    log::error!("{e}");
-                    return vec![];
-                }
+            match self.lua.to_value(&self.lua_game_state) {
+                Ok(s) => log_result!(self.lua.globals().set("gameplay", s)),
+                Err(e) => log::error!("{e}"),
             };
-            log_result!(self.lua.globals().set("gameplay", lua_game_state));
-        }
-
-        let mut render_commands = vec![];
-
-        {
-            profile_scope!("Render UI");
-
-            //TODO: Use render targets for layering instead
-            if !self.intro_done {
-                if let Ok(func) = self.lua.globals().get::<_, Function>("render_intro") {
-                    profile_scope!("lua render_intro");
-                    match func.call::<_, bool>(dt / 1000.0) {
-                        Err(e) => {
-                            log::error!("{}", e);
-                        }
-                        Ok(intro_complete) => self.intro_done = intro_complete,
-                    };
-                }
-            }
-
-            if let Ok(func) = self.lua.globals().get::<_, Function>("render_crit_base") {
-                profile_scope!("lua render_crit_base");
-                if let Err(e) = func.call::<_, ()>(dt / 1000.0) {
-                    log::error!("{}", e);
-                };
-            }
-
-            self.flush_canvas(0);
-            self.reset_canvas(surface.as_ref());
-
-            if let Ok(func) = self.lua.globals().get::<_, Function>("render_crit_overlay") {
-                profile_scope!("lua render_crit_overlay");
-                if let Err(e) = func.call::<_, ()>(dt / 1000.0) {
-                    log::error!("{}", e);
-                };
-            }
-            self.reset_canvas(surface.as_ref());
-
-            if let Ok(func) = self.lua.globals().get::<_, Function>("render") {
-                profile_scope!("lua render");
-                if let Err(e) = func.call::<_, ()>(dt / 1000.0) {
-                    log::error!("{}", e);
-                };
-            }
-            self.reset_canvas(surface.as_ref());
-            self.flush_canvas(1);
         }
 
         self.beam_colors_current
@@ -1989,14 +2246,69 @@ impl Scene for Game {
                 },
             );
         }
+
+        // The gameplay ui is drawn with femtovg into two layers that get composited with the
+        // track and foreground: [crit base] -> foreground -> [crit overlay + ui]
+        let mut ui_commands = vec![];
+        {
+            profile_scope!("Render UI");
+
+            if !self.intro_done {
+                if let Ok(func) = self.lua.globals().get::<Function>("render_intro") {
+                    profile_scope!("lua render_intro");
+                    match func.call::<bool>(dt / 1000.0) {
+                        Err(e) => {
+                            log::error!("{}", e);
+                        }
+                        Ok(intro_complete) => self.intro_done = intro_complete,
+                    };
+                }
+            }
+
+            if let Ok(func) = self.lua.globals().get::<Function>("render_crit_base") {
+                profile_scope!("lua render_crit_base");
+                if let Err(e) = func.call::<()>(dt / 1000.0) {
+                    log::error!("{}", e);
+                };
+            }
+
+            ui_commands.append(&mut self.flush_canvas(0, td_context));
+            self.reset_canvas(&surface);
+
+            if let Ok(func) = self.lua.globals().get::<Function>("render_crit_overlay") {
+                profile_scope!("lua render_crit_overlay");
+                if let Err(e) = func.call::<()>(dt / 1000.0) {
+                    log::error!("{}", e);
+                };
+            }
+            self.reset_canvas(&surface);
+
+            if let Ok(func) = self.lua.globals().get::<Function>("render") {
+                profile_scope!("lua render");
+                if let Err(e) = func.call::<()>(dt / 1000.0) {
+                    log::error!("{}", e);
+                };
+            }
+            ui_commands.append(&mut self.flush_canvas(1, td_context));
+            self.reset_canvas(&surface);
+        }
+
+        // Meshes drawn by the ui scripts
+        let ui_mesh_commands = self
+            .lua
+            .app_data_ref::<RefMut<Vgfx>>()
+            .map(|vgfx| vgfx.take_commands())
+            .unwrap_or_default();
+
         let mut encoder = td_context.encoder(Some("Gameplay"));
         if let Some(bg) = self.background.as_mut() {
+            bg.set_global("gameplay", &self.lua_game_state);
             bg.render(
                 dt,
                 &td_camera,
                 time_ms,
                 &self.chart,
-                self.current_tick,
+                render_tick,
                 self.camera.tilt,
                 self.gauge.is_cleared(),
                 viewport,
@@ -2006,27 +2318,22 @@ impl Scene for Game {
             );
         }
 
-        let mut rp = td_context.default_render_pass(Some("Track"), &mut encoder, &surface);
-
-        self.track_shader.draw_camera(&td_camera, &mut rp);
-        match self.view.render(
+        if let Err(e) = self.view.render(
             &self.chart,
-            |lane, tick| self.hold_ok(lane, tick),
+            |lane, tick| self.hold_ok(lane, tick) || self.auto_buttons(),
             self.beam_colors_current,
             self.chip_h,
+            object_glow,
+            hit_state,
         ) {
-            Err(e) => {
-                log::error!("{e}");
-                return vec![];
-            }
-            _ => {}
-        };
-
-        // let's just draw notes as a single mesh or with proper instanced rendering
-        // since we are forcing a shader rewrite anyway
-        // could use vertex color for hit state data
+            log::error!("{e}");
+            return vec![];
+        }
 
         {
+            let mut rp = td_context.default_render_pass(Some("Track"), &mut encoder, &surface);
+            log_result!(self.track_shader.draw_camera(&td_camera, &mut rp));
+
             let render_data = self.view.render_data.borrow();
 
             self.fx_chip_shaders.set_data_mesh(&render_data.fx_chip);
@@ -2035,47 +2342,57 @@ impl Scene for Game {
             self.bt_long_shaders.set_data_mesh(&render_data.bt_hold);
             self.lane_beam_shader.set_data_mesh(&render_data.lane_beams);
 
-            self.fx_long_shaders.draw_camera(&td_camera, &mut rp);
-            self.bt_long_shaders.draw_camera(&td_camera, &mut rp);
-            self.fx_chip_shaders.draw_camera(&td_camera, &mut rp);
-            self.bt_chip_shader.draw_camera(&td_camera, &mut rp);
-            self.lane_beam_shader.draw_camera(&td_camera, &mut rp);
+            log_result!(self.fx_long_shaders.draw_camera(&td_camera, &mut rp));
+            log_result!(self.bt_long_shaders.draw_camera(&td_camera, &mut rp));
+            log_result!(self.fx_chip_shaders.draw_camera(&td_camera, &mut rp));
+            log_result!(self.bt_chip_shader.draw_camera(&td_camera, &mut rp));
+            log_result!(self.lane_beam_shader.draw_camera(&td_camera, &mut rp));
 
             self.laser_shaders[0][0].set_data_mesh(&render_data.lasers[0]);
             self.laser_shaders[0][1].set_data_mesh(&render_data.lasers[1]);
             self.laser_shaders[1][0].set_data_mesh(&render_data.lasers[2]);
             self.laser_shaders[1][1].set_data_mesh(&render_data.lasers[3]);
-        }
-        for ele in self.laser_shaders.iter().flatten() {
-            ele.draw_camera(&td_camera, &mut rp);
-        }
 
-        {
-            profile_scope!("Finish encoder");
-
-            drop(rp);
-            self.copy_layer_to_surface(surface.as_ref(), 0, &mut encoder, td_context);
-
-            if let Some(fg) = self.foreground.as_mut() {
-                fg.render(
-                    dt,
-                    &td_camera,
-                    time_ms,
-                    &self.chart,
-                    self.current_tick,
-                    self.camera.tilt,
-                    self.gauge.is_cleared(),
-                    viewport,
-                    td_context,
-                    surface.as_ref(),
-                    &mut encoder,
-                );
+            for ele in self.laser_shaders.iter().flatten() {
+                log_result!(ele.draw_camera(&td_camera, &mut rp));
             }
-
-            self.copy_layer_to_surface(surface.as_ref(), 1, &mut encoder, td_context);
-            render_commands.push(encoder.finish());
         }
-        render_commands
+
+        self.composite_vg_layer(surface.as_ref(), 0, &mut encoder, td_context);
+
+        if let Some(fg) = self.foreground.as_mut() {
+            fg.set_global("gameplay", &self.lua_game_state);
+            fg.render(
+                dt,
+                &td_camera,
+                time_ms,
+                &self.chart,
+                render_tick,
+                self.camera.tilt,
+                self.gauge.is_cleared(),
+                viewport,
+                td_context,
+                surface.as_ref(),
+                &mut encoder,
+            );
+        }
+
+        let mut overlay_encoder = td_context.encoder(Some("Gameplay UI overlay"));
+        self.composite_vg_layer(surface.as_ref(), 1, &mut overlay_encoder, td_context);
+
+        ui_commands.push(encoder.finish());
+        ui_commands.extend(ui_mesh_commands);
+        ui_commands.push(overlay_encoder.finish());
+
+        self.pulser.update(
+            &self.chart,
+            self.view.cursor,
+            self.lua_game_state.hispeed,
+            self.lua_game_state.bpm as _,
+            dt,
+        );
+
+        ui_commands
     }
 
     fn on_event(&mut self, event: &winit::event::Event<crate::button_codes::UscInputEvent>) {
@@ -2130,5 +2447,96 @@ impl Scene for Game {
 
     fn name(&self) -> &str {
         "Game"
+    }
+
+    #[cfg(not(target_os = "android"))]
+    fn lighting(&self) -> crate::lighting::LightingData {
+        let mut data = crate::lighting::LightingData::default();
+
+        if self.auto_buttons() {
+            for (i, [_, _, _, a]) in self.beam_colors_current.iter().enumerate() {
+                let intervals = if i < 4 {
+                    &self.chart.note.bt[i]
+                } else {
+                    &self.chart.note.fx[i - 4]
+                };
+
+                let tick = self
+                    .tick_queue
+                    .front()
+                    .copied()
+                    .map(|x| x.0)
+                    .unwrap_or(u32::MAX);
+
+                data.buttons[i + 1] = *a > 0.8
+                    || (intervals
+                        .iter()
+                        .skip_while(|i| i.y < tick.saturating_sub(i.l))
+                        .next()
+                        .is_some_and(|i| i.contains(tick)));
+            }
+        } else {
+            for (held, button) in data.buttons.iter_mut().zip(UscButton::iter()).skip(1) {
+                *held = self.input_state.is_button_held(button).is_some();
+            }
+        }
+
+        let beat_light = (1.0 - self.pulser.get().0).powf(3.0) * 0.75 + 0.25;
+        let left = self.laser_colors[0];
+        let left = femtovg::rgb::Rgb::new(left.x, left.y, left.z) * beat_light;
+
+        let right = self.laser_colors[1];
+        let right = femtovg::rgb::Rgb::new(right.x, right.y, right.z) * beat_light;
+
+        data.base = (left + right) / 2.0; // Will probably be washed out but eh
+        data.top = [left, right];
+        data.middle = [left, right];
+        data.bottom = [left, right];
+
+        data
+    }
+
+    fn reload_scripts(&mut self) -> Result<()> {
+        let lua_provider: Arc<LuaProvider> = self.service_provider.get_required();
+        let lua = LuaProvider::new_lua();
+        lua_provider.register_libraries(lua.clone(), "gameplay.lua")?;
+
+        self.multiplayer.init_lua(&lua);
+
+        let lua_game_state = lua.to_value(&self.lua_game_state)?;
+        lua.globals().set("gameplay", lua_game_state)?;
+
+        let render_intro = lua
+            .globals()
+            .get::<Function>("render_intro")
+            .context("No 'render_intro' function")?;
+        let mut intro_timer = 10000;
+        let intro_step_ms = 20;
+        while intro_timer > 0 {
+            if render_intro.call::<bool>(intro_step_ms)? {
+                break;
+            }
+            intro_timer -= intro_step_ms;
+        }
+
+        self.lua = lua;
+
+        Ok(())
+    }
+}
+
+impl Drop for Game {
+    fn drop(&mut self) {
+        if self.multiplayer.active {
+            self.multiplayer.send_final(
+                self.actual_display_score() as _,
+                self.max_combo as _,
+                calculate_clear_mark(
+                    HitSummary::from(self.hit_ratings.as_slice()),
+                    false,
+                    &self.gauge.active,
+                ),
+            );
+        }
     }
 }

@@ -1,4 +1,4 @@
-use std::{cell::RefCell, path::Path, rc::Rc, sync::Arc};
+use std::{cell::RefCell, collections::HashSet, path::Path};
 
 use crate::{
     config::GameConfig,
@@ -15,14 +15,64 @@ pub struct ChartView {
     laser_meshes: [Vec<Vec<graphics::GlVertex>>; 2],
     track: ShadedMesh,
     distant_button_scale: f32,
+    key_sounds: [HashSet<u32>; 2],
+    note_bases: NoteBases,
     pub render_data: RefCell<TrackRenderMeshes>,
 }
 
+/// Untransformed meshes for each note type, every visible note is a transformed copy of one of these
+struct NoteBases {
+    bt: CpuMesh,
+    fx: CpuMesh,
+    beam: CpuMesh,
+}
+
+impl NoteBases {
+    fn new() -> Self {
+        Self {
+            bt: graphics::xy_rect(vec3(0.0, 0.5, 0.0), vec2(1.0 / 6.0, 1.0)),
+            fx: graphics::xy_rect(vec3(0.0, 0.5, 0.0), vec2(2.0 / 6.0, 1.0)),
+            beam: graphics::xy_rect(Vec3::ZERO, vec2(1.0, 1.0)),
+        }
+    }
+}
+
+/// Per vertex data for hold notes, `x` = object glow, `y` = hit state
+fn hold_vertex_data(state: HoldState, object_glow: f32, hit_state: i32) -> Vec4 {
+    let (glow, state) = match state {
+        HoldState::Idle => (0.6, 1),
+        HoldState::Hit => (object_glow, hit_state),
+        HoldState::Miss => (0.3, 0),
+    };
+    vec4(glow, state as f32, 0.0, 1.0)
+}
+
+pub fn gen_laser_subsegment(
+    y0: f32,
+    y1: f32,
+    w: f32,
+    start_value: f32,
+    end_value: f32,
+    xoff: f32,
+) -> [GlVertex; 6] {
+    let x00 = end_value - w - xoff;
+    let x01 = end_value - xoff;
+    let x10 = start_value - w - xoff;
+    let x11 = start_value - xoff;
+
+    [
+        GlVertex::new([y0, 0.0, x00], [0.0, 0.0]),
+        GlVertex::new([y0, 0.0, x01], [1.0, 0.0]),
+        GlVertex::new([y1, 0.0, x11], [1.0, 1.0]),
+        GlVertex::new([y0, 0.0, x00], [0.0, 0.0]),
+        GlVertex::new([y1, 0.0, x10], [0.0, 1.0]),
+        GlVertex::new([y1, 0.0, x11], [1.0, 1.0]),
+    ]
+}
+
 use anyhow::anyhow;
-use glam::{vec2, vec3, vec4, Mat4, Vec2, Vec3};
-use kson::KSON_RESOLUTION;
-use openssl::sha;
-use palette::Srgba;
+use glam::{vec2, vec3, vec4, Mat4, Vec3, Vec4};
+use kson::{do_curve, score_ticks::ScoreTick, KSON_RESOLUTION};
 use puffin::{profile_function, profile_scope};
 
 impl ChartView {
@@ -70,22 +120,15 @@ impl ChartView {
             vec2(1.0, Self::TRACK_LENGTH * 2.0),
         ));
 
-        let mut lane_beam_mesh =
-            graphics::xy_rect(Vec3::ZERO, vec2(1.0 / 6.0, Self::TRACK_LENGTH / 2.0));
-        lane_beam_mesh.colors = Some(vec![vec4(0.0, 0.0, 0.0, 0.0); 4]);
-        let single_beam = lane_beam_mesh.clone();
-        for _ in 0..5 {
-            lane_beam_mesh.extend(single_beam.clone());
-        }
-
         Ok(ChartView {
             distant_button_scale: GameConfig::get().distant_button_scale,
             cursor: 0.0,
             hispeed: 1.0,
             laser_meshes: [Vec::new(), Vec::new()],
             track,
+            key_sounds: Default::default(),
+            note_bases: NoteBases::new(),
             render_data: RefCell::new(TrackRenderMeshes {
-                lane_beams: lane_beam_mesh,
                 lasers,
                 ..Default::default()
             }),
@@ -126,22 +169,51 @@ impl ChartView {
                         );
                         start_value = value;
                     }
-                    let end_value = e.v as f32 * track_w;
-                    let x00 = end_value - w - xoff;
-                    let x01 = end_value - xoff;
-                    let x10 = start_value - w - xoff;
-                    let x11 = start_value - xoff;
-                    let y0 = e.ry as f32;
-                    let y1 = s.ry as f32 + syoff;
 
-                    section_verts.append(&mut vec![
-                        GlVertex::new([y0, 0.0, x00], [0.0, 0.0]),
-                        GlVertex::new([y0, 0.0, x01], [1.0, 0.0]),
-                        GlVertex::new([y1, 0.0, x11], [1.0, 1.0]),
-                        GlVertex::new([y0, 0.0, x00], [0.0, 0.0]),
-                        GlVertex::new([y1, 0.0, x10], [0.0, 1.0]),
-                        GlVertex::new([y1, 0.0, x11], [1.0, 1.0]),
-                    ]);
+                    if s.is_linear() {
+                        let end_value = e.v as f32 * track_w;
+                        let y0 = e.ry as f32;
+                        let y1 = s.ry as f32 + syoff;
+                        section_verts.extend(gen_laser_subsegment(
+                            y0,
+                            y1,
+                            w,
+                            start_value,
+                            end_value,
+                            xoff,
+                        ));
+                    } else {
+                        let start_value = s.vf.unwrap_or(s.v) as f32;
+                        let len = e.ry - s.ry;
+                        let segments = (len / (KSON_RESOLUTION / 32)).max(3); //TODO: Curve quality option
+                        let len = len as f32 - syoff;
+                        let width = e.v as f32 - start_value;
+                        let step = len / segments as f32;
+
+                        for subsegment_index in 0..segments {
+                            let s_curve_x = subsegment_index as f64 / segments as f64;
+                            let e_curve_x = (subsegment_index + 1) as f64 / segments as f64;
+
+                            let sv = start_value + width * do_curve(s_curve_x, s.a, s.b) as f32;
+                            let ev = start_value + width * do_curve(e_curve_x, s.a, s.b) as f32;
+
+                            let y1 = s.ry as f32 + (step * subsegment_index as f32) + syoff;
+                            let y0 = if (subsegment_index + 1) == segments {
+                                e.ry as f32
+                            } else {
+                                y1 + step
+                            };
+
+                            section_verts.extend(gen_laser_subsegment(
+                                y0,
+                                y1,
+                                w,
+                                sv * track_w,
+                                ev * track_w,
+                                xoff,
+                            ));
+                        }
+                    }
                     is_first = false;
                 }
                 if let Some(e) = section.last() {
@@ -173,6 +245,8 @@ impl ChartView {
         hold_ok: impl Fn(usize, u32) -> bool,
         mut beam_colors: [[f32; 4]; 6],
         chip_h: f32,
+        object_glow: f32,
+        hit_state: i32,
     ) -> anyhow::Result<()> {
         profile_function!();
         let mut data = self.render_data.borrow_mut();
@@ -189,6 +263,7 @@ impl ChartView {
         bt_hold.clear();
         bt_chip.clear();
         fx_chip.clear();
+        lane_beams.clear();
         for l in lasers.iter_mut() {
             l.clear();
         }
@@ -197,18 +272,22 @@ impl ChartView {
         beam_colors[4][3] *= 0.5;
         beam_colors[5][3] *= 0.5;
 
-        for (i, vertex_colors) in lane_beams
-            .colors
-            .as_mut()
-            .unwrap()
-            .chunks_exact_mut(4)
-            .enumerate()
-        {
-            let color = glam::Vec4::from(beam_colors[i]);
-            vertex_colors[0] = color;
-            vertex_colors[1] = color;
-            vertex_colors[2] = color;
-            vertex_colors[3] = color;
+        let beam_transforms = [
+            (-1.5 / 6.0, 1.0 / 6.0),
+            (-0.5 / 6.0, 1.0 / 6.0),
+            (0.5 / 6.0, 1.0 / 6.0),
+            (1.5 / 6.0, 1.0 / 6.0),
+            (-1.0 / 6.0, 2.0 / 6.0),
+            (1.0 / 6.0, 2.0 / 6.0),
+        ];
+
+        for ((x, w), color) in beam_transforms.into_iter().zip(beam_colors) {
+            lane_beams.push_transformed(
+                &self.note_bases.beam,
+                Mat4::from_translation(vec3(x, 0.0, 0.0))
+                    * Mat4::from_scale(vec3(w, Self::TRACK_LENGTH, 1.0)),
+                Vec4::from(color),
+            );
         }
 
         let chip_h = chip_h.copysign(-1.0);
@@ -233,8 +312,7 @@ impl ChartView {
             BtChip,
             BtHold,
             BtHoldActive(usize, u32),
-            FxChip,
-            FxChipSample,
+            FxChip(bool),
             FxHold,
             FxHoldActive(usize, u32),
         }
@@ -302,7 +380,7 @@ impl ChartView {
                                 NoteType::FxHold
                             }
                         } else {
-                            NoteType::FxChip
+                            NoteType::FxChip(self.key_sounds[i].contains(&n.y))
                         },
                     ));
                 }
@@ -313,7 +391,7 @@ impl ChartView {
             profile_scope!("Transform notes");
             notes.iter().map(|n| {
                 let distance_scale = match n.2 {
-                    NoteType::BtChip | NoteType::FxChip | NoteType::FxChipSample => {
+                    NoteType::BtChip | NoteType::FxChip(..) => {
                         ((n.0.y / Self::TRACK_LENGTH) * self.distant_button_scale).max(1.0)
                     }
                     _ => 1.0,
@@ -327,36 +405,50 @@ impl ChartView {
             })
         };
 
-        let mut fx_hold = vec![];
-        let mut bt_hold = vec![];
-        let mut fx_chip = vec![];
-        let mut bt_chip = vec![];
-
         {
-            profile_scope!("Sort notes");
-            for n in notes {
-                match n.1 {
-                    NoteType::BtChip => bt_chip.push(n.0),
-                    NoteType::BtHold => bt_hold.push((n.0, HoldState::Idle)),
-                    NoteType::BtHoldActive(lane, y) => bt_hold.push((
-                        n.0,
-                        if hold_ok(lane, y) {
-                            HoldState::Hit
-                        } else {
-                            HoldState::Miss
-                        },
-                    )),
-                    NoteType::FxChip => fx_chip.push((n.0, false)),
-                    NoteType::FxChipSample => fx_chip.push((n.0, true)),
-                    NoteType::FxHold => fx_hold.push((n.0, HoldState::Idle)),
-                    NoteType::FxHoldActive(side, y) => fx_hold.push((
-                        n.0,
-                        if hold_ok(side + 4, y) {
-                            HoldState::Hit
-                        } else {
-                            HoldState::Miss
-                        },
-                    )),
+            profile_scope!("Build note meshes");
+            let bases = &self.note_bases;
+            let no_sample = vec4(0.0, 0.0, 0.0, 1.0);
+            let has_sample = vec4(1.0, 0.0, 0.0, 1.0);
+            let hold_state = |hit: bool| {
+                if hit {
+                    HoldState::Hit
+                } else {
+                    HoldState::Miss
+                }
+            };
+            for (transform, note_type) in notes {
+                match note_type {
+                    NoteType::BtChip => bt_chip.push_transformed(&bases.bt, transform, no_sample),
+                    NoteType::FxChip(sample) => fx_chip.push_transformed(
+                        &bases.fx,
+                        transform,
+                        if sample { has_sample } else { no_sample },
+                    ),
+                    NoteType::BtHold => bt_hold.push_transformed(
+                        &bases.bt,
+                        transform,
+                        hold_vertex_data(HoldState::Idle, object_glow, hit_state),
+                    ),
+                    NoteType::BtHoldActive(lane, y) => bt_hold.push_transformed(
+                        &bases.bt,
+                        transform,
+                        hold_vertex_data(hold_state(hold_ok(lane, y)), object_glow, hit_state),
+                    ),
+                    NoteType::FxHold => fx_hold.push_transformed(
+                        &bases.fx,
+                        transform,
+                        hold_vertex_data(HoldState::Idle, object_glow, hit_state),
+                    ),
+                    NoteType::FxHoldActive(side, y) => fx_hold.push_transformed(
+                        &bases.fx,
+                        transform,
+                        hold_vertex_data(
+                            hold_state(hold_ok(side + 4, y)),
+                            object_glow,
+                            hit_state,
+                        ),
+                    ),
                 }
             }
         }
@@ -400,5 +492,29 @@ impl ChartView {
             }
         }
         Ok(())
+    }
+}
+
+impl ChartView {
+    pub(crate) fn build_key_sound_map(&mut self, score_ticks: &kson::score_ticks::ScoreTicks) {
+        let mut key_sounds: [HashSet<u32>; 2] = Default::default();
+
+        for ele in &score_ticks.ticks {
+            let ScoreTick::Chip {
+                lane,
+                key_sound: Some(_),
+            } = ele.tick
+            else {
+                continue;
+            };
+
+            if lane < 4 {
+                continue;
+            }
+
+            key_sounds[lane - 4].insert(ele.y);
+        }
+
+        self.key_sounds = key_sounds;
     }
 }

@@ -1,15 +1,15 @@
 use std::{
     rc::Rc,
     sync::{
-        atomic::{AtomicI32, AtomicU32},
+        atomic::{AtomicBool, AtomicI32, AtomicU32},
         Arc,
     },
 };
 
 use kson::Side;
 use log::info;
+use mlua::{Function, IntoLua, Lua, LuaSerdeExt};
 use std::sync::mpsc::Sender;
-use tealr::mlu::mlua::{Function, IntoLua, Lua, LuaSerdeExt};
 
 use crate::{
     async_service::AsyncService,
@@ -21,6 +21,7 @@ use crate::{
     lua_service::LuaProvider,
     settings_screen::HitFrames,
     songselect::KNOB_NAV_THRESHOLD,
+    ControlMessage,
 };
 
 type Setter<T> = Box<dyn Fn(T) + Send>;
@@ -125,8 +126,8 @@ pub struct SettingsDialogTab {
     current_setting: usize,
 }
 
-impl<'lua> IntoLua<'lua> for &SettingsDialogTab {
-    fn into_lua(self, lua: &'lua Lua) -> tealr::mlu::mlua::Result<tealr::mlu::mlua::Value<'lua>> {
+impl IntoLua for &SettingsDialogTab {
+    fn into_lua(self, lua: &Lua) -> mlua::Result<mlua::Value> {
         let table = lua.create_table()?;
 
         table.set("name", lua.create_string(&self.name)?)?;
@@ -181,12 +182,12 @@ impl<'lua> IntoLua<'lua> for &SettingsDialogTab {
                 }
             }
 
-            settings_table.set(i + 1, tealr::mlu::mlua::Value::Table(setting_table))?;
+            settings_table.set(i + 1, mlua::Value::Table(setting_table))?;
         }
 
-        table.set("settings", tealr::mlu::mlua::Value::Table(settings_table))?;
+        table.set("settings", mlua::Value::Table(settings_table))?;
 
-        Ok(tealr::mlu::mlua::Value::Table(table))
+        Ok(mlua::Value::Table(table))
     }
 }
 
@@ -230,8 +231,8 @@ pub struct SettingsDialog {
     async_service: di::RefMut<AsyncService>,
 }
 
-impl<'lua> IntoLua<'lua> for &SettingsDialog {
-    fn into_lua(self, lua: &'lua Lua) -> tealr::mlu::mlua::Result<tealr::mlu::mlua::Value<'lua>> {
+impl IntoLua for &SettingsDialog {
+    fn into_lua(self, lua: &Lua) -> mlua::Result<mlua::Value> {
         let table = lua.create_table()?;
 
         table.set("currentTab", self.current_tab + 1)?;
@@ -245,9 +246,9 @@ impl<'lua> IntoLua<'lua> for &SettingsDialog {
             tabs_table.set(i + 1, tab)?;
         }
 
-        table.set("tabs", tealr::mlu::mlua::Value::Table(tabs_table))?;
+        table.set("tabs", mlua::Value::Table(tabs_table))?;
 
-        Ok(tealr::mlu::mlua::Value::Table(table))
+        Ok(mlua::Value::Table(table))
     }
 }
 
@@ -390,6 +391,14 @@ impl SettingsDialog {
     pub fn init_lua(&self, load_lua: &LuaProvider) -> anyhow::Result<()> {
         self.lua.globals().set("SettingsDiag", self)?;
         load_lua.register_libraries(self.lua.clone(), "gamesettingsdialog.lua")?;
+        Ok(())
+    }
+
+    pub fn reload_script(&mut self, load_lua: &LuaProvider) -> anyhow::Result<()> {
+        let lua = LuaProvider::new_lua();
+        lua.globals().set("SettingsDiag", &*self)?;
+        load_lua.register_libraries(lua.clone(), "gamesettingsdialog.lua")?;
+        self.lua = lua;
         Ok(())
     }
 
@@ -619,9 +628,72 @@ impl SettingsDialog {
         )
     }
 
+    pub fn new_empty() -> Self {
+        Self {
+            show: false,
+            tabs: vec![],
+            input_state: InputState::dummy(),
+            current_tab: 0,
+            lua: Rc::new(Lua::new()),
+            setting_advance: 0.0,
+            async_service: Arc::new(AsyncService::new().into()),
+        }
+    }
+
+    pub fn song_provider_select(
+        input_state: InputState,
+        services: di::ServiceProvider,
+        close_dialog: Arc<AtomicBool>,
+        program_control: Sender<ControlMessage>,
+    ) -> Self {
+        let files_pc = program_control.clone();
+        let files_close = close_dialog.clone();
+        let naut_close = files_close.clone();
+
+        Self::new(
+            vec![SettingsDialogTab::new(
+                "Select Song Provider",
+                vec![
+                    (
+                        "Files".into(),
+                        SettingsDialogSetting::Button {
+                            action: Box::new(move || {
+                                _ = files_pc.send(ControlMessage::SongSelect(
+                                    crate::songselect::SongProviderSelection::Files,
+                                ));
+                                files_close.store(true, std::sync::atomic::Ordering::Relaxed);
+                            }),
+                        },
+                    ),
+                    (
+                        "Nautica".into(),
+                        SettingsDialogSetting::Button {
+                            action: Box::new(move || {
+                                _ = program_control.send(ControlMessage::SongSelect(
+                                    crate::songselect::SongProviderSelection::Nautica,
+                                ));
+                                naut_close.store(true, std::sync::atomic::Ordering::Relaxed);
+                            }),
+                        },
+                    ),
+                    (
+                        "Cancel".into(),
+                        SettingsDialogSetting::Button {
+                            action: Box::new(move || {
+                                close_dialog.store(true, std::sync::atomic::Ordering::Relaxed);
+                            }),
+                        },
+                    ),
+                ],
+            )],
+            input_state,
+            services,
+        )
+    }
+
     pub fn render(&mut self, dt: f64) -> anyhow::Result<()> {
         let function: Function = self.lua.globals().get("render")?;
-        function.call::<_, ()>((dt / 1000.0, self.show))?;
+        function.call::<()>((dt / 1000.0, self.show))?;
         Ok(())
     }
 }

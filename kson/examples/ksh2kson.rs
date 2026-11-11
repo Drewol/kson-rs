@@ -7,7 +7,6 @@ use std::path::PathBuf;
 
 use anyhow::Result;
 use clap::Parser;
-use kson::Ksh;
 
 #[derive(Parser, Debug)]
 #[clap(author, version, about, long_about = None)]

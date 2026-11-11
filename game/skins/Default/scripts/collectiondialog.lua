@@ -31,7 +31,6 @@ function open()
     table.insert(options, {"New Collection", menu.ChangeState, {0, 255, 128}})
     table.insert(options, {"Cancel", menu.Cancel, {200,200,200}})
     
-    gfx.FontFace("fallback")
     gfx.FontSize(50)
     titleText = string.format("Add %s to collection:", dialog.title)
     xmi,ymi,xma,yma = gfx.TextBounds(0,0, titleText)
@@ -56,7 +55,7 @@ function render(deltaTime)
     
     gfx.BeginPath()
     gfx.FillColor(255,255,255)
-    gfx.FontFace("fallback")
+    gfx.LoadSkinFont("NotoSans-Regular.ttf");
     gfx.FontSize(50)
     gfx.TextAlign(gfx.TEXT_ALIGN_TOP + gfx.TEXT_ALIGN_CENTER)
     gfx.Text(titleText, 0, -240)

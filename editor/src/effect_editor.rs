@@ -10,7 +10,7 @@ pub trait EffectEditor {
 impl EffectEditor for kson::effects::AudioEffect {
     fn edit(&mut self, ui: &mut eframe::egui::Ui) {
         match self {
-            kson::effects::AudioEffect::ReTrigger(r) => {
+            kson::effects::AudioEffect::Retrigger(r) => {
                 let ReTrigger {
                     update_period,
                     wave_length,
@@ -135,11 +135,12 @@ impl EffectEditor for kson::effects::AudioEffect {
             kson::effects::AudioEffect::Phaser(kson::effects::Phaser {
                 period,
                 stage,
-                lo_freq,
-                hi_freq,
+                freq_1,
+                freq_2,
                 q,
                 feedback,
                 stereo_width,
+                hi_cut_gain,
                 mix,
             }) => {
                 ui.label("period");
@@ -150,12 +151,12 @@ impl EffectEditor for kson::effects::AudioEffect {
                 ui.add(param_editor(stage, false));
                 ui.end_row();
 
-                ui.label("lo_freq");
-                ui.add(param_editor(lo_freq, false));
+                ui.label("freq_1");
+                ui.add(param_editor(freq_1, false));
                 ui.end_row();
 
-                ui.label("hi_freq");
-                ui.add(param_editor(hi_freq, false));
+                ui.label("freq_2");
+                ui.add(param_editor(freq_2, false));
                 ui.end_row();
 
                 ui.label("q");
@@ -170,14 +171,18 @@ impl EffectEditor for kson::effects::AudioEffect {
                 ui.add(param_editor(stereo_width, false));
                 ui.end_row();
 
+                ui.label("hi_cut_gain");
+                ui.add(param_editor(hi_cut_gain, false));
+                ui.end_row();
+
                 ui.label("Mix");
                 ui.add(param_editor(mix, false));
                 ui.end_row();
             }
             kson::effects::AudioEffect::Wobble(kson::effects::Wobble {
                 wave_length,
-                lo_freq,
-                hi_freq,
+                freq_1,
+                freq_2,
                 q,
                 mix,
             }) => {
@@ -185,12 +190,12 @@ impl EffectEditor for kson::effects::AudioEffect {
                 ui.add(param_editor(wave_length, false));
                 ui.end_row();
 
-                ui.label("lo_freq");
-                ui.add(param_editor(lo_freq, false));
+                ui.label("freq_1");
+                ui.add(param_editor(freq_1, false));
                 ui.end_row();
 
-                ui.label("hi_freq");
-                ui.add(param_editor(hi_freq, false));
+                ui.label("freq_2");
+                ui.add(param_editor(freq_2, false));
                 ui.end_row();
 
                 ui.label("q");
@@ -201,7 +206,7 @@ impl EffectEditor for kson::effects::AudioEffect {
                 ui.add(param_editor(mix, false));
                 ui.end_row();
             }
-            kson::effects::AudioEffect::TapeStop(kson::effects::TapeStop {
+            kson::effects::AudioEffect::Tapestop(kson::effects::TapeStop {
                 speed,
                 trigger,
                 mix,
@@ -245,7 +250,7 @@ impl EffectEditor for kson::effects::AudioEffect {
                 ui.add(param_editor(mix, false));
                 ui.end_row();
             }
-            kson::effects::AudioEffect::SideChain(kson::effects::SideChain {
+            kson::effects::AudioEffect::Sidechain(kson::effects::Sidechain {
                 period,
                 hold_time,
                 attack_time,
@@ -272,9 +277,9 @@ impl EffectEditor for kson::effects::AudioEffect {
                 ui.add(param_editor(ratio, false));
                 ui.end_row();
             }
-            kson::effects::AudioEffect::AudioSwap(swa) => {
+            kson::effects::AudioEffect::SwitchAudio(swa) => {
                 ui.label("Filename");
-                ui.text_edit_singleline(swa);
+                ui.text_edit_singleline(&mut swa.filename);
                 ui.end_row();
             }
             kson::effects::AudioEffect::HighPassFilter(kson::effects::HighPassFilter {

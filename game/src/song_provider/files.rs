@@ -14,7 +14,7 @@ use crate::{
     log_result,
     results::{calculate_clear_mark, Score},
     song_provider::SongFilterType,
-    songselect::{Difficulty, Song},
+    songselect::{favourite_dialog, Difficulty, Song},
     worker_service::WorkerService,
 };
 
@@ -22,11 +22,11 @@ use super::{
     DiffId, LoadSongFn, ScoreProvider, ScoreProviderEvent, SongDiffId, SongFilter, SongId,
     SongProvider, SongProviderEvent, SongSort,
 };
-use anyhow::{anyhow, bail, ensure};
+use anyhow::{anyhow, bail, ensure, Context};
 
-use futures::{executor::block_on, AsyncReadExt, StreamExt};
+use futures::{executor::block_on, AsyncReadExt, FutureExt, StreamExt};
 use itertools::Itertools;
-use kson::Ksh;
+use kson_rodio_sources::consume_one::ConsumeOne;
 use log::{info, warn};
 use puffin::profile_function;
 use rodio::Source;
@@ -66,7 +66,7 @@ pub struct FileSongProvider {
     all_songs: HashMap<SongId, Arc<Song>>,
 
     database: rusc_database::LocalSongsDb,
-    worker: poll_promise::Promise<()>,
+    worker: tokio::task::JoinHandle<()>,
     worker_rx: Receiver<WorkerEvent>,
     worker_tx: Sender<WorkerControlMessage>,
     score_bus: bus::Bus<ScoreProviderEvent>,
@@ -143,9 +143,8 @@ impl FileSongProvider {
         let (worker_tx, sender_rx) = channel(); //TODO: Async channels?
 
         let worker_db = database.clone();
-        let worker = poll_promise::Promise::spawn_async(async move {
-            files_worker(sender_tx, sender_rx, worker_db).await
-        });
+        let worker =
+            tokio::spawn(async move { files_worker(sender_tx, sender_rx, worker_db).await });
 
         worker_tx.send(WorkerControlMessage::LoadDb);
         worker_tx.send(WorkerControlMessage::Refresh);
@@ -370,7 +369,7 @@ async fn read_chart_file(
     if worker_db.get_hash_id(&hash).await?.is_some() {
         return Ok(hash); //Already exists
     }
-    let ext = is_chart_file(&p).expect("Got non chart file");
+    let ext = is_chart_file(&p).context("Got non chart file")?;
     let chart: kson::Chart = if ext == "ksh" {
         let (c, _) = encoding::types::decode(
             &data,
@@ -441,15 +440,17 @@ async fn query_songs(
     filter: &SongFilter,
     sort: SongSort,
 ) -> anyhow::Result<Vec<SongId>> {
-    let folder = if let SongFilterType::Folder(folder) = &filter.filter_type {
-        let mut p = songs_path();
-        p.push(folder);
-        Some(p.to_string_lossy().to_string())
-    } else {
-        None
+    let db_filter = match &filter.filter_type {
+        SongFilterType::None => rusc_database::CollectionFilter::None,
+        SongFilterType::Folder(v) => {
+            let mut p = songs_path();
+            p.push(v);
+            rusc_database::CollectionFilter::Folder(p.to_string_lossy().to_string())
+        }
+        SongFilterType::Collection(v) => rusc_database::CollectionFilter::Collection(v.clone()),
     };
     let charts = match database
-        .get_folder_ids_query(&q, filter.level, folder, sort.into())
+        .get_folder_ids_query(q, filter.level, db_filter, sort.into())
         .await
     {
         Ok(charts) => charts,
@@ -477,11 +478,10 @@ fn songs_path() -> PathBuf {
 impl WorkerService for FileSongProvider {
     fn update(&mut self) {
         self.worker
-            .ready()
-            .is_some()
+            .is_finished()
             .then(|| panic!("Song file provider worker returned")); //panics if worker paniced
         let mut importer_dirty = false;
-        while let Some(ev) = self.worker_rx.try_recv().ok() {
+        while let Ok(ev) = self.worker_rx.try_recv() {
             match ev {
                 WorkerEvent::ImporterState(s) => {
                     if self.last_full_update.elapsed().unwrap().as_secs() > 2 {
@@ -579,25 +579,50 @@ impl SongProvider for FileSongProvider {
         };
 
         let db = self.database.clone();
-        let path = PathBuf::from(block_on(db.get_song(_diff_index as _))?.path);
+        let song = tokio::runtime::Handle::current().block_on(db.get_song(_diff_index as _))?;
+        let hash = song.hash;
+        let path = PathBuf::from(song.path);
 
         Ok(Box::new(move || {
             let data = std::fs::read(&path)?;
-            let data = encoding::decode(
-                &data,
-                encoding::DecoderTrap::Strict,
-                encoding::all::WINDOWS_31J,
-            )
-            .0
-            .map_err(|_| anyhow!("Bad encodiing"))?;
 
-            let chart = kson::Chart::from_ksh(&data)?;
+            let mut chart = if path
+                .extension()
+                .context("File extension missing")?
+                .to_string_lossy()
+                .to_lowercase()
+                == "kson"
+            {
+                serde_json::from_slice(&data)?
+            } else {
+                let data = encoding::decode(
+                    &data,
+                    encoding::DecoderTrap::Strict,
+                    encoding::all::WINDOWS_31J,
+                )
+                .0
+                .map_err(|_| anyhow!("Bad encoding"))?;
 
-            let audio = rodio::decoder::Decoder::new(std::fs::File::open(
-                path.with_file_name(&chart.audio.bgm.filename),
-            )?)?;
+                kson::Chart::from_ksh(&data)?
+            };
+            chart.file_hash = hash;
+            info!(
+                "Parsed chart {} from {:?} with hash {}",
+                chart.meta.title, path, chart.file_hash
+            );
 
-            Ok((chart, Box::new(audio.convert_samples())))
+            let audio = rodio::decoder::Decoder::new(
+                std::fs::File::open(path.with_file_name(&chart.audio.bgm.filename)).with_context(
+                    || format!("Failed to open file: {}", chart.audio.bgm.filename.clone()),
+                )?,
+            )?
+            .consume_one()?;
+
+            Ok((
+                chart,
+                Box::new(audio),
+                path.parent().map(|x| x.to_path_buf()),
+            ))
         }))
     }
 
@@ -630,7 +655,7 @@ impl SongProvider for FileSongProvider {
             let source = rodio::Decoder::new(std::fs::File::open(
                 PathBuf::from(&chart.path).with_file_name(path),
             )?)?
-            .convert_samples();
+            .consume_one()?;
             Ok((
                 Box::new(source) as Box<dyn Source<Item = f32> + Send>,
                 Duration::from_millis(chart.preview_offset as u64),
@@ -736,6 +761,12 @@ impl SongProvider for FileSongProvider {
         let mut res = vec![super::SongFilterType::None];
 
         res.extend(
+            self.get_collections(&SongId::Missing)
+                .into_iter()
+                .map(|x| SongFilterType::Collection(x.name)),
+        );
+
+        res.extend(
             song_path_contents
                 .into_iter()
                 .filter(|x| x.path().is_dir())
@@ -756,6 +787,7 @@ impl SongProvider for FileSongProvider {
                     super::SongFilterType::Folder(x.file_name().to_string_lossy().to_string())
                 }),
         );
+
         res
     }
 
@@ -764,6 +796,84 @@ impl SongProvider for FileSongProvider {
             self.importer_state = ImporterState::Starting;
             self.worker_tx.send(WorkerControlMessage::Refresh);
         }
+    }
+
+    fn set_multiplayer_song(
+        &self,
+        id: &SongDiffId,
+    ) -> anyhow::Result<multiplayer_protocol::messages::server::SetSong> {
+        let SongId::StringId(hash) = &id.get_diff().context("No diff")?.0 else {
+            bail!("Not a hash ID")
+        };
+
+        let chart = block_on(self.database.get_hash_id(hash))?.context("Could not find chart")?;
+        let chart = block_on(self.database.get_song(chart))?;
+
+        let songs_root = songs_path();
+        let mut folder_path = PathBuf::from(block_on(self.database.get_folder(chart.folderid))?);
+        let folder_path = folder_path.strip_prefix(songs_root)?;
+
+        Ok(multiplayer_protocol::messages::server::SetSong {
+            song: folder_path.display().to_string(),
+            diff: chart.diff_index as _,
+            level: chart.level as _,
+            hash: String::new(),
+            audio_hash: String::new(),
+            chart_hash: chart.hash,
+        })
+    }
+
+    fn get_multiplayer_song(
+        &self,
+        hash: &str,
+        path: &str,
+        diff: u32,
+        level: u32,
+    ) -> anyhow::Result<Arc<Song>> {
+        let chart_id = block_on(self.database.get_hash_id(hash))?.context("Hash not found")?;
+        let folder_id = block_on(self.database.get_folderid(chart_id))?;
+        self.all_songs
+            .get(&SongId::IntId(folder_id))
+            .cloned()
+            .context("Song not loaded in provider")
+    }
+
+    fn get_collections(&self, id: &SongId) -> Vec<crate::songselect::favourite_dialog::Collection> {
+        let exists_in = if let SongId::IntId(id) = id {
+            block_on(self.database.get_collections_with_folder(*id))
+                .into_iter()
+                .flatten()
+                .collect()
+        } else {
+            HashSet::new()
+        };
+        block_on(self.database.get_collections())
+            .ok()
+            .into_iter()
+            .flatten()
+            .map(|x| {
+                let exists = exists_in.contains(&x);
+                favourite_dialog::Collection::new(x, exists)
+            })
+            .collect()
+    }
+
+    fn add_to_collection(&mut self, id: &SongId, collection: String) -> anyhow::Result<()> {
+        let SongId::IntId(id) = id else {
+            bail!("Invalid ID")
+        };
+
+        block_on(self.database.add_to_collection(*id, collection))?;
+        Ok(())
+    }
+
+    fn remove_from_collection(&mut self, id: &SongId, collection: String) -> anyhow::Result<()> {
+        let SongId::IntId(id) = id else {
+            bail!("Invalid ID")
+        };
+
+        block_on(self.database.remove_from_collection(*id, collection))?;
+        Ok(())
     }
 }
 

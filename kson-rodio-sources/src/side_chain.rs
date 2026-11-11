@@ -1,14 +1,15 @@
-use std::time::Duration;
-
+use rodio::{ChannelCount, SampleRate};
 use rodio::{Sample, Source};
+use std::ops::Mul;
+use std::time::Duration;
 
 use super::mix_source::MixSource;
 
-pub struct SideChain<I: Source<Item = D>, D: Sample> {
+pub struct SideChain<I: Source> {
     input: I,
     time: u64,
     channel: u16,
-    channels: u16,
+    channels: ChannelCount,
     length: u64,
     attack: u64,
     hold: u64,
@@ -18,7 +19,7 @@ pub struct SideChain<I: Source<Item = D>, D: Sample> {
     ratio: f32,
 }
 
-pub fn side_chain<I: Source<Item = D>, D: Sample>(
+pub fn side_chain<I: Source>(
     source: I,
     start: Duration,
     duration: Duration,
@@ -26,9 +27,9 @@ pub fn side_chain<I: Source<Item = D>, D: Sample>(
     hold: Duration,
     release: Duration,
     ratio: f32,
-) -> SideChain<I, D> {
+) -> SideChain<I> {
     let channels = source.channels();
-    let sample_rate = source.sample_rate() as f64;
+    let sample_rate = source.sample_rate().get() as f64;
 
     let dur_to_u64 = |dur: &Duration| (dur.as_secs_f64() * sample_rate) as u64;
 
@@ -41,18 +42,17 @@ pub fn side_chain<I: Source<Item = D>, D: Sample>(
         attack: dur_to_u64(&attack),
         hold: dur_to_u64(&hold),
         release: dur_to_u64(&release),
-        countdown: (start.as_secs_f64() * sample_rate * channels as f64) as u128,
+        countdown: (start.as_secs_f64() * sample_rate * channels.get() as f64) as u128,
         mix: 1.0,
         ratio,
     }
 }
 
-impl<I, D> Iterator for SideChain<I, D>
+impl<I> Iterator for SideChain<I>
 where
-    I: Source<Item = D>,
-    D: Sample,
+    I: Source,
 {
-    type Item = D;
+    type Item = I::Item;
 
     fn next(&mut self) -> Option<Self::Item> {
         let original = self.input.next();
@@ -80,24 +80,23 @@ where
             self.time = (self.time + 1) % self.length;
         }
 
-        original.map(|x| x.amplify(sample_gain))
+        original.map(|x| x.mul(sample_gain))
     }
 }
 
-impl<I, D> Source for SideChain<I, D>
+impl<I> Source for SideChain<I>
 where
-    I: Source<Item = D>,
-    D: Sample,
+    I: Source,
 {
-    fn current_frame_len(&self) -> Option<usize> {
-        self.input.current_frame_len()
+    fn current_span_len(&self) -> Option<usize> {
+        self.input.current_span_len()
     }
 
-    fn channels(&self) -> u16 {
+    fn channels(&self) -> ChannelCount {
         self.input.channels()
     }
 
-    fn sample_rate(&self) -> u32 {
+    fn sample_rate(&self) -> SampleRate {
         self.input.sample_rate()
     }
 
@@ -106,10 +105,9 @@ where
     }
 }
 
-impl<I, D> MixSource for SideChain<I, D>
+impl<I> MixSource for SideChain<I>
 where
-    I: Source<Item = D>,
-    D: Sample,
+    I: Source,
 {
     fn set_mix(&mut self, mix: f32) {
         self.mix = mix;

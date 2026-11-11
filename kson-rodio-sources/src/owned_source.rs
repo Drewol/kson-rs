@@ -1,10 +1,10 @@
 #![allow(unused)]
+use rodio::{ChannelCount, SampleRate};
+use rodio::{Sample, Source};
 use std::{
     sync::{mpsc::Sender, Arc, Weak},
     time::Duration,
 };
-
-use rodio::{Sample, Source};
 
 #[derive(Clone)]
 pub struct Marker(Arc<()>);
@@ -40,9 +40,9 @@ impl MarkerHandle {
 pub fn owned_source<I>(source: I, owner: &Marker) -> OwnedSource<I>
 where
     I: Source,
-    I::Item: Sample,
 {
-    let update_frequency = (20 * source.sample_rate()) / 1000 * source.channels() as u32;
+    let update_frequency =
+        (20 * source.sample_rate().get()) / 1000 * source.channels().get() as u32;
     OwnedSource {
         owner: owner.get_handle(),
         input: source,
@@ -63,7 +63,6 @@ pub struct OwnedSource<I> {
 impl<I> OwnedSource<I>
 where
     I: Source,
-    I::Item: Sample,
 {
     /// Returns a reference to the inner source.
     #[inline]
@@ -87,7 +86,6 @@ where
 impl<I> Iterator for OwnedSource<I>
 where
     I: Source,
-    I::Item: Sample,
 {
     type Item = I::Item;
 
@@ -114,20 +112,19 @@ where
 impl<I> Source for OwnedSource<I>
 where
     I: Source,
-    I::Item: Sample,
 {
     #[inline]
-    fn current_frame_len(&self) -> Option<usize> {
-        self.input.current_frame_len()
+    fn current_span_len(&self) -> Option<usize> {
+        self.input.current_span_len()
     }
 
     #[inline]
-    fn channels(&self) -> u16 {
+    fn channels(&self) -> ChannelCount {
         self.input.channels()
     }
 
     #[inline]
-    fn sample_rate(&self) -> u32 {
+    fn sample_rate(&self) -> SampleRate {
         self.input.sample_rate()
     }
 

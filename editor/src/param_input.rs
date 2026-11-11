@@ -32,7 +32,7 @@ fn is_filename<T>(v: &EffectParameter<T>) -> bool {
     )
 }
 
-impl<'a, T: Default + 'static> Widget for ParamEditor<'a, T> {
+impl<T: Default + 'static> Widget for ParamEditor<'_, T> {
     fn ui(self, ui: &mut eframe::egui::Ui) -> eframe::egui::Response {
         let Self { mut get_set_value } = self;
 

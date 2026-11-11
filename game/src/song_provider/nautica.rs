@@ -10,23 +10,26 @@ use std::{
 };
 
 use di::RefMut;
-use futures::AsyncWriteExt;
+use egui::ahash::HashSet;
+use futures::{executor::block_on, AsyncWriteExt};
 use itertools::Itertools;
+use kson_rodio_sources::consume_one::ConsumeOne;
 use log::warn;
 use rodio::Source;
+use tokio::task::JoinHandle;
 
 use crate::{
     async_service::AsyncService,
-    project_dirs,
+    installer::{default_game_dir, project_dirs},
     results::Score,
     song_provider::SongFilterType,
-    songselect::{Difficulty, Song},
+    songselect::{favourite_dialog, Difficulty, Song},
+    util::{TokioTaskExt, Warn},
     worker_service::WorkerService,
 };
 
 use super::{DiffId, LoadSongFn, SongDiffId, SongFilter, SongId, SongProvider, SongProviderEvent};
 use anyhow::{anyhow, bail, ensure, Result};
-use kson::Ksh;
 use poll_promise::Promise;
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
@@ -38,9 +41,22 @@ pub struct NauticaSongs {
     pub(crate) meta: Meta,
 }
 
+#[derive(Serialize, Deserialize, PartialEq)]
+struct CollectionEntry {
+    song: Datum,
+    collection: String,
+}
+
+impl CollectionEntry {
+    fn new(song: Datum, collection: String) -> Self {
+        Self { song, collection }
+    }
+}
+
 #[derive(Default, Serialize, Deserialize)]
 struct LocalData {
     songs: HashMap<Uuid, Datum>,
+    collections: Vec<CollectionEntry>,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -48,7 +64,7 @@ pub struct NauticaSong {
     pub(crate) data: Datum,
 }
 
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize, Deserialize, Clone, PartialEq)]
 pub struct Datum {
     pub(crate) id: Uuid,
     pub(crate) user_id: Uuid,
@@ -72,7 +88,7 @@ pub struct Datum {
     pub(crate) tags: Vec<Tag>,
 }
 
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize, Deserialize, Clone, PartialEq)]
 pub struct Chart {
     pub(crate) id: Uuid,
     pub(crate) user_id: Uuid,
@@ -85,7 +101,7 @@ pub struct Chart {
     pub(crate) updated_at: String,
 }
 
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize, Deserialize, Clone, PartialEq)]
 pub struct Tag {
     pub(crate) id: Uuid,
     pub(crate) song_id: Uuid,
@@ -94,7 +110,7 @@ pub struct Tag {
     pub(crate) updated_at: String,
 }
 
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize, Deserialize, Clone, PartialEq)]
 pub struct User {
     pub(crate) id: Uuid,
     pub(crate) name: String,
@@ -152,7 +168,7 @@ impl Datum {
             tags: _,
         } = self;
 
-        let mut song_path = project_dirs().cache_dir().to_path_buf();
+        let mut song_path = cache_dir();
         song_path.push(id.as_hyphenated().to_string());
 
         std::fs::create_dir_all(&song_path);
@@ -175,8 +191,19 @@ impl Datum {
                     .collect_vec()
                     .into(),
             ),
+            ..Default::default()
         }
     }
+}
+
+fn cache_dir() -> PathBuf {
+    project_dirs()
+        .map(|x| x.cache_dir().to_path_buf())
+        .unwrap_or_else(|| {
+            let mut p = default_game_dir();
+            p.push("cache");
+            p
+        })
 }
 
 impl Chart {
@@ -208,7 +235,7 @@ impl Chart {
 }
 
 pub struct NauticaSongProvider {
-    next: Option<Promise<Result<NauticaSongs>>>,
+    next: Option<JoinHandle<Result<NauticaSongs>>>,
     events: VecDeque<SongProviderEvent>,
     all_songs: Vec<Arc<Song>>,
     next_url: String,
@@ -221,6 +248,7 @@ pub struct NauticaSongProvider {
         std::sync::mpsc::Receiver<Datum>,
     ),
     async_worker: Arc<std::sync::RwLock<AsyncService>>,
+    nautica_data: HashMap<String, Datum>,
 }
 
 impl Debug for NauticaSongProvider {
@@ -229,49 +257,50 @@ impl Debug for NauticaSongProvider {
     }
 }
 
+async fn download_jacket(x: &Datum) -> anyhow::Result<()> {
+    let mut song_path = cache_dir();
+    song_path.push(x.id.hyphenated().to_string());
+    std::fs::create_dir_all(&song_path)?;
+    if x.jacket_url.ends_with("png") {
+        song_path.push("jacket.png");
+    } else {
+        song_path.push("jacket.jpg");
+    }
+
+    if song_path.exists() {
+        return Ok(());
+    }
+
+    let jacket_response = reqwest::get(&x.jacket_url).await?;
+
+    let jacket_path = match jacket_response
+        .headers()
+        .get(reqwest::header::CONTENT_TYPE)
+        .ok_or(anyhow!("No content type header"))?
+        .to_str()
+        .unwrap_or_default()
+    {
+        "image/jpeg" => song_path.with_extension("jpg"),
+        "image/png" => song_path.with_extension("png"),
+        "image/webp" => song_path.with_extension("webp"),
+        content_type => {
+            warn!("Can't load jackets of type: {content_type}");
+            return Ok(());
+        }
+    };
+
+    let bytes = jacket_response.bytes().await?;
+
+    tokio::fs::write(jacket_path, bytes).await;
+    Ok(())
+}
+
 async fn next_songs(path: String) -> Result<NauticaSongs> {
     log::info!("Getting more nautica songs: {}", path);
     //TODO: Async requests
     let nautica_songs = reqwest::get(&path).await?.json::<NauticaSongs>().await?;
     for x in &nautica_songs.data {
-        let mut song_path = project_dirs().cache_dir().to_path_buf();
-        song_path.push(x.id.hyphenated().to_string());
-        std::fs::create_dir_all(&song_path)?;
-        if x.jacket_url.ends_with("png") {
-            song_path.push("jacket.png");
-        } else {
-            song_path.push("jacket.jpg");
-        }
-
-        if song_path.exists() {
-            continue;
-        }
-
-        let Ok(jacket_response) = reqwest::get(&x.jacket_url).await else {
-            continue;
-        };
-
-        let jacket_path = match jacket_response
-            .headers()
-            .get(reqwest::header::CONTENT_TYPE)
-            .ok_or(anyhow!("No content type header"))?
-            .to_str()
-            .unwrap_or_default()
-        {
-            "image/jpeg" => song_path.with_extension("jpg"),
-            "image/png" => song_path.with_extension("png"),
-            "image/webp" => song_path.with_extension("webp"),
-            content_type => {
-                warn!("Can't load jackets of type: {content_type}");
-                continue;
-            }
-        };
-
-        let Ok(bytes) = jacket_response.bytes().await else {
-            continue;
-        };
-
-        tokio::fs::write(jacket_path, bytes).await;
+        _ = download_jacket(x).await;
     }
     Ok(nautica_songs)
 }
@@ -294,6 +323,7 @@ impl NauticaSongProvider {
             local_data,
             song_loaded: std::sync::mpsc::channel(),
             async_worker,
+            nautica_data: HashMap::new(),
         }
     }
 
@@ -302,28 +332,58 @@ impl NauticaSongProvider {
         self.events.push_back(SongProviderEvent::SongsRemoved(
             old_songs.into_iter().map(|x| x.id.clone()).collect(),
         ));
-        if let SongFilterType::Collection(c) = &self.filter.filter_type {
-            self.all_songs = self
-                .local_data
-                .songs
-                .iter()
-                .map(|x| Arc::new(x.1.as_song()))
-                .collect();
+        match &self.filter.filter_type {
+            SongFilterType::Folder(c) => {
+                self.all_songs = self
+                    .local_data
+                    .songs
+                    .iter()
+                    .map(|x| Arc::new(x.1.as_song()))
+                    .collect();
+                self.events
+                    .push_back(SongProviderEvent::SongsAdded(self.all_songs.clone()));
+            }
+            SongFilterType::Collection(c) => {
+                self.all_songs = self
+                    .local_data
+                    .collections
+                    .iter()
+                    .filter(|x| x.collection == *c)
+                    .map(|x| Arc::new(x.song.as_song()))
+                    .collect();
+                self.events
+                    .push_back(SongProviderEvent::SongsAdded(self.all_songs.clone()));
+            }
+            _ => {
+                let query = self
+                    .query
+                    .iter()
+                    .map(|x| format!("{}={}", x.0, x.1))
+                    .join("&");
+                self.next_url = if query.is_empty() {
+                    "https://ksm.dev/app/songs".to_owned()
+                } else {
+                    format!("https://ksm.dev/app/songs?{}", query)
+                };
+                self.next = Some(tokio::spawn(next_songs(self.next_url.clone())));
+            }
+        }
+    }
 
-            self.events
-                .push_back(SongProviderEvent::SongsAdded(self.all_songs.clone()));
-        } else {
-            let query = self
-                .query
-                .iter()
-                .map(|x| format!("{}={}", x.0, x.1))
-                .join("&");
-            self.next_url = if query.is_empty() {
-                "https://ksm.dev/app/songs".to_owned()
-            } else {
-                format!("https://ksm.dev/app/songs?{}", query)
-            };
-            self.next = Some(Promise::spawn_async(next_songs(self.next_url.clone())));
+    fn save_local_data(&self) {
+        if let Ok(local_data_json) = serde_json::to_string(&self.local_data) {
+            self.async_worker.read().unwrap().run(async move {
+                use tokio::io::*;
+                let path = cache_path();
+                let Ok(mut file) = tokio::fs::File::create(&path).await else {
+                    warn!("Could not create nautica cache file");
+                    return;
+                };
+
+                if let Some(e) = file.write_all(local_data_json.as_bytes()).await.err() {
+                    warn!("Could not write nautica cache file: {e}");
+                }
+            })
         }
     }
 }
@@ -341,10 +401,16 @@ impl WorkerService for NauticaSongProvider {
 
                     self.all_songs.append(&mut new_songs.clone());
                     self.next_url = songs.links.next.unwrap_or_default();
+                    self.nautica_data.extend(
+                        songs
+                            .data
+                            .into_iter()
+                            .map(|x| (x.id.as_hyphenated().to_string(), x)),
+                    );
                     self.events
                         .push_back(SongProviderEvent::SongsAdded(new_songs));
                 }
-                Ok(Err(e)) => log::error!("{}", e),
+                Ok(Err(e)) => log::error!("{:?}", e),
                 Err(next) => self.next = Some(next),
             }
         } else {
@@ -359,37 +425,40 @@ impl WorkerService for NauticaSongProvider {
 
         if let Ok(loaded) = self.song_loaded.1.try_recv() {
             self.local_data.songs.insert(loaded.id, loaded);
-
-            if let Ok(local_data_json) = serde_json::to_string(&self.local_data) {
-                self.async_worker.read().unwrap().run(async move {
-                    use tokio::io::*;
-                    let path = cache_path();
-                    let Ok(mut file) = tokio::fs::File::create(&path).await else {
-                        warn!("Could not create nautica cache file");
-                        return;
-                    };
-
-                    if let Some(e) = file.write_all(local_data_json.as_bytes()).await.err() {
-                        warn!("Could not write nautica cache file: {e}");
-                    }
-                })
-            }
+            self.save_local_data();
         }
     }
 }
 
 fn cache_path() -> PathBuf {
-    let mut path = project_dirs().cache_dir().to_path_buf();
+    let mut path = cache_dir();
     path.push("nautica_cache.json");
     path
 }
 
+async fn single_song(id: &str) -> anyhow::Result<Song> {
+    let NauticaSong { data: nautica } = reqwest::get(format!("https://ksm.dev/app/songs/{}", id))
+        .await?
+        .json()
+        .await?;
+    Ok(nautica.as_song())
+}
+
 impl SongProvider for NauticaSongProvider {
     fn get_available_filters(&self) -> Vec<super::SongFilterType> {
-        vec![
+        [
             SongFilterType::None,
-            SongFilterType::Collection("Played".into()),
+            SongFilterType::Folder("Played".into()),
         ]
+        .into_iter()
+        .chain(
+            self.local_data
+                .collections
+                .iter()
+                .map(|x| x.collection.clone())
+                .map(SongFilterType::Collection),
+        )
+        .collect()
     }
 
     fn set_search(&mut self, query: &str) {
@@ -452,7 +521,7 @@ impl SongProvider for NauticaSongProvider {
             .find(|x| x.1.id.as_u64() == index)
         {
             if i > self.all_songs.len().saturating_sub(10) {
-                self.next = Some(Promise::spawn_async(next_songs(self.next_url.clone())));
+                self.next = Some(tokio::spawn(next_songs(self.next_url.clone())));
             }
         }
     }
@@ -464,7 +533,7 @@ impl SongProvider for NauticaSongProvider {
 
         let song_uuid = Uuid::parse_str(song_id)?;
 
-        let mut song_path = project_dirs().cache_dir().to_path_buf();
+        let mut song_path = cache_dir();
 
         song_path.push(song_uuid.hyphenated().to_string());
         log::info!("Writing song cache {:?}", &song_path);
@@ -475,6 +544,8 @@ impl SongProvider for NauticaSongProvider {
             .all_songs
             .iter()
             .find(|x| x.id == SongId::StringId(song_id.clone()))
+            .cloned()
+            .or_else(|| block_on(single_song(song_id)).map(Arc::new).ok())
             .ok_or(anyhow!("song id not in song list"))?;
 
         let read = &song.difficulties.read().expect("Lock error");
@@ -504,15 +575,15 @@ impl SongProvider for NauticaSongProvider {
 
             let song_uuid = Uuid::parse_str(&song_id)?;
 
-            let mut song_path = project_dirs().cache_dir().to_path_buf();
+            let mut song_path = cache_dir();
 
             song_path.push(song_uuid.hyphenated().to_string());
             log::info!("Writing song cache {:?}", &song_path);
             std::fs::create_dir_all(&song_path)?;
             song_path.push("preview");
 
-            let source: Box<dyn Source<Item = f32> + Send> = if song_path.exists() {
-                Box::new(rodio::Decoder::new(std::fs::File::open(song_path)?)?.convert_samples())
+            let source: Box<dyn Source + Send> = if song_path.exists() {
+                Box::new(rodio::Decoder::new(std::fs::File::open(song_path)?)?.consume_one()?)
             } else {
                 let NauticaSong { data: nautica } = reqwest::get(format!(
                     "https://ksm.dev/app/songs/{}",
@@ -532,8 +603,9 @@ impl SongProvider for NauticaSongProvider {
 
                 std::fs::write(song_path, &bytes)?;
 
-                Box::new(rodio::Decoder::new(std::io::Cursor::new(bytes))?.convert_samples())
+                Box::new(rodio::Decoder::new(std::io::Cursor::new(bytes))?.consume_one()?)
             };
+
             Ok((
                 source as Box<dyn Source<Item = f32> + Send>,
                 Duration::ZERO,
@@ -544,7 +616,7 @@ impl SongProvider for NauticaSongProvider {
 
     fn subscribe(&mut self) -> bus::BusReader<SongProviderEvent> {
         if self.next.is_none() {
-            self.next = Some(Promise::spawn_async(next_songs(self.next_url.clone())));
+            self.next = Some(tokio::spawn(next_songs(self.next_url.clone())));
         }
 
         self.bus.add_rx()
@@ -564,11 +636,114 @@ impl SongProvider for NauticaSongProvider {
     fn refresh(&mut self) {
         self.query_changed();
     }
+
+    fn set_multiplayer_song(
+        &self,
+        id: &SongDiffId,
+    ) -> anyhow::Result<multiplayer_protocol::messages::server::SetSong> {
+        let SongDiffId::SongDiff(SongId::StringId(song_id), diff_id) = id else {
+            bail!("Bad song id")
+        };
+
+        let song = self
+            .all_songs
+            .iter()
+            .find(|x| x.id == SongId::StringId(song_id.clone()))
+            .ok_or(anyhow!("song id not in song list"))?;
+
+        let read = &song.difficulties.read().expect("Lock error");
+        let diff = read
+            .iter()
+            .find(|x| x.id == *diff_id)
+            .ok_or(anyhow!("diff id not in songs difficulties"))?;
+
+        Ok(multiplayer_protocol::messages::server::SetSong {
+            song: multiplayer_protocol::messages::server::SetSong::NAUTICA_PATH.into(),
+            diff: diff.difficulty as _,
+            level: diff.level as _,
+            hash: String::new(),
+            audio_hash: String::new(),
+            chart_hash: song_id.clone(),
+        })
+    }
+
+    fn get_multiplayer_song(
+        &self,
+        hash: &str,
+        path: &str,
+        diff: u32,
+        level: u32,
+    ) -> anyhow::Result<Arc<Song>> {
+        ensure!(path == multiplayer_protocol::messages::server::SetSong::NAUTICA_PATH);
+        let uuid = uuid::Uuid::parse_str(hash)?;
+        let song = block_on(reqwest::get(format!("https://ksm.dev/app/songs/{hash}")))?;
+        let song: NauticaSong = block_on(song.json())?;
+        _ = block_on(download_jacket(&song.data));
+        Ok(Arc::new(song.data.as_song()))
+    }
+
+    fn get_collections(&self, id: &SongId) -> Vec<crate::songselect::favourite_dialog::Collection> {
+        let SongId::StringId(id) = id else {
+            warn!("Invalid or missing ID");
+            return vec![];
+        };
+
+        let exists_in = self
+            .local_data
+            .collections
+            .iter()
+            .filter(|x| x.song.id.as_hyphenated().to_string() == *id)
+            .map(|x| x.collection.clone())
+            .collect::<HashSet<_>>();
+
+        self.local_data
+            .collections
+            .iter()
+            .map(|x| x.collection.clone())
+            .unique()
+            .map(|c| {
+                let exists = exists_in.contains(&c);
+                favourite_dialog::Collection::new(c, exists)
+            })
+            .collect()
+    }
+
+    fn add_to_collection(&mut self, id: &SongId, collection: String) -> anyhow::Result<()> {
+        let SongId::StringId(id) = id else {
+            bail!("Invalid or missing ID");
+        };
+
+        let Some(datum) = self.nautica_data.get(id) else {
+            bail!("No nautica song data for id {id}")
+        };
+
+        self.local_data
+            .collections
+            .push(CollectionEntry::new(datum.clone(), collection));
+        self.save_local_data();
+        Ok(())
+    }
+
+    fn remove_from_collection(&mut self, id: &SongId, collection: String) -> anyhow::Result<()> {
+        let SongId::StringId(id) = id else {
+            bail!("Invalid or missing ID");
+        };
+
+        let Some((pos, _)) = self.local_data.collections.iter().find_position(|a| {
+            a.song.id.as_hyphenated().to_string() == *id && a.collection == collection
+        }) else {
+            bail!("ID not in collection")
+        };
+
+        self.local_data.collections.remove(pos);
+        self.save_local_data();
+        Ok(())
+    }
 }
 
 fn download_song(id: Uuid, diff: u8, on_loaded: Sender<Datum>) -> anyhow::Result<LoadSongFn> {
     Ok(Box::new(move || {
-        let mut song_path = project_dirs().cache_dir().to_path_buf();
+        let mut song_path = cache_dir();
 
         song_path.push(id.hyphenated().to_string());
         song_path.push("data.zip");
@@ -594,24 +769,54 @@ fn download_song(id: Uuid, diff: u8, on_loaded: Sender<Datum>) -> anyhow::Result
 fn song_from_zip(
     data: impl std::io::Read + std::io::Seek,
     diff: u8,
-) -> Result<(kson::Chart, Box<dyn rodio::Source<Item = f32> + Send>)> {
+) -> Result<(kson::Chart, Box<dyn rodio::Source + Send>, Option<PathBuf>)> {
     let mut archive = zip::read::ZipArchive::new(data)?;
-    for i in 0..archive.len() {
-        let mut file = archive.by_index(i)?;
+
+    let chart_names = archive
+        .file_names()
+        .sorted_by_key(|x| {
+            // Prioritize kson
+            if x.to_lowercase().ends_with("kson") {
+                0
+            } else {
+                1
+            }
+        })
+        .filter(|x| {
+            let lowercase = x.to_lowercase();
+            lowercase.ends_with("ksh") || lowercase.ends_with("kson")
+        })
+        .map(|x| x.to_owned())
+        .collect::<Vec<_>>();
+
+    for name in chart_names {
+        let mut file = archive.by_name(&name)?;
         if file.is_dir() {
             continue;
         }
-        let mut chart_string = String::new();
-        let file_read = file.read_to_string(&mut chart_string);
-        if file_read.is_err() {
+        let mut buf = vec![];
+        let Ok(file_read) = file.read_to_end(&mut buf) else {
             continue;
-        }
+        };
+
+        let mut chart_hash = sha1_smol::Sha1::new();
+        chart_hash.update(&buf);
+        let chart_hash = chart_hash.digest().to_string();
+
+        let Ok(mut chart_string) = String::from_utf8(buf) else {
+            continue;
+        };
 
         let file_folder = PathBuf::from(file.name());
         drop(file);
 
-        if let Ok(chart) = kson::Chart::from_ksh(&chart_string) {
+        if let Some(mut chart) = serde_json::from_str(&chart_string)
+            .warn("KSON Parse failed")
+            .or_else(|| kson::Chart::from_ksh(&chart_string).warn("KSH Parse failed"))
+        {
+            chart.file_hash = chart_hash;
             if chart.meta.difficulty == diff {
+                log::info!("Found {name}");
                 let bgm_name = chart.audio.bgm.filename.clone();
                 let bgm_path = file_folder.with_file_name(bgm_name);
                 let bgm_path = bgm_path.to_str().unwrap_or("").replace('\\', "/");
@@ -622,11 +827,11 @@ fn song_from_zip(
                 let mut bgm_buf = Vec::new();
                 bgm_entry.read_to_end(&mut bgm_buf)?;
                 let bgm_cursor = std::io::Cursor::new(bgm_buf);
+                let mut decoded = rodio::Decoder::new(bgm_cursor)?;
 
-                return Ok((
-                    chart,
-                    Box::new(rodio::Decoder::new(bgm_cursor)?.convert_samples()),
-                ));
+                let stream = decoded.consume_one()?;
+
+                return Ok((chart, Box::new(stream), None));
             }
         }
     }

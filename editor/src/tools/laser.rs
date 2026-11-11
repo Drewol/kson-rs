@@ -6,7 +6,7 @@ use crate::{
     chart_editor::{MainState, ScreenState},
 };
 use anyhow::Result;
-use eframe::egui::{Painter, Pos2, Rgba, Stroke};
+use eframe::egui::{self, Painter, Pos2, Rgba, Stroke};
 use eframe::epaint::Shape;
 use kson::{overlaps::Overlaps, Chart, GraphSectionPoint, LaserSection};
 
@@ -93,6 +93,31 @@ impl LaserTool {
 }
 
 impl CursorObject for LaserTool {
+    fn primary_click(
+        &mut self,
+        screen: ScreenState,
+        tick: u32,
+        tick_f: f64,
+        lane: f32,
+        chart: &Chart,
+        actions: &mut ActionStack<Chart>,
+        pos: Pos2,
+        _modifiers: egui::Modifiers,
+    ) {
+        self.drag_start(
+            screen,
+            tick,
+            tick_f,
+            lane,
+            chart,
+            actions,
+            pos,
+            &Modifiers::new(),
+        );
+
+        self.drag_end(screen, tick, tick_f, lane, chart, actions, pos);
+    }
+
     fn drag_start(
         &mut self,
         screen: ScreenState,
@@ -175,7 +200,7 @@ impl CursorObject for LaserTool {
                             (0.0, 1.0),
                             Some((0.5 / 6.0, 5.5 / 6.0)),
                         ) {
-                            if control_point.distance(pos) < 5.0 {
+                            if control_point.distance(pos) < 10.0 {
                                 self.mode = LaserEditMode::Edit(LaserEditState {
                                     section_index: edit_state.section_index,
                                     curving_index: Some(i),

@@ -1,0 +1,65 @@
+// These are types used by packets
+// <b>Note:</b> These are not message topics!
+syntax = "proto3";
+
+message Types {
+
+    message room {
+        // The UUID of the room
+        string id = 1;
+        // Number of users currently in the room
+        int32 current = 2;
+        // Max number of users for the room
+        int32 max = 3;
+        // Name of the room 
+        string name = 4;
+        // Whether the room is current in game
+        bool ingame = 5;
+        // Set if the room has a password
+        bool password = 6;
+        // Token that can be used to join a room without a password
+        string join_token = 7;
+    }
+
+    message user {
+        // The UUID of this user
+        string id = 1;
+        // The display name of the user
+        string name = 2;
+        // Whether the user is ready or not
+        bool ready = 3;
+        // Whether the user is missing the song or not
+        bool missing_map = 4;
+        // User's selected level for the current song<br/>
+        // 0 = no selected level
+        int32 level = 5;
+        // User's last final score<br/>
+        // If no score, this field will not be present
+        int32 score = 6;
+        // User's last max combo<br/>
+        // If no score, this field will not be present
+        int32 combo = 7;
+        // User's clear status<br/>
+        // 0: Exited<br/>
+        // 1: Failed<br/>
+        // 2: Clear<br/>
+        // 3: Hard Clear<br/>
+        // 4: Full Combo<br/>
+        // 5: Perfect<br/>
+        // If no score, this field will not be present
+        int32 clear = 8;
+        // Exists if the user has provided any extra data.
+        string extra_data = 9;
+    }
+
+
+    message gamescore {
+        // The UUID of the user this score belongs to
+        string id = 1;
+        // The display name of the user this score belongs to
+        string name = 2;
+        // The value of the score
+        int32 score = 3;
+    }
+}
+
