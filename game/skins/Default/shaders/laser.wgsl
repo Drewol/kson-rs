@@ -36,13 +36,15 @@ fn vs_main(
 
 @fragment
 fn fs_main(v: VertexOutput) -> @location(0) vec4<f32> {
-    var main_color = textureSample(mainTex, mainTex_s, v.tex_coords);
-    
-    main_color = main_color * (vec4<f32>(vec3(1.0 + objectGlow * 0.3), 1.0));
-    
-    main_color.a = min(1.0, main_color.a + main_color.a * objectGlow * 0.9);
-    
-    //main_color *= hide(v.position);
-    
-    return main_color * color;
+    // Sample before branching, textureSample requires uniform control flow
+    let x = v.tex_coords.x;
+    let main_color = textureSample(mainTex, mainTex_s, vec2(x, v.tex_coords.y));
+    if (x < 0.0 || x > 1.0) {
+        return vec4(0.0);
+    }
+
+    // objectGlow: 0.3 = missed/inactive, flickers while the laser is being hit
+    var result = main_color * color;
+    result = vec4(result.rgb * (objectGlow * 1.2), result.a);
+    return result;
 }

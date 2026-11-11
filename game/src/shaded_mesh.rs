@@ -177,7 +177,8 @@ pub struct ShadedMesh {
     groups: BTreeMap<u32, UniformGroup>,
     name: String,
     layout: wgpu::PipelineLayout,
-    shader: wgpu::ShaderModule,
+    vertex_shader: wgpu::ShaderModule,
+    fragment_shader: wgpu::ShaderModule,
     uniform_hashes: RefCell<HashMap<String, u64>>,
     framebuffer_tex: Option<wgpu::Texture>,
 }
@@ -192,39 +193,82 @@ impl ShadedMesh {
     ) -> anyhow::Result<Self> {
         let mut shader_path = path.as_ref().to_path_buf();
         shader_path.push(material);
+
+        // Prefer WGSL, fall back to legacy GLSL (.vs + .fs) shaders
         shader_path.set_extension("wgsl");
-        let fs_text = std::fs::read_to_string(&shader_path)
+        if shader_path.exists() {
+            let source = std::fs::read_to_string(&shader_path)
+                .with_context(|| format!("Failed loading shader: {shader_path:?}"))?;
+            return Self::new_with_shader(context, &source, material)
+                .with_context(|| format!("Failed loading shader: {shader_path:?}"));
+        }
+
+        shader_path.set_extension("vs");
+        let vs = std::fs::read_to_string(&shader_path)
             .with_context(|| format!("Failed loading shader: {shader_path:?}"))?;
-        Self::new_with_shader(context, &fs_text, material)
-            .with_context(|| format!("Failed loading shader: {material}"))
+        shader_path.set_extension("fs");
+        let fs = std::fs::read_to_string(&shader_path)
+            .with_context(|| format!("Failed loading shader: {shader_path:?}"))?;
+
+        Self::new_with_glsl(context, &vs, &fs, material)
+            .with_context(|| format!("Failed loading shader: {shader_path:?}"))
     }
 
+    /// Creates a mesh from a WGSL shader containing both the vertex and fragment entry points
     pub fn new_with_shader(
         context: &RenderContext,
         shader_source: &str,
         name: &str,
     ) -> anyhow::Result<Self> {
+        let module = naga::front::wgsl::Frontend::new().parse(shader_source)?;
+        Self::from_modules(context, module.clone(), module, name)
+    }
+
+    /// Creates a mesh from a legacy GLSL shader pair, see [`crate::glsl_compat`]
+    pub fn new_with_glsl(
+        context: &RenderContext,
+        vertex_source: &str,
+        fragment_source: &str,
+        name: &str,
+    ) -> anyhow::Result<Self> {
+        let (vs, fs) = crate::glsl_compat::parse(vertex_source, fragment_source)?;
+        Self::from_modules(context, vs, fs, name)
+    }
+
+    fn from_modules(
+        context: &RenderContext,
+        vertex: naga::Module,
+        fragment: naga::Module,
+        name: &str,
+    ) -> anyhow::Result<Self> {
         profile_function!();
         let device = &context.device;
-        let module = naga::front::wgsl::Frontend::new().parse(shader_source)?;
 
         let mut uniform_map = HashMap::new();
-        let mut group_globals: BTreeMap<u32, Vec<&naga::GlobalVariable>> = BTreeMap::new();
+        // group -> binding -> (module, global)
+        let mut group_globals: BTreeMap<u32, BTreeMap<u32, (&naga::Module, &naga::GlobalVariable)>> =
+            BTreeMap::new();
 
-        // Add uniforms through reflection
-        for (_, global) in module.global_variables.iter() {
-            if let Some(binding) = global.binding.as_ref() {
-                group_globals.entry(binding.group).or_default().push(global);
+        // Add uniforms through reflection, both stages must agree on bindings
+        for module in [&vertex, &fragment] {
+            for (_, global) in module.global_variables.iter() {
+                if let Some(binding) = global.binding.as_ref() {
+                    group_globals
+                        .entry(binding.group)
+                        .or_default()
+                        .entry(binding.binding)
+                        .or_insert((module, global));
+                }
             }
         }
 
-        device.push_error_scope(wgpu::ErrorFilter::Validation);
+        let error_scope = device.push_error_scope(wgpu::ErrorFilter::Validation);
 
         let mut groups = BTreeMap::new();
         for (group, globals) in group_globals.iter() {
             let mut entries = vec![];
 
-            for global in globals.iter() {
+            for (module, global) in globals.values() {
                 let (Some(name), Some(binding)) = (global.name.as_ref(), global.binding.as_ref())
                 else {
                     continue;
@@ -313,18 +357,23 @@ impl ShadedMesh {
         });
         let max_group = groups.keys().max().map(|x| x + 1).unwrap_or(0);
         let bind_group_layouts = (0..max_group)
-            .map(|g| groups.get(&g).map(|x| &x.layout).unwrap_or(&empty_layout))
+            .map(|g| Some(groups.get(&g).map(|x| &x.layout).unwrap_or(&empty_layout)))
             .collect_vec();
 
-        let shader = device.create_shader_module(ShaderModuleDescriptor {
+        drop(group_globals);
+        let vertex_shader = device.create_shader_module(ShaderModuleDescriptor {
             label: Some(name),
-            source: wgpu::ShaderSource::Naga(std::borrow::Cow::Owned(module)),
+            source: wgpu::ShaderSource::Naga(std::borrow::Cow::Owned(vertex)),
+        });
+        let fragment_shader = device.create_shader_module(ShaderModuleDescriptor {
+            label: Some(name),
+            source: wgpu::ShaderSource::Naga(std::borrow::Cow::Owned(fragment)),
         });
 
         let pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
             label: Some(name),
             bind_group_layouts: &bind_group_layouts,
-            push_constant_ranges: &[],
+            immediate_size: 0,
         });
 
         let vertex_buffer = device.create_buffer(&wgpu::BufferDescriptor {
@@ -359,7 +408,8 @@ impl ShadedMesh {
             groups,
             name: name.to_string(),
             layout: pipeline_layout,
-            shader,
+            vertex_shader,
+            fragment_shader,
             uniform_hashes: RefCell::new(HashMap::default()),
             framebuffer_tex: None,
         };
@@ -367,7 +417,7 @@ impl ShadedMesh {
         // Create the default pipeline now so shader errors are reported at load time
         res.pipeline(res.state);
 
-        if let Some(err) = block_on(context.device.pop_error_scope()) {
+        if let Some(err) = block_on(error_scope.pop()) {
             return Err(anyhow!("{err}"));
         }
 
@@ -384,6 +434,24 @@ impl ShadedMesh {
         );
 
         let mut v = Self::new_with_shader(context, &shader, "Fullscreen")?;
+        v.vertex_count = 3;
+        v.vertecies_pos = (0..3).map(|x| vec3(x as f32, 0.0, 0.0)).collect_vec();
+        v.update_indecies()?;
+
+        Ok(v)
+    }
+
+    /// Fullscreen mesh using a legacy GLSL fragment shader with the old fullscreen vertex shader
+    pub fn new_fullscreen_glsl(
+        context: &RenderContext,
+        fragment_shader: &str,
+    ) -> anyhow::Result<Self> {
+        let mut v = Self::new_with_glsl(
+            context,
+            include_str!("static_assets/fullscreen.vs"),
+            fragment_shader,
+            "Fullscreen",
+        )?;
         v.vertex_count = 3;
         v.vertecies_pos = (0..3).map(|x| vec3(x as f32, 0.0, 0.0)).collect_vec();
         v.update_indecies()?;
@@ -557,7 +625,7 @@ impl ShadedMesh {
                                 address_mode_w: wgpu::AddressMode::Repeat,
                                 mag_filter: wgpu::FilterMode::Linear,
                                 min_filter: wgpu::FilterMode::Linear,
-                                mipmap_filter: wgpu::FilterMode::Linear,
+                                mipmap_filter: wgpu::MipmapFilterMode::Linear,
                                 ..Default::default()
                             },
                         ));
@@ -590,7 +658,9 @@ impl ShadedMesh {
         let mut texture_data =
             image::open(path).with_context(|| format!("Failed to load texture {path:?}"))?;
 
-        if flip_y {
+        // three-d (used by the OpenGL renderer) flipped textures again on upload,
+        // invert the flag here to keep the same texture orientation as skins expect
+        if !flip_y {
             texture_data = texture_data.flipv();
         }
 
@@ -729,20 +799,20 @@ impl ShadedMesh {
                         label: Some(&self.name),
                         layout: Some(&self.layout),
                         vertex: wgpu::VertexState {
-                            module: &self.shader,
+                            module: &self.vertex_shader,
                             entry_point: None,
                             compilation_options: Default::default(),
-                            buffers: &[wgpu::VertexBufferLayout {
+                            buffers: &[Some(wgpu::VertexBufferLayout {
                                 array_stride: std::mem::size_of::<GpuVertex>() as _,
                                 step_mode: wgpu::VertexStepMode::Vertex,
                                 attributes: &GpuVertex::ATTRIBUTES,
-                            }],
+                            })],
                         },
                         primitive: PrimitiveState::default(),
                         depth_stencil: None,
                         multisample: Default::default(),
                         fragment: Some(FragmentState {
-                            module: &self.shader,
+                            module: &self.fragment_shader,
                             entry_point: None,
                             compilation_options: Default::default(),
                             targets: &[Some(wgpu::ColorTargetState {
@@ -751,7 +821,7 @@ impl ShadedMesh {
                                 write_mask: wgpu::ColorWrites::ALL,
                             })],
                         }),
-                        multiview: None,
+                        multiview_mask: None,
                         cache: None,
                     })
             })

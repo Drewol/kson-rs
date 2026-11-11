@@ -68,7 +68,11 @@ pub async fn create_window(el: &ActiveEventLoop) -> anyhow::Result<WindowCreatio
         }
     };
 
-    let instance = wgpu::Instance::new(&wgpu::InstanceDescriptor::from_env_or_default());
+    let instance = wgpu::Instance::new(
+        wgpu::InstanceDescriptor::new_with_display_handle_from_env(Box::new(
+            el.owned_display_handle(),
+        )),
+    );
 
     let window = Arc::new(el.create_window(window_builder)?);
 
@@ -78,7 +82,7 @@ pub async fn create_window(el: &ActiveEventLoop) -> anyhow::Result<WindowCreatio
 
     let adapter = wgpu::util::initialize_adapter_from_env_or_default(&instance, Some(&surface))
         .await
-        .ok_or_else(|| anyhow::anyhow!("Failed to find an appropriate graphics adapter"))?;
+        .map_err(|e| anyhow::anyhow!("Failed to find an appropriate graphics adapter: {e}"))?;
 
     log::info!("Using graphics adapter: {:?}", adapter.get_info());
 
@@ -88,12 +92,12 @@ pub async fn create_window(el: &ActiveEventLoop) -> anyhow::Result<WindowCreatio
             &wgpu::DeviceDescriptor {
                 label: None,
                 required_features: wgpu::Features::empty(),
-                // Make sure we use the texture resolution limits from the adapter, so we can support images the size of the swapchain.
-                required_limits: wgpu::Limits::downlevel_webgl2_defaults()
-                    .using_resolution(adapter.limits()),
+                // Use what the adapter supports, skin shaders can use many uniforms and textures
+                required_limits: adapter.limits(),
                 memory_hints: wgpu::MemoryHints::Performance,
+                experimental_features: wgpu::ExperimentalFeatures::disabled(),
+                trace: wgpu::Trace::Off,
             },
-            None,
         )
         .await?;
 
@@ -113,9 +117,14 @@ pub async fn create_window(el: &ActiveEventLoop) -> anyhow::Result<WindowCreatio
     surface_config.present_mode = present_mode(settings.vsync);
     surface.configure(&device, &surface_config);
 
-    let renderer = egui_wgpu::Renderer::new(&device, surface_config.format, None, 1, false);
+    let renderer = egui_wgpu::Renderer::new(
+        &device,
+        surface_config.format,
+        egui_wgpu::RendererOptions::default(),
+    );
 
     let egui_state = egui_wgpu::RenderState {
+        instance,
         adapter,
         available_adapters: vec![],
         device,

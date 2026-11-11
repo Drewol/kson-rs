@@ -510,7 +510,7 @@ impl Scene for SongSelectScene {
                             if ui
                                 .add(
                                     egui::DragValue::new(&mut state.selected_index)
-                                        .clamp_range(0..=(song_count - 1))
+                                        .range(0..=(song_count - 1))
                                         .speed(0.1),
                                 )
                                 .changed()

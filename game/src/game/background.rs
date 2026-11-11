@@ -167,7 +167,7 @@ impl UserData for GameBackgroundLua {
 
             bg.set_param(
                 "screenCenter",
-                Vec2::new(data.screen_center.0, data.screen_center.1),
+                glam::IVec2::new(data.screen_center.0 as i32, data.screen_center.1 as i32),
             );
 
             bg.set_param("timing", Vec3::from(data.timing));
@@ -212,12 +212,18 @@ impl GameBackground {
             "foreground"
         };
 
-        // Only WGSL fragment shaders are supported by the wgpu renderer
+        // Prefer WGSL fragment shaders, fall back to legacy GLSL
         path.push(name);
         path.set_extension("wgsl");
-        let fs = std::io::read_to_string(std::fs::File::open(&path)?)?;
+        let mesh = if path.exists() {
+            let fs = std::fs::read_to_string(&path)?;
+            ShadedMesh::new_fullscreen(context, &fs)?
+        } else {
+            path.set_extension("fs");
+            let fs = std::fs::read_to_string(&path)?;
+            ShadedMesh::new_fullscreen_glsl(context, &fs)?
+        };
 
-        let mesh = ShadedMesh::new_fullscreen(context, &fs)?;
 
         let lua = Lua::new_with(StdLib::MATH | StdLib::STRING, LuaOptions::new())?;
         lua.globals().set(full_name, GameBackgroundLua)?;

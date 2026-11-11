@@ -18,7 +18,7 @@ struct VertexOutput {
 @vertex
 fn vs_main(@location(0) position: vec3f, @location(1) tex: vec2f) -> VertexOutput {
     var res: VertexOutput;
-    res.tex_coords = tex;
+    res.tex_coords = vec2(tex.x, 1.0 - tex.y);
     res.position = proj * world * vec4(position.xy, 0.0, 1.0);
     return res;
 }

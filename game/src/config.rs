@@ -39,6 +39,10 @@ pub struct Args {
     pub settings: bool,
     #[arg(long)]
     pub companion_schema: Option<PathBuf>,
+    /// Let the game play the chart given on the command line, `--autoplay` alone plays everything,
+    /// `--autoplay=buttons` or `--autoplay=lasers` only plays part of it
+    #[arg(long, value_enum, num_args = 0..=1, require_equals = true, default_missing_value = "all")]
+    pub autoplay: Option<crate::game_main::AutoPlay>,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone, Copy, Default, PartialEq, Eq)]

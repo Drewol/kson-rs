@@ -131,7 +131,7 @@ impl AsyncPicker {
                             }
                         },
                     )))),
-                )
+                );
             })
         }
 
@@ -152,7 +152,9 @@ impl AsyncPicker {
         };
 
         if !completed && task.is_some() {
-            ui.data_mut(|x| x.insert_temp(id, task))
+            ui.data_mut(|x| {
+                x.insert_temp(id, task);
+            })
         }
     }
 
@@ -416,6 +418,7 @@ impl RenderContext {
             color_attachments: &[Some(wgpu::RenderPassColorAttachment {
                 view: &surface.texture.create_view(&Default::default()),
                 resolve_target: None,
+                depth_slice: None,
                 ops: wgpu::Operations {
                     load: wgpu::LoadOp::Load,
                     store: wgpu::StoreOp::Store,
@@ -424,6 +427,7 @@ impl RenderContext {
             depth_stencil_attachment: None,
             timestamp_writes: None,
             occlusion_query_set: None,
+            multiview_mask: None,
         });
 
         render_pass
@@ -441,6 +445,7 @@ impl RenderContext {
             color_attachments: &[Some(wgpu::RenderPassColorAttachment {
                 view: &texture.create_view(&Default::default()),
                 resolve_target: None,
+                depth_slice: None,
                 ops: wgpu::Operations {
                     load: wgpu::LoadOp::Clear(color),
                     store: wgpu::StoreOp::Store,
@@ -449,6 +454,7 @@ impl RenderContext {
             depth_stencil_attachment: None,
             timestamp_writes: None,
             occlusion_query_set: None,
+            multiview_mask: None,
         });
         encoder.finish()
     }
@@ -514,8 +520,9 @@ pub(crate) const fn blend_add() -> wgpu::BlendState {
         operation: wgpu::BlendOperation::Add,
     };
 
+    // Min/max blend operations require `One` factors, OpenGL ignores the factors for them anyway
     let alpha_comp = wgpu::BlendComponent {
-        src_factor: wgpu::BlendFactor::Zero,
+        src_factor: wgpu::BlendFactor::One,
         dst_factor: wgpu::BlendFactor::One,
         operation: wgpu::BlendOperation::Max,
     };

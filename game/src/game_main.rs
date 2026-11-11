@@ -54,7 +54,7 @@ use crate::{
     RuscMixer, Scenes, FRAME_ACC_SIZE,
 };
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq, clap::ValueEnum)]
 pub enum AutoPlay {
     None,
     Buttons,
@@ -363,7 +363,10 @@ impl GameMain {
                     .with_font_size(32.0)
                     .with_text_baseline(vg::Baseline::Top),
             );
-            let commands = vec![canvas.flush_to_surface(&surface.texture)];
+            let commands = canvas
+                .flush_to_output(&surface.texture)
+                .into_iter()
+                .collect();
             *frame_count += 1;
             return (false, commands);
         }
@@ -594,7 +597,7 @@ impl GameMain {
         {
             profile_scope!("egui");
             let gui_in = gui.take_egui_input(window);
-            let egui_out = gui.egui_ctx().run(gui_in, |ctx| {
+            let egui_out = gui.egui_ctx().run_pass(gui_in, |ctx| {
                 scenes.render_egui(ctx);
 
                 if *show_debug_ui {
@@ -604,17 +607,19 @@ impl GameMain {
             gui.handle_platform_output(window, egui_out.platform_output);
 
             let mut egui_renderer = render_context.gui.renderer.write();
-            for (id, delta) in egui_out.textures_delta.set {
-                egui_renderer.update_texture(
-                    &render_context.device,
-                    &render_context.queue,
-                    id,
-                    &delta,
-                );
+            for (id, deltas) in egui_out.textures_delta.set.iter() {
+                for delta in deltas.iter() {
+                    egui_renderer.update_texture(
+                        &render_context.device,
+                        &render_context.queue,
+                        *id,
+                        delta,
+                    );
+                }
             }
 
-            for id in egui_out.textures_delta.free {
-                egui_renderer.free_texture(&id);
+            for id in egui_out.textures_delta.free.iter() {
+                egui_renderer.free_texture(id);
             }
 
             if !egui_out.shapes.is_empty() {
@@ -643,6 +648,7 @@ impl GameMain {
                                 .texture
                                 .create_view(&wgpu::TextureViewDescriptor::default()),
                             resolve_target: None,
+                depth_slice: None,
                             ops: wgpu::Operations {
                                 load: wgpu::LoadOp::Load,
                                 store: wgpu::StoreOp::Store,
@@ -650,6 +656,7 @@ impl GameMain {
                         })],
                         depth_stencil_attachment: None,
                         occlusion_query_set: None,
+                        multiview_mask: None,
                         timestamp_writes: None,
                     })
                     .forget_lifetime();
@@ -666,7 +673,7 @@ impl GameMain {
             GameConfig::get().save()
         }
 
-        let lock_mouse = !gui.egui_ctx().is_pointer_over_area()
+        let lock_mouse = !gui.egui_ctx().is_pointer_over_egui()
             && *mouse_knobs
             && !*show_debug_ui
             && window.has_focus()
@@ -1051,9 +1058,9 @@ impl GameMain {
                 {
                     //also flushes game game ui, can take longer than it looks like it should
                     profile_scope!("Flush Canvas");
-                    let commands = canvas.flush_to_surface(&surface.texture);
+                    let commands = canvas.flush_to_output(&surface.texture);
                     canvas.reset();
-                    Some(commands)
+                    commands
                 }
             } else {
                 None

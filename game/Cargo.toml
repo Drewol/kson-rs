@@ -29,18 +29,19 @@ serde_json = { workspace = true, features = ["preserve_order"] }
 rodio = { workspace = true }
 anyhow = { workspace = true }
 egui = { workspace = true }
-egui-winit = "0.31"
+egui-winit = "0.37"
 rand = { workspace = true }
 
-egui_plot = "0.31"
-egui-wgpu = { version = "0.31", features = ["winit"] }
-femtovg = { version = "0.14", default-features = false, features = [
+egui_plot = "0.38"
+egui-wgpu = { version = "0.37", features = ["winit"] }
+femtovg = { version = "0.28", default-features = false, features = [
     "wgpu",
+    "textlayout",
     "image",
     "image-loading",
 ] }
 
-wgpu = { version = "24", features = ["naga-ir"] }
+wgpu = { version = "30", features = ["naga-ir", "glsl"] }
 glam = { version = "0.29", features = ["bytemuck"] }
 encase = "0.10"
 

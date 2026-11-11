@@ -1117,10 +1117,9 @@ impl Game {
 
         let vgfx = vgfx.write().expect("Lock error");
         let canvas = &mut vgfx.canvas.lock().expect("Lock error");
-        vec![
-            context.clear_texture(layer, wgpu::Color::TRANSPARENT),
-            canvas.flush_to_surface(layer),
-        ]
+        std::iter::once(context.clear_texture(layer, wgpu::Color::TRANSPARENT))
+            .chain(canvas.flush_to_output(layer))
+            .collect()
     }
 
     fn reset_canvas(&mut self, surface: &wgpu::SurfaceTexture) {
@@ -2008,7 +2007,7 @@ impl Scene for Game {
                             .enumerate()
                             .map(|(x, y)| [x as f64, *y])
                             .collect();
-                        let line = Line::new(line);
+                        let line = Line::new("Sync delta", line);
                         egui_plot::Plot::new("sync_delta").show(ui, |plot| {
                             plot.line(line);
                         });

@@ -57,7 +57,7 @@ fn unimplemented() -> mlua::Result<()> {
 #[inline]
 fn hash_path(path: &Path) -> u64 {
     path.verbs()
-        .fold(egui::ahash::AHasher::default(), |mut h, v| {
+        .fold(std::hash::DefaultHasher::default(), |mut h, v| {
             match v {
                 femtovg::Verb::MoveTo(x, y) => (0u32, x.to_bits(), y.to_bits()).hash(&mut h),
                 femtovg::Verb::LineTo(x, y) => (1u32, x.to_bits(), y.to_bits()).hash(&mut h),

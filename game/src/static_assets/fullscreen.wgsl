@@ -15,10 +15,10 @@ struct VertexOutput {
 fn vs_main(@builtin(vertex_index)index: u32) -> VertexOutput {
     var r: VertexOutput;
     
-    let f_idx = f32(index);
+    // Single triangle covering the whole viewport: (-1,-1), (3,-1), (-1,3)
     var vertex: vec2<f32> = vec2(
-        (f_idx % 2.0) * 4.0 - 1.0,
-        max(-1.0, f_idx * 4.0 - 1.0)
+        f32((index << 1u) & 2u) * 2.0 - 1.0,
+        f32(index & 2u) * 2.0 - 1.0
         );
     
     var tex_vp = 0.5 * vertex + vec2<f32>(0.5);

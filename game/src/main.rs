@@ -8,6 +8,7 @@ mod config;
 mod game;
 mod game_data;
 mod game_main;
+mod glsl_compat;
 mod help;
 mod input_state;
 mod installer;
@@ -71,6 +72,7 @@ use lua_service::LuaProvider;
 use luals_gen::LuaLsGen;
 use puffin::{profile_function, profile_scope};
 use rodio::{cpal::BufferSize, nz, source::Source};
+use kson_rodio_sources::consume_one::ConsumeOne;
 use scene::Scene;
 
 pub(crate) use crate::song_provider::{DiffId, FileSongProvider, NauticaSongProvider, SongId};
@@ -516,9 +518,11 @@ impl UscApp {
                 ..Default::default()
             };
 
+            // Same decoder workaround as the song providers, otherwise playback never starts
             let audio = rodio::Decoder::new(std::fs::File::open(
                 chart_path.with_file_name(chart.audio.bgm.filename.clone()),
-            )?)?;
+            )?)?
+            .consume_one()?;
 
             let skin_folder = { vgfx.read().expect("Lock error").skin_folder() };
 
@@ -529,7 +533,10 @@ impl UscApp {
                     chart,
                     skin_folder,
                     Box::new(audio),
-                    game_main::AutoPlay::None,
+                    GameConfig::get()
+                        .args
+                        .autoplay
+                        .unwrap_or(game_main::AutoPlay::None),
                     chart_path.parent().map(|x| x.to_path_buf()),
                 )?)
                 .make_scene(services.create_scope())?,
@@ -642,17 +649,23 @@ impl winit::application::ApplicationHandler<UscInputEvent> for UscApp {
             render_context.process_config();
             let surface = {
                 profile_scope!("Get surface");
+                use wgpu::CurrentSurfaceTexture as Cst;
                 match render_context.surface_ctx.get_current_texture() {
-                    Ok(s) => Rc::new(s),
-                    Err(e @ (wgpu::SurfaceError::Lost | wgpu::SurfaceError::Outdated)) => {
-                        warn!("{e}, reconfiguring surface");
+                    Cst::Success(s) => Rc::new(s),
+                    Cst::Suboptimal(s) => {
+                        // Use this frame, reconfigure for the next one
+                        render_context.set_size(window.inner_size());
+                        Rc::new(s)
+                    }
+                    e @ (Cst::Lost | Cst::Outdated) => {
+                        warn!("Surface {e:?}, reconfiguring");
                         render_context.set_size(window.inner_size());
                         render_context.process_config();
                         window.request_redraw();
                         return;
                     }
-                    Err(e) => {
-                        warn!("Failed to get surface texture: {e}");
+                    e => {
+                        warn!("Failed to get surface texture: {e:?}");
                         window.request_redraw();
                         return;
                     }
@@ -687,8 +700,7 @@ impl winit::application::ApplicationHandler<UscInputEvent> for UscApp {
                 render_context.queue.submit(commands);
                 let surface =
                     Rc::try_unwrap(surface).expect("Surface references still held somewhere");
-                window.pre_present_notify();
-                surface.present();
+                render_context.queue.present(surface);
                 window.request_redraw();
             }
             if exit {
