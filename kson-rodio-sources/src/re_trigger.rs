@@ -83,7 +83,9 @@ where
         }
 
         if self.current_channel == 0 {
-            self.buffer_cursor = (self.buffer_cursor + 1) % self.repeat_period;
+            if self.repeat_period != 0 {
+                self.buffer_cursor = (self.buffer_cursor + 1) % self.repeat_period;
+            }
             if self.update_period > 0 {
                 self.update_counter -= 1;
             }
