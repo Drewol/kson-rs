@@ -20,10 +20,19 @@ strip = true
 serde = { version = "1", features = ["derive"] }
 puffin = "0.19"
 puffin_http = "0.16.0"
-egui = "0.31"
-emath = "0.31"
-egui_glow = "0.31"
-eframe = { version = "0.31", features = ["persistence"] }
+egui = "0.37"
+emath = "0.37"
+egui_glow = "0.37"
+eframe = { version = "0.37", default-features = false, features = [
+    "persistence",
+    "glow",
+    "default_fonts",
+    "accesskit",
+    "clipboard",
+    "links",
+    "wayland",
+    "x11",
+] }
 simple_logger = "4.0.0"
 image = { version = "0.25", default_features = false, features = [
     "png",
@@ -42,3 +51,4 @@ rand = "0.8.5"
 log = "*"
 kson_rodio_sources = { path = "../kson-rodio-sources" }
 itertools = "0.12.1"
+

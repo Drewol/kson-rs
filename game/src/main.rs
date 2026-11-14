@@ -8,6 +8,7 @@ mod config;
 mod game;
 mod game_data;
 mod game_main;
+mod glsl_compat;
 mod help;
 mod input_state;
 mod installer;
@@ -64,43 +65,37 @@ use femtovg as vg;
 pub use game_main::ControlMessage;
 
 use gilrs::Gilrs;
-use glutin_winit::GlWindow;
-use help::ServiceHelper;
+use help::{RenderContext, ServiceHelper};
 use log::*;
 
 use lua_service::LuaProvider;
 use luals_gen::LuaLsGen;
-use puffin::profile_function;
+use puffin::{profile_function, profile_scope};
 use rodio::{cpal::BufferSize, nz, source::Source};
+use kson_rodio_sources::consume_one::ConsumeOne;
 use scene::Scene;
 
 pub(crate) use crate::song_provider::{DiffId, FileSongProvider, NauticaSongProvider, SongId};
 use crate::test_scenes::camera_test;
 use mlua::Lua;
-use td::Viewport;
-use three_d as td;
 
 use di::*;
-use glutin::{context::PossiblyCurrentContext, prelude::*};
 pub use log_macro::log_result;
+use wgpu::SurfaceTexture;
 use winit::event::WindowEvent;
 
 pub type InnerRuscMixer = rodio::mixer::Mixer;
 pub type RuscMixer = Arc<InnerRuscMixer>;
 
-// Copied from three_d
-#[derive(Clone, Debug)]
+#[derive(Clone)]
 pub struct FrameInput {
-    /// A list of [events](crate::Event) which has occurred since last frame.
-    pub events: Vec<three_d::Event>,
-
     /// Milliseconds since last frame.
     pub elapsed_time: f64,
 
     /// Milliseconds accumulated time since start.
     pub accumulated_time: f64,
 
-    /// Viewport of the window in physical pixels (the size of the screen [RenderTarget] which is returned from [FrameInput::screen]).
+    /// Viewport of the window in physical pixels.
     pub viewport: Viewport,
 
     /// Width of the window in logical pixels.
@@ -116,20 +111,24 @@ pub struct FrameInput {
     pub first_frame: bool,
 
     /// The graphics context for the window.
-    pub context: td::Context,
+    pub context: RenderContext,
 }
 
-impl FrameInput {
-    ///
-    /// Returns the screen render target, which is used for drawing to the screen, for this window.
-    /// Same as
-    ///
-    /// ```notrust
-    /// RenderTarget::screen(&frame_input.context, frame_input.viewport.width, frame_input.viewport.height)
-    /// ```
-    ///
-    pub fn screen(&self) -> td::RenderTarget<'_> {
-        td::RenderTarget::screen(&self.context, self.viewport.width, self.viewport.height)
+#[derive(Debug, Clone, Copy)]
+pub struct Viewport {
+    pub x: u32,
+    pub y: u32,
+    pub width: u32,
+    pub height: u32,
+}
+
+impl Viewport {
+    pub fn extend3d(&self, depth_or_array_layers: u32) -> wgpu::Extent3d {
+        wgpu::Extent3d {
+            width: self.width,
+            height: self.height,
+            depth_or_array_layers,
+        }
     }
 }
 
@@ -232,29 +231,37 @@ impl Scenes {
             && self.transition.is_none()
     }
 
-    pub fn render(&mut self, frame: FrameInput, _vgfx: &Arc<RwLock<Vgfx>>) {
+    pub fn render(
+        &mut self,
+        frame: &FrameInput,
+        _vgfx: &Arc<RwLock<Vgfx>>,
+        surface: Rc<SurfaceTexture>,
+    ) -> Vec<wgpu::CommandBuffer> {
         profile_function!();
+        let mut res = vec![];
         let dt = frame.elapsed_time;
         let td_context = &frame.context;
-        let mut target = frame.screen();
         let viewport = frame.viewport;
 
         for scene in &mut self.active {
             if scene.is_suspended() {
                 continue;
             }
-            scene.render(dt, td_context, &mut target, viewport);
-            if let Err(e) = scene.render_ui(dt) {
-                log::error!("{}", e)
+            res.append(&mut scene.render(dt, td_context, viewport, surface.clone()));
+            match scene.render_ui(dt) {
+                Err(e) => log::error!("{:#}", e),
+                Ok(mut commands) => res.append(&mut commands),
             };
         }
 
         if let Some(transition) = self.transition.as_mut() {
-            transition.render(dt, td_context, &mut target, viewport);
-            if let Err(e) = transition.render_ui(dt) {
-                log::error!("{}", e)
+            res.append(&mut transition.render(dt, td_context, viewport, surface));
+            match transition.render_ui(dt) {
+                Err(e) => log::error!("{:#}", e),
+                Ok(mut commands) => res.append(&mut commands),
             };
         }
+        res
     }
 
     pub fn should_render_egui(&self) -> bool {
@@ -318,14 +325,7 @@ pub const FRAME_ACC_SIZE: usize = 16;
 pub struct LuaArena(pub Vec<Rc<Lua>>);
 
 struct UscApp {
-    state: Option<(
-        GameMain,
-        ServiceProvider,
-        winit::window::Window,
-        glutin::surface::Surface<glutin::surface::WindowSurface>,
-        PossiblyCurrentContext,
-        td::Context,
-    )>,
+    state: Option<(GameMain, ServiceProvider, Arc<winit::window::Window>, RenderContext)>,
     frame_tracker: FrameTracker,
     update_tracker: UpdateTracker,
     gilrs: Arc<Mutex<Option<Gilrs>>>,
@@ -384,8 +384,9 @@ impl UscApp {
             return Ok(());
         }
 
-        let (window, surface, canvas, gl_context, window_gl) =
-            window::create_window(event_loop).expect("Failed to create window");
+        let (window, surface, egui_render_state, canvas, surface_config) =
+            futures::executor::block_on(window::create_window(event_loop))
+                .expect("Failed to create window");
 
         {
             if GameConfig::get().mouse_knobs {
@@ -393,20 +394,33 @@ impl UscApp {
             }
         }
         let companion_service = self.companion_service.take().unwrap();
-        let gl_context = Arc::new(gl_context);
-        let context = td::Context::from_gl_context(gl_context.clone())?;
-        let service_context = context.clone();
-        let gui = egui_glow::EguiGlow::new(event_loop, gl_context.clone(), None, None, false);
+        let gui = egui_winit::State::new(
+            egui::Context::default(),
+            egui::ViewportId::ROOT,
+            &window,
+            Some(window.scale_factor() as f32),
+            None,
+            Some(egui_render_state.device.limits().max_texture_dimension_2d as usize),
+        );
         let gilrs_state = self.gilrs.clone();
 
+        let render_context = RenderContext {
+            queue: egui_render_state.queue.clone(),
+            device: egui_render_state.device.clone(),
+            surface_ctx: Arc::new(surface),
+            surface_config,
+            gui: Arc::new(egui_render_state),
+            commands: Arc::new(vec![].into()),
+        };
+
         let services = ServiceCollection::new()
+            .add(existing_as_self(render_context.clone()))
             .add(existing_as_self(companion_service))
             .add(existing_as_self(self.mixer.take().unwrap()))
             .add(AsyncService::singleton().as_mut())
             .add(MultiplayerService::singleton().as_mut())
             .add_worker::<AsyncService>()
             .add(existing_as_self(Mutex::new(canvas)))
-            .add(existing_as_self(service_context.clone()))
             .add(singleton_factory(|_| {
                 RefMut::new(
                     tokio::runtime::Handle::current()
@@ -504,9 +518,11 @@ impl UscApp {
                 ..Default::default()
             };
 
+            // Same decoder workaround as the song providers, otherwise playback never starts
             let audio = rodio::Decoder::new(std::fs::File::open(
                 chart_path.with_file_name(chart.audio.bgm.filename.clone()),
-            )?)?;
+            )?)?
+            .consume_one()?;
 
             let skin_folder = { vgfx.read().expect("Lock error").skin_folder() };
 
@@ -517,7 +533,10 @@ impl UscApp {
                     chart,
                     skin_folder,
                     Box::new(audio),
-                    game_main::AutoPlay::None,
+                    GameConfig::get()
+                        .args
+                        .autoplay
+                        .unwrap_or(game_main::AutoPlay::None),
                     chart_path.parent().map(|x| x.to_path_buf()),
                 )?)
                 .make_scene(services.create_scope())?,
@@ -557,9 +576,10 @@ impl UscApp {
             gui,
             GameConfig::get().args.debug,
             services.create_scope(),
+            render_context.clone(),
         );
 
-        self.state = Some((game, services, window, surface, window_gl, context));
+        self.state = Some((game, services, window, render_context));
         Ok(())
     }
 }
@@ -612,45 +632,90 @@ impl winit::application::ApplicationHandler<UscInputEvent> for UscApp {
         window_id: winit::window::WindowId,
         event: winit::event::WindowEvent,
     ) {
-        let Some((game, _services, window, surface, window_gl, context)) = self.state.as_mut()
-        else {
+        let Some((game, services, window, render_context)) = self.state.as_mut() else {
             return;
         };
         let g = &mut self.frame_tracker;
 
         if let WindowEvent::RedrawRequested = event {
+            puffin::GlobalProfiler::lock().new_frame();
+            profile_scope!("Frame");
             self.update_tracker.set();
             for _ in &mut self.update_tracker {
+                profile_scope!("Game tick");
                 game.update();
             }
+
+            render_context.process_config();
+            let surface = {
+                profile_scope!("Get surface");
+                use wgpu::CurrentSurfaceTexture as Cst;
+                match render_context.surface_ctx.get_current_texture() {
+                    Cst::Success(s) => Rc::new(s),
+                    Cst::Suboptimal(s) => {
+                        // Use this frame, reconfigure for the next one
+                        render_context.set_size(window.inner_size());
+                        Rc::new(s)
+                    }
+                    e @ (Cst::Lost | Cst::Outdated) => {
+                        warn!("Surface {e:?}, reconfiguring");
+                        render_context.set_size(window.inner_size());
+                        render_context.process_config();
+                        window.request_redraw();
+                        return;
+                    }
+                    e => {
+                        warn!("Failed to get surface texture: {e:?}");
+                        window.request_redraw();
+                        return;
+                    }
+                }
+            };
+
             g.before_render();
+            let size = window.inner_size();
             let frame_input = FrameInput {
-                events: vec![],
                 elapsed_time: g.last_frame_time() * 1000.0,
                 accumulated_time: g.accumulated_time() * 1000.0,
                 viewport: Viewport {
                     x: 0,
                     y: 0,
-                    width: window.inner_size().width,
-                    height: window.inner_size().height,
+                    width: size.width,
+                    height: size.height,
                 },
                 window_width: window.outer_size().width,
                 window_height: window.outer_size().height,
                 device_pixel_ratio: 1.0,
                 first_frame: g.number_of_renders() == 0,
-                context: context.clone(),
+                context: render_context.clone(),
             };
             g.after_render();
 
-            let exit = game.render(frame_input, window, surface, window_gl);
-            surface.swap_buffers(window_gl);
-            window.request_redraw();
+            let mut commands = vec![render_context.clear_surface(&surface.texture)];
+            let (exit, mut frame_commands) = game.render(frame_input, window, surface.clone());
+            commands.append(&mut frame_commands);
+
+            {
+                profile_scope!("Submit commands and present frame");
+                render_context.queue.submit(commands);
+                let surface =
+                    Rc::try_unwrap(surface).expect("Surface references still held somewhere");
+                render_context.queue.present(surface);
+                window.request_redraw();
+            }
             if exit {
                 event_loop.exit();
             }
         } else {
-            if let WindowEvent::Resized(_) = event {
-                window.resize_surface(surface, window_gl);
+            if let WindowEvent::Resized(new_size) = event {
+                if new_size.width > 0 && new_size.height > 0 {
+                    render_context.set_size(new_size);
+                    let canvas = services.get_required::<Mutex<vg::Canvas<vg::renderer::WGPURenderer>>>();
+                    canvas
+                        .lock()
+                        .unwrap()
+                        .set_size(new_size.width, new_size.height, 1.0);
+                }
             }
 
             game.handle(
@@ -665,8 +730,7 @@ impl winit::application::ApplicationHandler<UscInputEvent> for UscApp {
         _event_loop: &winit::event_loop::ActiveEventLoop,
         event: UscInputEvent,
     ) {
-        let Some((game, _services, window, _surface, _window_gl, _context)) = self.state.as_mut()
-        else {
+        let Some((game, _services, window, _render_context)) = self.state.as_mut() else {
             return;
         };
 
@@ -679,8 +743,7 @@ impl winit::application::ApplicationHandler<UscInputEvent> for UscApp {
         device_id: winit::event::DeviceId,
         event: winit::event::DeviceEvent,
     ) {
-        let Some((game, _services, window, _surface, _window_gl, _context)) = self.state.as_mut()
-        else {
+        let Some((game, _services, window, _render_context)) = self.state.as_mut() else {
             return;
         };
 
@@ -714,6 +777,9 @@ fn get_log_config(level: log::LevelFilter) -> log4rs::Config {
         .logger(Logger::builder().build("tracing::span", LevelFilter::Warn))
         .logger(Logger::builder().build("polling", LevelFilter::Warn))
         .logger(Logger::builder().build("calloop", LevelFilter::Warn))
+        .logger(Logger::builder().build("naga::back::spv::writer", LevelFilter::Warn))
+        .logger(Logger::builder().build("wgpu_core", LevelFilter::Warn))
+        .logger(Logger::builder().build("wgpu_hal", LevelFilter::Warn))
         .build(
             log4rs::config::Root::builder()
                 .appender("file")

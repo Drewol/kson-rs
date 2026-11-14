@@ -149,8 +149,11 @@ impl From<Duration> for HitFrames {
 }
 
 impl Scene for SettingsScreen {
-    fn render_ui(&mut self, _dt: f64) -> anyhow::Result<()> {
-        Ok(())
+    fn render_ui(
+        &mut self,
+        _dt: f64,
+    ) -> std::result::Result<std::vec::Vec<wgpu::CommandBuffer>, anyhow::Error> {
+        Ok(vec![])
     }
 
     fn is_suspended(&self) -> bool {
@@ -190,7 +193,14 @@ impl Scene for SettingsScreen {
     }
 
     fn render_egui(&mut self, ctx: &egui::Context) -> anyhow::Result<()> {
-        egui::panel::TopBottomPanel::bottom("settings_buttons").show(ctx, |ui| {
+        // Panels are shown inside a Ui since egui 0.37, use one covering the whole screen
+        let mut root_ui = egui::Ui::new(
+            ctx.clone(),
+            egui::Id::new("settings_screen"),
+            egui::UiBuilder::new().max_rect(ctx.content_rect()),
+        );
+        let root_ui = &mut root_ui;
+        egui::Panel::bottom("settings_buttons").show(root_ui, |ui| {
             if ui.button("Cancel").clicked() {
                 self.close = true;
             }
@@ -204,7 +214,7 @@ impl Scene for SettingsScreen {
             ui.add_space(50.0);
         });
 
-        egui::panel::CentralPanel::default().show(ctx, |ui| {
+        egui::panel::CentralPanel::default().show(root_ui, |ui| {
             egui::ScrollArea::vertical().show(ui, |ui| {
                 #[cfg(target_os = "android")]
                 ui.add_space(50.0);
@@ -290,7 +300,7 @@ impl Scene for SettingsScreen {
                                 .add(
                                     egui::DragValue::new(&mut crit_frames.0)
                                         .max_decimals(1)
-                                        .clamp_range(0.01..=100.0),
+                                        .range(0.01..=100.0),
                                 )
                                 .changed()
                             {
@@ -301,7 +311,7 @@ impl Scene for SettingsScreen {
                                 .add(
                                     egui::DragValue::new(&mut near_frames.0)
                                         .max_decimals(1)
-                                        .clamp_range(0.01..=100.0),
+                                        .range(0.01..=100.0),
                                 )
                                 .changed()
                             {
@@ -312,7 +322,7 @@ impl Scene for SettingsScreen {
                                 .add(
                                     egui::DragValue::new(&mut hold_frames.0)
                                         .max_decimals(1)
-                                        .clamp_range(0.01..=100.0),
+                                        .range(0.01..=100.0),
                                 )
                                 .changed()
                             {
@@ -341,7 +351,7 @@ impl Scene for SettingsScreen {
                     #[cfg(not(target_os = "android"))]
                     AsyncPicker::new()
                         .folder()
-                        .show("song_folder".into(), &mut songs_path, ui);
+                        .show(egui::Id::new("song_folder"), &mut songs_path, ui);
 
                     self.altered_settings.songs_path = PathBuf::from(songs_path);
 
@@ -400,7 +410,7 @@ impl Scene for SettingsScreen {
 
                     #[cfg(not(target_os = "android"))]
                     AsyncPicker::new().folder().show(
-                        "screenshot_folder".into(),
+                        egui::Id::new("screenshot_folder"),
                         &mut screenshot_path,
                         ui,
                     );
@@ -451,7 +461,7 @@ impl Scene for SettingsScreen {
                     ui.label("Target FPS");
                     ui.add(
                         egui::DragValue::new(&mut self.altered_settings.graphics.target_fps)
-                            .clamp_range(0..=1000),
+                            .range(0..=1000),
                     );
 
                     ui.end_row();

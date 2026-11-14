@@ -1,82 +1,114 @@
-use three_d::{prelude::*, vec2, vec3, Camera, CpuMesh, Indices, Positions, Vec2, Vec3, Vector3};
+use glam::{vec2, Vec2, Vec3, Vec4};
+use three_d_asset::Transform;
 
-use three_d_asset::Srgba;
-
-use super::HoldState;
-
-use three_d::Mat4;
-
+#[derive(Default)]
 pub(crate) struct TrackRenderMeshes {
-    pub(crate) fx_hold: Vec<(Mat4, HoldState)>,
-    pub(crate) bt_hold: Vec<(Mat4, HoldState)>,
-    pub(crate) fx_chip: Vec<(Mat4, bool)>,
-    pub(crate) bt_chip: Vec<Mat4>,
+    pub(crate) fx_hold: CpuMesh,
+    pub(crate) bt_hold: CpuMesh,
+    pub(crate) fx_chip: CpuMesh,
+    pub(crate) bt_chip: CpuMesh,
     pub(crate) lasers: [CpuMesh; 4],
-    pub(crate) lane_beams: [(Mat4, Srgba); 6],
+    pub(crate) lane_beams: CpuMesh,
 }
 
-pub fn extend_mesh(a: CpuMesh, b: CpuMesh) -> CpuMesh {
-    let CpuMesh {
-        mut positions,
-        indices,
-        normals,
-        tangents,
-        uvs,
-        mut colors,
-    } = a;
+#[derive(Debug, Default, Clone)]
+pub struct CpuMesh {
+    pub positions: Vec<Vec3>,
+    pub indices: Option<Vec<u32>>,
+    pub normals: Option<Vec<Vec3>>,
+    pub tangents: Option<Vec<Vec3>>,
+    pub uvs: Option<Vec<Vec2>>,
+    pub colors: Option<Vec<Vec4>>,
+}
 
-    let index_offset = positions.len();
-
-    let CpuMesh {
-        positions: b_positions,
-        indices: b_indices,
-        normals: _b_normals,
-        tangents: _b_tangents,
-        uvs: b_uvs,
-        colors: mut b_colors,
-    } = b;
-
-    let indices = match (indices.into_u32(), b_indices.into_u32()) {
-        (None, None) => Indices::None,
-        (None, Some(mut b)) => {
-            b.iter_mut().for_each(|idx| *idx += index_offset as u32);
-            Indices::U32(b)
-        }
-        (Some(a), None) => Indices::U32(a),
-        (Some(mut a), Some(mut b)) => {
-            b.iter_mut().for_each(|idx| *idx += index_offset as u32);
-            a.append(&mut b);
-            Indices::U32(a)
-        }
-    };
-    {
-        match &mut positions {
-            Positions::F32(a) => a.append(&mut b_positions.into_f32()),
-            Positions::F64(a) => a.append(&mut b_positions.into_f64()),
-        }
+impl CpuMesh {
+    pub fn clear(&mut self) {
+        let CpuMesh {
+            positions,
+            indices,
+            normals,
+            tangents,
+            uvs,
+            colors,
+        } = self;
+        positions.clear();
+        indices.as_mut().map(|x| x.clear());
+        normals.as_mut().map(|x| x.clear());
+        tangents.as_mut().map(|x| x.clear());
+        uvs.as_mut().map(|x| x.clear());
+        colors.as_mut().map(|x| x.clear());
     }
 
-    if let (Some(a), Some(b)) = (colors.as_mut(), b_colors.as_mut()) {
-        a.append(b)
-    } else {
-        colors = None;
+    /// Appends `other` to this mesh in place.
+    pub fn extend(&mut self, other: CpuMesh) {
+        let index_offset = self.positions.len() as u32;
+        let other_len = other.positions.len();
+
+        match (self.indices.as_mut(), other.indices) {
+            (Some(a), Some(b)) => a.extend(b.into_iter().map(|i| i + index_offset)),
+            (Some(a), None) => a.extend(index_offset..index_offset + other_len as u32),
+            (None, Some(b)) => {
+                let mut indices: Vec<u32> = (0..index_offset).collect();
+                indices.extend(b.into_iter().map(|i| i + index_offset));
+                self.indices = Some(indices);
+            }
+            (None, None) => {}
+        }
+
+        match (self.uvs.as_mut(), other.uvs) {
+            (Some(a), Some(b)) => a.extend(b),
+            (Some(a), None) => a.extend(std::iter::repeat_n(Vec2::ZERO, other_len)),
+            (None, Some(b)) => {
+                let mut uvs = vec![Vec2::ZERO; self.positions.len()];
+                uvs.extend(b);
+                self.uvs = Some(uvs);
+            }
+            (None, None) => {}
+        }
+
+        match (self.colors.as_mut(), other.colors) {
+            (Some(a), Some(b)) => a.extend(b),
+            (Some(a), None) => a.extend(std::iter::repeat_n(Vec4::ONE, other_len)),
+            (None, Some(b)) => {
+                let mut colors = vec![Vec4::ONE; self.positions.len()];
+                colors.extend(b);
+                self.colors = Some(colors);
+            }
+            (None, None) => {}
+        }
+
+        self.positions.extend(other.positions);
     }
 
-    let uvs: Option<Vec<_>> = Some(uvs.iter().chain(b_uvs.iter()).flatten().copied().collect());
+    /// Appends `base` transformed by `transform` with every vertex set to `color`.
+    pub fn push_transformed(&mut self, base: &CpuMesh, transform: glam::Mat4, color: Vec4) {
+        let index_offset = self.positions.len() as u32;
+        let base_len = base.positions.len();
 
-    let mut res = CpuMesh {
-        positions,
-        indices,
-        normals,
-        tangents,
-        uvs,
-        colors,
-    };
+        let indices = self.indices.get_or_insert_with(Vec::new);
+        match base.indices.as_ref() {
+            Some(b) => indices.extend(b.iter().map(|i| i + index_offset)),
+            None => indices.extend(index_offset..index_offset + base_len as u32),
+        }
 
-    res.compute_normals();
-    res.compute_tangents();
+        let uvs = self.uvs.get_or_insert_with(Vec::new);
+        match base.uvs.as_ref() {
+            Some(b) => uvs.extend_from_slice(b),
+            None => uvs.extend(std::iter::repeat_n(Vec2::ZERO, base_len)),
+        }
 
-    res
+        self.colors
+            .get_or_insert_with(Vec::new)
+            .extend(std::iter::repeat_n(color, base_len));
+
+        self.positions
+            .extend(base.positions.iter().map(|p| transform.transform_point3(*p)));
+    }
+}
+
+pub fn extend_mesh(mut a: CpuMesh, b: CpuMesh) -> CpuMesh {
+    a.extend(b);
+    a
 }
 
 #[derive(Debug)]
@@ -242,7 +274,7 @@ pub(crate) fn generate_slam_verts(
 }
 
 pub fn xy_rect(center: Vec3, size: Vec2) -> CpuMesh {
-    let indices = vec![0u8, 1, 2, 2, 3, 0];
+    let indices = vec![0, 1, 2, 2, 3, 0];
     let halfsize_x = size.x / 2.0;
     let halfsize_z = size.y / 2.0;
     let positions = vec![
@@ -259,19 +291,21 @@ pub fn xy_rect(center: Vec3, size: Vec2) -> CpuMesh {
         Vec2::new(0.0, 1.0),
     ];
     CpuMesh {
-        indices: Indices::U8(indices),
-        positions: Positions::F32(positions),
+        indices: Some(indices),
+        positions: positions,
         uvs: Some(uvs),
         ..Default::default()
     }
 }
 
-pub(crate) fn camera_to_screen(camera: &Camera, point: Vec3, screen: Vec2) -> Vec2 {
-    let Vector3 { x, y, z } = point;
-    let camera_space = camera.view().transform_point(three_d::Point3 { x, y, z });
+pub(crate) fn camera_to_screen(camera: &three_d_asset::Camera, point: Vec3, screen: Vec2) -> Vec2 {
+    let Vec3 { x, y, z } = point;
+    let camera_space = camera
+        .view()
+        .transform_point(three_d_asset::Point3 { x, y, z });
     let mut screen_space = camera.projection().transform_point(camera_space);
     screen_space.y = -screen_space.y;
     screen_space *= 0.5f32;
-    screen_space += vec3(0.5, 0.5, 0.5);
+    screen_space += three_d_asset::vec3(0.5, 0.5, 0.5);
     vec2(screen_space.x * screen.x, screen_space.y * screen.y)
 }

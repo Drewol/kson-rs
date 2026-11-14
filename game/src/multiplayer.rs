@@ -600,15 +600,20 @@ impl MultiplayerScreen {
 const MULTI_VERSION: &str = "v0.19";
 
 impl Scene for MultiplayerScreen {
-    fn render_ui(&mut self, dt: f64) -> anyhow::Result<()> {
+    fn render_ui(&mut self, dt: f64) -> anyhow::Result<Vec<wgpu::CommandBuffer>> {
         if self.suspended {
-            return Ok(());
+            return Ok(vec![]);
         }
 
         let f: Function = self.lua.globals().get("render")?;
         f.call::<()>(dt / 1000.0)?;
         self.song_dialog.render(dt)?;
-        Ok(())
+        Ok(self
+            .sp
+            .get_required_mut::<crate::vg_ui::Vgfx>()
+            .write()
+            .expect("Lock error")
+            .take_commands())
     }
 
     fn init(

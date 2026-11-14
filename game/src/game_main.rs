@@ -1,6 +1,7 @@
 use std::{
-    num::NonZeroU32,
+    marker::PhantomData,
     ops::{Add, Sub},
+    ptr,
     rc::Rc,
     sync::{
         mpsc::{channel, Receiver, Sender},
@@ -11,9 +12,9 @@ use std::{
 
 use anyhow::Context;
 use di::{RefMut, ServiceProvider};
-use egui_glow::EguiGlow;
 use femtovg::Paint;
 use log::info;
+use wgpu::SurfaceTexture;
 use winit::{
     dpi::{PhysicalPosition, PhysicalSize},
     event,
@@ -21,10 +22,6 @@ use winit::{
     window::{Window, WindowId},
 };
 
-use glutin::{
-    context::PossiblyCurrentContext,
-    surface::{GlSurface, SwapInterval},
-};
 use puffin::{profile_function, profile_scope};
 
 use crate::{
@@ -32,10 +29,8 @@ use crate::{
     songselect::SongProviderSelection, touch::TouchHelper, util::Warn, FrameInput, InnerRuscMixer,
 };
 use mlua::Lua;
-use td::Modifiers;
 
 use femtovg as vg;
-use three_d as td;
 
 use crate::LuaArena;
 use crate::{
@@ -44,7 +39,7 @@ use crate::{
     config::{Fullscreen, GameConfig},
     game::{gauge::Gauge, HitRating},
     game_data::GameData,
-    help,
+    help::{self, Modifiers, RenderContext},
     input_state::InputState,
     lua_http::LuaHttp,
     lua_service::LuaProvider,
@@ -59,7 +54,7 @@ use crate::{
     RuscMixer, Scenes, FRAME_ACC_SIZE,
 };
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq, clap::ValueEnum)]
 pub enum AutoPlay {
     None,
     Buttons,
@@ -121,7 +116,7 @@ pub struct GameMain {
     game_data: Arc<RwLock<GameData>>,
     vgfx: Arc<RwLock<Vgfx>>,
     frame_count: u32,
-    gui: EguiGlow,
+    gui: egui_winit::State,
     show_debug_ui: bool,
     mousex: f64,
     mousey: f64,
@@ -136,6 +131,7 @@ pub struct GameMain {
     mouse_knobs: bool,
     mouse_locked: bool,
     lighting_service: di::RefMut<LightingService>,
+    render_context: RenderContext,
 }
 
 fn get_frame_duration(settings: &GameConfig) -> Duration {
@@ -147,13 +143,58 @@ fn get_frame_duration(settings: &GameConfig) -> Duration {
     }
 }
 
+struct LuaAppDataHandle<T: 'static>(di::RefMut<LuaArena>, PhantomData<T>);
+pub struct LuaAppDataOwnedHandle<'a, 'b, T: 'static>(&'a Lua, &'b mut T);
+
+impl<'a, 'b, T> LuaAppDataOwnedHandle<'a, 'b, T> {
+    pub fn set(lua: &'a Lua, data: &'b mut T) -> Self {
+        let lua_data = unsafe { ptr::read(data) };
+        lua.set_app_data(lua_data);
+        Self(lua, data)
+    }
+}
+
+impl<'a, 'b, T> Drop for LuaAppDataOwnedHandle<'a, 'b, T> {
+    fn drop(&mut self) {
+        let data = self
+            .0
+            .remove_app_data::<T>()
+            .expect("App data removed manually");
+
+        unsafe { std::ptr::write(self.1, data) };
+    }
+}
+
+impl<T> LuaAppDataHandle<T> {
+    fn set(arena: di::RefMut<LuaArena>, surface: Rc<T>) -> Self {
+        {
+            let arena = arena.read().unwrap();
+            for l in arena.0.iter() {
+                l.set_app_data(surface.clone());
+            }
+        }
+
+        Self(arena.clone(), PhantomData)
+    }
+}
+
+impl<T> Drop for LuaAppDataHandle<T> {
+    fn drop(&mut self) {
+        let arena = self.0.read().unwrap();
+        for l in arena.0.iter() {
+            l.remove_app_data::<Rc<T>>();
+        }
+    }
+}
+
 impl GameMain {
     pub fn new(
         scenes: Scenes,
         fps_paint: Paint,
-        gui: EguiGlow,
+        gui: egui_winit::State,
         show_debug_ui: bool,
         service_provider: ServiceProvider,
+        render_context: RenderContext,
     ) -> Self {
         let (control_tx, control_rx) = channel();
 
@@ -189,6 +230,7 @@ impl GameMain {
             touch_tracker: TouchHelper::new(egui::accesskit::Vec2::new(500.0, 500.0)),
             mouse_knobs: GameConfig::get().mouse_knobs,
             mouse_locked: false,
+            render_context,
         }
     }
 
@@ -258,13 +300,13 @@ impl GameMain {
             });
         }
     }
+    /// Returns true if exit is requested, along with the command buffers to submit for this frame
     pub fn render(
         &mut self,
         frame_input: FrameInput,
         window: &winit::window::Window,
-        surface: &glutin::surface::Surface<glutin::surface::WindowSurface>,
-        gl_context: &PossiblyCurrentContext,
-    ) -> bool {
+        surface: Rc<SurfaceTexture>,
+    ) -> (bool, Vec<wgpu::CommandBuffer>) {
         let GameMain {
             lua_arena,
             scenes,
@@ -297,22 +339,22 @@ impl GameMain {
             mouse_knobs,
             mouse_locked,
             lighting_service,
+            render_context,
         } = self;
 
         knob_state.zero_deltas();
 
+        let _surface_app_data_handle = LuaAppDataHandle::set(lua_arena.clone(), surface.clone());
+
         for lua in lua_arena.read().expect("Lock error").0.iter() {
             lua.set_app_data(frame_input.clone());
         }
-        let _lua_frame_input = frame_input.clone();
         let _lua_mixer = mixer.clone();
 
         if frame_input.first_frame {
-            frame_input.screen().clear(td::ClearState::default());
             let vgfx = vgfx.write().expect("Lock error");
             let mut canvas = vgfx.canvas.lock().expect("Lock error");
             canvas.reset();
-            canvas.set_size(frame_input.viewport.width, frame_input.viewport.height, 1.0);
             _ = canvas.fill_text(
                 10.0,
                 10.0,
@@ -321,9 +363,12 @@ impl GameMain {
                     .with_font_size(32.0)
                     .with_text_baseline(vg::Baseline::Top),
             );
-            canvas.flush();
+            let commands = canvas
+                .flush_to_output(&surface.texture)
+                .into_iter()
+                .collect();
             *frame_count += 1;
-            return false;
+            return (false, commands);
         }
         if *frame_count == 1 {
             lua_provider
@@ -335,6 +380,8 @@ impl GameMain {
                 .expect("Failed to register lua libraries");
             *frame_count += 1;
         }
+
+        let mut transition_commands = vec![];
 
         // Clear image tint, might be more things that need resetting between frames
         {
@@ -355,7 +402,9 @@ impl GameMain {
                             ControlMessage::SongSelect(song_provider_selection),
                             vgfx.clone(),
                             frame_input.viewport,
+                            surface.as_ref(),
                             service_provider.create_scope(),
+                            &mut transition_commands,
                         )
                         .ok()
                     }
@@ -371,7 +420,9 @@ impl GameMain {
                                 ControlMessage::MainMenu(MainMenuButton::Start),
                                 vgfx.clone(),
                                 frame_input.viewport,
+                                surface.as_ref(),
                                 service_provider.create_scope(),
+                                &mut transition_commands,
                             )
                             .ok()
                         }
@@ -383,7 +434,9 @@ impl GameMain {
                             ControlMessage::MainMenu(MainMenuButton::Multiplayer),
                             vgfx.clone(),
                             frame_input.viewport,
+                            surface.as_ref(),
                             service_provider.create_scope(),
+                            &mut transition_commands,
                         )
                         .ok();
                     }
@@ -416,7 +469,9 @@ impl GameMain {
                             },
                             vgfx.clone(),
                             frame_input.viewport,
+                            surface.as_ref(),
                             service_provider.create_scope(),
+                            &mut transition_commands,
                         )
                         .ok()
                     }
@@ -453,7 +508,9 @@ impl GameMain {
                             },
                             vgfx.clone(),
                             frame_input.viewport,
+                            surface.as_ref(),
                             service_provider.create_scope(),
+                            &mut transition_commands,
                         )
                         .ok()
                     }
@@ -461,14 +518,11 @@ impl GameMain {
                 ControlMessage::ApplySettings => {
                     //TODO: Reload skin
                     let settings = GameConfig::get();
-                    _ = surface.set_swap_interval(
-                        gl_context,
-                        if settings.graphics.vsync {
-                            SwapInterval::Wait(NonZeroU32::new(1).expect("Invalid value"))
-                        } else {
-                            SwapInterval::DontWait
-                        },
-                    );
+                    render_context.set_swap_interval(if settings.graphics.vsync {
+                        wgpu::PresentMode::AutoVsync
+                    } else {
+                        wgpu::PresentMode::AutoNoVsync
+                    });
 
                     *show_fps = settings.graphics.show_fps;
                     *mouse_knobs = settings.mouse_knobs;
@@ -509,14 +563,6 @@ impl GameMain {
                             .warn("Reloading scripts failed");
                     })
                 }
-                ControlMessage::ReloadScripts => {
-                    info!("Reloading scripts");
-                    scenes.for_each_active_mut(|s| {
-                        s.reload_scripts()
-                            .with_context(|| s.name().to_string())
-                            .warn("Reloading scripts failed");
-                    })
-                }
             }
         }
 
@@ -533,17 +579,92 @@ impl GameMain {
             *mouse_knobs,
         );
 
-        scenes.render(frame_input.clone(), vgfx);
-        Self::render_overlays(vgfx, &frame_input, fps, fps_paint, *show_fps);
+        let mut commands = scenes.render(&frame_input, vgfx, surface.clone());
 
-        gui.run(window, |ctx| {
-            scenes.render_egui(ctx);
+        if let Some(vg_commands) = Self::render_overlays(
+            vgfx,
+            &frame_input,
+            fps,
+            fps_paint,
+            *show_fps,
+            surface.as_ref(),
+        ) {
+            commands.push(vg_commands);
+        }
 
-            if *show_debug_ui {
-                Self::debug_ui(ctx, scenes, vgfx);
+        commands.append(&mut transition_commands);
+
+        {
+            profile_scope!("egui");
+            let gui_in = gui.take_egui_input(window);
+            let egui_out = gui.egui_ctx().run_pass(gui_in, |ctx| {
+                scenes.render_egui(ctx);
+
+                if *show_debug_ui {
+                    Self::debug_ui(ctx, scenes, vgfx);
+                }
+            });
+            gui.handle_platform_output(window, egui_out.platform_output);
+
+            let mut egui_renderer = render_context.gui.renderer.write();
+            for (id, deltas) in egui_out.textures_delta.set.iter() {
+                for delta in deltas.iter() {
+                    egui_renderer.update_texture(
+                        &render_context.device,
+                        &render_context.queue,
+                        *id,
+                        delta,
+                    );
+                }
             }
-        });
-        gui.paint(window);
+
+            for id in egui_out.textures_delta.free.iter() {
+                egui_renderer.free_texture(id);
+            }
+
+            if !egui_out.shapes.is_empty() {
+                let sd = egui_wgpu::ScreenDescriptor {
+                    size_in_pixels: window.inner_size().into(),
+                    pixels_per_point: egui_out.pixels_per_point,
+                };
+                let shapes = gui
+                    .egui_ctx()
+                    .tessellate(egui_out.shapes, egui_out.pixels_per_point);
+                let mut encoder = render_context.encoder(Some("egui"));
+
+                commands.append(&mut egui_renderer.update_buffers(
+                    &render_context.device,
+                    &render_context.queue,
+                    &mut encoder,
+                    &shapes,
+                    &sd,
+                ));
+
+                let mut rpass = encoder
+                    .begin_render_pass(&wgpu::RenderPassDescriptor {
+                        label: Some("egui"),
+                        color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                            view: &surface
+                                .texture
+                                .create_view(&wgpu::TextureViewDescriptor::default()),
+                            resolve_target: None,
+                depth_slice: None,
+                            ops: wgpu::Operations {
+                                load: wgpu::LoadOp::Load,
+                                store: wgpu::StoreOp::Store,
+                            },
+                        })],
+                        depth_stencil_attachment: None,
+                        occlusion_query_set: None,
+                        multiview_mask: None,
+                        timestamp_writes: None,
+                    })
+                    .forget_lifetime();
+                egui_renderer.render(&mut rpass, &shapes, &sd);
+                drop(rpass);
+                commands.push(encoder.finish());
+            }
+        }
 
         Self::run_lua_gc(lua_arena, &mut vgfx.write().expect("Lock error"));
 
@@ -552,7 +673,7 @@ impl GameMain {
             GameConfig::get().save()
         }
 
-        let lock_mouse = !gui.egui_ctx.is_pointer_over_area()
+        let lock_mouse = !gui.egui_ctx().is_pointer_over_egui()
             && *mouse_knobs
             && !*show_debug_ui
             && window.has_focus()
@@ -577,7 +698,7 @@ impl GameMain {
             *frame_end = SystemTime::now() + *frame_duration;
         }
 
-        exit
+        (exit, commands)
     }
     pub fn handle(&mut self, window: &Window, event: &winit::event::Event<UscInputEvent>) {
         use winit::event::*;
@@ -714,7 +835,7 @@ impl GameMain {
                 event: WindowEvent::ModifiersChanged(mods),
                 ..
             } => {
-                self.modifiers = three_d::renderer::control::Modifiers {
+                self.modifiers = help::Modifiers {
                     alt: mods.state().alt_key(),
                     ctrl: mods.state().control_key(),
                     shift: mods.state().shift_key(),
@@ -917,7 +1038,8 @@ impl GameMain {
         fps: f64,
         fps_paint: &vg::Paint,
         show_fps: bool,
-    ) {
+        surface: &SurfaceTexture,
+    ) -> Option<wgpu::CommandBuffer> {
         profile_function!();
         let vgfx_lock = vgfx.write();
         if let Ok(vgfx) = vgfx_lock {
@@ -934,10 +1056,17 @@ impl GameMain {
                 }
 
                 {
+                    //also flushes game game ui, can take longer than it looks like it should
                     profile_scope!("Flush Canvas");
-                    canvas.flush(); //also flushes game game ui, can take longer than it looks like it should
+                    let commands = canvas.flush_to_output(&surface.texture);
+                    canvas.reset();
+                    commands
                 }
+            } else {
+                None
             }
+        } else {
+            None
         }
     }
 
@@ -969,12 +1098,6 @@ impl GameMain {
             }
         }
 
-        {
-            frame_input
-                .screen()
-                .clear(td::ClearState::color_and_depth(0.0, 0.0, 0.0, 1.0, 1.0));
-            // .render(&camera, [&model], &[]);
-        }
     }
 
     fn reset_viewport_size(&self, size: &PhysicalSize<u32>) {
@@ -983,8 +1106,6 @@ impl GameMain {
             let mut canvas_lock = vgfx.canvas.try_lock();
             if let Ok(ref mut canvas) = canvas_lock {
                 canvas.reset();
-                canvas.set_size(size.width, size.height, 1.0);
-                canvas.flush();
             }
         }
     }
@@ -1013,5 +1134,51 @@ impl GameMain {
                 window.set_fullscreen(Some(winit::window::Fullscreen::Borderless(current_monitor)))
             }
         }
+    }
+}
+#[cfg(test)]
+mod tests {
+    use std::{cell::OnceCell, sync::atomic};
+
+    use super::LuaAppDataOwnedHandle;
+
+    struct Foo {
+        s: String,
+        v: u32,
+    }
+
+    static C: std::sync::OnceLock<()> = std::sync::OnceLock::new();
+    impl Drop for Foo {
+        fn drop(&mut self) {
+            assert!(C.get().is_none(), "Foo already dropped");
+            _ = C.set(());
+        }
+    }
+
+    #[test]
+    fn test_lua_data_handle() {
+        let lua = crate::lua_service::LuaProvider::new_lua();
+
+        let mut data = Foo {
+            s: "Hello".to_string(),
+            v: 7,
+        };
+
+        {
+            let _handle = LuaAppDataOwnedHandle::set(&lua, &mut data);
+            let f = lua
+                .create_function(|l, _: ()| {
+                    let mut foo = l.app_data_mut::<Foo>().unwrap();
+                    foo.s = format!("{} world", foo.s);
+                    foo.v *= foo.v;
+                    Ok(())
+                })
+                .unwrap();
+            lua.globals().set("f", f).unwrap();
+            lua.load("f()").exec().unwrap();
+        }
+
+        assert_eq!(data.s, "Hello world");
+        assert_eq!(data.v, 49);
     }
 }

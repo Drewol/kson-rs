@@ -9,17 +9,19 @@ use mlua::{Function, Lua, LuaSerdeExt};
 use poll_promise::Promise;
 use rodio::Source;
 use serde_json::json;
-use three_d::{ColorMaterial, Gm, Mat3, Rad, Rectangle, Texture2DRef, Vec2, Zero};
+use wgpu::{Origin3d, SurfaceTexture, Texture};
 
 use crate::{
     game_main::AutoPlay,
+    help::RenderContext,
     log_result,
     main_menu::MainMenuButton,
     results::SongResultData,
     scene::{Scene, SceneData},
     songselect::{Song, SongProviderSelection, SongSelect},
-    util::{back_pixels, lua_address},
-    ControlMessage,
+    util::lua_address,
+    vg_ui::VgfxSyncExt,
+    ControlMessage, Viewport,
 };
 
 #[derive(Debug, PartialEq, Eq)]
@@ -38,8 +40,9 @@ pub struct Transition {
     pub state: TransitionState,
     transition_lua: Rc<Lua>,
     vgfx: RefMut<crate::Vgfx>,
-    prev_screengrab: Option<Gm<Rectangle, ColorMaterial>>,
+    prev_screengrab: Texture,
     service_provider: ServiceProvider,
+    first_frame: bool,
 }
 
 fn load_songs(provider: SongProviderSelection) -> anyhow::Result<Box<dyn SceneData + Send>> {
@@ -79,9 +82,10 @@ impl Transition {
         transition_lua: Rc<Lua>,
         target: ControlMessage,
         vgfx: RefMut<crate::Vgfx>,
-        viewport: three_d::Viewport,
-
+        viewport: Viewport,
+        surface: &SurfaceTexture,
         service_provider: ServiceProvider,
+        commands: &mut Vec<wgpu::CommandBuffer>,
     ) -> anyhow::Result<Self> {
         if let Ok(reset_fn) = transition_lua.globals().get::<Function>("reset") {
             if let Some(e) = reset_fn.call::<()>(()).err() {
@@ -90,11 +94,12 @@ impl Transition {
         }
 
         let context = service_provider
-            .get_required::<three_d::Context>()
+            .get_required::<RenderContext>()
             .as_ref()
             .clone();
 
-        let prev_grab = screen_grab(context, viewport);
+        let (prev_grab, grab_command) = screen_grab(&context, viewport, surface);
+        commands.push(grab_command);
 
         if let ControlMessage::Song { song, diff, .. } = &target {
             let mut vgfx = vgfx.write().expect("Failed to lock VG");
@@ -129,32 +134,17 @@ impl Transition {
             vgfx,
             prev_screengrab: prev_grab,
             service_provider,
+            first_frame: true,
         })
     }
 }
 
 pub fn screen_grab(
-    context: three_d::Context,
-    viewport: three_d::Viewport,
-) -> Option<Gm<Rectangle, ColorMaterial>> {
-    let screen_tex = three_d::texture::CpuTexture {
-        data: three_d::TextureData::RgbaU8(back_pixels(&context, viewport)),
-        height: viewport.height,
-        width: viewport.width,
-        ..Default::default()
-    };
-
-    Some(three_d::Gm::new(
-        Rectangle::new(&context, Vec2::zero(), Rad::zero(), 1.0, 1.0),
-        three_d::ColorMaterial {
-            texture: Some(Texture2DRef {
-                texture: Arc::new(three_d::Texture2D::new(&context, &screen_tex)),
-                transformation: Mat3::from_nonuniform_scale(1.0, -1.0),
-            }),
-            color: three_d::Srgba::WHITE,
-            ..Default::default()
-        },
-    ))
+    context: &RenderContext,
+    viewport: Viewport,
+    surface: &SurfaceTexture,
+) -> (wgpu::Texture, wgpu::CommandBuffer) {
+    context.new_screen_texture(viewport, surface)
 }
 
 impl Scene for Transition {
@@ -173,32 +163,45 @@ impl Scene for Transition {
     fn render(
         &mut self,
         _dt: f64,
-        _td_context: &three_d::Context,
-        target: &mut three_d::RenderTarget,
-        viewport: three_d::Viewport,
-    ) {
-        use three_d::*;
-
+        context: &RenderContext,
+        _viewport: Viewport,
+        s: Rc<SurfaceTexture>,
+    ) -> Vec<wgpu::CommandBuffer> {
+        let first_frame = std::mem::replace(&mut self.first_frame, false);
         match self.state {
-            TransitionState::Intro => {
-                if let Some(screengrab) = &mut self.prev_screengrab {
-                    screengrab.set_size(viewport.width as f32, viewport.height as f32);
-                    screengrab.set_center(vec2(
-                        viewport.width as f32 / 2.0,
-                        viewport.height as f32 / 2.0,
-                    ));
-                    let mut new_2d = Camera::new_2d(viewport);
-                    new_2d.disable_tone_and_color_mapping();
-                    target.render(&new_2d, &[screengrab], &[]);
+            TransitionState::Intro if !first_frame => {
+                let grab_size = self.prev_screengrab.size();
+                if grab_size != s.texture.size() {
+                    // Window was resized during the transition, can't reuse the old grab
+                    return vec![];
                 }
+                let mut encoder = context.encoder(Some("Transition screen grab"));
+                encoder.copy_texture_to_texture(
+                    wgpu::TexelCopyTextureInfoBase {
+                        texture: &self.prev_screengrab,
+                        mip_level: 0,
+                        origin: Origin3d::ZERO,
+                        aspect: wgpu::TextureAspect::All,
+                    },
+                    wgpu::TexelCopyTextureInfoBase {
+                        texture: &s.texture,
+                        mip_level: 0,
+                        origin: Origin3d::ZERO,
+                        aspect: wgpu::TextureAspect::All,
+                    },
+                    grab_size,
+                );
+
+                return vec![encoder.finish()];
             }
             TransitionState::Countdown(0) => self.state = TransitionState::Outro,
             TransitionState::Countdown(c) => self.state = TransitionState::Countdown(c - 1),
             _ => (),
         }
+        vec![]
     }
 
-    fn render_ui(&mut self, dt: f64) -> anyhow::Result<()> {
+    fn render_ui(&mut self, dt: f64) -> anyhow::Result<Vec<wgpu::CommandBuffer>> {
         {
             self.vgfx
                 .read()
@@ -321,7 +324,7 @@ impl Scene for Transition {
             TransitionState::Done => {}
         }
 
-        Ok(())
+        Ok(self.vgfx.take_commands())
     }
 
     fn is_suspended(&self) -> bool {

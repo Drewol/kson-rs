@@ -1,3 +1,7 @@
+mod ext;
+
+pub use ext::*;
+
 use std::{
     collections::HashMap,
     hash::{Hash, Hasher},
@@ -11,7 +15,7 @@ const COMPAT_TEXT_SCALE: f32 = 21.5 / 30.0; // Needed because old usc has two di
 
 use anyhow::anyhow;
 use di::{Activator, InjectBuilder, Injectable, RefMut};
-use femtovg::{renderer::OpenGl, Canvas, Color, FontId, ImageFlags, ImageId, Paint, Path};
+use femtovg::{renderer::WGPURenderer, Canvas, Color, FontId, ImageFlags, ImageId, Paint, Path};
 
 use log::warn;
 use poll_promise::Promise;
@@ -53,7 +57,7 @@ fn unimplemented() -> mlua::Result<()> {
 #[inline]
 fn hash_path(path: &Path) -> u64 {
     path.verbs()
-        .fold(egui::ahash::AHasher::default(), |mut h, v| {
+        .fold(std::hash::DefaultHasher::default(), |mut h, v| {
             match v {
                 femtovg::Verb::MoveTo(x, y) => (0u32, x.to_bits(), y.to_bits()).hash(&mut h),
                 femtovg::Verb::LineTo(x, y) => (1u32, x.to_bits(), y.to_bits()).hash(&mut h),
@@ -82,11 +86,11 @@ struct ScopedAssets {
     labels: HashMap<u32, Label>,
     paint_imgs: HashMap<u32, ImageId>,
     job_imgs: HashMap<String, u32>,
-    canvas: Arc<Mutex<Canvas<OpenGl>>>,
+    canvas: Arc<Mutex<Canvas<WGPURenderer>>>,
 }
 
 impl ScopedAssets {
-    fn new(canvas: Arc<Mutex<Canvas<OpenGl>>>) -> Self {
+    fn new(canvas: Arc<Mutex<Canvas<WGPURenderer>>>) -> Self {
         Self {
             images: Default::default(),
             paints: Default::default(),
@@ -121,7 +125,7 @@ struct VgfxPoint {
 }
 
 pub struct Vgfx {
-    pub canvas: Arc<Mutex<Canvas<OpenGl>>>,
+    pub canvas: Arc<Mutex<Canvas<WGPURenderer>>>,
     skin: String,
     _skin_meta: SkinMeta,
     restore_stack: Vec<VgfxPoint>,
@@ -141,6 +145,7 @@ pub struct Vgfx {
     fonts: HashMap<String, FontId>,
     image_jobs: HashMap<String, Promise<image::DynamicImage>>,
     label_align: (femtovg::Align, femtovg::Baseline),
+    commands: Vec<wgpu::CommandBuffer>,
 }
 
 impl Injectable for Vgfx {
@@ -167,7 +172,7 @@ struct Label {
 }
 
 impl Vgfx {
-    pub fn new(canvas: Arc<Mutex<Canvas<OpenGl>>>, game_folder: std::path::PathBuf) -> Self {
+    pub fn new(canvas: Arc<Mutex<Canvas<WGPURenderer>>>, game_folder: std::path::PathBuf) -> Self {
         let default_fonts = {
             let mut canvas = canvas.lock().expect("Lock error");
 
@@ -213,6 +218,7 @@ impl Vgfx {
             label_color: Color::white(),
             label_font: *default_fonts.first().expect("No default font loaded"),
             label_align: (femtovg::Align::Left, femtovg::Baseline::Alphabetic),
+            commands: vec![],
             _skin_meta: skin_meta,
         }
     }
@@ -240,7 +246,7 @@ impl Vgfx {
 
     fn with_canvas<R>(
         &mut self,
-        mut f: impl FnMut(&mut Canvas<OpenGl>) -> R,
+        mut f: impl FnMut(&mut Canvas<WGPURenderer>) -> R,
     ) -> Result<R, mlua::Error> {
         let canvas = &mut self
             .canvas
@@ -283,6 +289,10 @@ impl Vgfx {
 
     pub fn clear_tint(&mut self) {
         self.image_tint.take();
+    }
+
+    pub fn take_commands(&mut self) -> Vec<wgpu::CommandBuffer> {
+        std::mem::take(&mut self.commands)
     }
 }
 
@@ -1815,7 +1825,7 @@ impl VgfxLua {
 
     fn create_shaded_mesh(
         _lua_key: &LuaKey,
-        context: &Arc<three_d::Context>,
+        context: &Arc<crate::help::RenderContext>,
         vgfx: &RefMut<Vgfx>,
         material: Option<String>,
         path: Option<String>,

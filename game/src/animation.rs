@@ -9,7 +9,10 @@ use std::{
 };
 
 use anyhow::ensure;
-use femtovg::{renderer::OpenGl, Canvas};
+use femtovg::{
+    renderer::{OpenGl, WGPURenderer},
+    Canvas,
+};
 use log::warn;
 
 enum LoaderRequest {
@@ -30,7 +33,7 @@ pub struct VgAnimation {
     frame_time: f64,
     frame_timer: f64,
     compressed: bool,
-    canvas: Arc<Mutex<Canvas<OpenGl>>>,
+    canvas: Arc<Mutex<Canvas<WGPURenderer>>>,
     loader_tx: Sender<LoaderRequest>,
     loader_rx: Receiver<LoaderResponse>,
     _loader_thread: JoinHandle<()>,
@@ -66,7 +69,7 @@ impl VgAnimation {
     pub fn new(
         image_root: impl AsRef<Path>,
         frame_time: f64,
-        canvas: Arc<Mutex<Canvas<OpenGl>>>,
+        canvas: Arc<Mutex<Canvas<WGPURenderer>>>,
         loop_count: usize,
         compressed: bool,
     ) -> anyhow::Result<Self> {
@@ -130,7 +133,7 @@ impl VgAnimation {
         })
     }
 
-    pub fn delete_imgs(&self, canvas: &mut femtovg::Canvas<OpenGl>) {
+    pub fn delete_imgs(&self, canvas: &mut femtovg::Canvas<WGPURenderer>) {
         for img_id in &self.image_buffer {
             canvas.delete_image(*img_id);
         }

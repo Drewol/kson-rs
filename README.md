@@ -23,3 +23,6 @@ Library for effected playback of kson charts. Using rodio.
 Library containing rodio sources implementing the sound effects of kson.
 This does not have any dependencies to any of the other projects in this repo
 so the effects can be used without bloat in any other project.
+
+## LLM Disclosure
+As of November 2026 this project includes code written with the assistance of LLMs, but every line is still reviewed by a human.

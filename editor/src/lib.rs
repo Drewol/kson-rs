@@ -62,7 +62,7 @@ impl Widget for &mut kson::MetaInfo {
                 ui.end_row();
 
                 ui.label(i18n::fl!("level"));
-                ui.add(DragValue::new(&mut self.level).clamp_range(1..=20));
+                ui.add(DragValue::new(&mut self.level).range(1..=20));
                 ui.end_row();
 
                 ui.label(i18n::fl!("index"));
@@ -128,7 +128,7 @@ impl Widget for &mut kson::BgmInfo {
                 ui.end_row();
 
                 ui.label(i18n::fl!("volume"));
-                ui.add(Slider::new(&mut self.vol, 0.0..=1.0).clamp_to_range(true));
+                ui.add(Slider::new(&mut self.vol, 0.0..=1.0).clamping(egui::SliderClamping::Always));
                 ui.end_row();
 
                 ui.separator();
@@ -480,13 +480,13 @@ impl AppState {
 
         ui.add(
             Slider::new(&mut self.editor.screen.track_width, 50.0..=300.0)
-                .clamp_to_range(true)
+                .clamping(egui::SliderClamping::Always)
                 .text(i18n::fl!("track_width")),
         );
 
         ui.add(
             Slider::new(&mut self.editor.screen.beats_per_col, 4..=32)
-                .clamp_to_range(true)
+                .clamping(egui::SliderClamping::Always)
                 .text(i18n::fl!("beats_per_col")),
         );
 
@@ -550,7 +550,7 @@ impl AppState {
 const CONFIG_KEY: &str = "CONFIG_3";
 
 fn menu_ui(ui: &mut Ui, title: impl ToString, min_width: f32, add_contents: impl FnOnce(&mut Ui)) {
-    menu::menu_button(ui, title.to_string(), |ui| {
+    ui.menu_button(title.to_string(), |ui| {
         ui.with_layout(Layout::top_down_justified(egui::Align::Min), |ui| {
             ui.allocate_exact_size(Vec2::new(min_width, 0.0), Sense::hover());
             add_contents(ui);
@@ -574,7 +574,8 @@ impl App for AppState {
         std::time::Duration::from_secs(300)
     }
 
-    fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
+    fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
+        let ctx = &ui.ctx().clone();
         //input checking
         //TODO: Block events when exiting?
         let events = { ctx.input(|x| x.events.clone()) };
@@ -588,7 +589,7 @@ impl App for AppState {
                     modifiers,
                     ..
                 } => {
-                    if pressed && !ctx.wants_keyboard_input() {
+                    if pressed && !ctx.egui_wants_keyboard_input() {
                         let key_combo = KeyCombo {
                             key,
                             modifiers: modifiers.into(),
@@ -626,8 +627,8 @@ impl App for AppState {
         //draw
         //menu
         {
-            egui::TopBottomPanel::top("menubar").show(ctx, |ui| {
-                menu::bar(ui, |ui| {
+            egui::Panel::top("menubar").show(ui, |ui| {
+                egui::MenuBar::new().ui(ui, |ui| {
                     menu_ui(ui, i18n::fl!("file"), 100.0, |ui| {
                         if ui.button(i18n::fl!("new")).clicked() {
                             self.new_chart = Some(Default::default());
@@ -711,7 +712,7 @@ impl App for AppState {
                     }
                 });
                 ui.separator();
-                menu::bar(ui, |ui| {
+                egui::MenuBar::new().ui(ui, |ui| {
                     for (name, tool) in &TOOLS {
                         if ui
                             .selectable_label(self.editor.current_tool == *tool, *name)
@@ -839,21 +840,21 @@ impl App for AppState {
             }
 
             if self.show_fx_def {
-                egui::SidePanel::right("effect_panel")
-                    .show(ctx, |ui| ui.add(effect_panel(&mut self.editor)));
+                egui::Panel::right("effect_panel")
+                    .show(ui, |ui| ui.add(effect_panel(&mut self.editor)));
             }
 
             let main_response = egui::CentralPanel::default()
                 .frame(main_frame)
-                .show(ctx, |ui| self.editor.draw(ui))
+                .show(ui, |ui| self.editor.draw(ui))
                 .inner;
 
             match main_response {
                 Ok(response) => {
                     let pos = ctx.pointer_hover_pos().unwrap_or(Pos2::ZERO);
-                    if response.hovered() && ctx.input(|x| x.raw_scroll_delta) != Vec2::ZERO {
+                    if response.hovered() && ctx.input(|x| x.smooth_scroll_delta) != Vec2::ZERO {
                         self.editor
-                            .mouse_wheel_event(ctx.input(|x| x.raw_scroll_delta.y));
+                            .mouse_wheel_event(ctx.input(|x| x.smooth_scroll_delta.y));
                     }
 
                     if response.clicked() {
@@ -929,7 +930,6 @@ pub fn main() -> eframe::Result<()> {
     let options = eframe::NativeOptions {
         viewport: egui::ViewportBuilder::default().with_drag_and_drop(false),
         multisampling: 4,
-        vsync: true,
         ..Default::default()
     };
 

@@ -3,8 +3,8 @@ use std::path::{Path, PathBuf};
 use crate::{
     game::ChartView,
     game_data::{GameData, GameDataLua, LuaPath},
-    help::transform_shader,
-    lua_service::set_global_env,
+    help::RenderContext,
+    lua_service::{set_global_env, LuaExt},
     shaded_mesh::ShadedMesh,
     util::{beat_pulser::BeatPulser, lua_address},
     vg_ui::{Vgfx, VgfxLua},
@@ -17,7 +17,10 @@ use mlua::{Function, Lua, LuaOptions, LuaSerdeExt, UserData, UserDataMethods};
 use puffin::profile_function;
 
 use serde::Serialize;
-use three_d_asset::{vec2, Vector2, Vector3, Viewport};
+use glam::{vec2, Vec2, Vec3};
+use wgpu::SurfaceTexture;
+
+use crate::Viewport;
 
 #[derive(Debug, Clone, Copy)]
 pub struct BackgroundData {
@@ -164,21 +167,20 @@ impl UserData for GameBackgroundLua {
 
             bg.set_param(
                 "screenCenter",
-                Vector2::new((data.screen_center.0) as i32, (data.screen_center.1) as i32),
+                glam::IVec2::new(data.screen_center.0 as i32, data.screen_center.1 as i32),
             );
 
-            bg.set_param("timing", Vector3::from(data.timing));
+            bg.set_param("timing", Vec3::from(data.timing));
             bg.set_param("clearTransition", data.clear_transition);
             bg.set_param("tilt", vec2(data.roll.0, data.roll.1)); //(camera roll, background spin)
-            if let Some(e) = bg
-                .set_tex_from_framebuffer(data.viewport.width as _, data.viewport.height as _)
-                .err()
-            {
-                warn!("Failed to set framebuffer texture: {e}");
+
+            // The render pass is set up by `GameBackground::render`, along with the framebuffer texture
+            let Some(mut rp) = lua.render_pass() else {
+                return Err(mlua::Error::external("DrawShader called outside of render"));
             };
 
-            bg.draw_fullscreen(data.viewport);
-            Ok(())
+            bg.draw_fullscreen(data.viewport, &mut rp)
+                .map_err(mlua::Error::external)
         })
     }
 }
@@ -193,7 +195,7 @@ impl Drop for GameBackground {
 
 impl GameBackground {
     pub fn new(
-        context: &three_d::Context,
+        context: &RenderContext,
         background: bool,
         path: impl AsRef<Path>,
         chart: &kson::Chart,
@@ -210,11 +212,18 @@ impl GameBackground {
             "foreground"
         };
 
+        // Prefer WGSL fragment shaders, fall back to legacy GLSL
         path.push(name);
-        path.set_extension("fs");
-        let fs = transform_shader(std::io::read_to_string(std::fs::File::open(&path)?)?);
+        path.set_extension("wgsl");
+        let mesh = if path.exists() {
+            let fs = std::fs::read_to_string(&path)?;
+            ShadedMesh::new_fullscreen(context, &fs)?
+        } else {
+            path.set_extension("fs");
+            let fs = std::fs::read_to_string(&path)?;
+            ShadedMesh::new_fullscreen_glsl(context, &fs)?
+        };
 
-        let mesh = ShadedMesh::new_fullscreen(context, &fs)?;
 
         let lua = Lua::new_with(StdLib::MATH | StdLib::STRING, LuaOptions::new())?;
         lua.globals().set(full_name, GameBackgroundLua)?;
@@ -263,15 +272,21 @@ impl GameBackground {
     pub fn render(
         &mut self,
         dt: f64,
-        camera: &three_d::Camera,
+        camera: &three_d_asset::Camera,
         chart_time: f64,
         chart: &kson::Chart,
         tick: u32,
         roll: (f32, f32),
         clear: bool,
+        viewport: Viewport,
+        context: &RenderContext,
+        surface: &SurfaceTexture,
+        encoder: &mut wgpu::CommandEncoder,
     ) {
         profile_function!();
-        let center = camera.pixel_at_position(ChartView::TRACK_DIRECTION * -300.0);
+        let center = camera.pixel_at_position(
+            three_d_asset::Vec3::from((ChartView::TRACK_DIRECTION * -300.0).to_array()),
+        );
         let bpm = chart.bpm_at_tick(tick);
 
         {
@@ -280,7 +295,7 @@ impl GameBackground {
                 .app_data_mut::<BackgroundData>()
                 .expect("No background data");
             data.screen_center = center.into();
-            data.viewport = camera.viewport();
+            data.viewport = viewport;
 
             data.timing = self
                 .beat_pulser
@@ -297,6 +312,21 @@ impl GameBackground {
                 .clamp(0.0, 1.0);
         }
 
+        if let Some(mut mesh) = self.lua.app_data_mut::<ShadedMesh>() {
+            if let Err(e) = mesh.set_tex_from_framebuffer(encoder, &surface.texture) {
+                warn!("Failed to set framebuffer texture: {e}");
+            }
+        }
+
+        let rp = context
+            .default_render_pass(
+                Some(if self.background { "BG" } else { "FG" }),
+                encoder,
+                surface,
+            )
+            .forget_lifetime();
+        self.lua.set_app_data(rp);
+
         if let Ok(render_fn) = self.lua.globals().get::<Function>(self.name.as_str()) {
             if let Some(e) = render_fn.call::<()>(dt / 1000.0).err() {
                 warn!("{} error: {}", &self.name, e);
@@ -304,5 +334,8 @@ impl GameBackground {
         } else {
             warn!("No render fn");
         }
+
+        // Ends the render pass
+        drop(self.lua.remove_app_data::<wgpu::RenderPass<'static>>());
     }
 }

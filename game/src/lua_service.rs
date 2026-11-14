@@ -1,8 +1,9 @@
-use std::rc::Rc;
+use std::{marker::PhantomData, rc::Rc, sync::Arc};
 
 use crate::{
     config::GameConfig,
     game_data::{self, GameDataLua, LuaPath},
+    help::RenderContext,
     ir::{InternetRanking, InternetRankingLua},
     lua_http::{ExportLuaHttp, LuaHttp},
     util::lua_address,
@@ -12,7 +13,7 @@ use crate::{
 use anyhow::Result;
 use di::{injectable, Ref, RefMut};
 use log::info;
-use mlua::{Lua, UserData};
+use mlua::{AppDataRefMut, Lua, UserData};
 use puffin::profile_scope;
 
 //TODO: Used expanded macro because of wrong dependencies, use macro when fixed
@@ -20,7 +21,7 @@ use puffin::profile_scope;
 pub struct LuaProvider {
     arena: RefMut<LuaArena>,
     vgfx: RefMut<Vgfx>,
-    context: Ref<three_d::core::Context>,
+    context: Ref<RenderContext>,
     mixer: Ref<InnerRuscMixer>,
     game_data: RefMut<game_data::GameData>,
 }
@@ -122,5 +123,70 @@ impl LuaProvider {
                 .eval::<()>()?;
         }
         Ok(())
+    }
+}
+
+pub(crate) struct LuaRenderPass<'lua, 'encoder>(&'lua Lua, PhantomData<&'encoder ()>);
+
+impl Drop for LuaRenderPass<'_, '_> {
+    fn drop(&mut self) {
+        let rp = self
+            .0
+            .remove_app_data::<wgpu::RenderPass<'static>>()
+            .expect("Render pass already removed");
+
+        drop(rp);
+    }
+}
+
+pub trait LuaExt {
+    fn render_pass(&self) -> Option<AppDataRefMut<'_, wgpu::RenderPass<'static>>>;
+    fn wgpu_surface(&self) -> Rc<wgpu::SurfaceTexture>;
+    fn render_context(&self) -> Arc<RenderContext>;
+    fn wgpu_encoder(&self, label: Option<&str>) -> wgpu::CommandEncoder;
+    fn create_render_pass<'lua, 'encoder>(
+        &'lua self,
+        ctx: &RenderContext,
+        encoder: &'encoder mut wgpu::CommandEncoder,
+        surface: &wgpu::SurfaceTexture,
+    ) -> LuaRenderPass<'lua, 'encoder>;
+}
+
+impl LuaExt for Lua {
+    fn wgpu_encoder(&self, label: Option<&str>) -> wgpu::CommandEncoder {
+        let ctx = self
+            .app_data_ref::<Arc<RenderContext>>()
+            .expect("No render context");
+        ctx.encoder(label)
+    }
+
+    fn render_context(&self) -> Arc<RenderContext> {
+        self.app_data_ref::<Arc<RenderContext>>()
+            .expect("No render context")
+            .clone()
+    }
+
+    fn wgpu_surface(&self) -> Rc<wgpu::SurfaceTexture> {
+        self.app_data_ref::<Rc<wgpu::SurfaceTexture>>()
+            .expect("No surface")
+            .clone()
+    }
+
+    fn render_pass(&self) -> Option<AppDataRefMut<'_, wgpu::RenderPass<'static>>> {
+        self.app_data_mut()
+    }
+
+    fn create_render_pass<'lua, 'encoder>(
+        &'lua self,
+        ctx: &RenderContext,
+        encoder: &'encoder mut wgpu::CommandEncoder,
+        surface: &wgpu::SurfaceTexture,
+    ) -> LuaRenderPass<'lua, 'encoder> {
+        let rp = ctx
+            .default_render_pass(Some("Lua"), encoder, surface)
+            .forget_lifetime();
+        self.set_app_data(rp);
+
+        LuaRenderPass(self, PhantomData)
     }
 }

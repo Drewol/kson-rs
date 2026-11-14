@@ -4,10 +4,8 @@ use std::{
     time::SystemTime,
 };
 
-use glow::{HasContext, BACK};
 use log::warn;
 use mlua::Lua;
-use three_d::{context, Viewport};
 use winit::{
     event::*,
     keyboard::{Key, NamedKey},
@@ -17,26 +15,6 @@ pub mod laser_navigation;
 pub mod legacy_skin_config;
 
 use crate::button_codes::UscInputEvent;
-
-pub fn back_pixels(context: &three_d::Context, viewport: Viewport) -> Vec<[u8; 4]> {
-    unsafe {
-        context.read_buffer(BACK);
-    }
-    let data_size = 4;
-    let mut bytes = vec![0u8; viewport.width as usize * viewport.height as usize * data_size];
-    unsafe {
-        context.read_pixels(
-            viewport.x,
-            viewport.y,
-            viewport.width as i32,
-            viewport.height as i32,
-            context::RGBA,
-            context::UNSIGNED_BYTE,
-            context::PixelPackData::Slice(Some(&mut bytes)),
-        );
-    }
-    unsafe { bytes.align_to::<[u8; 4]>() }.1.to_vec()
-}
 
 pub fn lua_address(lua: &Lua) -> usize {
     let ptr = lua as *const _;

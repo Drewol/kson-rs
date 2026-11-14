@@ -9,6 +9,7 @@ use di::{RefMut, ServiceProvider};
 use mlua::{self, Function, Lua};
 use winit::event::{ElementState, Event, WindowEvent};
 
+use crate::vg_ui::{Vgfx, VgfxSyncExt};
 use crate::{
     button_codes::{LaserState, UscInputEvent},
     companion_interface::GameState,
@@ -82,10 +83,13 @@ impl MainMenu {
 }
 
 impl Scene for MainMenu {
-    fn render_ui(&mut self, dt: f64) -> anyhow::Result<()> {
+    fn render_ui(&mut self, dt: f64) -> anyhow::Result<Vec<wgpu::CommandBuffer>> {
         let render: Function = self.lua.globals().get("render")?;
         render.call::<()>(dt / 1000.0)?;
-        Ok(())
+        Ok(self
+            .service_provider
+            .get_required_mut::<Vgfx>()
+            .take_commands())
     }
 
     fn init(&mut self, app_control_tx: Sender<ControlMessage>) -> anyhow::Result<()> {

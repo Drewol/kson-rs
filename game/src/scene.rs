@@ -1,15 +1,16 @@
-use std::{sync::mpsc::Sender, time::SystemTime};
+use std::{rc::Rc, sync::mpsc::Sender, time::SystemTime};
 
 use anyhow::Result;
 use di::ServiceProvider;
-use three_d::{RenderTarget, Viewport};
+use wgpu::{CommandBuffer, SurfaceTexture};
 use winit::event::Event;
 
 use crate::{
     button_codes::{LaserState, UscButton, UscInputEvent},
     companion_interface::GameState,
+    help::RenderContext,
     lighting::LightingData,
-    ControlMessage,
+    ControlMessage, Viewport,
 };
 
 #[allow(unused_variables)]
@@ -26,12 +27,13 @@ pub trait Scene {
     fn render(
         &mut self,
         dt: f64,
-        td_context: &three_d::Context,
-        target: &mut RenderTarget,
+        td_context: &RenderContext,
         viewport: Viewport,
-    ) {
+        surface: Rc<SurfaceTexture>,
+    ) -> Vec<CommandBuffer> {
+        vec![]
     }
-    fn render_ui(&mut self, dt: f64) -> Result<()>;
+    fn render_ui(&mut self, dt: f64) -> Result<Vec<CommandBuffer>>;
     fn has_egui(&self) -> bool {
         false
     }

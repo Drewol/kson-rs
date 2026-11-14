@@ -1,25 +1,51 @@
-use std::{collections::HashSet, path::Path, rc::Rc, sync::Arc};
+use std::{cell::RefCell, collections::HashSet, path::Path};
 
-use crate::{config::GameConfig, game::HoldState};
+use crate::{
+    config::GameConfig,
+    game::{graphics::CpuMesh, HoldState},
+    help::RenderContext,
+    shaded_mesh::ShadedMesh,
+};
 
-use super::graphics::{self, GlVertex};
+use super::graphics::{self, GlVertex, TrackRenderMeshes};
 
 pub struct ChartView {
     pub hispeed: f32,
     pub cursor: f64,
     laser_meshes: [Vec<Vec<graphics::GlVertex>>; 2],
-    track: CpuMesh,
+    track: ShadedMesh,
     distant_button_scale: f32,
     key_sounds: [HashSet<u32>; 2],
+    note_bases: NoteBases,
+    pub render_data: RefCell<TrackRenderMeshes>,
 }
 
-use anyhow::anyhow;
-use kson::{do_curve, score_ticks::ScoreTick, KSON_RESOLUTION};
-use puffin::{profile_function, profile_scope};
-use three_d::{
-    vec2, vec3, Blend, ColorMaterial, CpuMesh, DepthTest, Indices, Mat3, RenderStates, Texture2D,
-    Vec3,
-};
+/// Untransformed meshes for each note type, every visible note is a transformed copy of one of these
+struct NoteBases {
+    bt: CpuMesh,
+    fx: CpuMesh,
+    beam: CpuMesh,
+}
+
+impl NoteBases {
+    fn new() -> Self {
+        Self {
+            bt: graphics::xy_rect(vec3(0.0, 0.5, 0.0), vec2(1.0 / 6.0, 1.0)),
+            fx: graphics::xy_rect(vec3(0.0, 0.5, 0.0), vec2(2.0 / 6.0, 1.0)),
+            beam: graphics::xy_rect(Vec3::ZERO, vec2(1.0, 1.0)),
+        }
+    }
+}
+
+/// Per vertex data for hold notes, `x` = object glow, `y` = hit state
+fn hold_vertex_data(state: HoldState, object_glow: f32, hit_state: i32) -> Vec4 {
+    let (glow, state) = match state {
+        HoldState::Idle => (0.6, 1),
+        HoldState::Hit => (object_glow, hit_state),
+        HoldState::Miss => (0.3, 0),
+    };
+    vec4(glow, state as f32, 0.0, 1.0)
+}
 
 pub fn gen_laser_subsegment(
     y0: f32,
@@ -44,21 +70,24 @@ pub fn gen_laser_subsegment(
     ]
 }
 
-use three_d_asset::Srgba;
+use anyhow::anyhow;
+use glam::{vec2, vec3, vec4, Mat4, Vec3, Vec4};
+use kson::{do_curve, score_ticks::ScoreTick, KSON_RESOLUTION};
+use puffin::{profile_function, profile_scope};
+
 impl ChartView {
     pub const TRACK_LENGTH: f32 = 16.0;
     pub const UP: Vec3 = vec3(0.0, 0.0, -1.0);
     pub const TRACK_DIRECTION: Vec3 = vec3(0.0, 1.0, 0.0);
     pub const Z_NEAR: f32 = 0.01;
 
-    pub fn new(skin_root: impl AsRef<Path>, td: &three_d::Context) -> anyhow::Result<Self> {
+    pub fn new(skin_root: impl AsRef<Path>, td: &RenderContext) -> anyhow::Result<Self> {
         let _indices: [u16; 6] = [0, 1, 2, 0, 2, 3];
         let mut texure_path = skin_root.as_ref().to_path_buf();
         texure_path.push("textures");
         texure_path.push("file.png");
-        td.set_depth_test(three_d::DepthTest::Never);
 
-        let mut textures = three_d_asset::io::load(&[
+        let mut textures = td.load_textures(&[
             texure_path.with_file_name("laser_l.png"),
             texure_path.with_file_name("laser_r.png"),
             texure_path.with_file_name("track.png"),
@@ -66,36 +95,30 @@ impl ChartView {
             texure_path.with_file_name("button.png"),
         ])?;
 
-        let _laser_texture = Some(Arc::new(Texture2D::new(
-            td,
-            &textures.deserialize("laser_l")?,
-        )));
-        let _laser_render_states = RenderStates {
-            blend: Blend::ADD,
-            depth_test: DepthTest::Always,
+        let mut shader_path = skin_root.as_ref().to_path_buf();
+        shader_path.push("shaders");
+
+        let track_texture = textures.remove("track").unwrap();
+
+        let mut track = ShadedMesh::new(&td, "track", shader_path)?;
+
+        let base_laser_mesh = CpuMesh {
+            indices: Some(vec![]),
+            positions: vec![],
+            uvs: Some(vec![]),
             ..Default::default()
         };
+        let lasers = [
+            base_laser_mesh.clone(),
+            base_laser_mesh.clone(),
+            base_laser_mesh.clone(),
+            base_laser_mesh,
+        ];
 
-        let track_texture = Arc::new(Texture2D::new(td, &textures.deserialize("track")?));
-
-        let _track_mat = Rc::new(ColorMaterial {
-            color: Srgba::WHITE,
-            texture: Some(three_d::Texture2DRef {
-                texture: track_texture,
-                transformation: Mat3::from_scale(1.0),
-            }),
-            render_states: RenderStates {
-                depth_test: three_d::DepthTest::Always,
-                ..Default::default()
-            },
-            ..Default::default()
-        });
-
-        let track = graphics::xy_rect(vec3(0.0, 0.0, 0.0), vec2(1.0, Self::TRACK_LENGTH * 2.0));
-        let _button_render_states = RenderStates {
-            depth_test: DepthTest::Always,
-            ..Default::default()
-        };
+        track.set_data_mesh(&graphics::xy_rect(
+            vec3(0.0, 0.0, 0.0),
+            vec2(1.0, Self::TRACK_LENGTH * 2.0),
+        ));
 
         Ok(ChartView {
             distant_button_scale: GameConfig::get().distant_button_scale,
@@ -104,6 +127,11 @@ impl ChartView {
             laser_meshes: [Vec::new(), Vec::new()],
             track,
             key_sounds: Default::default(),
+            note_bases: NoteBases::new(),
+            render_data: RefCell::new(TrackRenderMeshes {
+                lasers,
+                ..Default::default()
+            }),
         })
     }
 
@@ -214,13 +242,54 @@ impl ChartView {
     pub fn render(
         &self,
         chart: &kson::Chart,
-        td: &three_d::Context,
         hold_ok: impl Fn(usize, u32) -> bool,
         mut beam_colors: [[f32; 4]; 6],
         chip_h: f32,
-    ) -> anyhow::Result<graphics::TrackRenderMeshes> {
-        use three_d::prelude::*;
+        object_glow: f32,
+        hit_state: i32,
+    ) -> anyhow::Result<()> {
         profile_function!();
+        let mut data = self.render_data.borrow_mut();
+        let TrackRenderMeshes {
+            fx_hold,
+            bt_hold,
+            fx_chip,
+            bt_chip,
+            lasers,
+            lane_beams,
+        } = &mut *data;
+
+        fx_hold.clear();
+        bt_hold.clear();
+        bt_chip.clear();
+        fx_chip.clear();
+        lane_beams.clear();
+        for l in lasers.iter_mut() {
+            l.clear();
+        }
+
+        //Dim FX beams
+        beam_colors[4][3] *= 0.5;
+        beam_colors[5][3] *= 0.5;
+
+        let beam_transforms = [
+            (-1.5 / 6.0, 1.0 / 6.0),
+            (-0.5 / 6.0, 1.0 / 6.0),
+            (0.5 / 6.0, 1.0 / 6.0),
+            (1.5 / 6.0, 1.0 / 6.0),
+            (-1.0 / 6.0, 2.0 / 6.0),
+            (1.0 / 6.0, 2.0 / 6.0),
+        ];
+
+        for ((x, w), color) in beam_transforms.into_iter().zip(beam_colors) {
+            lane_beams.push_transformed(
+                &self.note_bases.beam,
+                Mat4::from_translation(vec3(x, 0.0, 0.0))
+                    * Mat4::from_scale(vec3(w, Self::TRACK_LENGTH, 1.0)),
+                Vec4::from(color),
+            );
+        }
+
         let chip_h = chip_h.copysign(-1.0);
         let view_time = self.cursor;
         let view_offset = if view_time < 0.0 {
@@ -229,8 +298,6 @@ impl ChartView {
             0
         };
 
-        td.set_depth_test(three_d::DepthTest::Never);
-
         let _glow_state = if (0.0_f32 * 8.0).fract() > 0.5 { 2 } else { 3 };
         let view_tick = chart.ms_to_tick(view_time) as i64 + view_offset;
         let view_distance = (KSON_RESOLUTION as f32 * 8.0) / self.hispeed;
@@ -238,10 +305,6 @@ impl ChartView {
         let first_view_tick = view_tick - view_distance as i64;
         let y_view_div = view_distance / -Self::TRACK_LENGTH;
         let laser_y_view_div = y_view_div * Self::LASER_SPEED_OFFSET;
-        let _white_mat = Rc::new(ColorMaterial {
-            color: Srgba::WHITE,
-            ..Default::default()
-        });
 
         #[derive(Debug, PartialEq, Eq, Clone, Copy)]
         #[allow(unused)]
@@ -254,8 +317,6 @@ impl ChartView {
             FxHoldActive(usize, u32),
         }
         let mut notes = Vec::new();
-
-        let _track = self.track.clone();
 
         {
             profile_scope!("Build notes");
@@ -338,84 +399,56 @@ impl ChartView {
 
                 (
                     Mat4::from_translation(n.0)
-                        * Mat4::from_nonuniform_scale(1.0, -n.1.y * distance_scale, 1.0),
+                        * Mat4::from_scale(vec3(1.0, -n.1.y * distance_scale, 1.0)),
                     n.2,
                 )
             })
         };
 
-        let mut fx_hold = vec![];
-        let mut bt_hold = vec![];
-        let mut fx_chip = vec![];
-        let mut bt_chip = vec![];
-        let mut lasers = [
-            graphics::xy_rect(Vec3::zero(), Vec2::zero()),
-            graphics::xy_rect(Vec3::zero(), Vec2::zero()),
-            graphics::xy_rect(Vec3::zero(), Vec2::zero()),
-            graphics::xy_rect(Vec3::zero(), Vec2::zero()),
-        ];
-
-        //Dim FX beams
-        beam_colors[4][3] *= 0.5;
-        beam_colors[5][3] *= 0.5;
-
-        let lane_beams = [
-            (
-                Mat4::from_translation(vec3(-1.5 / 6.0, 0.0, 0.0))
-                    * Mat4::from_nonuniform_scale(1.0 / 6.0, ChartView::TRACK_LENGTH, 1.0),
-                Srgba::from(beam_colors[0]),
-            ),
-            (
-                Mat4::from_translation(-vec3(0.5 / 6.0, 0.0, 0.0))
-                    * Mat4::from_nonuniform_scale(1.0 / 6.0, ChartView::TRACK_LENGTH, 1.0),
-                Srgba::from(beam_colors[1]),
-            ),
-            (
-                Mat4::from_translation(vec3(0.5 / 6.0, 0.0, 0.0))
-                    * Mat4::from_nonuniform_scale(1.0 / 6.0, ChartView::TRACK_LENGTH, 1.0),
-                Srgba::from(beam_colors[2]),
-            ),
-            (
-                Mat4::from_translation(vec3(1.5 / 6.0, 0.0, 0.0))
-                    * Mat4::from_nonuniform_scale(1.0 / 6.0, ChartView::TRACK_LENGTH, 1.0),
-                Srgba::from(beam_colors[3]),
-            ),
-            (
-                Mat4::from_translation(-vec3(1.0 / 6.0, 0.0, 0.0))
-                    * Mat4::from_nonuniform_scale(2.0 / 6.0, ChartView::TRACK_LENGTH, 1.0),
-                Srgba::from(beam_colors[4]),
-            ),
-            (
-                Mat4::from_translation(vec3(1.0 / 6.0, 0.0, 0.0))
-                    * Mat4::from_nonuniform_scale(2.0 / 6.0, ChartView::TRACK_LENGTH, 1.0),
-                Srgba::from(beam_colors[5]),
-            ),
-        ];
-
         {
-            profile_scope!("Sort notes");
-            for n in notes {
-                match n.1 {
-                    NoteType::BtChip => bt_chip.push(n.0),
-                    NoteType::BtHold => bt_hold.push((n.0, HoldState::Idle)),
-                    NoteType::BtHoldActive(lane, y) => bt_hold.push((
-                        n.0,
-                        if hold_ok(lane, y) {
-                            HoldState::Hit
-                        } else {
-                            HoldState::Miss
-                        },
-                    )),
-                    NoteType::FxChip(has_sample) => fx_chip.push((n.0, has_sample)),
-                    NoteType::FxHold => fx_hold.push((n.0, HoldState::Idle)),
-                    NoteType::FxHoldActive(side, y) => fx_hold.push((
-                        n.0,
-                        if hold_ok(side + 4, y) {
-                            HoldState::Hit
-                        } else {
-                            HoldState::Miss
-                        },
-                    )),
+            profile_scope!("Build note meshes");
+            let bases = &self.note_bases;
+            let no_sample = vec4(0.0, 0.0, 0.0, 1.0);
+            let has_sample = vec4(1.0, 0.0, 0.0, 1.0);
+            let hold_state = |hit: bool| {
+                if hit {
+                    HoldState::Hit
+                } else {
+                    HoldState::Miss
+                }
+            };
+            for (transform, note_type) in notes {
+                match note_type {
+                    NoteType::BtChip => bt_chip.push_transformed(&bases.bt, transform, no_sample),
+                    NoteType::FxChip(sample) => fx_chip.push_transformed(
+                        &bases.fx,
+                        transform,
+                        if sample { has_sample } else { no_sample },
+                    ),
+                    NoteType::BtHold => bt_hold.push_transformed(
+                        &bases.bt,
+                        transform,
+                        hold_vertex_data(HoldState::Idle, object_glow, hit_state),
+                    ),
+                    NoteType::BtHoldActive(lane, y) => bt_hold.push_transformed(
+                        &bases.bt,
+                        transform,
+                        hold_vertex_data(hold_state(hold_ok(lane, y)), object_glow, hit_state),
+                    ),
+                    NoteType::FxHold => fx_hold.push_transformed(
+                        &bases.fx,
+                        transform,
+                        hold_vertex_data(HoldState::Idle, object_glow, hit_state),
+                    ),
+                    NoteType::FxHoldActive(side, y) => fx_hold.push_transformed(
+                        &bases.fx,
+                        transform,
+                        hold_vertex_data(
+                            hold_state(hold_ok(side + 4, y)),
+                            object_glow,
+                            hit_state,
+                        ),
+                    ),
                 }
             }
         }
@@ -439,15 +472,12 @@ impl ChartView {
                         .ok_or(anyhow!("Laser meshes not built correctly"))?;
                     let yoff = (view_tick - s.tick() as i64) as f32;
                     let laser_mesh = CpuMesh {
-                        indices: Indices::U32((0u32..(vertices.len() as u32)).collect()),
-                        positions: three_d::Positions::F32(
-                            vertices
-                                .iter()
-                                .map(|v| {
-                                    vec3(v.pos.z, (yoff - v.pos.x) / laser_y_view_div, v.pos.y)
-                                })
-                                .collect(),
-                        ),
+                        indices: Some((0..(vertices.len() as u32)).collect()),
+                        positions: vertices
+                            .iter()
+                            .map(|v| vec3(v.pos.z, (yoff - v.pos.x) / laser_y_view_div, v.pos.y))
+                            .collect(),
+
                         uvs: Some(vertices.iter().map(|v| vec2(v.uv.x, v.uv.y)).collect()),
                         ..Default::default()
                     };
@@ -457,22 +487,15 @@ impl ChartView {
                     } else {
                         0
                     };
-                    let extending = std::mem::take(&mut lasers[i * 2 + active]);
-                    let extended = graphics::extend_mesh(extending, laser_mesh);
-                    lasers[i * 2 + active] = extended;
+                    lasers[i * 2 + active].extend(laser_mesh);
                 }
             }
         }
-        Ok(graphics::TrackRenderMeshes {
-            fx_hold,
-            bt_hold,
-            fx_chip,
-            bt_chip,
-            lasers,
-            lane_beams,
-        })
+        Ok(())
     }
+}
 
+impl ChartView {
     pub(crate) fn build_key_sound_map(&mut self, score_ticks: &kson::score_ticks::ScoreTicks) {
         let mut key_sounds: [HashSet<u32>; 2] = Default::default();
 

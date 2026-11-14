@@ -5,12 +5,6 @@ use serde::Serialize;
 use serde_with::formats::Flexible;
 use serde_with::serde_as;
 use serde_with::DurationNanoSeconds;
-use three_d::vec3;
-
-use three_d::Vec2;
-
-use three_d::Camera;
-use three_d_asset::InnerSpace;
 
 use std::time::Duration;
 
@@ -144,15 +138,16 @@ pub(crate) struct Cursor {
 }
 
 impl Cursor {
-    pub fn new(pos: f32, camera: &Camera, alpha: f32) -> Self {
+    pub fn new(pos: f32, camera: &three_d_asset::Camera, alpha: f32) -> Self {
         let pos = (pos - 0.5) * (5.0 / 6.0);
 
-        let crit_pos = Vec2::from(camera.pixel_at_position(vec3(0.0, 0.0, 0.0)));
-        let c_pos = Vec2::from(camera.pixel_at_position(vec3(pos, 0.0, 0.0)));
-        let c_pos_up = Vec2::from(camera.pixel_at_position(vec3(pos, 0.2, 0.0)));
-        let c_pos_down = Vec2::from(camera.pixel_at_position(vec3(pos, -0.2, 0.0)));
+        let to_glam = |v: three_d_asset::PixelPoint| glam::vec2(v.x, v.y);
+        let crit_pos = to_glam(camera.pixel_at_position(three_d_asset::vec3(0.0, 0.0, 0.0)));
+        let c_pos = to_glam(camera.pixel_at_position(three_d_asset::vec3(pos, 0.0, 0.0)));
+        let c_pos_up = to_glam(camera.pixel_at_position(three_d_asset::vec3(pos, 0.2, 0.0)));
+        let c_pos_down = to_glam(camera.pixel_at_position(three_d_asset::vec3(pos, -0.2, 0.0)));
         let dist_from_crit_center =
-            (crit_pos - c_pos).magnitude() * if pos < 0.0 { -1.0 } else { 1.0 };
+            (crit_pos - c_pos).length() * if pos < 0.0 { -1.0 } else { 1.0 };
         let cursor_angle_vector = c_pos_up - c_pos_down;
 
         let skew = cursor_angle_vector.y.atan2(cursor_angle_vector.x) + std::f32::consts::FRAC_PI_2;

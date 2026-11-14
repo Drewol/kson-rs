@@ -1,3 +1,4 @@
+use crate::vg_ui::{Vgfx, VgfxSyncExt};
 use crate::{
     async_service::AsyncService,
     button_codes::{LaserAxis, LaserState, UscButton, UscInputEvent},
@@ -164,6 +165,7 @@ pub struct SongSelectScene {
     filters: Vec<song_provider::SongFilterType>,
     sorts: Vec<song_provider::SongSort>,
     auto_rx: Receiver<crate::game_main::AutoPlay>,
+    vgfx: RefMut<Vgfx>,
     multiplayer: RefMut<multiplayer::MultiplayerService>,
     collection_dialog: Option<favourite_dialog::CollectionDialog>,
 }
@@ -214,6 +216,7 @@ impl SongSelectScene {
             score_events,
             song_provider,
             score_provider,
+            vgfx: services.get_required(),
             services,
             menu_state: MenuState::Songs,
             level_filter: 0,
@@ -453,7 +456,7 @@ fn add_preview_source<T: Source<Item = f32> + Send + 'static>(
 }
 
 impl Scene for SongSelectScene {
-    fn render_ui(&mut self, dt: f64) -> Result<()> {
+    fn render_ui(&mut self, dt: f64) -> Result<Vec<wgpu::CommandBuffer>> {
         profile_function!();
         let render_bg: Function = self.background_lua.globals().get("render")?;
         render_bg.call::<()>(dt / 1000.0)?;
@@ -482,7 +485,7 @@ impl Scene for SongSelectScene {
             }
         }
 
-        Ok(())
+        Ok(self.vgfx.take_commands())
     }
 
     fn is_suspended(&self) -> bool {
@@ -507,7 +510,7 @@ impl Scene for SongSelectScene {
                             if ui
                                 .add(
                                     egui::DragValue::new(&mut state.selected_index)
-                                        .clamp_range(0..=(song_count - 1))
+                                        .range(0..=(song_count - 1))
                                         .speed(0.1),
                                 )
                                 .changed()

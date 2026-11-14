@@ -1,18 +1,14 @@
-use std::num::NonZeroU32;
+use std::sync::Arc;
 
-use anyhow::anyhow;
-use femtovg::{renderer::OpenGl, Canvas};
-use glow::Context;
-use glutin::{
-    config::ConfigTemplateBuilder,
-    context::{ContextApi, ContextAttributesBuilder, PossiblyCurrentContext},
-    display::GetGlDisplay,
-    prelude::*,
-    surface::{SurfaceAttributesBuilder, WindowSurface},
+use femtovg::Canvas;
+use winit::event_loop::ActiveEventLoop;
+use winit::window::Window;
+
+use wgpu::TextureUsages;
+use winit::{
+    dpi::{PhysicalPosition, PhysicalSize},
+    monitor::MonitorHandle,
 };
-use glutin_winit::DisplayBuilder;
-use winit::{self, event_loop::ActiveEventLoop, raw_window_handle::HasWindowHandle};
-use winit::{dpi::PhysicalPosition, monitor::MonitorHandle};
 
 use crate::config::GameConfig;
 
@@ -24,18 +20,26 @@ pub fn find_monitor(
 }
 
 type WindowCreation = (
-    winit::window::Window,
-    glutin::surface::Surface<WindowSurface>,
-    Canvas<OpenGl>,
-    Context,
-    PossiblyCurrentContext,
+    Arc<winit::window::Window>,
+    wgpu::Surface<'static>,
+    egui_wgpu::RenderState,
+    Canvas<femtovg::renderer::WGPURenderer>,
+    wgpu::SurfaceConfiguration,
 );
 
+pub fn present_mode(vsync: bool) -> wgpu::PresentMode {
+    if vsync {
+        wgpu::PresentMode::AutoVsync
+    } else {
+        wgpu::PresentMode::AutoNoVsync
+    }
+}
+
 /// Mostly borrowed code from femtovg/examples
-pub fn create_window(event_loop: &ActiveEventLoop) -> anyhow::Result<WindowCreation> {
+pub async fn create_window(el: &ActiveEventLoop) -> anyhow::Result<WindowCreation> {
     let settings = &GameConfig::get().graphics;
 
-    let window_builder = winit::window::Window::default_attributes()
+    let window_builder = Window::default_attributes()
         .with_resizable(true)
         .with_title("USC Game");
 
@@ -44,23 +48,19 @@ pub fn create_window(event_loop: &ActiveEventLoop) -> anyhow::Result<WindowCreat
         crate::config::Fullscreen::Windowed { pos, size } => {
             window_builder.with_position(pos).with_inner_size(size)
         }
-        crate::config::Fullscreen::Borderless { monitor } => {
-            window_builder.with_fullscreen(Some(winit::window::Fullscreen::Borderless(
-                find_monitor(event_loop.available_monitors(), monitor),
-            )))
-        }
+        crate::config::Fullscreen::Borderless { monitor } => window_builder.with_fullscreen(Some(
+            winit::window::Fullscreen::Borderless(find_monitor(el.available_monitors(), monitor)),
+        )),
         crate::config::Fullscreen::Exclusive {
             monitor,
             resolution,
         } => {
-            if let Some(mode) =
-                find_monitor(event_loop.available_monitors(), monitor).and_then(|monitor| {
-                    monitor
-                        .video_modes()
-                        .filter(|x| x.size() == resolution)
-                        .max_by_key(|x| x.refresh_rate_millihertz())
-                })
-            {
+            if let Some(mode) = find_monitor(el.available_monitors(), monitor).and_then(|monitor| {
+                monitor
+                    .video_modes()
+                    .filter(|x| x.size() == resolution)
+                    .max_by_key(|x| x.refresh_rate_millihertz())
+            }) {
                 window_builder.with_fullscreen(Some(winit::window::Fullscreen::Exclusive(mode)))
             } else {
                 window_builder
@@ -68,103 +68,76 @@ pub fn create_window(event_loop: &ActiveEventLoop) -> anyhow::Result<WindowCreat
         }
     };
 
-    let template = if cfg!(target_os = "android") {
-        ConfigTemplateBuilder::new()
-    } else {
-        ConfigTemplateBuilder::new()
-            .with_alpha_size(8)
-            .with_multisampling(settings.anti_alias)
-    };
-
-    let display_builder = if cfg!(target_os = "android") {
-        DisplayBuilder::new()
-            .with_preference(glutin_winit::ApiPreference::PreferEgl)
-            .with_window_attributes(Some(window_builder))
-    } else {
-        DisplayBuilder::new().with_window_attributes(Some(window_builder))
-    };
-
-    let (window, gl_config) = display_builder
-        .build(event_loop, template, |configs| {
-            // Find the config with the maximum number of samples, so our triangle will
-            // be smooth.
-            configs
-                .reduce(|accum, config| {
-                    let transparency_check = config.supports_transparency().unwrap_or(false)
-                        & !accum.supports_transparency().unwrap_or(false);
-
-                    if transparency_check || config.num_samples() < accum.num_samples() {
-                        config
-                    } else {
-                        accum
-                    }
-                })
-                .expect("No config available")
-        })
-        .map_err(|e| {
-            log::error!("{e}");
-            anyhow!("Failed to build window")
-        })?;
-
-    let window = window.ok_or(anyhow!("No window"))?;
-
-    let gl_display = gl_config.display();
-    let raw_window_handle = window.window_handle().ok().map(|x| x.as_raw());
-    let context_attributes = ContextAttributesBuilder::new().build(raw_window_handle);
-    let fallback_context_attributes = ContextAttributesBuilder::new()
-        .with_context_api(ContextApi::Gles(Some(glutin::context::Version {
-            major: 3,
-            minor: 1,
-        })))
-        .build(raw_window_handle);
-    let mut not_current_gl_context = Some(unsafe {
-        gl_display
-            .create_context(&gl_config, &context_attributes)
-            .unwrap_or_else(|_| {
-                gl_display
-                    .create_context(&gl_config, &fallback_context_attributes)
-                    .expect("failed to create context")
-            })
-    });
-
-    let (width, height): (u32, u32) = window.inner_size().into();
-    let attrs = SurfaceAttributesBuilder::<WindowSurface>::new().build(
-        raw_window_handle.ok_or(anyhow!("No window handle"))?,
-        NonZeroU32::new(width).ok_or(anyhow!("Zero width"))?,
-        NonZeroU32::new(height).ok_or(anyhow!("Zero height"))?,
+    let instance = wgpu::Instance::new(
+        wgpu::InstanceDescriptor::new_with_display_handle_from_env(Box::new(
+            el.owned_display_handle(),
+        )),
     );
 
-    let surface = unsafe {
-        gl_config
-            .display()
-            .create_window_surface(&gl_config, &attrs)?
-    };
+    let window = Arc::new(el.create_window(window_builder)?);
 
-    let gl_context = not_current_gl_context
-        .take()
-        .ok_or(anyhow!("No GL context"))?
-        .make_current(&surface)?;
+    let PhysicalSize { width, height } = window.inner_size();
+
+    let surface = instance.create_surface(window.clone())?;
+
+    let adapter = wgpu::util::initialize_adapter_from_env_or_default(&instance, Some(&surface))
+        .await
+        .map_err(|e| anyhow::anyhow!("Failed to find an appropriate graphics adapter: {e}"))?;
+
+    log::info!("Using graphics adapter: {:?}", adapter.get_info());
+
+    // Create the logical device and command queue
+    let (device, queue) = adapter
+        .request_device(
+            &wgpu::DeviceDescriptor {
+                label: None,
+                required_features: wgpu::Features::empty(),
+                // Use what the adapter supports, skin shaders can use many uniforms and textures
+                required_limits: adapter.limits(),
+                memory_hints: wgpu::MemoryHints::Performance,
+                experimental_features: wgpu::ExperimentalFeatures::disabled(),
+                trace: wgpu::Trace::Off,
+            },
+        )
+        .await?;
+
+    let mut surface_config = surface
+        .get_default_config(&adapter, width.max(1), height.max(1))
+        .ok_or_else(|| anyhow::anyhow!("Surface not supported by adapter"))?;
+
+    let swapchain_capabilities = surface.get_capabilities(&adapter);
+    let swapchain_format = swapchain_capabilities
+        .formats
+        .iter()
+        .find(|f| !f.is_srgb())
+        .copied()
+        .unwrap_or_else(|| swapchain_capabilities.formats[0]);
+    surface_config.format = swapchain_format;
+    surface_config.usage |= TextureUsages::COPY_SRC | TextureUsages::COPY_DST;
+    surface_config.present_mode = present_mode(settings.vsync);
+    surface.configure(&device, &surface_config);
+
+    let renderer = egui_wgpu::Renderer::new(
+        &device,
+        surface_config.format,
+        egui_wgpu::RendererOptions::default(),
+    );
+
+    let egui_state = egui_wgpu::RenderState {
+        instance,
+        adapter,
+        available_adapters: vec![],
+        device,
+        queue,
+        target_format: surface_config.format,
+        renderer: Arc::new(egui::mutex::RwLock::new(renderer)),
+    };
 
     let renderer =
-        unsafe { OpenGl::new_from_function_cstr(|s| gl_display.get_proc_address(s) as *const _) }
-            .expect("Cannot create renderer");
-    let context = unsafe {
-        glow::Context::from_loader_function_cstr(|symbol| {
-            gl_display.get_proc_address(symbol) as *const _
-        })
-    };
+        femtovg::renderer::WGPURenderer::new(egui_state.device.clone(), egui_state.queue.clone());
 
     let mut canvas = Canvas::new(renderer).expect("Cannot create canvas");
-    let scale_factor = window.scale_factor();
-    canvas.set_size(width, height, scale_factor as f32);
-    surface.set_swap_interval(
-        &gl_context,
-        if settings.vsync {
-            glutin::surface::SwapInterval::Wait(NonZeroU32::new(1).expect("Bad value"))
-        } else {
-            glutin::surface::SwapInterval::DontWait
-        },
-    )?;
+    canvas.set_size(width, height, window.scale_factor() as f32);
 
-    Ok((window, surface, canvas, context, gl_context))
+    Ok((window, surface, egui_state, canvas, surface_config))
 }

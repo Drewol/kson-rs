@@ -165,8 +165,11 @@ struct EnabledEffects {
 }
 
 impl Scene for AudioTest {
-    fn render_ui(&mut self, _dt: f64) -> anyhow::Result<()> {
-        Ok(())
+    fn render_ui(
+        &mut self,
+        _dt: f64,
+    ) -> std::result::Result<std::vec::Vec<wgpu::CommandBuffer>, anyhow::Error> {
+        Ok(vec![])
     }
 
     fn is_suspended(&self) -> bool {
