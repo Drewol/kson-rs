@@ -95,7 +95,7 @@ fn ksh_defaults_and_option_values() {
     assert_eq!(c.meta.title, "1+1=2");
     assert_eq!(c.beat.bpm, vec![(0, 120.0)]);
     assert_eq!(c.beat.time_sig[0].0, 0);
-    assert_eq!((c.beat.time_sig[0].1 .0, c.beat.time_sig[0].1 .1), (4, 4));
+    assert_eq!(c.beat.time_sig[0].1, crate::TimeSignature::default());
     assert_eq!(c.meta.difficulty, 0);
     // No "ver": legacy chart
     assert_eq!(c.compat.as_ref().unwrap().ksh_version, "100");

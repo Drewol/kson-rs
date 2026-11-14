@@ -136,7 +136,7 @@ fn ticks_from_interval(
         let mut step = get_hold_step_at(y, chart);
         y += step;
         y -= y % step;
-        while y <= interval.y + interval.l - step {
+        while y + step <= interval.y + interval.l {
             res.push(PlacedScoreTick {
                 y,
                 tick: ScoreTick::Hold {
@@ -199,7 +199,7 @@ fn ticks_from_laser_section(
             y += step;
         }
         y -= y % step;
-        while y <= section.0 + e.ry - step {
+        while y + step <= section.0 + e.ry {
             if match res.last() {
                 Some(s) => s.y == y,
                 None => false,
@@ -227,8 +227,7 @@ fn ticks_from_laser_section(
     }
 
     //ensure there's always one tick
-    if res.is_empty() {
-        assert!(section.1.len() >= 2);
+    if res.is_empty() && section.1.len() >= 2 {
         let y = section.0 + section.1.last().map(|s| s.ry / 2).unwrap_or_default();
 
         res.push(PlacedScoreTick {

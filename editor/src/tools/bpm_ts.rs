@@ -154,7 +154,7 @@ pub struct TimeSigTool {
 impl TimeSigTool {
     pub fn new() -> Self {
         TimeSigTool {
-            ts: kson::TimeSignature(4, 4),
+            ts: kson::TimeSignature::default(),
             state: CursorToolStates::None,
             cursor_tick: 0,
         }
@@ -185,7 +185,7 @@ impl CursorObject for TimeSigTool {
                 self.ts = chart.beat.time_sig[idx].1;
             } else {
                 self.state = CursorToolStates::Add(measure);
-                self.ts = kson::TimeSignature(4, 4);
+                self.ts = kson::TimeSignature::default();
             }
         }
     }
@@ -230,7 +230,7 @@ impl CursorObject for TimeSigTool {
         let complete_func: Option<CompletionFn<[i32; 2]>> = match self.state {
             CursorToolStates::None => None,
             CursorToolStates::Add(measure) => Some(Box::new(move |a, ts| {
-                let v = kson::TimeSignature(ts[0] as u32, ts[1] as u32);
+                let v = kson::TimeSignature::new(ts[0] as u32, ts[1] as u32);
                 let idx = measure;
 
                 a.new_action(i18n::fl!("add_time_signature_change"), move |c| {

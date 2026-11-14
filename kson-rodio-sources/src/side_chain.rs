@@ -32,7 +32,7 @@ pub fn side_chain<I: Source>(
     let sample_rate = source.sample_rate().get() as f64;
 
     let dur_to_u64 = |dur: &Duration| (dur.as_secs_f64() * sample_rate) as u64;
-
+    let ratio = ratio.max(1.0);
     SideChain {
         input: source,
         time: 0,
@@ -56,7 +56,7 @@ where
 
     fn next(&mut self) -> Option<Self::Item> {
         let original = self.input.next();
-        if self.countdown > 0 || self.mix < f32::EPSILON {
+        if self.countdown > 0 || self.mix < f32::EPSILON || self.length == 0 {
             self.countdown = self.countdown.saturating_sub(1);
             return original;
         }

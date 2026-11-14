@@ -954,7 +954,10 @@ impl crate::Chart {
             });
         }
         if new_chart.beat.time_sig.first().is_none_or(|t| t.0 != 0) {
-            new_chart.beat.time_sig.insert(0, (0, TimeSignature(4, 4)));
+            new_chart
+                .beat
+                .time_sig
+                .insert(0, (0, TimeSignature::default()));
         }
         if new_chart.beat.bpm.first().is_none_or(|b| b.0 != 0) {
             let first = new_chart.beat.bpm.first().map(|b| b.1).unwrap_or(120.0);

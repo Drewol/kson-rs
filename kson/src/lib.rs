@@ -754,17 +754,26 @@ impl<'a, T> Iterator for ByNotesIter<'a, T> {
 }
 
 /// (Numerator, Denominator)
-#[derive(Serialize, Deserialize, Copy, Clone)]
+#[derive(Debug, Serialize, Deserialize, Copy, Clone, PartialEq, Eq)]
 pub struct TimeSignature(pub u32, pub u32);
 
 impl TimeSignature {
+    pub fn new(n: u32, d: u32) -> Self {
+        TimeSignature(n.max(1), d.max(1))
+    }
     //Parse from "n/d" string
     fn from_str(s: &str) -> Self {
         let mut data = s.split('/');
         let n: u32 = data.next().unwrap_or("4").parse().unwrap_or(4);
         let d: u32 = data.next().unwrap_or("4").parse().unwrap_or(4);
 
-        TimeSignature(n, d)
+        TimeSignature(n.max(1), d.max(1))
+    }
+}
+
+impl Default for TimeSignature {
+    fn default() -> Self {
+        Self(4, 4)
     }
 }
 
@@ -782,8 +791,8 @@ pub struct BeatInfo {
 impl Default for BeatInfo {
     fn default() -> Self {
         Self {
-            bpm: Default::default(),
-            time_sig: vec![(0, TimeSignature(4, 4))],
+            bpm: vec![],
+            time_sig: vec![(0, TimeSignature::default())],
             scroll_speed: vec![GraphPoint {
                 v: 1.0,
                 ..Default::default()
@@ -1263,7 +1272,7 @@ impl Chart {
     }
 
     pub fn ms_to_tick(&self, ms: f64) -> u32 {
-        if ms <= 0.0 {
+        if ms <= 0.0 || self.beat.bpm.is_empty() {
             return 0;
         }
 
@@ -1273,6 +1282,7 @@ impl Chart {
                 .unwrap_or(std::cmp::Ordering::Less)
         }) {
             Ok(i) => self.beat.bpm[i],
+            Err(0) => (0, self.beat.bpm[0].1),
             Err(i) => self.beat.bpm[i - 1],
         };
 
@@ -1282,9 +1292,10 @@ impl Chart {
 
     pub fn tick_to_ms(&self, tick: u32) -> f64 {
         let mut ret: f64 = 0.0;
-        let mut prev = self.beat.bpm.first().unwrap_or(&(0, 120.0));
+        let mut prev = self.beat.bpm.first().copied().unwrap_or((0, 120.0));
+        prev.0 = 0;
 
-        for b in &self.beat.bpm {
+        for b in self.beat.bpm.iter().copied() {
             if b.0 > tick {
                 break;
             }
@@ -1347,8 +1358,13 @@ impl Chart {
     }
 
     pub fn bpm_at_tick(&self, tick: u32) -> f64 {
+        if self.beat.bpm.is_empty() {
+            return 120.0;
+        }
+
         match self.beat.bpm.binary_search_by(|b| b.0.cmp(&tick)) {
             Ok(i) => self.beat.bpm[i].1,
+            Err(0) => self.beat.bpm[0].1,
             Err(i) => self.beat.bpm[i - 1].1,
         }
     }
@@ -1363,7 +1379,7 @@ impl Chart {
         let mut prev_start = 0;
         let mut prev_sig = match self.beat.time_sig.first() {
             Some(v) => v,
-            None => &(0, TimeSignature(4, 4)),
+            None => &(0, TimeSignature::default()),
         };
 
         for time_sig in &self.beat.time_sig {

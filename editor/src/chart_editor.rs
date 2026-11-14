@@ -553,7 +553,7 @@ impl MainState {
         } else {
             let mut c = kson::Chart::new();
             c.beat.bpm.push((0, 120.0));
-            c.beat.time_sig.push((0, kson::TimeSignature(4, 4)));
+            c.beat.time_sig.push((0, kson::TimeSignature::default()));
 
             (c, None)
         };
@@ -798,7 +798,10 @@ impl MainState {
                 GuiEvent::NewChart(new_chart_opts) => {
                     let mut new_chart = kson::Chart::new();
                     new_chart.beat.bpm.push((0, 120.0));
-                    new_chart.beat.time_sig.push((0, kson::TimeSignature(4, 4)));
+                    new_chart
+                        .beat
+                        .time_sig
+                        .push((0, kson::TimeSignature::default()));
 
                     let audio_pathbuf = std::path::PathBuf::from(new_chart_opts.audio);
                     new_chart.audio.bgm = kson::BgmInfo {

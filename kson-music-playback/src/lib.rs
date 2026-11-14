@@ -329,13 +329,17 @@ impl AudioPlayback {
                                             0.05,
                                         ),
                                     ),
-                                    kson::effects::AudioEffect::Wobble(w) => Box::new(wobble(
-                                        base,
-                                        1.0 / ((240.0 * w.wave_length.interpolate(1.0, true))
-                                            / bpm as f32),
-                                        w.freq_1.interpolate(1.0, true) as _,
-                                        w.freq_2.interpolate(1.0, true) as _,
-                                    )),
+                                    kson::effects::AudioEffect::Wobble(w)
+                                        if w.wave_length.interpolate(1.0, true) > 0.0 =>
+                                    {
+                                        Box::new(wobble(
+                                            base,
+                                            1.0 / ((240.0 * w.wave_length.interpolate(1.0, true))
+                                                / bpm as f32),
+                                            w.freq_1.interpolate(1.0, true) as _,
+                                            w.freq_2.interpolate(1.0, true) as _,
+                                        ))
+                                    }
                                     kson::effects::AudioEffect::Tapestop(_t) => {
                                         Box::new(tape_stop(base, start, duration))
                                     }
