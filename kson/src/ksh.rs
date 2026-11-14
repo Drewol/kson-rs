@@ -800,8 +800,9 @@ impl crate::Chart {
                         "fx-r_param1" => {
                             fx_legacy_param[1] = Some(line_value);
                         }
-                        "tilt" => parse_tilt(&mut new_chart.camera, y, &line_value)
-                            .with_line(file_line)?,
+                        "tilt" => {
+                            _ = parse_tilt(&mut new_chart.camera, y, &line_value);
+                        }
                         "filtertype" => {
                             new_chart
                                 .audio
@@ -1310,6 +1311,7 @@ fn parse_tilt(
     y: u32,
     line_value: &str,
 ) -> Result<(), KshReadErrorDetails> {
+    // Err is not an error, it's simply a set value instead of a named one
     let value = match line_value {
         "normal" => Ok(NamedTiltValue::Normal),
         "bigger" | "big" => Ok(NamedTiltValue::Bigger),

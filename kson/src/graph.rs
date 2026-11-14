@@ -32,7 +32,7 @@ impl Graph<f64> for Vec<GraphPoint> {
                     let x = (tick - start_p.y as f64) / (end_p.y - start_p.y) as f64;
                     let width = end_p.v - start_v;
                     let (a, b) = (start_p.a, start_p.b);
-                    if (a - b).abs() > f64::EPSILON {
+                    if (a - b).abs() > 1.0e-8 {
                         start_v + do_curve(x, a, b) * width
                     } else {
                         start_v + x * width
@@ -100,7 +100,7 @@ impl Graph<Option<f64>> for Vec<GraphSectionPoint> {
                 let x = (tick - start_p.ry as f64) / (end_p.ry - start_p.ry) as f64;
                 let width = end_p.v - start_v;
                 let (a,b) =  (start_p.a, start_p.b);
-                if (a-b).abs() > f64::EPSILON {
+                if (a-b).abs() > 1.0e-8 {
                     Some(start_v + do_curve(x, a, b) * width)
                 }
                 else {
@@ -182,7 +182,7 @@ impl Graph<Option<f64>> for Vec<LaserSection> {
 
     fn direction_at(&self, tick: f64) -> Option<f64> {
         match self.binary_search_by(|s| s.0.cmp(&(tick as u32))) {
-            Ok(i) => self[i].value_at(tick),
+            Ok(i) => self[i].direction_at(tick),
             Err(i) => {
                 if i > 0 {
                     self[i - 1].direction_at(tick)

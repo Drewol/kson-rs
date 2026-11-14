@@ -240,8 +240,10 @@ impl ScreenState {
                     for i in 0..curve_segments {
                         let cssv = sv + curve_segment_progress_h * i as f32;
                         let csev = sv + curve_segment_progress_h * (i + 1) as f32;
-                        let csv = do_curve(cssv as f64, curve_points.0, curve_points.1) as f32;
-                        let cev = do_curve(csev as f64, curve_points.0, curve_points.1) as f32;
+                        let csv =
+                            kson::do_curve(cssv as f64, curve_points.0, curve_points.1) as f32;
+                        let cev =
+                            kson::do_curve(csev as f64, curve_points.0, curve_points.1) as f32;
 
                         let sx = x
                             + (start_value + (csv * value_width)) * track_lane_diff
@@ -1479,16 +1481,6 @@ impl MainState {
 #[allow(unused)]
 fn get_extension_from_filename(filename: &str) -> Option<&str> {
     Path::new(filename).extension().and_then(OsStr::to_str)
-}
-
-//https://github.com/m4saka/ksh2kson/issues/4#issuecomment-573343229
-pub fn do_curve(x: f64, a: f64, b: f64) -> f64 {
-    let t = if x < f64::EPSILON || a < f64::EPSILON {
-        (a - (a * a + x - 2.0 * a * x).sqrt()) / (-1.0 + 2.0 * a)
-    } else {
-        x / (a + (a * a + (1.0 - 2.0 * a) * x).sqrt())
-    };
-    2.0 * (1.0 - t) * t * b + t * t
 }
 
 fn open_chart_file(path: PathBuf) -> Result<Option<(kson::Chart, PathBuf)>> {

@@ -449,6 +449,7 @@ impl LaserSection {
 
 //https://github.com/m4saka/ksh2kson/issues/4#issuecomment-573343229
 pub fn do_curve(x: f64, a: f64, b: f64) -> f64 {
+    let (x, a, b) = (x.clamp(0.0, 1.0), a.clamp(0.0, 1.0), b.clamp(0.0, 1.0));
     let t = if (x < 0.01 || a < 0.01) && ((a - 0.5).abs() > 0.01) {
         (a - (a * a + x - 2.0 * a * x).sqrt()) / (-1.0 + 2.0 * a)
     } else {
@@ -943,7 +944,6 @@ pub type DefKeyValuePair<T> = (String, T);
 pub trait DefKeyValuePairExt<T> {
     fn get_by_key(&self, key: impl AsRef<str>) -> Option<&T>;
     fn get_mut_by_key(&mut self, key: impl AsRef<str>) -> Option<&mut T>;
-    fn get_or_insert(&mut self, key: String, v: T) -> &T;
     fn keys(&self) -> impl Iterator<Item = &String>;
     fn contains_key(&self, key: impl AsRef<str>) -> bool;
 }
@@ -957,15 +957,6 @@ impl<T> DefKeyValuePairExt<T> for Vec<DefKeyValuePair<T>> {
     fn get_mut_by_key(&mut self, key: impl AsRef<str>) -> Option<&mut T> {
         let key = key.as_ref();
         self.iter_mut().find(|v| v.0 == key).map(|v| &mut v.1)
-    }
-
-    fn get_or_insert(&mut self, key: String, v: T) -> &T {
-        if let Ok(t) = self.binary_search_by_key(&&key, |a| &a.0) {
-            &self[t].1
-        } else {
-            self.push((key, v));
-            &self.last().unwrap().1
-        }
     }
 
     fn keys(&self) -> impl Iterator<Item = &String> {
