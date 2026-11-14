@@ -286,14 +286,22 @@ impl EffectParameterValue {
     /// Returns a single (non-range) value equal to the start of this value's range
     fn range_start(&self) -> Option<Self> {
         Some(match self {
-            EffectParameterValue::Length(l, t) => EffectParameterValue::Length(*l.start()..=*l.start(), *t),
-            EffectParameterValue::Sample(l) => EffectParameterValue::Sample(*l.start()..=*l.start()),
+            EffectParameterValue::Length(l, t) => {
+                EffectParameterValue::Length(*l.start()..=*l.start(), *t)
+            }
+            EffectParameterValue::Sample(l) => {
+                EffectParameterValue::Sample(*l.start()..=*l.start())
+            }
             EffectParameterValue::Int(l) => EffectParameterValue::Int(*l.start()..=*l.start()),
-            EffectParameterValue::Switch(l) => EffectParameterValue::Switch(*l.start()..=*l.start()),
+            EffectParameterValue::Switch(l) => {
+                EffectParameterValue::Switch(*l.start()..=*l.start())
+            }
             EffectParameterValue::Rate(l) => EffectParameterValue::Rate(*l.start()..=*l.start()),
             EffectParameterValue::Pitch(l) => EffectParameterValue::Pitch(*l.start()..=*l.start()),
             EffectParameterValue::Float(l) => EffectParameterValue::Float(*l.start()..=*l.start()),
-            EffectParameterValue::Decibel(l) => EffectParameterValue::Decibel(*l.start()..=*l.start()),
+            EffectParameterValue::Decibel(l) => {
+                EffectParameterValue::Decibel(*l.start()..=*l.start())
+            }
             EffectParameterValue::Freq(l) => EffectParameterValue::Freq(*l.start()..=*l.start()),
             EffectParameterValue::Filename(_) | EffectParameterValue::Undefined => return None,
         })

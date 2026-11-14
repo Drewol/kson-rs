@@ -36,6 +36,7 @@ use kson_rodio_sources::{
     owned_source::{self, owned_source},
 };
 
+use glam::{vec2, vec3, vec4, Mat4, Vec3, Vec4};
 use log::{info, warn};
 use mlua::{Function, Lua, LuaSerdeExt, RegistryKey};
 use multiplayer_protocol::messages::{client::ClientCommand, get_topic, types::User};
@@ -51,7 +52,6 @@ use std::{
     sync::{mpsc::Sender, Arc},
     time::{Duration, SystemTime},
 };
-use glam::{vec2, vec3, vec4, Mat4, Vec3, Vec4};
 use three_d_asset::Camera;
 use wgpu::SurfaceTexture;
 
@@ -516,8 +516,7 @@ impl SceneData for GameData {
         texture_folder.push("textures");
         texture_folder.push("dummy.png");
 
-        let mut fx_long_shader = ShadedMesh::new(&context, "holdbutton", &shader_folder)
-            ?
+        let mut fx_long_shader = ShadedMesh::new(&context, "holdbutton", &shader_folder)?
             .with_transform(Mat4::from_translation(vec3(-0.5, 0.0, 0.0)));
 
         let mut beam_shader =
@@ -544,8 +543,7 @@ impl SceneData for GameData {
             vec2(2.0 / 6.0, 1.0),
         ));
 
-        let mut bt_long_shader = ShadedMesh::new(&context, "holdbutton", &shader_folder)
-            ?
+        let mut bt_long_shader = ShadedMesh::new(&context, "holdbutton", &shader_folder)?
             .with_transform(Mat4::from_translation(vec3(-0.5, 0.0, 0.0)));
 
         bt_long_shader.use_texture(
@@ -560,8 +558,7 @@ impl SceneData for GameData {
             vec2(1.0 / 6.0, 1.0),
         ));
 
-        let mut fx_chip_shader = ShadedMesh::new(&context, "button", &shader_folder)
-            ?
+        let mut fx_chip_shader = ShadedMesh::new(&context, "button", &shader_folder)?
             .with_transform(Mat4::from_translation(vec3(-0.5, 0.0, 0.0)));
         fx_chip_shader.use_texture(
             "mainTex",
@@ -576,8 +573,7 @@ impl SceneData for GameData {
             vec2(2.0 / 6.0, fx_height),
         ));
 
-        let mut bt_chip_shader = ShadedMesh::new(&context, "button", &shader_folder)
-            ?
+        let mut bt_chip_shader = ShadedMesh::new(&context, "button", &shader_folder)?
             .with_transform(Mat4::from_translation(vec3(-0.5, 0.0, 0.0)));
         let bt_height = 1.0;
 
@@ -595,8 +591,7 @@ impl SceneData for GameData {
 
         let chip_h = (1.0 / 6.0) * (bt_tex.height() as f32 / bt_tex.width() as f32);
 
-        let mut track_shader =
-            ShadedMesh::new(&context, "track", &shader_folder)?;
+        let mut track_shader = ShadedMesh::new(&context, "track", &shader_folder)?;
         track_shader.set_data_mesh(&graphics::xy_rect(
             Vec3::ZERO,
             vec2(1.0, ChartView::TRACK_LENGTH * 2.0),
@@ -621,15 +616,11 @@ impl SceneData for GameData {
             true,
         )?;
 
-        let mut laser_left =
-            ShadedMesh::new(&context, "laser", &shader_folder)?;
-        let mut laser_left_active =
-            ShadedMesh::new(&context, "laser", &shader_folder)?;
+        let mut laser_left = ShadedMesh::new(&context, "laser", &shader_folder)?;
+        let mut laser_left_active = ShadedMesh::new(&context, "laser", &shader_folder)?;
 
-        let mut laser_right =
-            ShadedMesh::new(&context, "laser", &shader_folder)?;
-        let mut laser_right_active =
-            ShadedMesh::new(&context, "laser", &shader_folder)?;
+        let mut laser_right = ShadedMesh::new(&context, "laser", &shader_folder)?;
+        let mut laser_right_active = ShadedMesh::new(&context, "laser", &shader_folder)?;
 
         laser_left.use_texture(
             "mainTex",

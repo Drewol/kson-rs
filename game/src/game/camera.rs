@@ -247,8 +247,10 @@ impl From<&ChartCamera> for Camera {
         let begin_dist = (-track_end - final_camera_pos).length();
         let z_far = end_dist.max(begin_dist);
 
-        let roll =
-            Matrix4::from_axis_angle(ChartView::TRACK_DIRECTION.to_array().into(), Deg(-(val.tilt.0 + val.tilt.1)));
+        let roll = Matrix4::from_axis_angle(
+            ChartView::TRACK_DIRECTION.to_array().into(),
+            Deg(-(val.tilt.0 + val.tilt.1)),
+        );
         let target = roll.transform_vector((target - final_camera_pos).to_array().into())
             + Vec3::from(final_camera_pos.to_array());
         let up = roll.transform_vector(up.to_array().into());

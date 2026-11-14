@@ -67,7 +67,10 @@ fn ksh(header: &str, body: &str) -> crate::Chart {
 
 #[test]
 fn ksh_long_bt_followed_by_chip() {
-    let c = ksh("t=120", "beat=4/4\n2000|00|--\n2000|00|--\n1000|00|--\n0000|00|--");
+    let c = ksh(
+        "t=120",
+        "beat=4/4\n2000|00|--\n2000|00|--\n1000|00|--\n0000|00|--",
+    );
     let bt = &c.note.bt[0];
     assert_eq!(bt.len(), 2);
     assert_eq!((bt[0].y, bt[0].l), (0, 480));
@@ -76,7 +79,10 @@ fn ksh_long_bt_followed_by_chip() {
 
 #[test]
 fn ksh_long_fx_followed_by_chip() {
-    let c = ksh("t=120", "beat=4/4\n0000|10|--\n0000|10|--\n0000|20|--\n0000|00|--");
+    let c = ksh(
+        "t=120",
+        "beat=4/4\n0000|10|--\n0000|10|--\n0000|20|--\n0000|00|--",
+    );
     let fx = &c.note.fx[0];
     assert_eq!(fx.len(), 2);
     assert_eq!((fx[0].y, fx[0].l), (0, 480));
@@ -109,7 +115,10 @@ fn ksh_unknown_options_and_deprecated_tilt() {
     );
     assert_eq!(c.meta.difficulty, 3);
     let unknown = &c.compat.as_ref().unwrap().ksh_unknown;
-    assert_eq!(unknown.option.get("foo:bar:baz"), Some(&vec![(0, "1".to_string())]));
+    assert_eq!(
+        unknown.option.get("foo:bar:baz"),
+        Some(&vec![(0, "1".to_string())])
+    );
     assert!(matches!(
         c.camera.tilt[0].1,
         crate::camera::TiltValue::Named(crate::camera::NamedTiltValue::Bigger)
@@ -146,12 +155,20 @@ fn ksh_legacy_and_builtin_fx() {
     let long_event = &c.audio.audio_effect.fx.long_event;
     let retrigger = &long_event.get("retrigger").expect("retrigger")[0];
     assert_eq!(
-        retrigger[0].value().unwrap().get("wave_length").map(String::as_str),
+        retrigger[0]
+            .value()
+            .unwrap()
+            .get("wave_length")
+            .map(String::as_str),
         Some("1/8")
     );
     let tapestop = &long_event.get("tapestop").expect("tapestop")[1];
     assert_eq!(
-        tapestop[0].value().unwrap().get("speed").map(String::as_str),
+        tapestop[0]
+            .value()
+            .unwrap()
+            .get("speed")
+            .map(String::as_str),
         Some("20%")
     );
     // Builtin effects are resolved without a definition

@@ -68,11 +68,9 @@ pub async fn create_window(el: &ActiveEventLoop) -> anyhow::Result<WindowCreatio
         }
     };
 
-    let instance = wgpu::Instance::new(
-        wgpu::InstanceDescriptor::new_with_display_handle_from_env(Box::new(
-            el.owned_display_handle(),
-        )),
-    );
+    let instance = wgpu::Instance::new(wgpu::InstanceDescriptor::new_with_display_handle_from_env(
+        Box::new(el.owned_display_handle()),
+    ));
 
     let window = Arc::new(el.create_window(window_builder)?);
 
@@ -88,17 +86,15 @@ pub async fn create_window(el: &ActiveEventLoop) -> anyhow::Result<WindowCreatio
 
     // Create the logical device and command queue
     let (device, queue) = adapter
-        .request_device(
-            &wgpu::DeviceDescriptor {
-                label: None,
-                required_features: wgpu::Features::empty(),
-                // Use what the adapter supports, skin shaders can use many uniforms and textures
-                required_limits: adapter.limits(),
-                memory_hints: wgpu::MemoryHints::Performance,
-                experimental_features: wgpu::ExperimentalFeatures::disabled(),
-                trace: wgpu::Trace::Off,
-            },
-        )
+        .request_device(&wgpu::DeviceDescriptor {
+            label: None,
+            required_features: wgpu::Features::empty(),
+            // Use what the adapter supports, skin shaders can use many uniforms and textures
+            required_limits: adapter.limits(),
+            memory_hints: wgpu::MemoryHints::Performance,
+            experimental_features: wgpu::ExperimentalFeatures::disabled(),
+            trace: wgpu::Trace::Off,
+        })
         .await?;
 
     let mut surface_config = surface

@@ -443,11 +443,7 @@ impl ChartView {
                     NoteType::FxHoldActive(side, y) => fx_hold.push_transformed(
                         &bases.fx,
                         transform,
-                        hold_vertex_data(
-                            hold_state(hold_ok(side + 4, y)),
-                            object_glow,
-                            hit_state,
-                        ),
+                        hold_vertex_data(hold_state(hold_ok(side + 4, y)), object_glow, hit_state),
                     ),
                 }
             }

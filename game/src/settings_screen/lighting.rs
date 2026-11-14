@@ -2,7 +2,7 @@ use std::{collections::HashMap, ffi::CString, time::SystemTime};
 
 use egui::Ui;
 #[cfg(not(target_os = "android"))]
-use hidlights::{DeviceInfo, Report, DeviceHandle};
+use hidlights::{DeviceHandle, DeviceInfo, Report};
 use itertools::Itertools;
 use log::warn;
 

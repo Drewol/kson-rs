@@ -223,7 +223,9 @@ fn parse_lane_spin(chart: &mut Chart, y: u32, chars: &[u8]) {
         (b'@', b'<') => slam_event
             .half_spin
             .push(CamPatternInvokeSpin(y, -1, length)),
-        (b'@', b'>') => slam_event.half_spin.push(CamPatternInvokeSpin(y, 1, length)),
+        (b'@', b'>') => slam_event
+            .half_spin
+            .push(CamPatternInvokeSpin(y, 1, length)),
         (b'@', b'(') => slam_event.spin.push(CamPatternInvokeSpin(y, -1, length)),
         (b'@', b')') => slam_event.spin.push(CamPatternInvokeSpin(y, 1, length)),
         (b'S', d @ (b'<' | b'>')) => {
@@ -372,8 +374,7 @@ impl crate::Chart {
                 "information" => new_chart.meta.information = Some(value),
                 "filtertype" => header_filtertype = Some(value),
                 "pfiltergain" => {
-                    header_filter_gain =
-                        Some(value.parse::<f64>().with_line(file_line)?.div(100.0))
+                    header_filter_gain = Some(value.parse::<f64>().with_line(file_line)?.div(100.0))
                 }
                 "pfilterdelay" => {
                     new_chart.audio.audio_effect.laser.peaking_filter_delay =
@@ -401,12 +402,8 @@ impl crate::Chart {
         }
 
         // Version dependent behavior ("ver_compat" takes priority over "ver")
-        let behavior_ver = ksh_version_number(
-            ver_compat
-                .as_deref()
-                .or(ver.as_deref())
-                .unwrap_or("100"),
-        );
+        let behavior_ver =
+            ksh_version_number(ver_compat.as_deref().or(ver.as_deref()).unwrap_or("100"));
         let syntax_ver = ksh_version_number(ver.as_deref().unwrap_or("100"));
         if behavior_ver < 200 {
             new_chart.compat.get_or_insert_default().ksh_version =
@@ -419,10 +416,7 @@ impl crate::Chart {
             let separator = if syntax_ver < 166 { '/' } else { ';' };
             let mut layer_parts = layer.split(separator);
             let filename = layer_parts.next().unwrap_or_default().to_string();
-            let duration = layer_parts
-                .next()
-                .and_then(|x| x.parse().ok())
-                .unwrap_or(0);
+            let duration = layer_parts.next().and_then(|x| x.parse().ok()).unwrap_or(0);
             let rotation = layer_parts
                 .next()
                 .and_then(|x| x.parse::<u8>().ok())
@@ -863,9 +857,8 @@ impl crate::Chart {
                             };
 
                             if let Some(param_change) = param_change {
-                                let param = param_change
-                                    .entry(ksh_effect_name(parts[1]))
-                                    .or_default();
+                                let param =
+                                    param_change.entry(ksh_effect_name(parts[1])).or_default();
                                 let param = param.entry(ksh_param_name(parts[2])).or_default();
                                 param.push((y, line_value));
                             } else {

@@ -246,8 +246,10 @@ impl ShadedMesh {
 
         let mut uniform_map = HashMap::new();
         // group -> binding -> (module, global)
-        let mut group_globals: BTreeMap<u32, BTreeMap<u32, (&naga::Module, &naga::GlobalVariable)>> =
-            BTreeMap::new();
+        let mut group_globals: BTreeMap<
+            u32,
+            BTreeMap<u32, (&naga::Module, &naga::GlobalVariable)>,
+        > = BTreeMap::new();
 
         // Add uniforms through reflection, both stages must agree on bindings
         for module in [&vertex, &fragment] {
@@ -616,19 +618,18 @@ impl ShadedMesh {
                     found = true;
                 }
                 UniformValue::Sampler(_) if entry.name == sampler_name || sampler_count == 1 => {
-                    entry.value =
-                        UniformValue::Sampler(self.context.device.create_sampler(
-                            &SamplerDescriptor {
-                                label: Some(&sampler_name),
-                                address_mode_u: address_mode(wrap_xy.0),
-                                address_mode_v: address_mode(wrap_xy.1),
-                                address_mode_w: wgpu::AddressMode::Repeat,
-                                mag_filter: wgpu::FilterMode::Linear,
-                                min_filter: wgpu::FilterMode::Linear,
-                                mipmap_filter: wgpu::MipmapFilterMode::Linear,
-                                ..Default::default()
-                            },
-                        ));
+                    entry.value = UniformValue::Sampler(self.context.device.create_sampler(
+                        &SamplerDescriptor {
+                            label: Some(&sampler_name),
+                            address_mode_u: address_mode(wrap_xy.0),
+                            address_mode_v: address_mode(wrap_xy.1),
+                            address_mode_w: wgpu::AddressMode::Repeat,
+                            mag_filter: wgpu::FilterMode::Linear,
+                            min_filter: wgpu::FilterMode::Linear,
+                            mipmap_filter: wgpu::MipmapFilterMode::Linear,
+                            ..Default::default()
+                        },
+                    ));
                 }
                 _ => {}
             }
@@ -722,11 +723,7 @@ impl ShadedMesh {
             return Ok(());
         };
 
-        encoder.copy_texture_to_texture(
-            source.as_image_copy(),
-            tex.as_image_copy(),
-            source.size(),
-        );
+        encoder.copy_texture_to_texture(source.as_image_copy(), tex.as_image_copy(), source.size());
 
         Ok(())
     }

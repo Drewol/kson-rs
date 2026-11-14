@@ -1035,7 +1035,12 @@ impl MainState {
                         Rgba::from_gray(0.5)
                     };
                     track_measure_builder.push(Shape::rect_filled(
-                        rect_xy_wh([x, emath::GuiRounding::round_to_pixels(y, painter.pixels_per_point()), w, -1.0]),
+                        rect_xy_wh([
+                            x,
+                            emath::GuiRounding::round_to_pixels(y, painter.pixels_per_point()),
+                            w,
+                            -1.0,
+                        ]),
                         0.0,
                         color,
                     ));

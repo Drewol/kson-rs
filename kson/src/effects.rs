@@ -527,8 +527,7 @@ impl Chart {
                     if end <= start {
                         continue;
                     }
-                    let Some(root_effect) = AudioEffect::resolve(&audio_effect.fx.def, name)
-                    else {
+                    let Some(root_effect) = AudioEffect::resolve(&audio_effect.fx.def, name) else {
                         continue;
                     };
                     let mut effect = apply_param_changes(
@@ -570,11 +569,7 @@ impl Chart {
                 let section_end = section_start + section.1.last().map(|s| s.ry).unwrap_or(0);
 
                 let mut boundaries = vec![];
-                if let Some(active) = laser_events
-                    .iter()
-                    .rev()
-                    .find(|(y, _)| *y <= section_start)
-                {
+                if let Some(active) = laser_events.iter().rev().find(|(y, _)| *y <= section_start) {
                     boundaries.push((section_start, active.1));
                 }
                 boundaries.extend(
@@ -585,10 +580,7 @@ impl Chart {
                 );
 
                 for (bi, (start, name)) in boundaries.iter().enumerate() {
-                    let end = boundaries
-                        .get(bi + 1)
-                        .map(|b| b.0)
-                        .unwrap_or(section_end);
+                    let end = boundaries.get(bi + 1).map(|b| b.0).unwrap_or(section_end);
                     let Some(effect) = AudioEffect::resolve(&audio_effect.laser.def, name) else {
                         continue;
                     };

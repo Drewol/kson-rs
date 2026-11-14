@@ -349,9 +349,11 @@ impl Scene for SettingsScreen {
                     ui.label("Songs path");
 
                     #[cfg(not(target_os = "android"))]
-                    AsyncPicker::new()
-                        .folder()
-                        .show(egui::Id::new("song_folder"), &mut songs_path, ui);
+                    AsyncPicker::new().folder().show(
+                        egui::Id::new("song_folder"),
+                        &mut songs_path,
+                        ui,
+                    );
 
                     self.altered_settings.songs_path = PathBuf::from(songs_path);
 

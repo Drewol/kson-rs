@@ -648,7 +648,7 @@ impl GameMain {
                                 .texture
                                 .create_view(&wgpu::TextureViewDescriptor::default()),
                             resolve_target: None,
-                depth_slice: None,
+                            depth_slice: None,
                             ops: wgpu::Operations {
                                 load: wgpu::LoadOp::Load,
                                 store: wgpu::StoreOp::Store,
@@ -1097,7 +1097,6 @@ impl GameMain {
                 };
             }
         }
-
     }
 
     fn reset_viewport_size(&self, size: &PhysicalSize<u32>) {

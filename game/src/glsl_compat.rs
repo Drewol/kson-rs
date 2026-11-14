@@ -116,7 +116,9 @@ fn preprocess(source: &str) -> String {
         .lines()
         .filter(|x| {
             let x = x.trim_start();
-            !x.starts_with("#version") && !x.starts_with("#extension") && !x.starts_with("precision")
+            !x.starts_with("#version")
+                && !x.starts_with("#extension")
+                && !x.starts_with("precision")
         })
         .collect::<Vec<_>>()
         .join("\n")
@@ -231,9 +233,10 @@ fn rewrite(source: &str, stage: Stage, bindings: &mut Bindings) -> String {
 
     // Combine the separated texture and sampler where the texture is passed to a function
     for tex in textures_used.iter() {
-        let use_re = Regex::new(&format!(r"([(,]\s*){}(\s*[,)])", regex::escape(tex)))
-            .expect("Bad regex");
-        let replacement = format!("${{1}}sampler2D({TEXTURE_PREFIX}{tex}, {TEXTURE_PREFIX}{tex}_s)${{2}}");
+        let use_re =
+            Regex::new(&format!(r"([(,]\s*){}(\s*[,)])", regex::escape(tex))).expect("Bad regex");
+        let replacement =
+            format!("${{1}}sampler2D({TEXTURE_PREFIX}{tex}, {TEXTURE_PREFIX}{tex}_s)${{2}}");
         // Run twice to handle adjacent matches sharing a delimiter, e.g. `f(tex,tex)`
         for _ in 0..2 {
             body = use_re.replace_all(&body, replacement.as_str()).into_owned();

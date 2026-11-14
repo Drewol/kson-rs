@@ -16,8 +16,8 @@ use log::warn;
 use mlua::{Function, Lua, LuaOptions, LuaSerdeExt, UserData, UserDataMethods};
 use puffin::profile_function;
 
-use serde::Serialize;
 use glam::{vec2, Vec2, Vec3};
+use serde::Serialize;
 use wgpu::SurfaceTexture;
 
 use crate::Viewport;
@@ -224,7 +224,6 @@ impl GameBackground {
             ShadedMesh::new_fullscreen_glsl(context, &fs)?
         };
 
-
         let lua = Lua::new_with(StdLib::MATH | StdLib::STRING, LuaOptions::new())?;
         lua.globals().set(full_name, GameBackgroundLua)?;
 
@@ -284,9 +283,9 @@ impl GameBackground {
         encoder: &mut wgpu::CommandEncoder,
     ) {
         profile_function!();
-        let center = camera.pixel_at_position(
-            three_d_asset::Vec3::from((ChartView::TRACK_DIRECTION * -300.0).to_array()),
-        );
+        let center = camera.pixel_at_position(three_d_asset::Vec3::from(
+            (ChartView::TRACK_DIRECTION * -300.0).to_array(),
+        ));
         let bpm = chart.bpm_at_tick(tick);
 
         {

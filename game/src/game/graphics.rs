@@ -101,8 +101,11 @@ impl CpuMesh {
             .get_or_insert_with(Vec::new)
             .extend(std::iter::repeat_n(color, base_len));
 
-        self.positions
-            .extend(base.positions.iter().map(|p| transform.transform_point3(*p)));
+        self.positions.extend(
+            base.positions
+                .iter()
+                .map(|p| transform.transform_point3(*p)),
+        );
     }
 }
 

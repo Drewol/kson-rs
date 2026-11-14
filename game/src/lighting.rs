@@ -155,8 +155,7 @@ impl LightingService {
 }
 
 #[cfg(target_os = "android")]
-async fn lighting_worker(mut rx: tokio::sync::watch::Receiver<LightingData>) {
-}
+async fn lighting_worker(mut rx: tokio::sync::watch::Receiver<LightingData>) {}
 
 #[cfg(not(target_os = "android"))]
 async fn lighting_worker(mut rx: tokio::sync::watch::Receiver<LightingData>) {

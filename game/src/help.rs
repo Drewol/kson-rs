@@ -438,7 +438,11 @@ impl RenderContext {
         self.clear_texture(surface, wgpu::Color::BLACK)
     }
 
-    pub fn clear_texture(&self, texture: &wgpu::Texture, color: wgpu::Color) -> wgpu::CommandBuffer {
+    pub fn clear_texture(
+        &self,
+        texture: &wgpu::Texture,
+        color: wgpu::Color,
+    ) -> wgpu::CommandBuffer {
         let mut encoder = self.encoder(Some("Clear texture"));
         encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
             label: Some("Clear texture"),

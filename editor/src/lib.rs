@@ -128,7 +128,9 @@ impl Widget for &mut kson::BgmInfo {
                 ui.end_row();
 
                 ui.label(i18n::fl!("volume"));
-                ui.add(Slider::new(&mut self.vol, 0.0..=1.0).clamping(egui::SliderClamping::Always));
+                ui.add(
+                    Slider::new(&mut self.vol, 0.0..=1.0).clamping(egui::SliderClamping::Always),
+                );
                 ui.end_row();
 
                 ui.separator();

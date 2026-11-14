@@ -68,11 +68,11 @@ use gilrs::Gilrs;
 use help::{RenderContext, ServiceHelper};
 use log::*;
 
+use kson_rodio_sources::consume_one::ConsumeOne;
 use lua_service::LuaProvider;
 use luals_gen::LuaLsGen;
 use puffin::{profile_function, profile_scope};
 use rodio::{cpal::BufferSize, nz, source::Source};
-use kson_rodio_sources::consume_one::ConsumeOne;
 use scene::Scene;
 
 pub(crate) use crate::song_provider::{DiffId, FileSongProvider, NauticaSongProvider, SongId};
@@ -325,7 +325,12 @@ pub const FRAME_ACC_SIZE: usize = 16;
 pub struct LuaArena(pub Vec<Rc<Lua>>);
 
 struct UscApp {
-    state: Option<(GameMain, ServiceProvider, Arc<winit::window::Window>, RenderContext)>,
+    state: Option<(
+        GameMain,
+        ServiceProvider,
+        Arc<winit::window::Window>,
+        RenderContext,
+    )>,
     frame_tracker: FrameTracker,
     update_tracker: UpdateTracker,
     gilrs: Arc<Mutex<Option<Gilrs>>>,
@@ -710,7 +715,8 @@ impl winit::application::ApplicationHandler<UscInputEvent> for UscApp {
             if let WindowEvent::Resized(new_size) = event {
                 if new_size.width > 0 && new_size.height > 0 {
                     render_context.set_size(new_size);
-                    let canvas = services.get_required::<Mutex<vg::Canvas<vg::renderer::WGPURenderer>>>();
+                    let canvas =
+                        services.get_required::<Mutex<vg::Canvas<vg::renderer::WGPURenderer>>>();
                     canvas
                         .lock()
                         .unwrap()
