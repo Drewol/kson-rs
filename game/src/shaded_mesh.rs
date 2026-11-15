@@ -11,7 +11,7 @@ use bytemuck::{bytes_of, Pod, Zeroable};
 use di::RefMut;
 use futures::executor::block_on;
 use itertools::Itertools;
-use log::info;
+use log::{debug, info};
 use mlua::{self, ExternalResult, FromLua, Lua, UserData, UserDataFields, UserDataMethods};
 use puffin::{profile_function, profile_scope};
 
@@ -537,7 +537,7 @@ impl ShadedMesh {
             if buffer.size() < size {
                 // Grow with some headroom to avoid reallocating every frame for dynamic meshes
                 let size = (size + size / 2).next_multiple_of(wgpu::COPY_BUFFER_ALIGNMENT);
-                info!("Reallocating {label} buffer of {} to {size}b", self.name);
+                debug!("Reallocating {label} buffer of {} to {size}b", self.name);
                 *buffer = device.create_buffer(&wgpu::BufferDescriptor {
                     label: Some(label),
                     size,

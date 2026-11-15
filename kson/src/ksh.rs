@@ -634,11 +634,8 @@ impl crate::Chart {
                         .collect::<HashMap<_, _>>();
 
                     if let Some(Ok(mut t)) = data.remove("type").map(AudioEffect::try_from) {
-                        // User-defined SideChain effects in KSH charts older than v200
-                        // default to a release time of 1/16
-                        if behavior_ver < 200 && matches!(t, AudioEffect::Sidechain(_)) {
-                            t = t.derive("release_time", "1/16");
-                        }
+                        // The legacy SideChain release_time default (1/16) is applied in
+                        // Chart::resolve_effect from compat.ksh_version
                         for (key, param) in data.into_iter() {
                             t = t.derive(&key, param)
                         }

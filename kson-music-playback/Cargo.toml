@@ -12,3 +12,6 @@ log = { workspace = true }
 itertools = { workspace = true }
 kson = { path = "../kson" }
 kson-rodio-sources = { path = "../kson-rodio-sources" }
+
+[dev-dependencies]
+serde_json = { workspace = true }

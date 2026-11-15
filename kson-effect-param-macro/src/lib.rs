@@ -44,9 +44,17 @@ pub fn derive_effect_param(input: TokenStream) -> TokenStream {
 
             for f in &s.fields {
                 if let Some(ident) = &f.ident {
-                    fields.push(quote!(stringify!(#ident)));
-                    match_arms.push(quote!(stringify!(#ident) => Self {
-                        #ident: param.parse().unwrap_or_default(),
+                    let name = ident.to_string();
+                    let aliases = serde_aliases(&f.attrs);
+                    fields.push(quote!(#name));
+                    // Each field is parsed as the spec type of its parameter name.
+                    // Invalid values are ignored and the previous value is kept.
+                    match_arms.push(quote!(#name #(| #aliases)* => Self {
+                        #ident: crate::parameter::ParamField::parse_field(
+                            param,
+                            crate::parameter::ParamType::for_name(#name),
+                        )
+                        .unwrap_or_else(|| self.#ident.clone()),
                         ..self.clone()
                     },))
                 }
@@ -68,4 +76,22 @@ pub fn derive_effect_param(input: TokenStream) -> TokenStream {
         }
         Data::Union(_) => panic!("Unions are not supported"),
     }
+}
+
+/// Collects the values of `#[serde(alias = "...")]` attributes
+fn serde_aliases(attrs: &[syn::Attribute]) -> Vec<String> {
+    let mut aliases = vec![];
+    for attr in attrs.iter().filter(|a| a.path().is_ident("serde")) {
+        _ = attr.parse_nested_meta(|meta| {
+            if meta.path.is_ident("alias") {
+                let lit: syn::LitStr = meta.value()?.parse()?;
+                aliases.push(lit.value());
+            } else if meta.input.peek(syn::Token![=]) {
+                // Skip the value of other `key = value` items
+                let _: syn::Expr = meta.value()?.parse()?;
+            }
+            Ok(())
+        });
+    }
+    aliases
 }

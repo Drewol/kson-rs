@@ -1,5 +1,3 @@
-use std::str::FromStr;
-
 use eframe::egui::{self, Widget};
 use kson::parameter::EffectParameter;
 
@@ -48,7 +46,8 @@ impl<T: Default + 'static> Widget for ParamEditor<'_, T> {
 
         if response.lost_focus() {
             if let Some(value) = ui.data_mut(|d| d.remove_temp::<String>(id)) {
-                get_set_value(EffectParameter::<T>::from_str(&value).ok());
+                // Re-parse as the type the value was originally parsed as
+                get_set_value(EffectParameter::<T>::parse_typed(&value, old_value.ty).ok());
             }
         }
 

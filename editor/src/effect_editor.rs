@@ -95,17 +95,12 @@ impl EffectEditor for kson::effects::AudioEffect {
             }
             kson::effects::AudioEffect::PitchShift(kson::effects::PitchShift {
                 pitch,
-                pitch_quantize,
                 chunk_size,
                 overlap,
                 mix,
             }) => {
                 ui.label("pitch");
                 ui.add(param_editor(pitch, false));
-                ui.end_row();
-
-                ui.label("pitch_quantize");
-                ui.add(param_editor(pitch_quantize, false));
                 ui.end_row();
 
                 ui.label("chunk_size");
@@ -269,8 +264,17 @@ impl EffectEditor for kson::effects::AudioEffect {
                 ui.add(param_editor(attack_time, false));
                 ui.end_row();
 
+                // Unset means the chart-dependent default (1/8, or 1/16 in legacy charts);
+                // only store a value once it has been edited
                 ui.label("release_time");
-                ui.add(param_editor(release_time, false));
+                let mut edited = release_time.clone().unwrap_or_else(|| {
+                    kson::effects::Sidechain::default().release_time_or_default(false)
+                });
+                let before = edited.clone();
+                ui.add(param_editor(&mut edited, false));
+                if edited != before {
+                    *release_time = Some(edited);
+                }
                 ui.end_row();
 
                 ui.label("Ratio");
@@ -285,8 +289,8 @@ impl EffectEditor for kson::effects::AudioEffect {
             kson::effects::AudioEffect::HighPassFilter(kson::effects::HighPassFilter {
                 v,
                 freq,
+                freq_max,
                 q,
-                delay,
                 mix,
             }) => {
                 ui.label("v");
@@ -297,14 +301,12 @@ impl EffectEditor for kson::effects::AudioEffect {
                 ui.add(param_editor(freq, false));
                 ui.end_row();
 
+                ui.label("freq_max");
+                ui.add(param_editor(freq_max, false));
                 ui.end_row();
 
                 ui.label("q");
                 ui.add(param_editor(q, false));
-                ui.end_row();
-
-                ui.label("delay");
-                ui.add(param_editor(delay, false));
                 ui.end_row();
 
                 ui.label("Mix");
@@ -314,8 +316,8 @@ impl EffectEditor for kson::effects::AudioEffect {
             kson::effects::AudioEffect::LowPassFilter(kson::effects::LowPassFilter {
                 v,
                 freq,
+                freq_max,
                 q,
-                delay,
                 mix,
             }) => {
                 ui.label("v");
@@ -326,14 +328,12 @@ impl EffectEditor for kson::effects::AudioEffect {
                 ui.add(param_editor(freq, false));
                 ui.end_row();
 
+                ui.label("freq_max");
+                ui.add(param_editor(freq_max, false));
                 ui.end_row();
 
                 ui.label("q");
                 ui.add(param_editor(q, false));
-                ui.end_row();
-
-                ui.label("delay");
-                ui.add(param_editor(delay, false));
                 ui.end_row();
 
                 ui.label("Mix");
@@ -343,10 +343,10 @@ impl EffectEditor for kson::effects::AudioEffect {
             kson::effects::AudioEffect::PeakingFilter(kson::effects::PeakingFilter {
                 v,
                 freq,
-                q,
-                delay,
-                mix,
+                freq_max,
+                bandwidth,
                 gain,
+                mix,
             }) => {
                 ui.label("v");
                 ui.add(param_editor(v, false));
@@ -356,16 +356,16 @@ impl EffectEditor for kson::effects::AudioEffect {
                 ui.add(param_editor(freq, false));
                 ui.end_row();
 
+                ui.label("freq_max");
+                ui.add(param_editor(freq_max, false));
+                ui.end_row();
+
+                ui.label("bandwidth");
+                ui.add(param_editor(bandwidth, false));
+                ui.end_row();
+
                 ui.label("gain");
                 ui.add(param_editor(gain, false));
-                ui.end_row();
-
-                ui.label("q");
-                ui.add(param_editor(q, false));
-                ui.end_row();
-
-                ui.label("delay");
-                ui.add(param_editor(delay, false));
                 ui.end_row();
 
                 ui.label("Mix");

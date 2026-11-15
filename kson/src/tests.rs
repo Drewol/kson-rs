@@ -28,6 +28,7 @@ fn effect_param() {
         off: EffectParameterValue::Freq(EffectFreq::Hz(500)..=EffectFreq::Hz(500)),
         v: 0.0_f32,
         shape: parameter::InterpolationShape::Logarithmic,
+        ty: Default::default(),
     };
 
     serde_test::assert_tokens(&param, &[Token::Str("500Hz>10kHz-20kHz")]);
@@ -232,4 +233,140 @@ fn kson_spec_fields() {
     let from_ksh = crate::Chart::from_ksh(include_str!("tests/assets/Gram_ex.ksh")).unwrap();
     let out = serde_json::to_string(&from_ksh).unwrap();
     assert!(!out.contains("null"), "kson must not contain null");
+}
+
+#[test]
+fn effect_param_typed_formats() {
+    use parameter::{EffectParameter, ParamType};
+    let p = |s: &str, ty| EffectParameter::<f32>::parse_typed(s, ty);
+
+    // length: plain float is a fraction of a measure, ms/s are absolute
+    let bpm = 120.0;
+    let d = |s: &str| p(s, ParamType::Length).unwrap().to_duration(bpm, 0.0, false);
+    assert_eq!(d("1/4").as_secs_f32(), 0.5);
+    assert_eq!(d("0.5").as_secs_f32(), 1.0);
+    assert_eq!(d("2").as_secs_f32(), 4.0);
+    assert_eq!(d("100ms").as_secs_f32(), 0.1);
+    assert_eq!(d("1s").as_secs_f32(), 1.0);
+    assert_eq!(p("0", ParamType::Length).unwrap().to_duration(bpm, 0.0, false), std::time::Duration::ZERO);
+    assert!(p("1/0", ParamType::Length).is_err());
+    assert!(p("2/3", ParamType::Length).is_err());
+    assert!(p("0ms", ParamType::Length).is_err());
+    assert!(p("-1", ParamType::Length).is_err());
+    // A range cannot mix tempo synced and absolute values
+    assert!(p("1/4-100ms", ParamType::Length).is_err());
+
+    // rate
+    assert!(p("101%", ParamType::Rate).is_err());
+    assert!(p("1.5", ParamType::Rate).is_err());
+    assert_eq!(p("1/2", ParamType::Rate).unwrap().interpolate(0.0, false), 0.5);
+    // Each side of a range is parsed as the parameter type
+    assert!(p("50%-100samples", ParamType::Rate).is_err());
+
+    // freq
+    assert!(p("5Hz", ParamType::Freq).is_err());
+    assert!(p("21kHz", ParamType::Freq).is_err());
+    assert!(p("1000", ParamType::Freq).is_err());
+    assert!((p("2kHz", ParamType::Freq).unwrap().interpolate(0.0, false) - 2000.0).abs() < 0.01);
+
+    // sample, switch, dB, float formats
+    assert!(p("44101samples", ParamType::Sample).is_err());
+    assert!(p("100", ParamType::Sample).is_err());
+    assert!(p("yes", ParamType::Switch).is_err());
+    assert!(p("-8", ParamType::Decibel).is_err());
+    assert!(p("1e3", ParamType::Float).is_err());
+    assert!(p("+1", ParamType::Float).is_err());
+    assert_eq!(p("-12--6", ParamType::Float).unwrap().interpolate(1.0, true), -6.0);
+
+    // pitch: quantized (floored) only when written without '.'
+    let pitch = p("0>-12-12", ParamType::Pitch).unwrap();
+    assert_eq!(pitch.interpolate(0.45, true), -2.0);
+    let pitch = p("0>-12.0-12.0", ParamType::Pitch).unwrap();
+    assert!((pitch.interpolate(0.45, true) + 1.2).abs() < 1e-4);
+    assert_eq!(pitch.to_string(), "0>-12.0-12.0");
+    assert_eq!(p("0>12", ParamType::Pitch).unwrap().to_string(), "0>12");
+
+    // int transition values are floored
+    let int = EffectParameter::<i64>::parse_typed("-2-0", ParamType::Int).unwrap();
+    assert_eq!(int.interpolate(0.45, true), -2);
+}
+
+#[test]
+fn effect_derive_typed_and_aliases() {
+    use crate::effects::{AudioEffect, Effect};
+    let wobble = AudioEffect::builtin("wobble").unwrap();
+    // Invalid values are ignored
+    let derived = wobble.derive("freq_1", "500");
+    assert_eq!(derived, wobble);
+    // serde aliases are accepted
+    let AudioEffect::Wobble(w) = wobble.derive("lo_freq", "1kHz") else {
+        unreachable!()
+    };
+    assert!((w.freq_1.interpolate(0.0, false) - 1000.0).abs() < 0.01);
+    // Filters accept freq_max and bandwidth
+    let AudioEffect::PeakingFilter(f) = AudioEffect::builtin("peaking_filter")
+        .unwrap()
+        .derive("freq_max", "4kHz")
+        .derive("bandwidth", "2.0")
+    else {
+        unreachable!()
+    };
+    assert!((f.freq_max.interpolate(0.0, false) - 4000.0).abs() < 0.01);
+    assert_eq!(f.bandwidth.interpolate(0.0, false), 2.0);
+}
+
+#[test]
+fn effect_builtin_defaults_round_trip() {
+    use crate::effects::AudioEffect;
+    for name in [
+        "retrigger",
+        "gate",
+        "flanger",
+        "pitch_shift",
+        "bitcrusher",
+        "phaser",
+        "wobble",
+        "tapestop",
+        "echo",
+        "sidechain",
+        "peaking_filter",
+        "high_pass_filter",
+        "low_pass_filter",
+    ] {
+        let effect = AudioEffect::builtin(name).unwrap();
+        let json = serde_json::to_string(&effect).unwrap();
+        for non_spec in ["pitch_quantize", "\"delay\":\"0", "Undefined"] {
+            assert!(!json.contains(non_spec), "{name}: {json}");
+        }
+        let back: AudioEffect = serde_json::from_str(&json).unwrap();
+        assert_eq!(back, effect, "{name}: {json}");
+    }
+}
+
+#[test]
+fn legacy_sidechain_release_time() {
+    use crate::effects::AudioEffect;
+    let chart = |ver: &str| {
+        let data = format!(
+            "t=120\nver={ver}\n--\nfx-l=SC\n0000|10|--\n0000|10|--\n0000|00|--\n--\n#define_fx SC type=SideChain\n"
+        );
+        crate::Chart::from_ksh(&data).unwrap()
+    };
+    let release_time = |c: &crate::Chart| {
+        c.get_effect_tracks()
+            .into_iter()
+            .find_map(|t| match t.effect {
+                AudioEffect::Sidechain(s) => Some(s.release_time.unwrap().to_string()),
+                _ => None,
+            })
+            .expect("sidechain track")
+    };
+    let legacy = chart("171");
+    // Not written to the chart; resolved when the effect is used
+    let AudioEffect::Sidechain(def) = &legacy.audio.audio_effect.fx.def[0].1 else {
+        unreachable!()
+    };
+    assert!(def.release_time.is_none());
+    assert_eq!(release_time(&legacy), "1/16");
+    assert_eq!(release_time(&chart("200")), "1/8");
 }

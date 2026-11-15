@@ -20,7 +20,9 @@ use kson_rodio_sources::{
     effected_part::effected_part,
     flanger::flanger,
     gate::gate,
+    biquad::biquad,
     mix_source::{MixSource, NoMix},
+    phaser::{phaser, PhaserParams},
     pitch_shift::pitch_shift,
     re_trigger::re_trigger,
     side_chain::side_chain,
@@ -265,6 +267,7 @@ impl AudioPlayback {
                                 chart.tick_to_ms(x.interval.y) - section_start_ms,
                                 chart.tick_to_ms(x.interval.y + x.interval.l) - section_start_ms,
                                 chart.bpm_at_tick(x.interval.y),
+                                matches!(x.track, Some(kson::Track::FX(_))),
                             ),
                             x.effect,
                         )
@@ -275,106 +278,15 @@ impl AudioPlayback {
                     Box::new(move |base| {
                         effect_part
                             .iter()
-                            .fold(base, |base, ((start_ms, end_ms, bpm), effect)| {
+                            .fold(base, |base, ((start_ms, end_ms, bpm, is_fx), effect)| {
                                 let start = Duration::from_nanos((start_ms * 1000000.0) as _);
                                 let end = Duration::from_nanos((end_ms * 1000000.0) as _);
                                 let duration = end - start;
-                                let bpm = *bpm;
-                                let effected: Box<dyn MixSource<Item = f32> + Send> = match effect {
-                                    kson::effects::AudioEffect::Retrigger(r) => {
-                                        let duration = Duration::from_secs_f64(
-                                            (240.0 * r.wave_length.interpolate(1.0, true) as f64)
-                                                / bpm,
-                                        );
-
-                                        let update_duration = Duration::from_secs_f64(
-                                            (240.0 * r.update_period.interpolate(1.0, true) as f64)
-                                                / bpm,
-                                        );
-                                        Box::new(re_trigger(
-                                            base,
-                                            start,
-                                            duration,
-                                            update_duration,
-                                            1.0,
-                                        ))
-                                    }
-                                    kson::effects::AudioEffect::Gate(g) => {
-                                        let period = Duration::from_secs_f64(
-                                            (240.0 * g.wave_length.interpolate(1.0, true) as f64)
-                                                / bpm,
-                                        );
-                                        Box::new(gate(base, start, period, 0.6, 0.4))
-                                    }
-                                    kson::effects::AudioEffect::Flanger(_f) => Box::new(flanger(
-                                        base,
-                                        Duration::from_millis(4),
-                                        Duration::from_millis(1),
-                                        0.5,
-                                        0.05,
-                                    )),
-                                    kson::effects::AudioEffect::PitchShift(p) => Box::new(
-                                        pitch_shift(base, p.pitch.interpolate(1.0, true) as _),
-                                    ),
-                                    kson::effects::AudioEffect::BitCrusher(b) => Box::new(
-                                        bit_crusher(base, b.reduction.interpolate(1.0, true) as _),
-                                    ),
-                                    kson::effects::AudioEffect::Phaser(_p) => Box::new(
-                                        //TODO
-                                        flanger(
-                                            base,
-                                            Duration::from_millis(4),
-                                            Duration::from_millis(1),
-                                            0.5,
-                                            0.05,
-                                        ),
-                                    ),
-                                    kson::effects::AudioEffect::Wobble(w)
-                                        if w.wave_length.interpolate(1.0, true) > 0.0 =>
-                                    {
-                                        Box::new(wobble(
-                                            base,
-                                            1.0 / ((240.0 * w.wave_length.interpolate(1.0, true))
-                                                / bpm as f32),
-                                            w.freq_1.interpolate(1.0, true) as _,
-                                            w.freq_2.interpolate(1.0, true) as _,
-                                        ))
-                                    }
-                                    kson::effects::AudioEffect::Tapestop(_t) => {
-                                        Box::new(tape_stop(base, start, duration))
-                                    }
-                                    kson::effects::AudioEffect::Echo(r) => {
-                                        let duration = Duration::from_secs_f64(
-                                            (240.0 * r.wave_length.interpolate(1.0, true) as f64)
-                                                / bpm,
-                                        );
-                                        let feedback =
-                                            r.feedback_level.interpolate(1.0, true).clamp(0.0, 1.0);
-
-                                        Box::new(re_trigger(
-                                            base,
-                                            start,
-                                            duration,
-                                            Duration::ZERO,
-                                            feedback,
-                                        ))
-                                    }
-                                    kson::effects::AudioEffect::Sidechain(s) => {
-                                        let bpm = bpm as f32;
-
-                                        Box::new(side_chain(
-                                            base,
-                                            start,
-                                            s.period.to_duration(bpm, 1.0, true),
-                                            s.attack_time.to_duration(bpm, 1.0, true),
-                                            s.hold_time.to_duration(bpm, 1.0, true),
-                                            s.release_time.to_duration(bpm, 1.0, true),
-                                            s.ratio.interpolate(1.0, true),
-                                        ))
-                                    }
-                                    _ => Box::new(NoMix(base)),
-                                };
-                                Box::new(effected_part(effected, start, duration, 1.0))
+                                let effected = build_effect(base, effect, start, duration, *bpm as f32, *is_fx);
+                                let mix = effect.mix().map_or(1.0, |m| {
+                                    m.interpolate(effect_position(*is_fx), true).clamp(0.0, 1.0)
+                                });
+                                Box::new(effected_part(effected, start, duration, mix))
                                     as Box<dyn Source<Item = f32> + Send>
                             }) as Box<dyn Source<Item = f32> + Send>
                     }) as Box<EffectBuilder>,
@@ -518,8 +430,170 @@ impl Default for AudioPlayback {
     }
 }
 
+/// The parameter position used for pre-built effect sections.
+///
+/// Long FX notes use the OnMin value (spec: "Audio effect parameter value format").
+/// Laser effects would follow the laser position, which pre-built sections cannot do,
+/// so they use OnMax.
+fn effect_position(is_fx: bool) -> f32 {
+    if is_fx {
+        0.0
+    } else {
+        1.0
+    }
+}
+
+/// Samples at the spec's reference sampling rate of 44100Hz to a duration
+fn samples_to_duration(samples: i64) -> Duration {
+    Duration::from_secs_f64(samples.max(0) as f64 / 44100.0)
+}
+
+/// Builds the effect source for one effect interval. Effects that are bypassed by their
+/// parameters, or not supported here, pass the audio through.
+fn build_effect(
+    base: Box<dyn Source<Item = f32> + Send>,
+    effect: &kson::effects::AudioEffect,
+    start: Duration,
+    duration: Duration,
+    bpm: f32,
+    is_fx: bool,
+) -> Box<dyn MixSource<Item = f32> + Send> {
+    use kson::effects::AudioEffect;
+    let v = effect_position(is_fx);
+    let length = |p: &kson::parameter::EffectParameter<f32>| p.to_duration(bpm, v, true);
+
+    match effect {
+        AudioEffect::Retrigger(r) => {
+            let wave_length = length(&r.wave_length);
+            // `wave_length` 0: the effect is bypassed
+            if wave_length.is_zero() {
+                return Box::new(NoMix(base));
+            }
+            Box::new(re_trigger(
+                base,
+                start,
+                wave_length,
+                length(&r.update_period),
+                1.0,
+            ))
+        }
+        AudioEffect::Gate(g) => {
+            let wave_length = length(&g.wave_length);
+            if wave_length.is_zero() {
+                return Box::new(NoMix(base));
+            }
+            // The gate switches the volume between 100% and 0%; `rate` is the audible part
+            Box::new(gate(
+                base,
+                start,
+                wave_length,
+                g.rate.interpolate(v, true) as f64,
+                0.0,
+            ))
+        }
+        AudioEffect::Flanger(f) => {
+            let period = length(&f.period).as_secs_f32();
+            // The flanger sweeps the delay from 0 up to its depth, so `delay` + `depth`
+            // is used as the maximum delay
+            let max_delay = f.delay.interpolate(v, true) + f.depth.interpolate(v, true);
+            Box::new(flanger(
+                base,
+                samples_to_duration(max_delay),
+                start,
+                // `period` 0: the LFO phase stays at its current value
+                if period > 0.0 { 1.0 / period } else { 0.0 },
+                f.stereo_width.interpolate(v, true),
+            ))
+        }
+        AudioEffect::PitchShift(p) => Box::new(pitch_shift(
+            base,
+            p.pitch.interpolate(v, true).round() as i32,
+        )),
+        AudioEffect::BitCrusher(b) => Box::new(bit_crusher(
+            base,
+            b.reduction.interpolate(v, true).max(0) as u32,
+        )),
+        AudioEffect::Phaser(p) => Box::new(phaser(
+            base,
+            PhaserParams {
+                stages: p.stage.interpolate(v, true).clamp(0, 12) as usize,
+                period: length(&p.period),
+                freq_1: p.freq_1.interpolate(v, true),
+                freq_2: p.freq_2.interpolate(v, true),
+                q: p.q.interpolate(v, true),
+                feedback: p.feedback.interpolate(v, true),
+                stereo_width: p.stereo_width.interpolate(v, true),
+                hi_cut_gain: p.hi_cut_gain.interpolate(v, true),
+            },
+        )),
+        AudioEffect::Wobble(w) => {
+            let wave_length = length(&w.wave_length);
+            if wave_length.is_zero() {
+                return Box::new(NoMix(base));
+            }
+            Box::new(wobble(
+                base,
+                1.0 / wave_length.as_secs_f32(),
+                w.freq_1.interpolate(v, true),
+                w.freq_2.interpolate(v, true),
+            ))
+        }
+        AudioEffect::Tapestop(_) => Box::new(tape_stop(base, start, duration)),
+        AudioEffect::Echo(e) => {
+            let wave_length = length(&e.wave_length);
+            if wave_length.is_zero() {
+                return Box::new(NoMix(base));
+            }
+            Box::new(re_trigger(
+                base,
+                start,
+                wave_length,
+                length(&e.update_period),
+                e.feedback_level.interpolate(v, true).clamp(0.0, 1.0),
+            ))
+        }
+        AudioEffect::Sidechain(s) => Box::new(side_chain(
+            base,
+            start,
+            length(&s.period),
+            length(&s.attack_time),
+            length(&s.hold_time),
+            // Chart::get_effect_tracks fills in the chart-dependent default
+            s.release_time_or_default(false).to_duration(bpm, v, true),
+            s.ratio.interpolate(v, true),
+        )),
+        // Filters on laser notes are driven live by the game from the laser position
+        AudioEffect::HighPassFilter(_)
+        | AudioEffect::LowPassFilter(_)
+        | AudioEffect::PeakingFilter(_)
+            if is_fx =>
+        {
+            match effect.get_biquad_state(v) {
+                Some(state) => Box::new(biquad(base, state, None)),
+                None => Box::new(NoMix(base)),
+            }
+        }
+        // switch_audio needs a second audio file and is not supported here
+        _ => Box::new(NoMix(base)),
+    }
+}
+
 pub trait GetBiQuadState {
+    /// Filter state at the parameter position `v` (0.0-1.0, the laser position)
     fn get_biquad_state(&self, v: f32) -> Option<kson_rodio_sources::biquad::BiQuadState>;
+}
+
+/// Frequency for the envelope value `v`: `freq` at 0.0 and `freq_max` at 1.0, on a log scale
+/// (spec: filter `v`)
+fn filter_freq(freq: f32, freq_max: f32, v: f32) -> f32 {
+    let (freq, freq_max) = (freq.max(1.0), freq_max.max(1.0));
+    freq * (freq_max / freq).powf(v.clamp(0.0, 1.0))
+}
+
+/// Q for a bandwidth in octaves (Audio EQ Cookbook)
+fn q_from_bandwidth(bandwidth: f32) -> f32 {
+    let bandwidth = bandwidth.max(0.01);
+    1.0 / (2.0 * (std::f32::consts::LN_2 / 2.0 * bandwidth).sinh())
 }
 
 impl GetBiQuadState for kson::effects::AudioEffect {
@@ -527,22 +601,108 @@ impl GetBiQuadState for kson::effects::AudioEffect {
         use kson_rodio_sources::biquad::BiQuadState;
         use kson_rodio_sources::biquad::BiQuadType;
         match self {
-            kson::effects::AudioEffect::HighPassFilter(v) => Some(BiQuadState::new(
+            kson::effects::AudioEffect::HighPassFilter(f) => Some(BiQuadState::new(
                 BiQuadType::HighPass,
-                v.q.interpolate(p, true),
-                v.freq.interpolate(p, true),
+                f.q.interpolate(p, true),
+                filter_freq(
+                    f.freq.interpolate(p, true),
+                    f.freq_max.interpolate(p, true),
+                    f.v.interpolate(p, true),
+                ),
             )),
-            kson::effects::AudioEffect::LowPassFilter(v) => Some(BiQuadState::new(
+            kson::effects::AudioEffect::LowPassFilter(f) => Some(BiQuadState::new(
                 BiQuadType::LowPass,
-                v.q.interpolate(p, true),
-                v.freq.interpolate(p, true),
+                f.q.interpolate(p, true),
+                filter_freq(
+                    f.freq.interpolate(p, true),
+                    f.freq_max.interpolate(p, true),
+                    f.v.interpolate(p, true),
+                ),
             )),
-            kson::effects::AudioEffect::PeakingFilter(v) => Some(BiQuadState::new(
-                BiQuadType::Peaking(v.gain.interpolate(p, true) * 20.0),
-                v.q.interpolate(p, true),
-                v.freq.interpolate(p, true),
+            kson::effects::AudioEffect::PeakingFilter(f) => Some(BiQuadState::new(
+                BiQuadType::Peaking(f.gain.interpolate(p, true) * 20.0),
+                q_from_bandwidth(f.bandwidth.interpolate(p, true)),
+                filter_freq(
+                    f.freq.interpolate(p, true),
+                    f.freq_max.interpolate(p, true),
+                    f.v.interpolate(p, true),
+                ),
             )),
             _ => None,
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use rodio::source::SineWave;
+
+    const EFFECTS: [&str; 13] = [
+        "retrigger",
+        "gate",
+        "flanger",
+        "pitch_shift",
+        "bitcrusher",
+        "phaser",
+        "wobble",
+        "tapestop",
+        "echo",
+        "sidechain",
+        "peaking_filter",
+        "high_pass_filter",
+        "low_pass_filter",
+    ];
+
+    fn run(effect: &kson::effects::AudioEffect, is_fx: bool) -> Vec<f32> {
+        let base: Box<dyn Source<Item = f32> + Send> =
+            Box::new(SineWave::new(440.0).take_duration(Duration::from_millis(500)));
+        let mut effected = build_effect(
+            base,
+            effect,
+            Duration::from_millis(50),
+            Duration::from_millis(400),
+            120.0,
+            is_fx,
+        );
+        effected.set_mix(1.0);
+        effected.collect()
+    }
+
+    #[test]
+    fn builtin_effects_do_not_panic_or_produce_nan() {
+        for name in EFFECTS {
+            let mut effect = kson::effects::AudioEffect::builtin(name).unwrap();
+            if let kson::effects::AudioEffect::Sidechain(s) = &mut effect {
+                s.release_time = Some(s.release_time_or_default(false));
+            }
+            for is_fx in [true, false] {
+                let out = run(&effect, is_fx);
+                assert!(
+                    out.iter().all(|s| s.is_finite()),
+                    "{name} (fx: {is_fx}) produced a non-finite sample"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn effects_with_wave_length_are_active() {
+        for name in ["retrigger", "gate", "wobble", "echo"] {
+            let json = format!(r#"{{"type":"{name}","v":{{"wave_length":"1/8"}}}}"#);
+            let effect: kson::effects::AudioEffect = serde_json::from_str(&json).unwrap();
+            let out = run(&effect, true);
+            assert!(out.iter().all(|s| s.is_finite()), "{name}");
+        }
+    }
+
+    #[test]
+    fn filter_frequency_follows_v() {
+        assert!((filter_freq(100.0, 2200.0, 0.0) - 100.0).abs() < 0.01);
+        assert!((filter_freq(100.0, 2200.0, 1.0) - 2200.0).abs() < 0.1);
+        // Log scale: the middle is the geometric mean
+        assert!((filter_freq(100.0, 10000.0, 0.5) - 1000.0).abs() < 0.1);
+        // One octave of bandwidth is a Q of about 1.414
+        assert!((q_from_bandwidth(1.0) - 1.414).abs() < 0.01);
     }
 }

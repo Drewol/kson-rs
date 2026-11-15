@@ -1,6 +1,6 @@
 #![allow(dead_code)]
 use crate::{
-    parameter::{BoolParameter, EffectParameter},
+    parameter::{BoolParameter, EffectParameter, ParamType},
     Chart, Interval, Side, Track,
 };
 
@@ -8,7 +8,7 @@ use kson_effect_param_macro::Effect;
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
-use std::{borrow::Cow, collections::BTreeMap, f32, str::FromStr};
+use std::{borrow::Cow, collections::BTreeMap, f32};
 
 pub(crate) trait Effect {
     fn derive(&self, key: &str, param: &str) -> Self;
@@ -86,6 +86,25 @@ impl AudioEffect {
             AudioEffect::LowPassFilter(_) => "LowPassFilter",
             AudioEffect::PeakingFilter(_) => "PeakingFilter",
         }
+    }
+
+    /// The `mix` parameter (blending ratio of the original and effect audio), if any
+    pub fn mix(&self) -> Option<&EffectParameter<f32>> {
+        Some(match self {
+            AudioEffect::Retrigger(e) => &e.mix,
+            AudioEffect::Gate(e) => &e.mix,
+            AudioEffect::Flanger(e) => &e.mix,
+            AudioEffect::PitchShift(e) => &e.mix,
+            AudioEffect::BitCrusher(e) => &e.mix,
+            AudioEffect::Phaser(e) => &e.mix,
+            AudioEffect::Wobble(e) => &e.mix,
+            AudioEffect::Tapestop(e) => &e.mix,
+            AudioEffect::Echo(e) => &e.mix,
+            AudioEffect::HighPassFilter(e) => &e.mix,
+            AudioEffect::LowPassFilter(e) => &e.mix,
+            AudioEffect::PeakingFilter(e) => &e.mix,
+            AudioEffect::Sidechain(_) | AudioEffect::SwitchAudio(_) => return None,
+        })
     }
 }
 
@@ -221,7 +240,6 @@ pub struct Flanger {
 #[serde(default)]
 pub struct PitchShift {
     pub pitch: EffectParameter<f32>,
-    pub pitch_quantize: BoolParameter,
     pub chunk_size: EffectParameter<i64>,
     pub overlap: EffectParameter<f32>,
     pub mix: EffectParameter<f32>,
@@ -286,17 +304,34 @@ pub struct Sidechain {
     pub period: EffectParameter<f32>,
     pub hold_time: EffectParameter<f32>,
     pub attack_time: EffectParameter<f32>,
-    pub release_time: EffectParameter<f32>,
+    /// `None` when not specified; see [`Sidechain::release_time_or_default`]
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub release_time: Option<EffectParameter<f32>>,
     pub ratio: EffectParameter<f32>,
+}
+
+impl Sidechain {
+    /// `release_time`, or its default when not specified: `1/8`, or `1/16` for user-defined
+    /// effects when `compat.ksh_version` is earlier than "200" (spec: `sidechain.release_time`)
+    pub fn release_time_or_default(&self, legacy_user_defined: bool) -> EffectParameter<f32> {
+        self.release_time.clone().unwrap_or_else(|| {
+            default_param(
+                "release_time",
+                if legacy_user_defined { "1/16" } else { "1/8" },
+            )
+        })
+    }
 }
 
 #[derive(Deserialize, Serialize, Clone, Effect, PartialEq, Debug)]
 #[serde(default)]
 pub struct HighPassFilter {
     pub v: EffectParameter<f32>,
+    /// Cutoff frequency when `v` is 0.0
     pub freq: EffectParameter<f32>,
+    /// Cutoff frequency when `v` is 1.0
+    pub freq_max: EffectParameter<f32>,
     pub q: EffectParameter<f32>,
-    pub delay: EffectParameter<f32>,
     pub mix: EffectParameter<f32>,
 }
 
@@ -304,9 +339,11 @@ pub struct HighPassFilter {
 #[serde(default)]
 pub struct LowPassFilter {
     pub v: EffectParameter<f32>,
+    /// Cutoff frequency when `v` is 0.0
     pub freq: EffectParameter<f32>,
+    /// Cutoff frequency when `v` is 1.0
+    pub freq_max: EffectParameter<f32>,
     pub q: EffectParameter<f32>,
-    pub delay: EffectParameter<f32>,
     pub mix: EffectParameter<f32>,
 }
 
@@ -314,10 +351,13 @@ pub struct LowPassFilter {
 #[serde(default)]
 pub struct PeakingFilter {
     pub v: EffectParameter<f32>,
+    /// Center frequency when `v` is 0.0
     pub freq: EffectParameter<f32>,
-    pub q: EffectParameter<f32>,
+    /// Center frequency when `v` is 1.0
+    pub freq_max: EffectParameter<f32>,
+    /// Bandwidth around the center frequency in octaves
+    pub bandwidth: EffectParameter<f32>,
     pub gain: EffectParameter<f32>,
-    pub delay: EffectParameter<f32>,
     pub mix: EffectParameter<f32>,
 }
 
@@ -329,150 +369,155 @@ pub struct EffectInterval {
     pub dom: bool,
 }
 
-fn default_param<T: Default>(val: &str) -> EffectParameter<T> {
-    EffectParameter::from_str(val).unwrap_or_default()
+/// Parses a predefined default value as the spec type of the parameter `name`
+fn default_param<T: Default>(name: &str, val: &str) -> EffectParameter<T> {
+    let param = EffectParameter::parse_typed(val, ParamType::for_name(name));
+    debug_assert!(param.is_ok(), "invalid default {name}={val}");
+    param.unwrap_or_default()
 }
 
+// Defaults are from the spec ("Audio effects & parameter list"). The filter `freq`,
+// `freq_max`, `q` and `bandwidth` defaults are implementation-dependent: they keep the
+// previous kson-rs ranges, with the low-pass filter fully open at `v` = 0.
 impl Default for ReTrigger {
     fn default() -> Self {
         Self {
-            update_period: default_param("1/2"),
-            wave_length: default_param("0"),
-            rate: default_param("70%"),
-            update_trigger: default_param("off"),
-            mix: default_param("0%>100%"),
+            update_period: default_param("update_period", "1/2"),
+            wave_length: default_param("wave_length", "0"),
+            rate: default_param("rate", "70%"),
+            update_trigger: default_param("update_trigger", "off"),
+            mix: default_param("mix", "0%>100%"),
         }
     }
 }
 impl Default for Gate {
     fn default() -> Self {
         Self {
-            wave_length: default_param("0"),
-            rate: default_param("50%"),
-            mix: default_param("0%>90%"),
+            wave_length: default_param("wave_length", "0"),
+            rate: default_param("rate", "50%"),
+            mix: default_param("mix", "0%>90%"),
         }
     }
 }
 impl Default for Flanger {
     fn default() -> Self {
         Self {
-            period: default_param("2.0"),
-            delay: default_param("30samples"),
-            depth: default_param("45samples"),
-            feedback: default_param("60%"),
-            stereo_width: default_param("0%"),
-            vol: default_param("75%"),
-            mix: default_param("0%>80%"),
+            period: default_param("period", "2.0"),
+            delay: default_param("delay", "30samples"),
+            depth: default_param("depth", "45samples"),
+            feedback: default_param("feedback", "60%"),
+            stereo_width: default_param("stereo_width", "0%"),
+            vol: default_param("vol", "75%"),
+            mix: default_param("mix", "0%>80%"),
         }
     }
 }
 impl Default for PitchShift {
     fn default() -> Self {
         Self {
-            pitch: default_param("0>12"),
-            pitch_quantize: default_param("off"),
-            chunk_size: default_param("700samples"),
-            overlap: default_param("40%"),
-            mix: default_param("0%>100%"),
+            pitch: default_param("pitch", "0>12"),
+            chunk_size: default_param("chunk_size", "700samples"),
+            overlap: default_param("overlap", "40%"),
+            mix: default_param("mix", "0%>100%"),
         }
     }
 }
 impl Default for BitCrusher {
     fn default() -> Self {
         Self {
-            reduction: default_param("0samples-30samples"),
-            mix: default_param("0%>100%"),
+            reduction: default_param("reduction", "0samples-30samples"),
+            mix: default_param("mix", "0%>100%"),
         }
     }
 }
 impl Default for Phaser {
     fn default() -> Self {
         Self {
-            period: default_param("1/2"),
-            stage: default_param("6"),
-            freq_1: default_param("1500Hz"),
-            freq_2: default_param("20000Hz"),
-            q: default_param("0.707"),
-            feedback: default_param("35%"),
-            stereo_width: default_param("75%"),
-            hi_cut_gain: default_param("-8.0dB"),
-            mix: default_param("0%>50%"),
+            period: default_param("period", "1/2"),
+            stage: default_param("stage", "6"),
+            freq_1: default_param("freq_1", "1500Hz"),
+            freq_2: default_param("freq_2", "20000Hz"),
+            q: default_param("q", "0.707"),
+            feedback: default_param("feedback", "35%"),
+            stereo_width: default_param("stereo_width", "75%"),
+            hi_cut_gain: default_param("hi_cut_gain", "-8.0dB"),
+            mix: default_param("mix", "0%>50%"),
         }
     }
 }
 impl Default for Wobble {
     fn default() -> Self {
         Self {
-            wave_length: default_param("0"),
-            freq_1: default_param("500Hz"),
-            freq_2: default_param("20000Hz"),
-            q: default_param("1.414"),
-            mix: default_param("0%>80%"),
+            wave_length: default_param("wave_length", "0"),
+            freq_1: default_param("freq_1", "500Hz"),
+            freq_2: default_param("freq_2", "20000Hz"),
+            q: default_param("q", "1.414"),
+            mix: default_param("mix", "0%>80%"),
         }
     }
 }
 impl Default for TapeStop {
     fn default() -> Self {
         Self {
-            speed: default_param("50%"),
-            trigger: default_param("off>on"),
-            mix: default_param("0%>100%"),
+            speed: default_param("speed", "50%"),
+            trigger: default_param("trigger", "off>on"),
+            mix: default_param("mix", "0%>100%"),
         }
     }
 }
 impl Default for Echo {
     fn default() -> Self {
         Self {
-            update_period: default_param("0"),
-            wave_length: default_param("0"),
-            update_trigger: default_param("off>on"),
-            feedback_level: default_param("60%"),
-            mix: default_param("0%>100%"),
+            update_period: default_param("update_period", "0"),
+            wave_length: default_param("wave_length", "0"),
+            update_trigger: default_param("update_trigger", "off>on"),
+            feedback_level: default_param("feedback_level", "60%"),
+            mix: default_param("mix", "0%>100%"),
         }
     }
 }
 impl Default for Sidechain {
     fn default() -> Self {
         Self {
-            period: default_param("1/4"),
-            hold_time: default_param("50ms"),
-            attack_time: default_param("10ms"),
-            release_time: default_param("1/8"),
-            ratio: default_param("1.0>5.0"),
+            period: default_param("period", "1/4"),
+            hold_time: default_param("hold_time", "50ms"),
+            attack_time: default_param("attack_time", "10ms"),
+            release_time: None,
+            ratio: default_param("ratio", "1.0>5.0"),
         }
     }
 }
 impl Default for HighPassFilter {
     fn default() -> Self {
         Self {
-            v: default_param("0%-100%"),
-            freq: default_param("80hz-2khz"),
-            q: default_param("1.414"),
-            delay: default_param("0"),
-            mix: default_param("0%>100%"),
+            v: default_param("v", "0%-100%"),
+            freq: default_param("freq", "80Hz"),
+            freq_max: default_param("freq_max", "2kHz"),
+            q: default_param("q", "1.414"),
+            mix: default_param("mix", "0%>100%"),
         }
     }
 }
 impl Default for LowPassFilter {
     fn default() -> Self {
         Self {
-            v: default_param("0%-100%"),
-            freq: default_param("700hz-10khz"),
-            q: default_param("1.414"),
-            delay: default_param("0"),
-            mix: default_param("0%>100%"),
+            v: default_param("v", "0%-100%"),
+            freq: default_param("freq", "10kHz"),
+            freq_max: default_param("freq_max", "700Hz"),
+            q: default_param("q", "1.414"),
+            mix: default_param("mix", "0%>100%"),
         }
     }
 }
 impl Default for PeakingFilter {
     fn default() -> Self {
         Self {
-            v: default_param("0%-100%"),
-            freq: default_param("80hz-8khz"),
-            q: default_param("1.414"),
-            gain: default_param("50%"),
-            delay: default_param("0"),
-            mix: default_param("0%>100%"),
+            v: default_param("v", "0%-100%"),
+            freq: default_param("freq", "80Hz"),
+            freq_max: default_param("freq_max", "8kHz"),
+            bandwidth: default_param("bandwidth", "1.0"),
+            gain: default_param("gain", "50%"),
+            mix: default_param("mix", "0%>100%"),
         }
     }
 }
@@ -496,6 +541,23 @@ fn apply_param_changes(
 }
 
 impl Chart {
+    /// Resolves an effect name like [`AudioEffect::resolve`] and fills in defaults that
+    /// depend on the chart (the legacy sidechain `release_time`)
+    fn resolve_effect(
+        &self,
+        defs: &[crate::DefKeyValuePair<AudioEffect>],
+        name: &str,
+    ) -> Option<AudioEffect> {
+        let effect = AudioEffect::resolve(defs, name)?;
+        let user_defined = matches!(effect, Cow::Borrowed(_));
+        let mut effect = effect.into_owned();
+        if let AudioEffect::Sidechain(s) = &mut effect {
+            let legacy = user_defined && self.compat.as_ref().is_some_and(|c| c.is_legacy_ksh());
+            s.release_time = Some(s.release_time_or_default(legacy));
+        }
+        Some(effect)
+    }
+
     pub fn get_effect_tracks(&self) -> Vec<EffectInterval> {
         let audio_effect = &self.audio.audio_effect;
         let sides = [Side::Left, Side::Right];
@@ -527,11 +589,11 @@ impl Chart {
                     if end <= start {
                         continue;
                     }
-                    let Some(root_effect) = AudioEffect::resolve(&audio_effect.fx.def, name) else {
+                    let Some(root_effect) = self.resolve_effect(&audio_effect.fx.def, name) else {
                         continue;
                     };
                     let mut effect = apply_param_changes(
-                        root_effect.into_owned(),
+                        root_effect,
                         &audio_effect.fx.param_change,
                         name,
                         start,
@@ -581,11 +643,11 @@ impl Chart {
 
                 for (bi, (start, name)) in boundaries.iter().enumerate() {
                     let end = boundaries.get(bi + 1).map(|b| b.0).unwrap_or(section_end);
-                    let Some(effect) = AudioEffect::resolve(&audio_effect.laser.def, name) else {
+                    let Some(effect) = self.resolve_effect(&audio_effect.laser.def, name) else {
                         continue;
                     };
                     let effect = apply_param_changes(
-                        effect.into_owned(),
+                        effect,
                         &audio_effect.laser.param_change,
                         name,
                         *start,
@@ -614,13 +676,13 @@ impl Chart {
         let mut result = BTreeMap::new();
 
         for (key, ticks) in &laser.pulse_event {
-            let Some(effect) = AudioEffect::resolve(&laser.def, key) else {
+            let Some(effect) = self.resolve_effect(&laser.def, key) else {
                 continue;
             };
             for y in ticks {
                 result.insert(
                     *y,
-                    apply_param_changes(effect.clone().into_owned(), &laser.param_change, key, *y),
+                    apply_param_changes(effect.clone(), &laser.param_change, key, *y),
                 );
             }
         }

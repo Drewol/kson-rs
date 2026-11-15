@@ -65,18 +65,195 @@ impl From<&EffectFreq> for f32 {
 
 #[derive(Clone, Debug, PartialEq, Default)]
 pub enum EffectParameterValue {
+    /// (value, tempo synced). Tempo synced values are in measures, others in seconds.
     Length(RangeInclusive<EffectFloat>, bool),
     Sample(RangeInclusive<i32>),
     Switch(RangeInclusive<bool>),
     Rate(RangeInclusive<f32>),
     Freq(RangeInclusive<EffectFreq>),
-    Pitch(RangeInclusive<f32>),
+    /// (value, quantized). Quantized when the string value contains no '.' (spec: pitch)
+    Pitch(RangeInclusive<f32>, bool),
     Int(RangeInclusive<i32>),
     Float(RangeInclusive<f32>),
     Decibel(RangeInclusive<f32>),
     Filename(String),
     #[default]
     Undefined,
+}
+
+/// Audio effect parameter types (spec: "Audio effect parameter types")
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
+pub enum ParamType {
+    /// Type unknown; the value type is guessed from the string
+    #[default]
+    Unspecified,
+    Length,
+    Sample,
+    Switch,
+    Rate,
+    Freq,
+    Pitch,
+    Int,
+    Float,
+    Decibel,
+    Filename,
+}
+
+impl ParamType {
+    /// Parameter type by kson parameter name (spec: "Audio effects & parameter list")
+    pub fn for_name(name: &str) -> Self {
+        match name {
+            "attack_time" | "hold_time" | "period" | "release_time" | "update_period"
+            | "wave_length" => ParamType::Length,
+            "chunk_size" | "delay" | "depth" | "reduction" => ParamType::Sample,
+            "trigger" | "update_trigger" => ParamType::Switch,
+            "feedback" | "feedback_level" | "gain" | "mix" | "overlap" | "rate" | "speed"
+            | "stereo_width" | "v" | "vol" => ParamType::Rate,
+            "freq" | "freq_1" | "freq_2" | "freq_max" => ParamType::Freq,
+            "pitch" => ParamType::Pitch,
+            "stage" => ParamType::Int,
+            "bandwidth" | "q" | "ratio" => ParamType::Float,
+            "hi_cut_gain" => ParamType::Decibel,
+            "filename" => ParamType::Filename,
+            _ => ParamType::Unspecified,
+        }
+    }
+}
+
+/// `[float]` (or `[int]`) as defined by the spec: only `0123456789-.`, no `+` or exponent
+fn parse_spec_f32(s: &str) -> Option<f32> {
+    if s.is_empty() || !s.chars().all(|c| c.is_ascii_digit() || c == '-' || c == '.') {
+        return None;
+    }
+    s.parse::<f32>().ok().filter(|v| v.is_finite())
+}
+
+/// `[int]` as defined by the spec
+fn parse_spec_i32(s: &str) -> Option<i32> {
+    if s.is_empty() || !s.chars().all(|c| c.is_ascii_digit() || c == '-') {
+        return None;
+    }
+    s.parse::<i32>().ok()
+}
+
+/// `1/[int]` with int >= 1
+fn parse_one_over(s: &str) -> Option<i32> {
+    s.strip_prefix("1/")
+        .and_then(parse_spec_i32)
+        .filter(|d| *d >= 1)
+}
+
+impl EffectParameterValue {
+    /// Parses a single (non-range) value that must follow one of the allowed formats
+    /// of the parameter type `ty`, including its value requirements.
+    pub fn parse_typed(s: &str, ty: ParamType) -> Result<Self, &'static str> {
+        use EffectParameterValue as V;
+        fn check<T>(v: T, ok: bool, err: &'static str) -> Result<T, &'static str> {
+            ok.then_some(v).ok_or(err)
+        }
+        Ok(match ty {
+            ParamType::Unspecified => return s.parse(),
+            ParamType::Length => {
+                if let Some(ms) = s.strip_suffix("ms") {
+                    let v = parse_spec_f32(ms).ok_or("invalid length")?;
+                    let v = check(v, v > 0.0, "length in ms must be > 0")? / 1000.0;
+                    V::Length(EffectFloat::Float(v)..=EffectFloat::Float(v), false)
+                } else if let Some(sec) = s.strip_suffix('s') {
+                    let v = parse_spec_f32(sec).ok_or("invalid length")?;
+                    let v = check(v, v > 0.0, "length in s must be > 0")?;
+                    V::Length(EffectFloat::Float(v)..=EffectFloat::Float(v), false)
+                } else if s.starts_with("1/") {
+                    let v = EffectFloat::Fraction(1, parse_one_over(s).ok_or("invalid length")?);
+                    V::Length(v..=v, true)
+                } else {
+                    // `[float]`: fraction of one measure, tempo synced
+                    let v = parse_spec_f32(s).ok_or("invalid length")?;
+                    let v = check(v, v >= 0.0, "length must be >= 0")?;
+                    V::Length(EffectFloat::Float(v)..=EffectFloat::Float(v), true)
+                }
+            }
+            ParamType::Sample => {
+                let v = s
+                    .strip_suffix("samples")
+                    .and_then(parse_spec_i32)
+                    .ok_or("invalid sample value")?;
+                let v = check(v, (0..=44100).contains(&v), "samples must be 0-44100")?;
+                V::Sample(v..=v)
+            }
+            ParamType::Switch => match s {
+                "on" => V::Switch(true..=true),
+                "off" => V::Switch(false..=false),
+                _ => return Err("switch must be on or off"),
+            },
+            ParamType::Rate => {
+                let v = if let Some(p) = s.strip_suffix('%') {
+                    let p = parse_spec_i32(p).ok_or("invalid rate")?;
+                    check(p, (0..=100).contains(&p), "rate must be 0-100%")? as f32 / 100.0
+                } else if s.starts_with("1/") {
+                    1.0 / parse_one_over(s).ok_or("invalid rate")? as f32
+                } else {
+                    let v = parse_spec_f32(s).ok_or("invalid rate")?;
+                    check(v, (0.0..=1.0).contains(&v), "rate must be 0.0-1.0")?
+                };
+                V::Rate(v..=v)
+            }
+            ParamType::Freq => {
+                let f = if let Some(k) = s.strip_suffix("kHz") {
+                    let k = parse_spec_f32(k).ok_or("invalid freq")?;
+                    EffectFreq::Khz(check(k, (0.01..=20.0).contains(&k), "freq must be 0.01-20kHz")?)
+                } else if let Some(h) = s.strip_suffix("Hz") {
+                    let h = parse_spec_i32(h).ok_or("invalid freq")?;
+                    EffectFreq::Hz(check(h, (10..=20000).contains(&h), "freq must be 10-20000Hz")?)
+                } else {
+                    return Err("freq requires a Hz or kHz suffix");
+                };
+                V::Freq(f..=f)
+            }
+            ParamType::Pitch => {
+                let v = parse_spec_f32(s).ok_or("invalid pitch")?;
+                let v = check(v, (-48.0..=48.0).contains(&v), "pitch must be -48-48")?;
+                V::Pitch(v..=v, !s.contains('.'))
+            }
+            ParamType::Int => {
+                let v = parse_spec_i32(s).ok_or("invalid int")?;
+                V::Int(v..=v)
+            }
+            ParamType::Float => {
+                let v = parse_spec_f32(s).ok_or("invalid float")?;
+                V::Float(v..=v)
+            }
+            ParamType::Decibel => {
+                let v = s
+                    .strip_suffix("dB")
+                    .and_then(parse_spec_f32)
+                    .ok_or("invalid dB value")?;
+                V::Decibel(v..=v)
+            }
+            ParamType::Filename => V::Filename(s.to_string()),
+        })
+    }
+
+    /// Combines OnMin and OnMax single values into one range value
+    fn merge_range(min: Self, max: Self) -> Result<Self, &'static str> {
+        use EffectParameterValue as V;
+        Ok(match (min, max) {
+            // There is no meaningful transition between a tempo synced and an absolute length
+            (V::Length(_, at), V::Length(_, bt)) if at != bt => {
+                return Err("length range mixes tempo synced and absolute values")
+            }
+            (V::Length(a, t), V::Length(b, _)) => V::Length(*a.start()..=*b.end(), t),
+            (V::Sample(a), V::Sample(b)) => V::Sample(*a.start()..=*b.end()),
+            (V::Switch(a), V::Switch(b)) => V::Switch(*a.start()..=*b.end()),
+            (V::Rate(a), V::Rate(b)) => V::Rate(*a.start()..=*b.end()),
+            (V::Freq(a), V::Freq(b)) => V::Freq(*a.start()..=*b.end()),
+            // The transition value is quantized only if both ends are integers
+            (V::Pitch(a, aq), V::Pitch(b, bq)) => V::Pitch(*a.start()..=*b.end(), aq && bq),
+            (V::Int(a), V::Int(b)) => V::Int(*a.start()..=*b.end()),
+            (V::Float(a), V::Float(b)) => V::Float(*a.start()..=*b.end()),
+            (V::Decibel(a), V::Decibel(b)) => V::Decibel(*a.start()..=*b.end()),
+            _ => return Err("range ends have different value types"),
+        })
+    }
 }
 
 trait EffectParam {
@@ -110,12 +287,13 @@ impl EffectParameterValue {
             EffectParameterValue::Freq(f) => {
                 Duration::from_secs_f32(1.0 / f.interpolate(v, InterpolationShape::Logarithmic))
             }
-            EffectParameterValue::Int(_) => todo!(),
-            EffectParameterValue::Float(f) => {
-                Duration::from_secs_f32(f.interpolate(v, InterpolationShape::Linear))
-            }
+            EffectParameterValue::Int(_) => Duration::ZERO,
+            // A plain number for a length is a fraction of a measure (spec: length type)
+            EffectParameterValue::Float(f) => Duration::from_secs_f32(
+                (f.interpolate(v, InterpolationShape::Linear).max(0.0) * 240.0) / bpm,
+            ),
             EffectParameterValue::Switch(_) => Duration::ZERO,
-            EffectParameterValue::Pitch(_) => Duration::ZERO,
+            EffectParameterValue::Pitch(..) => Duration::ZERO,
             EffectParameterValue::Decibel(_) => Duration::ZERO,
             EffectParameterValue::Filename(_) => Duration::ZERO,
             EffectParameterValue::Undefined => Duration::ZERO,
@@ -167,13 +345,20 @@ impl EffectParam for EffectParameterValue {
                 .then(|| 1.0)
                 .unwrap_or(0.0),
             EffectParameterValue::Rate(r)
-            | EffectParameterValue::Pitch(r)
             | EffectParameterValue::Float(r)
             | EffectParameterValue::Decibel(r) => r.interpolate(v, shape),
-            EffectParameterValue::Freq(f) => f.interpolate(v, shape),
-            EffectParameterValue::Sample(i) | EffectParameterValue::Int(i) => {
-                i.interpolate(v, shape)
+            // Quantized transition values are floored (spec: `12.9`->`12`, `-1.1`->`-2`)
+            EffectParameterValue::Pitch(r, quantized) => {
+                let p = r.interpolate(v, shape);
+                if *quantized {
+                    p.floor()
+                } else {
+                    p
+                }
             }
+            EffectParameterValue::Freq(f) => f.interpolate(v, shape),
+            EffectParameterValue::Sample(i) => i.interpolate(v, shape),
+            EffectParameterValue::Int(i) => i.interpolate(v, shape).floor(),
             EffectParameterValue::Filename(_) => f32::NAN,
             EffectParameterValue::Undefined => f32::NAN,
         }
@@ -186,9 +371,72 @@ pub struct EffectParameter<T> {
     pub on: Option<EffectParameterValue>,
     pub v: T,
     pub shape: InterpolationShape,
+    /// Type the value was parsed as; [`ParamType::Unspecified`] when parsed with [`FromStr`]
+    pub ty: ParamType,
 }
 
 pub type BoolParameter = EffectParameter<bool>;
+
+impl<T: Default> EffectParameter<T> {
+    /// Parses `Off`, `Off>OnMin`, `OnMin-OnMax` or `Off>OnMin-OnMax` (spec: "Audio effect
+    /// parameter value format") with every value parsed as `ty`. Fails if any value is invalid.
+    pub fn parse_typed(s: &str, ty: ParamType) -> Result<Self, &'static str> {
+        let (off, on) = match ty {
+            ParamType::Unspecified => return s.parse(),
+            ParamType::Filename => (EffectParameterValue::Filename(s.to_string()), None),
+            _ => {
+                // A '-' directly after the start or after '>' is a minus sign, not the
+                // OnMin-OnMax separator
+                let range = |s: &str| -> Result<EffectParameterValue, &'static str> {
+                    match s.get(1..).and_then(|r| r.find('-')).map(|i| i + 1) {
+                        Some(i) => EffectParameterValue::merge_range(
+                            EffectParameterValue::parse_typed(&s[..i], ty)?,
+                            EffectParameterValue::parse_typed(&s[i + 1..], ty)?,
+                        ),
+                        None => EffectParameterValue::parse_typed(s, ty),
+                    }
+                };
+                match s.split_once('>') {
+                    Some((off, on)) => (EffectParameterValue::parse_typed(off, ty)?, Some(range(on)?)),
+                    None => {
+                        let value = range(s)?;
+                        match value.range_start() {
+                            // `OnMin-OnMax`: Off inherits the OnMin value
+                            Some(on_min) if value.is_range() => (on_min, Some(value)),
+                            _ => (value, None),
+                        }
+                    }
+                }
+            }
+        };
+
+        Ok(Self {
+            shape: off.default_shape(),
+            off,
+            on,
+            v: T::default(),
+            ty,
+        })
+    }
+}
+
+/// An audio effect struct field that can be set from a parameter string
+pub trait ParamField: Sized {
+    /// Returns `None` if the string is not a valid value of type `ty`
+    fn parse_field(s: &str, ty: ParamType) -> Option<Self>;
+}
+
+impl<T: Default> ParamField for EffectParameter<T> {
+    fn parse_field(s: &str, ty: ParamType) -> Option<Self> {
+        EffectParameter::parse_typed(s, ty).ok()
+    }
+}
+
+impl<T: Default> ParamField for Option<EffectParameter<T>> {
+    fn parse_field(s: &str, ty: ParamType) -> Option<Self> {
+        EffectParameter::parse_typed(s, ty).ok().map(Some)
+    }
+}
 
 impl<T: Any> Serialize for EffectParameter<T> {
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
@@ -261,6 +509,7 @@ impl<T: Default> FromStr for EffectParameter<T> {
             on,
             shape: off.default_shape(),
             off,
+            ty: ParamType::Unspecified,
         })
     }
 }
@@ -275,7 +524,7 @@ impl EffectParameterValue {
             EffectParameterValue::Sample(l) | EffectParameterValue::Int(l) => r(l),
             EffectParameterValue::Switch(l) => r(l),
             EffectParameterValue::Rate(l)
-            | EffectParameterValue::Pitch(l)
+            | EffectParameterValue::Pitch(l, _)
             | EffectParameterValue::Float(l)
             | EffectParameterValue::Decibel(l) => r(l),
             EffectParameterValue::Freq(l) => r(l),
@@ -297,7 +546,9 @@ impl EffectParameterValue {
                 EffectParameterValue::Switch(*l.start()..=*l.start())
             }
             EffectParameterValue::Rate(l) => EffectParameterValue::Rate(*l.start()..=*l.start()),
-            EffectParameterValue::Pitch(l) => EffectParameterValue::Pitch(*l.start()..=*l.start()),
+            EffectParameterValue::Pitch(l, q) => {
+                EffectParameterValue::Pitch(*l.start()..=*l.start(), *q)
+            }
             EffectParameterValue::Float(l) => EffectParameterValue::Float(*l.start()..=*l.start()),
             EffectParameterValue::Decibel(l) => {
                 EffectParameterValue::Decibel(*l.start()..=*l.start())
@@ -339,9 +590,17 @@ impl Display for EffectParameterValue {
                 }
             }),
             EffectParameterValue::Decibel(r) => serialize_range(r, |v| format!("{v}dB")),
-            EffectParameterValue::Pitch(r) | EffectParameterValue::Float(r) => {
-                serialize_range(r, |v| v.to_string())
-            }
+            // Quantization is encoded by the absence of '.'
+            EffectParameterValue::Pitch(r, quantized) => serialize_range(r, |v| {
+                if *quantized {
+                    (v.floor() as i32).to_string()
+                } else if v.fract() == 0.0 {
+                    format!("{v:.1}")
+                } else {
+                    v.to_string()
+                }
+            }),
+            EffectParameterValue::Float(r) => serialize_range(r, |v| v.to_string()),
             EffectParameterValue::Int(i) => serialize_range(i, i32::to_string),
             EffectParameterValue::Freq(f) => serialize_range(f, |v| v.to_string()),
             EffectParameterValue::Filename(f) => f.clone(),
@@ -491,8 +750,8 @@ impl FromStr for EffectParameterValue {
                     (EffectParameterValue::Freq(a), EffectParameterValue::Freq(b)) => {
                         EffectParameterValue::Freq(*a.start()..=*b.end())
                     }
-                    (EffectParameterValue::Pitch(a), EffectParameterValue::Pitch(b)) => {
-                        EffectParameterValue::Pitch(*a.start()..=*b.end())
+                    (EffectParameterValue::Pitch(a, aq), EffectParameterValue::Pitch(b, bq)) => {
+                        EffectParameterValue::Pitch(*a.start()..=*b.end(), aq && bq)
                     }
                     (EffectParameterValue::Int(a), EffectParameterValue::Int(b)) => {
                         EffectParameterValue::Int(*a.start()..=*b.end())
