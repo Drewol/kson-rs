@@ -16,7 +16,7 @@ enum ActiveBinding {
     #[default]
     None,
     Button(Button),
-    Axis(Axis, HashMap<Code, f32>),
+    Axis(Axis, HashMap<Code, f32>, bool),
 }
 
 pub struct BindingUi {
@@ -64,19 +64,19 @@ impl BindingUi {
                     ActiveBinding::Button(button)
                 }
             }
-            ActiveBinding::Axis(axis, mut states) => state
+            ActiveBinding::Axis(axis, mut states, invert) => state
                 .axes()
                 .find_map(|(code, axis_data)| {
                     let value = *states.entry(code).or_insert_with(|| axis_data.value());
                     let new_value = axis_data.value();
                     if (value - new_value).abs() > 0.1 {
-                        bindings.axis.insert(axis, code);
+                        bindings.axis.insert(axis, (code, invert));
                         Some(ActiveBinding::None)
                     } else {
                         None
                     }
                 })
-                .unwrap_or(ActiveBinding::Axis(axis, states)),
+                .unwrap_or(ActiveBinding::Axis(axis, states, invert)),
         }
     }
 
@@ -114,11 +114,11 @@ impl BindingUi {
         let mut right_button = egui::Button::new("Right");
 
         let (left_active, right_active) = match self.currently_binding {
-            ActiveBinding::Axis(Axis::RightStickX, _) => {
+            ActiveBinding::Axis(Axis::RightStickX, ..) => {
                 right_button = right_button.stroke(stroke);
                 (false, true)
             }
-            ActiveBinding::Axis(Axis::LeftStickX, _) => {
+            ActiveBinding::Axis(Axis::LeftStickX, ..) => {
                 left_button = left_button.stroke(stroke);
                 (true, false)
             }
@@ -139,28 +139,30 @@ impl BindingUi {
         };
 
         if ui.add(left_button).clicked() {
-            let left_axis = ActiveBinding::Axis(Axis::LeftStickX, axes_states());
+            let left_axis = ActiveBinding::Axis(Axis::LeftStickX, axes_states(), false);
             self.currently_binding = if left_active {
                 ActiveBinding::None
             } else {
                 left_axis
             };
         }
-        if let Some(bound) = bindings.axis.get(&Axis::LeftStickX) {
+        if let Some((bound, invert)) = bindings.axis.get_mut(&Axis::LeftStickX) {
             ui.label(format!(": {bound}"));
+            ui.checkbox(invert, "Invert");
         }
 
         ui.end_row();
         if ui.add(right_button).clicked() {
-            let right_axis = ActiveBinding::Axis(Axis::RightStickX, axes_states());
+            let right_axis = ActiveBinding::Axis(Axis::RightStickX, axes_states(), false);
             self.currently_binding = if right_active {
                 ActiveBinding::None
             } else {
                 right_axis
             };
         }
-        if let Some(bound) = bindings.axis.get(&Axis::RightStickX) {
+        if let Some((bound, invert)) = bindings.axis.get_mut(&Axis::RightStickX) {
             ui.label(format!(": {bound}"));
+            ui.checkbox(invert, "Invert");
         }
         ui.end_row();
         ui.separator();
@@ -182,7 +184,7 @@ impl BindingUi {
                     self.currently_binding = ActiveBinding::None;
                 }
             }
-            ActiveBinding::Axis(axis, _) => {
+            ActiveBinding::Axis(axis, _, _) => {
                 if ui
                     .button(format!(
                         "Clear {}",

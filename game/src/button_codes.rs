@@ -159,13 +159,15 @@ impl FilterFn for CustomBindingFilter {
                                 .map(|x| *x.0)
                                 .unwrap_or(*button);
                         }
-                        gilrs::EventType::AxisChanged(axis, _, code) => {
-                            *axis = bindings
-                                .axis
-                                .iter()
-                                .find(|x| *x.1 == *code)
-                                .map(|x| *x.0)
-                                .unwrap_or(*axis)
+                        gilrs::EventType::AxisChanged(axis, val, code) => {
+                            if let Some((mapped_axis, (_, invert))) =
+                                bindings.axis.iter().find(|x| x.1 .0 == *code)
+                            {
+                                *axis = *mapped_axis;
+                                if *invert {
+                                    *val *= -1.0;
+                                }
+                            }
                         }
                         gilrs::EventType::Connected => {}
                         gilrs::EventType::Disconnected => {}
@@ -422,7 +424,7 @@ use crate::{companion_interface::ClientEvent, config::GameConfig};
 #[derive(Debug, Serialize, Deserialize, Default, Clone)]
 pub struct CustomControlleMap {
     pub buttons: HashMap<Button, Code>,
-    pub axis: HashMap<Axis, Code>, //TODO: Direction?
+    pub axis: HashMap<Axis, (Code, bool)>,
 }
 
 pub type CustomBindings = HashMap<uuid::Uuid, CustomControlleMap>;
