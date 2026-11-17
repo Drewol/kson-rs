@@ -29,7 +29,10 @@ pub enum VoxReadError {
 }
 
 #[derive(Debug, Error)]
-pub enum VoxWriteError {}
+pub enum VoxWriteError {
+    #[error("Not implemented")]
+    NotImplementedError,
+}
 
 pub trait Vox {
     fn from_vox(data: &str) -> Result<crate::Chart, VoxReadError>;
@@ -263,6 +266,6 @@ impl Vox for crate::Chart {
     where
         W: std::io::Write,
     {
-        todo!()
+        Err(VoxWriteError::NotImplementedError)
     }
 }

@@ -471,7 +471,7 @@ impl SongProvider for NauticaSongProvider {
     }
 
     fn set_sort(&mut self, _sort: super::SongSort) {
-        todo!()
+        warn!("Sorting not implemented for nautica");
     }
 
     fn set_filter(&mut self, filter: super::SongFilter) {

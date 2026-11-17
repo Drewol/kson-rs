@@ -573,9 +573,9 @@ impl SongProvider for FileSongProvider {
                 SongId::StringId(hash) => {
                     block_on(self.database.get_hash_id(hash))?.ok_or(anyhow!("No song hash"))?
                 }
-                SongId::Missing => todo!(),
+                SongId::Missing => bail!("Song ID missing"),
             },
-            _ => todo!(),
+            SongDiffId::Missing => bail!("Song + Diff ID missing"),
         };
 
         let db = self.database.clone();
@@ -879,7 +879,7 @@ impl SongProvider for FileSongProvider {
 
 impl ScoreProvider for FileSongProvider {
     fn get_scores(&mut self, _id: &SongDiffId) -> Vec<Score> {
-        todo!()
+        vec![]
     }
 
     fn insert_score(&mut self, id: &SongDiffId, score: Score) -> anyhow::Result<()> {

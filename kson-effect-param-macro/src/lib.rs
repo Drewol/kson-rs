@@ -11,7 +11,7 @@ pub fn derive_effect_param(input: TokenStream) -> TokenStream {
             let mut match_arms = vec![];
             for variant in &e.variants {
                 let new_struct_expr = match &variant.fields {
-                    syn::Fields::Named(_) => todo!(),
+                    syn::Fields::Named(_) => panic!("Named unit variants are not supported yet"), // TODO
                     syn::Fields::Unnamed(_) => {
                         let input = &input.ident;
                         let variant = &variant.ident;

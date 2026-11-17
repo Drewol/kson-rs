@@ -452,7 +452,7 @@ impl VgfxLua {
         })? {
             Ok(img) => img,
             Err(err) => {
-                log::error!("Failed to load image \"{}\": {:?}", &filename, err);
+                log::error!("Failed to load image \"{}\": {:?}", filename, err);
                 return Ok(None);
             }
         };
@@ -537,20 +537,19 @@ impl VgfxLua {
         let Some(s) = s else {
             return Ok(());
         };
-        match _vgfx.fill_paint.as_ref() {
-            Some(fill_paint) => {
-                let canvas = &mut _vgfx
-                    .canvas
-                    .try_lock()
-                    .map_err(|_| mlua::Error::external("Canvas in use".to_string()))?;
+        let fill_paint = _vgfx
+            .fill_paint
+            .as_ref()
+            .ok_or(mlua::Error::external("fill_paint not set"))?;
+        let canvas = &mut _vgfx
+            .canvas
+            .try_lock()
+            .map_err(|_| mlua::Error::external("Canvas in use".to_string()))?;
 
-                canvas
-                    .fill_text(x, y, s, fill_paint)
-                    .map_err(mlua::Error::external)?;
-                Ok(())
-            }
-            None => todo!(),
-        }
+        canvas
+            .fill_text(x, y, s, fill_paint)
+            .map_err(mlua::Error::external)?;
+        Ok(())
     }
 
     fn text_align(_vgfx: &RefMut<Vgfx>, align: u32) -> Result<(), mlua::Error> {
@@ -590,7 +589,7 @@ impl VgfxLua {
                 text_paint.set_font(&[*font_id]);
             }
         } else {
-            warn!("No loaded font named: {}", &s)
+            warn!("No loaded font named: {}", s)
         }
         Ok(())
     }
@@ -697,26 +696,25 @@ impl VgfxLua {
     ) -> Result<(), mlua::Error> {
         let mut _vgfx_lock = _vgfx.write().expect("Lock error");
         let _vgfx = _vgfx_lock.deref_mut();
-        match _vgfx.fill_paint.as_ref() {
-            Some(fill_paint) => {
-                let canvas = &mut _vgfx
-                    .canvas
-                    .try_lock()
-                    .map_err(|_| mlua::Error::external("Canvas in use".to_string()))?;
-                canvas
-                    .fill_text(
-                        x,
-                        y,
-                        input_text,
-                        &fill_paint
-                            .clone()
-                            .with_font_size(fill_paint.font_size() / COMPAT_TEXT_SCALE),
-                    )
-                    .map_err(mlua::Error::external)?;
-                Ok(())
-            }
-            None => todo!(),
-        }
+        let fill_paint = _vgfx
+            .fill_paint
+            .as_ref()
+            .ok_or(mlua::Error::external("fill_paint missing"))?;
+        let canvas = &mut _vgfx
+            .canvas
+            .try_lock()
+            .map_err(|_| mlua::Error::external("Canvas in use".to_string()))?;
+        canvas
+            .fill_text(
+                x,
+                y,
+                input_text,
+                &fill_paint
+                    .clone()
+                    .with_font_size(fill_paint.font_size() / COMPAT_TEXT_SCALE),
+            )
+            .map_err(mlua::Error::external)?;
+        Ok(())
     }
 
     fn create_label(
