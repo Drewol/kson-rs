@@ -584,44 +584,6 @@ impl SettingsDialog {
                         ),
                     ],
                 ),
-                SettingsDialogTab::new(
-                    "Test",
-                    vec![
-                        (
-                            "Float Test".into(),
-                            SettingsDialogSetting::float(
-                                move || {
-                                    rx.load(std::sync::atomic::Ordering::Relaxed) as f32
-                                        / u32::MAX as f32
-                                },
-                                move |v| {
-                                    tx.store(
-                                        (v * u32::MAX as f32) as u32,
-                                        std::sync::atomic::Ordering::Relaxed,
-                                    )
-                                },
-                                0.0,
-                                1.0,
-                                1.0,
-                            ),
-                        ),
-                        (
-                            "Int Test".into(),
-                            SettingsDialogSetting::int(
-                                move || irx.load(std::sync::atomic::Ordering::Relaxed),
-                                move |x| itx.store(x, std::sync::atomic::Ordering::Relaxed),
-                                -100,
-                                100,
-                                5,
-                                1,
-                            ),
-                        ),
-                        (
-                            "Button Test".into(),
-                            SettingsDialogSetting::button(|| info!("Test button pressed")),
-                        ),
-                    ],
-                ),
             ],
             input_state,
             services,
