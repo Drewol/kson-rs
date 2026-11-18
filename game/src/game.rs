@@ -1598,10 +1598,9 @@ impl Game {
                             .as_secs_f64()
                             * 1000.0,
                     );
-                let contain_start = start.min(end) - LASER_THRESHOLD;
-                let contain_end = start.max(end) + LASER_THRESHOLD;
-                let contains_cursor =
-                    (contain_start..=contain_end).contains(&self.laser_cursors[lane]);
+                //TODO: cursors need to be set to the correct position before we can start checking this.
+                // also, it's not really "contains", it's more "left of end of right-going slam"
+                let contains_cursor = true;
                 if tick.y < slam_miss_tick {
                     self.laser_assist_ticks[lane] = 0;
                     HitRating::Miss { tick, delta, time }
