@@ -3925,9 +3925,9 @@ dependencies = [
 
 [[package]]
 name = "mlua-bridge"
-version = "0.4.4"
+version = "0.4.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "87f6991d5495d92ab2a7c453e621d76ce2b63f3020c6aa259f08bd377333c407"
+checksum = "f184e680ac27b74c602b0b81dcfa5972a26a17eff296934f514a6284a34b0567"
 dependencies = [
  "darling 0.20.11",
  "ident_case",

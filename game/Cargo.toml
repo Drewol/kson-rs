@@ -48,7 +48,7 @@ encase = "0.10"
 gilrs = { version = "0.11.0", features = ["serde-serialize"] }
 kson = { path = "../kson" }
 kson-rodio-sources = { path = "../kson-rodio-sources" }
-mlua-bridge = "0.4.4"
+mlua-bridge = { version = "0.4.5", features = ["luals-gen"] }
 mlua = { version = "0.10", features = [
     "serialize",
     "vendored",

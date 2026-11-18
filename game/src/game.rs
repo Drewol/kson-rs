@@ -606,8 +606,8 @@ impl SceneData for GameData {
                 .into(),
         ];
 
-        track_shader.set_param("lCol", laser_colors[0]);
-        track_shader.set_param("rCol", laser_colors[1]);
+        track_shader.set_shader_param("lCol", laser_colors[0]);
+        track_shader.set_shader_param("rCol", laser_colors[1]);
 
         track_shader.use_texture(
             "main_tex",
@@ -967,26 +967,26 @@ impl Game {
         .into_iter()
         .chain(self.laser_shaders.iter_mut().flatten())
         .for_each(|shader| {
-            shader.set_param("trackPos", 0.0);
-            shader.set_param("trackScale", 1.0);
-            shader.set_param("hiddenCutoff", 0.0);
-            shader.set_param("hiddenFadeWindow", 100.0);
-            shader.set_param("suddenCutoff", 10.0);
-            shader.set_param("suddenFadeWindow", 1000.0);
-            shader.set_param("hitState", 1);
-            shader.set_param("objectGlow", 0.6);
+            shader.set_shader_param("trackPos", 0.0);
+            shader.set_shader_param("trackScale", 1.0);
+            shader.set_shader_param("hiddenCutoff", 0.0);
+            shader.set_shader_param("hiddenFadeWindow", 100.0);
+            shader.set_shader_param("suddenCutoff", 10.0);
+            shader.set_shader_param("suddenFadeWindow", 1000.0);
+            shader.set_shader_param("hitState", 1);
+            shader.set_shader_param("objectGlow", 0.6);
         });
 
         self.laser_shaders.iter_mut().flatten().for_each(|laser| {
-            laser.set_param("objectGlow", 0.6);
-            laser.set_param("hitState", 1);
+            laser.set_shader_param("objectGlow", 0.6);
+            laser.set_shader_param("hitState", 1);
         });
         self.laser_shaders[0]
             .iter_mut()
-            .for_each(|ll| ll.set_param("color", self.laser_colors[0]));
+            .for_each(|ll| ll.set_shader_param("color", self.laser_colors[0]));
         self.laser_shaders[1]
             .iter_mut()
-            .for_each(|rl| rl.set_param("color", self.laser_colors[1]));
+            .for_each(|rl| rl.set_shader_param("color", self.laser_colors[1]));
 
         self.update_vg_layers();
     }
@@ -1140,7 +1140,7 @@ impl Game {
         };
 
         let mut rp = td.default_render_pass(Some("Gameplay UI"), encoder, surface);
-        log_result!(src.draw(&mut rp));
+        log_result!(src.draw_pass(&mut rp));
     }
 
     fn on_hit(&mut self, hit_rating: HitRating) {
@@ -1598,7 +1598,10 @@ impl Game {
                             .as_secs_f64()
                             * 1000.0,
                     );
-                let contains_cursor = true; //TODO: (start.min(end)..=start.max(end)).contains(&self.laser_cursors[lane]);
+                let contain_start = start.min(end) - LASER_THRESHOLD;
+                let contain_end = start.max(end) + LASER_THRESHOLD;
+                let contains_cursor =
+                    (contain_start..=contain_end).contains(&self.laser_cursors[lane]);
                 if tick.y < slam_miss_tick {
                     self.laser_assist_ticks[lane] = 0;
                     HitRating::Miss { tick, delta, time }
@@ -2218,7 +2221,7 @@ impl Scene for Game {
         let object_glow = ((time_ms as f32 % 100.0) / 50.0 - 1.0).abs() * 0.5 + 0.5;
         let hit_state = (time_ms / 50.0).rem_euclid(2.0) as i32 + 2;
         for (side, [_, shader]) in self.laser_shaders.iter_mut().enumerate() {
-            shader.set_param(
+            shader.set_shader_param(
                 "hitState",
                 if self.laser_active[side] {
                     hit_state
@@ -2227,7 +2230,7 @@ impl Scene for Game {
                 },
             );
 
-            shader.set_param(
+            shader.set_shader_param(
                 "objectGlow",
                 if self.laser_active[side] {
                     object_glow

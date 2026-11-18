@@ -86,7 +86,7 @@ impl UserData for GameBackgroundLua {
             let bg = &mut lua
                 .app_data_mut::<ShadedMesh>()
                 .expect("Background or Foreground mesh data not set");
-            bg.set_param(name.as_str(), value);
+            bg.set_shader_param(name.as_str(), value);
             Ok(())
         });
 
@@ -94,7 +94,7 @@ impl UserData for GameBackgroundLua {
             let bg = &mut lua
                 .app_data_mut::<ShadedMesh>()
                 .expect("Background or Foreground mesh data not set");
-            bg.set_param(name.as_str(), value);
+            bg.set_shader_param(name.as_str(), value);
             Ok(())
         });
 
@@ -165,14 +165,14 @@ impl UserData for GameBackgroundLua {
                 .app_data_mut::<ShadedMesh>()
                 .expect("Background mesh not set");
 
-            bg.set_param(
+            bg.set_shader_param(
                 "screenCenter",
                 glam::IVec2::new(data.screen_center.0 as i32, data.screen_center.1 as i32),
             );
 
-            bg.set_param("timing", Vec3::from(data.timing));
-            bg.set_param("clearTransition", data.clear_transition);
-            bg.set_param("tilt", vec2(data.roll.0, data.roll.1)); //(camera roll, background spin)
+            bg.set_shader_param("timing", Vec3::from(data.timing));
+            bg.set_shader_param("clearTransition", data.clear_transition);
+            bg.set_shader_param("tilt", vec2(data.roll.0, data.roll.1)); //(camera roll, background spin)
 
             // The render pass is set up by `GameBackground::render`, along with the framebuffer texture
             let Some(mut rp) = lua.render_pass() else {

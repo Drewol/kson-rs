@@ -11,8 +11,8 @@ use bytemuck::{bytes_of, Pod, Zeroable};
 use di::RefMut;
 use futures::executor::block_on;
 use itertools::Itertools;
-use log::{debug, info};
-use mlua::{self, ExternalResult, FromLua, Lua, UserData, UserDataFields, UserDataMethods};
+use log::debug;
+use mlua::{self, FromLua, Lua};
 use puffin::{profile_function, profile_scope};
 
 use glam::{vec2, vec3, vec4, IVec2, IVec3, IVec4, Mat4, Vec2, Vec3, Vec4};
@@ -423,7 +423,7 @@ impl ShadedMesh {
             return Err(anyhow!("{err}"));
         }
 
-        res.set_param("color", vec4(1.0, 1.0, 1.0, 1.0));
+        res.set_shader_param("color", vec4(1.0, 1.0, 1.0, 1.0));
 
         Ok(res)
     }
@@ -569,7 +569,7 @@ impl ShadedMesh {
         }
     }
 
-    pub fn set_param(&mut self, key: &str, param: impl Into<ShaderParam>) {
+    pub fn set_shader_param(&mut self, key: &str, param: impl Into<ShaderParam>) {
         if self.requires_uniform(key) {
             self.params.insert(key.into(), param.into());
         }
@@ -825,7 +825,7 @@ impl ShadedMesh {
             .clone()
     }
 
-    pub fn draw(&self, render_pass: &mut wgpu::RenderPass) -> anyhow::Result<()> {
+    pub fn draw_pass(&self, render_pass: &mut wgpu::RenderPass) -> anyhow::Result<()> {
         profile_function!(&self.name);
         if self.vertecies_pos.is_empty() || self.indecies.is_empty() {
             return Ok(()); // Nothing to draw
@@ -852,7 +852,7 @@ impl ShadedMesh {
         render_pass: &mut wgpu::RenderPass,
     ) -> anyhow::Result<()> {
         self.use_uniform("viewport", &[viewport.width, viewport.height]);
-        self.draw(render_pass)
+        self.draw_pass(render_pass)
     }
 
     pub fn draw_camera(
@@ -862,7 +862,7 @@ impl ShadedMesh {
     ) -> anyhow::Result<()> {
         profile_function!(&self.name);
         self.set_camera_uniforms(camera);
-        self.draw(render_pass)
+        self.draw_pass(render_pass)
     }
 
     #[inline]
@@ -873,7 +873,7 @@ impl ShadedMesh {
         self.use_uniform("world", &self.transform.to_cols_array());
     }
 
-    pub fn set_data(&mut self, pos: Vec<Vec3>, uv: Vec<Vec2>, colors: Option<Vec<Vec4>>) {
+    pub fn set_data_unindexed(&mut self, pos: Vec<Vec3>, uv: Vec<Vec2>, colors: Option<Vec<Vec4>>) {
         self.set_data_indexed(pos, uv, vec![], colors);
     }
 
@@ -888,7 +888,7 @@ impl ShadedMesh {
                 mesh.colors.clone(),
             );
         } else {
-            self.set_data(mesh.positions.clone(), uvs, mesh.colors.clone());
+            self.set_data_unindexed(mesh.positions.clone(), uvs, mesh.colors.clone());
         }
     }
 
@@ -948,7 +948,7 @@ impl ShadedMesh {
             .to_cols_array(),
         );
 
-        self.draw(render_pass)
+        self.draw_pass(render_pass)
     }
 }
 
@@ -1011,164 +1011,136 @@ fn create_orthographic(
     )
 }
 
-//TODO: Move methods to struct impl for reuse in other parts of the program
-impl UserData for ShadedMesh {
-    fn add_methods<T: UserDataMethods<Self>>(methods: &mut T) {
-        methods.add_method_mut("Draw", |lua, this, _: ()| {
-            let frame = lua
-                .app_data_ref::<RefMut<game_data::GameData>>()
-                .ok_or(mlua::Error::external("App data not set"))?
-                .read()
-                .expect("Lock error")
-                .resolution;
-            let vgfx = lua
-                .app_data_ref::<RefMut<Vgfx>>()
-                .ok_or(mlua::Error::external("VGFX App data not set"))?
-                .clone();
+#[mlua_bridge::mlua_bridge(rename_funcs = "PascalCase", no_auto_fields)]
+impl ShadedMesh {
+    const PRIM_TRILIST: u8 = 0;
+    const PRIM_TRISTRIP: u8 = 1;
+    const PRIM_TRIFAN: u8 = 2;
+    const PRIM_LINELIST: u8 = 3;
+    const PRIM_LINESTRIP: u8 = 4;
+    const PRIM_POINTLIST: u8 = 5;
 
-            if let Some(mut rp) = lua.render_pass() {
-                this.draw_lua_skin(frame, &vgfx, &mut rp).into_lua_err()
-            } else {
-                let mut encoder = lua.wgpu_encoder(Some("Lua ShadedMesh"));
-                let ctx = lua.render_context();
-                let surface = lua.wgpu_surface();
-                this.set_tex_from_framebuffer(&mut encoder, &surface.texture)
-                    .into_lua_err()?;
-                let mut rp = ctx.default_render_pass(None, &mut encoder, surface.as_ref());
+    const BLEND_NORM: u8 = 0;
+    const BLEND_ADD: u8 = 1;
+    const BLEND_MULT: u8 = 2;
 
-                this.draw_lua_skin(frame, &vgfx, &mut rp).into_lua_err()?;
-                drop(rp);
-                vgfx.extend_commands(Some(encoder.finish()));
-                Ok(())
-            }
-        });
-        methods.add_method_mut("AddTexture", |_lua, this, params: (String, String)| {
-            this.use_texture(params.0, params.1, (false, false), true)
-                .map(|_| ())
-                .map_err(mlua::Error::external)
-        });
-        methods.add_method_mut("AddSkinTexture", |_lua, this, params: (String, String)| {
-            let mut path = GameConfig::get().game_folder.clone();
-            let skin = &GameConfig::get().skin;
-            path.push("skins");
-            path.push(skin);
-            path.push("textures");
-            path.push(params.1);
+    fn draw(
+        &mut self,
+        lua: &Lua,
+        game_data: &RefMut<game_data::GameData>,
+        vgfx: &RefMut<Vgfx>,
+    ) -> anyhow::Result<()> {
+        let frame = game_data.read().expect("Lock error").resolution;
 
-            this.use_texture(params.0, path, (false, false), true)
-                .map(|_| ())
-                .map_err(mlua::Error::external)
-        });
-        methods.add_method_mut(
-            "AddSharedTexture",
-            |_lua, this, params: (String, String)| {
-                this.use_texture(params.0, params.1, (false, false), true)
-                    .map(|_| ())
-                    .map_err(mlua::Error::external)
-            },
-        );
+        if let Some(mut rp) = lua.render_pass() {
+            self.draw_lua_skin(frame, vgfx, &mut rp)
+        } else {
+            let mut encoder = lua.wgpu_encoder(Some("Lua ShadedMesh"));
+            let ctx = lua.render_context();
+            let surface = lua.wgpu_surface();
+            self.set_tex_from_framebuffer(&mut encoder, &surface.texture)?;
+            let mut rp = ctx.default_render_pass(None, &mut encoder, surface.as_ref());
 
-        methods.add_method_mut("SetParam", |_, this, params: (String, f32)| {
-            this.set_param(params.0.as_str(), params.1);
+            self.draw_lua_skin(frame, vgfx, &mut rp)?;
+            drop(rp);
+            vgfx.extend_commands(Some(encoder.finish()));
             Ok(())
-        });
-        methods.add_method_mut("SetParamVec2", |_, this, params: (String, f32, f32)| {
-            this.set_param(params.0.as_str(), vec2(params.1, params.2));
-            Ok(())
-        });
-        methods.add_method_mut(
-            "SetParamVec3",
-            |_, this, params: (String, f32, f32, f32)| {
-                this.set_param(params.0.as_str(), vec3(params.1, params.2, params.3));
-                Ok(())
-            },
-        );
-        methods.add_method_mut(
-            "SetParamVec4",
-            |_, this, params: (String, f32, f32, f32, f32)| {
-                this.set_param(
-                    params.0.as_str(),
-                    vec4(params.1, params.2, params.3, params.4),
-                );
-                Ok(())
-            },
-        );
-
-        methods.add_method_mut("SetData", |_lua, this, verts: Vec<LuaVert2>| {
-            this.vertex_count = verts.len();
-            let (pos, uv): (Vec<_>, Vec<_>) = verts
-                .iter()
-                .map(|vert| (vec3(vert.0 .0, vert.0 .1, 0.0), vec2(vert.1 .0, vert.1 .1)))
-                .unzip();
-
-            this.vertecies_pos = pos;
-            this.vertecies_uv = uv;
-            this.vertecies_color = None;
-
-            this.update_indecies().map_err(mlua::Error::external)
-        });
-        methods.add_method_mut("SetBlendMode", |_, this, params: u8| {
-            match params {
-                0 => this.state = wgpu::BlendState::ALPHA_BLENDING,
-                1 => this.state = blend_add(),
-                2 => {
-                    this.state = wgpu::BlendState {
-                        color: wgpu::BlendComponent {
-                            src_factor: wgpu::BlendFactor::Dst,
-                            dst_factor: wgpu::BlendFactor::Zero,
-                            operation: wgpu::BlendOperation::Add,
-                        },
-                        alpha: wgpu::BlendComponent::OVER,
-                    }
-                }
-                _ => {
-                    return Err(mlua::Error::RuntimeError(format!(
-                        "{params} is not a valid blend mode."
-                    )))
-                }
-            }
-
-            Ok(())
-        });
-        methods.add_method_mut("SetOpaque", |_, this, params: bool| {
-            if params {
-                this.state = wgpu::BlendState::REPLACE;
-            } else {
-                this.state = wgpu::BlendState::ALPHA_BLENDING;
-            }
-            Ok(())
-        });
-        methods.add_method_mut("SetPrimitiveType", |_, this, params: u8| {
-            match params {
-                0 => this.draw_mode = DrawingMode::Triangles,
-                1 => this.draw_mode = DrawingMode::Strip,
-                2 => this.draw_mode = DrawingMode::Fan,
-                _ => {
-                    return Err(mlua::Error::RuntimeError(format!(
-                        "{params} is not a valid drawing mode."
-                    )))
-                }
-            }
-
-            this.update_indecies().map_err(mlua::Error::external)
-        });
+        }
     }
 
-    fn add_fields<F: UserDataFields<Self>>(fields: &mut F) {
-        fields.add_field_function_get("PRIM_TRILIST", |_, _| Ok(0));
-        fields.add_field_function_get("PRIM_TRISTRIP", |_, _| Ok(1));
-        fields.add_field_function_get("PRIM_TRIFAN", |_, _| Ok(2));
-
-        fields.add_field_function_get::<_, u8>("PRIM_LINELIST", |_, _| lua_todo());
-        fields.add_field_function_get::<_, u8>("PRIM_LINESTRIP", |_, _| lua_todo());
-        fields.add_field_function_get::<_, u8>("PRIM_POINTLIST", |_, _| lua_todo());
-
-        fields.add_field_function_get("BLEND_NORM", |_, _| Ok(0));
-        fields.add_field_function_get("BLEND_ADD", |_, _| Ok(1));
-        fields.add_field_function_get("BLEND_MULT", |_, _| Ok(2));
+    fn add_texture(&mut self, name: String, path: String) -> anyhow::Result<()> {
+        self.use_texture(name, path, (false, false), true)
+            .map(|_| ())
     }
-}
 
-fn lua_todo<T>() -> Result<T, mlua::Error> {
-    Err(mlua::Error::RuntimeError("Not implemented".into()))
+    fn add_skin_texture(&mut self, name: String, path: String) -> anyhow::Result<()> {
+        let config = GameConfig::get();
+        let mut full_path = config.game_folder.clone();
+        full_path.push("skins");
+        full_path.push(&config.skin);
+        full_path.push("textures");
+        full_path.push(path);
+
+        self.use_texture(name, full_path, (false, false), true)
+            .map(|_| ())
+    }
+
+    fn add_shared_texture(&mut self, name: String, path: String) -> anyhow::Result<()> {
+        self.use_texture(name, path, (false, false), true)
+            .map(|_| ())
+    }
+
+    fn set_param(&mut self, name: String, v: f32) {
+        self.set_shader_param(&name, v);
+    }
+
+    fn set_param_vec2(&mut self, name: String, x: f32, y: f32) {
+        self.set_shader_param(&name, vec2(x, y));
+    }
+
+    fn set_param_vec3(&mut self, name: String, x: f32, y: f32, z: f32) {
+        self.set_shader_param(&name, vec3(x, y, z));
+    }
+
+    fn set_param_vec4(&mut self, name: String, x: f32, y: f32, z: f32, w: f32) {
+        self.set_shader_param(&name, vec4(x, y, z, w));
+    }
+
+    fn set_data(&mut self, verts: Vec<LuaVert2>) -> anyhow::Result<()> {
+        self.vertex_count = verts.len();
+        let (pos, uv): (Vec<_>, Vec<_>) = verts
+            .iter()
+            .map(|vert| (vec3(vert.0 .0, vert.0 .1, 0.0), vec2(vert.1 .0, vert.1 .1)))
+            .unzip();
+
+        self.vertecies_pos = pos;
+        self.vertecies_uv = uv;
+        self.vertecies_color = None;
+
+        self.update_indecies()
+    }
+
+    fn set_blend_mode(&mut self, mode: u8) -> mlua::Result<()> {
+        self.state = match mode {
+            0 => wgpu::BlendState::ALPHA_BLENDING,
+            1 => blend_add(),
+            2 => wgpu::BlendState {
+                color: wgpu::BlendComponent {
+                    src_factor: wgpu::BlendFactor::Dst,
+                    dst_factor: wgpu::BlendFactor::Zero,
+                    operation: wgpu::BlendOperation::Add,
+                },
+                alpha: wgpu::BlendComponent::OVER,
+            },
+            _ => {
+                return Err(mlua::Error::RuntimeError(format!(
+                    "{mode} is not a valid blend mode."
+                )))
+            }
+        };
+
+        Ok(())
+    }
+
+    fn set_opaque(&mut self, opaque: bool) {
+        self.state = if opaque {
+            wgpu::BlendState::REPLACE
+        } else {
+            wgpu::BlendState::ALPHA_BLENDING
+        };
+    }
+
+    fn set_primitive_type(&mut self, mode: u8) -> anyhow::Result<()> {
+        self.draw_mode = match mode {
+            0 => DrawingMode::Triangles,
+            1 => DrawingMode::Strip,
+            2 => DrawingMode::Fan,
+            Self::PRIM_LINELIST | Self::PRIM_LINESTRIP | Self::PRIM_POINTLIST => {
+                return Err(anyhow!("Primitive type {mode} is not implemented."))
+            }
+            _ => return Err(anyhow!("{mode} is not a valid drawing mode.")),
+        };
+
+        self.update_indecies()
+    }
 }

@@ -966,21 +966,19 @@ fn export_luals_defs() -> Result<(), anyhow::Error> {
     std::fs::create_dir_all(&path)?;
     path.push("gfx.lua");
     let mut f = std::fs::File::create(&path)?;
-    writeln!(f, "---@meta")?;
-    // TODO:
-    // luals_gen_tealr::Generator::write_type::<crate::Vgfx>("gfx", f)?;
+    write!(f, "{}", vg_ui::VgfxLua::LUALS_DEFINITION)?;
+    writeln!(f, "---@type VgfxLua")?;
+    writeln!(f, "gfx = {{}}")?;
 
     path.set_file_name("game.lua");
     let mut f = std::fs::File::create(&path)?;
-    writeln!(f, "---@meta")?;
-    // TODO:
-    // luals_gen_tealr::Generator::write_type::<crate::game_data::GameData>("game", f)?;
+    write!(f, "{}", game_data::GameDataLua::LUALS_DEFINITION)?;
+    writeln!(f, "---@type GameDataLua")?;
+    writeln!(f, "game = {{}}")?;
 
     path.set_file_name("shadedmesh.lua");
     let mut f = std::fs::File::create(&path)?;
-    writeln!(f, "---@meta")?;
-    // TODO:
-    // luals_gen_tealr::Generator::write_type::<crate::shaded_mesh::ShadedMesh>("ShadedMesh", f)?;
+    write!(f, "{}", shaded_mesh::ShadedMesh::LUALS_DEFINITION)?;
 
     path.set_file_name("result.lua");
     let mut f = std::fs::File::create(&path)?;

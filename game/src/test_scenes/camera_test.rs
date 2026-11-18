@@ -70,7 +70,7 @@ impl CameraTest {
             ShadedMesh::new(&context, "track", &shader_folder).expect("Failed to load shader:");
         track_shader.set_data_mesh(&extend_mesh(track_mesh, crit_mesh));
 
-        track_shader.set_param(
+        track_shader.set_shader_param(
             "lCol",
             Vec4::from(
                 palette::named::BLUE
@@ -79,7 +79,7 @@ impl CameraTest {
                     .into_components(),
             ),
         );
-        track_shader.set_param(
+        track_shader.set_shader_param(
             "rCol",
             Vec4::from(
                 palette::named::RED

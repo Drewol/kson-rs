@@ -126,7 +126,7 @@ impl GameDataLua {
         game_data: &RefMut<GameData>,
         mixer: &RuscMixer,
         name: String,
-        do_loop: bool,
+        do_loop: Option<bool>,
     ) -> mlua::Result<()> {
         let mut gd_lock = game_data.write().expect("Lock error");
         let game_data = gd_lock.deref_mut();
@@ -145,7 +145,7 @@ impl GameDataLua {
         }
 
         let to_play = sample.clone();
-        if do_loop {
+        if do_loop.unwrap_or_default() {
             mixer.add(to_play.repeat_infinite().stoppable().periodic_access(
                 Duration::from_millis(10),
                 move |x| {
