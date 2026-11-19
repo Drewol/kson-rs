@@ -11,7 +11,7 @@ use crate::{
     scene::{Scene, SceneData},
     shaded_mesh::ShadedMesh,
     songselect::Song,
-    util::{self, beat_pulser::BeatPulser},
+    util::{self, beat_pulser::BeatPulser, Warn},
     vg_ui::{Vgfx, VgfxSyncExt},
     ControlMessage, RuscMixer, Viewport,
 };
@@ -96,6 +96,7 @@ pub struct Game {
     combo_state: ComboState,
     lua: Rc<Lua>,
     intro_done: bool,
+    outro_done: Option<bool>,
     song: Arc<Song>,
     diff_idx: usize,
     control_tx: Option<Sender<ControlMessage>>,
@@ -864,6 +865,7 @@ impl Game {
             song,
             diff_idx,
             intro_done: false,
+            outro_done: None,
             lua: LuaProvider::new_lua(),
             duration_ticks: last_tick,
             chart,
@@ -1423,10 +1425,18 @@ impl Game {
             *time = self.current_time();
         }
 
-        if self.tick_queue.is_empty() && !self.results_requested {
-            self.transition_to_results();
-            self.results_requested = true;
+        if self.tick_queue.is_empty() && self.outro_done.is_none() {
+            self.outro_done = Some(false);
         }
+
+        if self.outro_done.is_some_and(|x| x) {
+            self.transition_to_results();
+        }
+
+        if self.outro_done.is_some() {
+            return; // Stop processing ticks after outro starts
+        }
+
         let missed_chip_tick = self.chart.ms_to_tick(
             self.with_offset(time.saturating_sub(self.hit_window.good).as_secs_f64() * 1000.0),
         );
@@ -1659,11 +1669,16 @@ impl Game {
     }
 
     fn fail_song(&mut self) {
-        //TODO: Enter fail transition state
-        self.transition_to_results();
+        self.outro_done.get_or_insert(false);
     }
 
     fn transition_to_results(&mut self) {
+        if self.results_requested {
+            return;
+        }
+
+        self.results_requested = true;
+
         if let AutoPlay::None = self.autoplay {
             let Some(tx) = self.control_tx.as_ref() else {
                 warn!("control_tx not set");
@@ -1784,7 +1799,7 @@ impl Game {
         let mut hit_rating = HitRating::None;
         match button {
             crate::button_codes::UscButton::BT(_) | crate::button_codes::UscButton::FX(_)
-                if !self.auto_buttons() =>
+                if !self.auto_buttons() && self.outro_done.is_none() =>
             {
                 if let Some((index, score_tick)) = hittable_ticks.find_position(|x| {
                     if let ScoreTick::Chip { lane, .. } | ScoreTick::Hold { lane, .. } = x.tick {
@@ -1829,7 +1844,13 @@ impl Game {
                     }
                 }
             }
-            crate::button_codes::UscButton::Back => self.closed = true,
+            crate::button_codes::UscButton::Back => {
+                if let Some(outro_done) = self.outro_done.as_mut() {
+                    *outro_done = true;
+                } else {
+                    self.closed = true;
+                }
+            }
             _ => {}
         }
         hit_rating
@@ -2283,6 +2304,21 @@ impl Scene for Game {
             }
             ui_commands.append(&mut self.flush_canvas(1, td_context));
             self.reset_canvas(&surface);
+
+            if let Some(outro_done) = self.outro_done.as_mut() {
+                *outro_done = if let Ok(func) = self.lua.globals().get::<Function>("render_outro") {
+                    let clear = calculate_clear_mark(
+                        HitSummary::from(self.hit_ratings.as_slice()),
+                        false,
+                        &self.gauge.active,
+                    );
+                    func.call((dt / 1000.0, clear as u8))
+                        .warn("Error in render_outro")
+                        .unwrap_or(true)
+                } else {
+                    true
+                }
+            }
         }
 
         // Meshes drawn by the ui scripts
@@ -2388,6 +2424,10 @@ impl Scene for Game {
     }
 
     fn on_event(&mut self, event: &winit::event::Event<crate::button_codes::UscInputEvent>) {
+        if self.outro_done.is_some() {
+            return;
+        }
+
         if let winit::event::Event::UserEvent(UscInputEvent::Laser(ls, timestamp)) = event {
             //TODO: Slam detection, or always handle slam ticks in ticking function?
 
